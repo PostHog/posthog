@@ -119,7 +119,7 @@ class ErrorTrackingIssueContext:
         return None
 
     @staticmethod
-    def _frame_is_extension(frame: dict[str, Any]) -> bool:
+    def _frame_is_extension(frame: Any) -> bool:
         if not isinstance(frame, dict):
             return False
         for key in ("source", "abs_path", "filename"):
