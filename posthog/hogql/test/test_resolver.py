@@ -480,6 +480,20 @@ class TestResolver(BaseTest):
         select = cast(ast.SelectQuery, resolve_types(select, self.context, dialect="hogql"))
         assert isinstance(select.select[0].type, ast.UnresolvedFieldType)
 
+    def test_unresolved_field_type_dotted_chain(self):
+        # Regression: dotted references to undefined aliases (e.g. `s.foo`) used to bubble a
+        # QueryError out of UnresolvedFieldType.get_child instead of accumulating a recoverable error.
+        query = "SELECT s.foo"
+        # ClickHouse still raises a fatal QueryError
+        with self.assertRaises(QueryError):
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+        # HogQL accumulates a recoverable error and keeps the placeholder type
+        context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
+        select = self._select(query)
+        select = cast(ast.SelectQuery, resolve_types(select, context, dialect="hogql"))
+        assert isinstance(select.select[0].type, ast.UnresolvedFieldType)
+        assert any("Unable to resolve field: s" in error.message for error in context.errors)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):
         expr = self._select("select distinct_id, person.id from person_distinct_ids")
