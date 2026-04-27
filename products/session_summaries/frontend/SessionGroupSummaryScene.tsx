@@ -1,5 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
+
+const SessionGroupSummaryDetailsModal = lazy(() =>
+    import('./SessionGroupSummaryDetailsModal').then((m) => ({ default: m.SessionGroupSummaryDetailsModal }))
+)
 
 import { IconCheck, IconSearch, IconShare, IconSort } from '@posthog/icons'
 import {
@@ -25,7 +29,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SessionGroupSummaryDetailsMetadata } from './SessionGroupSummaryDetailsMetadata'
-import { SessionGroupSummaryDetailsModal } from './SessionGroupSummaryDetailsModal'
 import { SessionGroupSummarySceneLogicProps, sessionGroupSummarySceneLogic } from './sessionGroupSummarySceneLogic'
 import {
     EnrichedSessionGroupSummaryPattern,
@@ -516,11 +519,15 @@ export function SessionGroupSummary(): JSX.Element {
                 </div>
             </div>
 
-            <SessionGroupSummaryDetailsModal
-                isOpen={selectedEvent !== null}
-                onClose={handleCloseModal}
-                event={selectedEvent}
-            />
+            {selectedEvent !== null && (
+                <Suspense fallback={null}>
+                    <SessionGroupSummaryDetailsModal
+                        isOpen={selectedEvent !== null}
+                        onClose={handleCloseModal}
+                        event={selectedEvent}
+                    />
+                </Suspense>
+            )}
         </SceneContent>
     )
 }
