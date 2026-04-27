@@ -11,8 +11,21 @@ export interface AppConstants {
     POSTHOG_NEW_SOURCE_URL: string
 }
 
+const FALLBACK_CONSTANTS: AppConstants = {
+    POSTHOG_US_BASE_URL: 'https://us.posthog.com',
+    POSTHOG_EU_BASE_URL: 'https://eu.posthog.com',
+    POSTHOG_DASHBOARD_URL: 'https://app.posthog.com',
+    POSTHOG_NEW_SOURCE_URL: 'https://app.posthog.com/data-warehouse/new-source?kind=Stripe',
+}
+
+// `stripe apps upload` server-canonicalises the manifest by adding a
+// `declarations` block alongside the existing top-level `constants`. With a
+// `declarations` block present the SDK reads `declarations.constants` and
+// finds nothing, so `environment.constants` is undefined at runtime. Fall
+// back to the hardcoded values when that happens. Reproduced on CLI 1.40.0
+// and 1.40.8. See https://github.com/PostHog/posthog/pull/56404.
 export function getConstants(environment: ExtensionContextValue['environment']): AppConstants {
-    return environment.constants as unknown as AppConstants
+    return (environment?.constants as unknown as AppConstants | undefined) ?? FALLBACK_CONSTANTS
 }
 
 export { BrandIcon }
