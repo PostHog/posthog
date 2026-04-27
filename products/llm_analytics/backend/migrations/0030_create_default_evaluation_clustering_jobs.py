@@ -41,12 +41,6 @@ def create_default_evaluation_jobs(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    # Each batch commits independently — matches the conventional pattern for
-    # batched RunPython data migrations in safe-django-migrations.md. Practical
-    # effect is nil at current scale, but defensive if the eligible team set
-    # ever grows.
-    atomic = False
-
     dependencies = [
         ("llm_analytics", "0029_add_azure_openai_provider"),
     ]
