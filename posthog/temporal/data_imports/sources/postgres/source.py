@@ -69,7 +69,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="postgresql://user:password@localhost:5432/database",
-                        secret=False,
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="host",
