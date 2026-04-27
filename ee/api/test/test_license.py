@@ -20,6 +20,11 @@ from ee.models.license import License
 
 
 class TestLicenseAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+
     @pytest.mark.skip_on_multitenancy
     def test_can_list_and_retrieve_licenses(self):
         response = self.client.get("/api/license")
@@ -187,6 +192,9 @@ class TestLicenseAPI(APILicensedTest):
     @pytest.mark.skip_on_multitenancy
     @patch("ee.api.license.requests.post")
     def test_non_staff_user_cannot_delete_license(self, patch_post):
+        self.user.is_staff = False
+        self.user.save()
+
         Team.objects.create(organization=self.organization)
         Team.objects.create(organization=self.organization, is_demo=True)
         other_org = Organization.objects.create()
@@ -200,9 +208,9 @@ class TestLicenseAPI(APILicensedTest):
         mock.json.return_value = {"ok": True}
         patch_post.return_value = mock
 
-        self.assertFalse(self.user.is_staff)
         response = self.client.delete(f"/api/license/{license_pk}/")
 
+        self.assertFalse(self.user.is_staff)
         patch_post.assert_not_called()
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue(License.objects.filter(pk=license_pk).exists())

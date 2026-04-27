@@ -1,5 +1,4 @@
 from django.db.models import QuerySet
-from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
 import requests
@@ -70,12 +69,12 @@ class LicenseViewSet(
 
         return super().get_queryset()
 
-    def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:
-        license = get_object_or_404(License, pk=pk)
+    def destroy(self, request: request.Request, *args, **kwargs) -> Response:
+        license = self.get_object()
         validation = requests.post("https://license.posthog.com/licenses/deactivate", data={"key": license.key})
         validation.raise_for_status()
 
-        has_another_valid_license = License.objects.filter(valid_until__gte=now()).exclude(pk=pk).exists()
+        has_another_valid_license = License.objects.filter(valid_until__gte=now()).exclude(pk=license.pk).exists()
         if not has_another_valid_license:
             teams = Team.objects.exclude(is_demo=True).order_by("pk")[1:]
             for team in teams:
