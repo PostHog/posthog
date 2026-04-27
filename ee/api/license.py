@@ -5,12 +5,14 @@ from django.utils.timezone import now
 import requests
 import posthoganalytics
 from rest_framework import mixins, request, serializers, viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.permissions import IsStaffUser, TimeSensitiveActionPermission
 
 from ee.models.license import License, LicenseError
 
@@ -60,6 +62,7 @@ class LicenseViewSet(
 ):
     queryset = License.objects.all()
     serializer_class = LicenseSerializer
+    permission_classes = [IsAuthenticated, IsStaffUser, TimeSensitiveActionPermission]
 
     def get_queryset(self) -> QuerySet:
         if is_cloud():

@@ -186,6 +186,31 @@ class TestLicenseAPI(APILicensedTest):
 
     @pytest.mark.skip_on_multitenancy
     @patch("ee.api.license.requests.post")
+    def test_non_staff_user_cannot_delete_license(self, patch_post):
+        Team.objects.create(organization=self.organization)
+        Team.objects.create(organization=self.organization, is_demo=True)
+        other_org = Organization.objects.create()
+        Team.objects.create(organization=other_org)
+
+        teams_before = set(Team.objects.values_list("pk", flat=True))
+        orgs_before = set(Organization.objects.values_list("pk", flat=True))
+        license_pk = self.license.pk
+
+        mock = Mock()
+        mock.json.return_value = {"ok": True}
+        patch_post.return_value = mock
+
+        self.assertFalse(self.user.is_staff)
+        response = self.client.delete(f"/api/license/{license_pk}/")
+
+        patch_post.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(License.objects.filter(pk=license_pk).exists())
+        self.assertEqual(set(Team.objects.values_list("pk", flat=True)), teams_before)
+        self.assertEqual(set(Organization.objects.values_list("pk", flat=True)), orgs_before)
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("ee.api.license.requests.post")
     def test_can_cancel_license_with_another_valid_license(self, patch_post):
         # In this case we won't delete projects as there's another valid license
         License.objects.create(valid_until=now() + relativedelta(years=1), plan="enterprise")
