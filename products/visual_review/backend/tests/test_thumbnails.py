@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from products.visual_review.backend.diffing import THUMB_HEIGHT, THUMB_WIDTH, _generate_thumbnail
+from products.visual_review.backend.diff import THUMB_HEIGHT, THUMB_WIDTH, CompareResult
+from products.visual_review.backend.diffing import _store_thumbnail
 from products.visual_review.backend.facade.enums import RunType, SnapshotResult
 from products.visual_review.backend.models import Artifact, Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -63,18 +64,31 @@ def _make_run_with_snapshot(
     return run, snapshot
 
 
+def _make_compare_result(thumbnail: bytes = b"fake-webp") -> CompareResult:
+    return CompareResult(
+        diff_image=b"fake-diff",
+        diff_hash="diff_hash",
+        diff_percentage=5.0,
+        diff_pixel_count=100,
+        ssim_score=0.95,
+        width=800,
+        height=600,
+        thumbnail=thumbnail,
+        thumbnail_hash="thumb_hash_auto",
+    )
+
+
 @pytest.mark.django_db(databases=list(PRODUCT_DATABASES))
-class TestGenerateThumbnail:
+class TestStoreThumbnail:
     @patch("products.visual_review.backend.logic.write_artifact_bytes")
-    def test_generates_thumbnail_and_links_to_artifact(self, mock_write, team):
+    def test_stores_thumbnail_and_links_to_artifact(self, mock_write, team):
         repo = _make_repo(team)
         _run, snapshot = _make_run_with_snapshot(repo)
-        png_bytes = _make_png()
 
-        thumb_artifact = _make_artifact(repo, "thumb_hash_123")
+        thumb_artifact = _make_artifact(repo, "thumb_hash_auto")
         mock_write.return_value = thumb_artifact
 
-        _generate_thumbnail(snapshot, png_bytes)
+        _store_thumbnail(snapshot, _make_compare_result())
 
         mock_write.assert_called_once()
         call_kwargs = mock_write.call_args
@@ -82,19 +96,36 @@ class TestGenerateThumbnail:
         assert call_kwargs[1]["height"] == THUMB_HEIGHT
         assert call_kwargs[1]["repo_id"] == repo.id
 
-        snapshot.current_artifact.refresh_from_db()
-        assert snapshot.current_artifact.thumbnail == thumb_artifact
+        artifact = snapshot.current_artifact
+        assert artifact is not None
+        artifact.refresh_from_db()
+        assert artifact.thumbnail == thumb_artifact
 
     @patch("products.visual_review.backend.logic.write_artifact_bytes")
     def test_skips_when_thumbnail_already_exists(self, mock_write, team):
         repo = _make_repo(team)
         _run, snapshot = _make_run_with_snapshot(repo)
 
+        artifact = snapshot.current_artifact
+        assert artifact is not None
         existing_thumb = _make_artifact(repo, "existing_thumb")
-        snapshot.current_artifact.thumbnail = existing_thumb
-        snapshot.current_artifact.save(update_fields=["thumbnail"])
+        artifact.thumbnail = existing_thumb
+        artifact.save(update_fields=["thumbnail"])
 
-        _generate_thumbnail(snapshot, _make_png())
+        _store_thumbnail(snapshot, _make_compare_result())
+
+        mock_write.assert_not_called()
+
+    @patch("products.visual_review.backend.logic.write_artifact_bytes")
+    def test_skips_when_no_thumbnail_in_result(self, mock_write, team):
+        repo = _make_repo(team)
+        _run, snapshot = _make_run_with_snapshot(repo)
+
+        result = _make_compare_result()
+        result.thumbnail = None
+        result.thumbnail_hash = ""
+
+        _store_thumbnail(snapshot, result)
 
         mock_write.assert_not_called()
 
@@ -115,7 +146,7 @@ class TestGenerateThumbnail:
             result=SnapshotResult.REMOVED,
         )
 
-        _generate_thumbnail(snapshot, _make_png())
+        _store_thumbnail(snapshot, _make_compare_result())
         # Should not raise
 
 

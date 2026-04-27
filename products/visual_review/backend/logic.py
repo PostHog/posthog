@@ -1686,7 +1686,11 @@ def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | N
     if snapshot is None:
         return None
 
-    return snapshot.current_artifact.thumbnail.content_hash
+    artifact = snapshot.current_artifact
+    if artifact is None or artifact.thumbnail is None:
+        return None
+
+    return artifact.thumbnail.content_hash
 
 
 def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
