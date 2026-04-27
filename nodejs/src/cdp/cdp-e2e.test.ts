@@ -1,5 +1,7 @@
-import { MockKafkaProducerWrapper, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -34,10 +36,11 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         let cyclotronWorkerPostgres: CdpCyclotronWorker | undefined
 
         let hub: Hub
-        let kafkaProducer: KafkaProducerWrapper
+        let kafkaProducer: KafkaProducerWrapper = undefined as unknown as KafkaProducerWrapper
         let team: Team
         let fnFetchNoFilters: HogFunctionType
         let globals: HogFunctionInvocationGlobals
+        let mockProducerObserver: KafkaProducerObserver
 
         const insertHogFunction = async (hogFunction: Partial<HogFunctionType>): Promise<HogFunctionType> => {
             const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
@@ -45,15 +48,18 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
         }
 
         beforeEach(async () => {
-            // We still want to mock all created producers but we wan't to use the real implementation, not the mocked one
-            MockKafkaProducerWrapper.create = jest.fn((...args) => {
-                return ActualKafkaProducerWrapper.create(...args)
-            })
-
             await resetKafka()
 
             await resetTestDatabase()
             hub = await createHub()
+
+            // Build a single real producer that the registry, the cyclotron job queue,
+            // and any other `KafkaProducerWrapper.create()` caller all share — so the
+            // observer below sees every produce that happens during the test.
+            kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+            mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
+            MockKafkaProducerWrapper.create = jest.fn(() => Promise.resolve(kafkaProducer))
+
             team = await getFirstTeam(hub.postgres)
             mockProducerObserver.resetKafkaProducer()
 
@@ -111,7 +117,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     ...hub,
                     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: mode === 'hybrid' ? 'kafka' : mode,
                 },
-                createCdpConsumerDeps(hub)
+                createCdpConsumerDeps(hub, kafkaProducer)
             )
             await eventsConsumer.start()
 
@@ -120,7 +126,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     ...hub,
                     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
                 },
-                createCdpConsumerDeps(hub)
+                createCdpConsumerDeps(hub, kafkaProducer)
             )
             await cyclotronWorkerKafka.start()
 
@@ -129,7 +135,7 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                     ...hub,
                     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
                 },
-                createCdpConsumerDeps(hub)
+                createCdpConsumerDeps(hub, kafkaProducer)
             )
             await cyclotronWorkerPostgres.start()
 
