@@ -538,7 +538,9 @@ def configure_logger(
     else:
         try:
             log_producer = KafkaLogProducerFromQueueAsync(
-                queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer, loop=loop
+                queue=log_queue,
+                topic=KAFKA_LOG_ENTRIES,
+                producer=producer,
             )
         except Exception as e:
             # Skip putting logs in queue if we don't have a producer that can consume the queue.
@@ -652,17 +654,20 @@ class KafkaLogProducerFromQueueAsync:
         self,
         queue: asyncio.Queue[bytes],
         topic: str = KAFKA_LOG_ENTRIES,
-        key: str | None = None,
         producer: "_AsyncKafkaProducer | None" = None,
-        loop: None | asyncio.AbstractEventLoop = None,
+        key: str | None = None,
     ):
-        from posthog.kafka_client.routing import new_async_producer
-
         self.queue = queue
         self.topic = topic
         self.key = key
-        self.producer = producer if producer is not None else new_async_producer(topic=topic, loop=loop)
+        self._producer = producer
         self.logger = structlog.get_logger("posthog.temporal.common.logger.KafkaLogProducerFromQueueAsync")
+
+    @property
+    def producer(self) -> "_AsyncKafkaProducer":
+        if self._producer is None:
+            raise ValueError("Producer not initialized")
+        return self._producer
 
     async def listen(self):
         """Listen to messages in queue and produce them to Kafka as they come.
@@ -670,6 +675,11 @@ class KafkaLogProducerFromQueueAsync:
         This is designed to be ran as an asyncio.Task, as it will wait forever for the queue
         to have messages.
         """
+        from posthog.kafka_client.routing import new_async_producer
+
+        if self._producer is None:
+            self._producer = await new_async_producer(topic=self.topic)
+
         try:
             while True:
                 msg = await self.queue.get()
