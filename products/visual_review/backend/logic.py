@@ -1002,6 +1002,9 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
 
 def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
     """Rerun a specific GitHub Actions job by its numeric ID. Returns (success, error_message)."""
+    if not check_run_id.isdigit():
+        return False, "Invalid check run ID"
+
     repo = run.repo
     if not repo.repo_full_name:
         return False, "Repo has no GitHub full name configured"
@@ -1077,7 +1080,12 @@ def _github_api_request(
     the current full_name via /repositories/{id}. If it changed, updates
     the stored repo_full_name and retries once.
     """
+    from urllib.parse import quote
+
     import requests
+
+    # Prevent path traversal — each segment must be safe
+    safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
 
     github = get_github_integration_for_repo(repo)
     if github.access_token_expired():
@@ -1091,7 +1099,7 @@ def _github_api_request(
         **(kwargs.pop("headers", {})),
     }
 
-    url = f"https://api.github.com/repos/{repo.repo_full_name}/{path}"
+    url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
     response = requests.request(method, url, headers=headers, **kwargs)
 
     if response.status_code == 404 and repo.repo_external_id:
@@ -1106,7 +1114,7 @@ def _github_api_request(
             repo.repo_full_name = new_full_name
             repo.save(update_fields=["repo_full_name"])
 
-            url = f"https://api.github.com/repos/{new_full_name}/{path}"
+            url = f"https://api.github.com/repos/{new_full_name}/{safe_path}"
             response = requests.request(method, url, headers=headers, **kwargs)
 
     return response
@@ -1376,7 +1384,11 @@ def _find_existing_comment_id(repo: Repo, pr_number: int, exclude_run_id: UUID) 
         .first()
     )
     if previous_run:
-        return previous_run.metadata.get("github_comment_id")
+        value = previous_run.metadata.get("github_comment_id")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
     return None
 
 
