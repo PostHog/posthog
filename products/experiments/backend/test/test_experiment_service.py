@@ -3649,6 +3649,43 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
+    def test_sibling_team_can_use_legacy_primary_team_event(self):
+        # Regression: the legacy fallback in validate_metric_event_names uses
+        #     team_id = project_id  (NOT team_id = self.team.id)
+        # because legacy EventDefinitions (project_id IS NULL) belong to the
+        # *primary* team — and by convention, primary_team.id == project.id.
+        # The picker mirrors this exact predicate (posthog/api/event_definition.py),
+        # so a sibling-team user must be able to validate against legacy events
+        # tied to the primary team. Swapping `team_id = project_id` for
+        # `team_id = self.team.id` would silently exclude those rows for sibling
+        # teams, even though the picker shows them.
+        primary_team = self.team  # APIBaseTest sets primary_team.id == project.id
+        assert primary_team.id == primary_team.project_id, "test fixture invariant: self.team is primary"
+
+        sibling_team = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            name="Sibling team in same project",
+        )
+        # A legacy event tied to the primary team — no project_id set.
+        EventDefinition.objects.create(team=primary_team, project=None, name="legacy_event")
+
+        # Run validation as the SIBLING team (not the primary). Without the
+        # legacy fallback's team_id=project_id semantics, this would raise.
+        sibling_service = ExperimentService(team=sibling_team, user=self.user)
+        experiment = sibling_service.create_experiment(
+            name="Sibling Legacy Event",
+            feature_flag_key="sibling-legacy-event-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "legacy_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
     def test_action_nodes_not_checked_for_event_existence(self):
         action = Action.objects.create(team=self.team, name="valid action for event test")
         service = self._service()

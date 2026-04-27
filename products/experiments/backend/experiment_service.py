@@ -386,6 +386,11 @@ class ExperimentService:
         from products.event_definitions.backend.models.event_definition import EventDefinition
 
         project_id = self.team.project_id
+        # Uses `team_id = project_id` (not team_id = self.team.id)
+        # on purpose: legacy EventDefinitions (project_id IS NULL) belong to the
+        # *primary* team, and primary_team.id == project.id by convention. This
+        # mirrors the picker SQL in posthog/api/event_definition.py so sibling
+        # teams can validate against legacy primary-team events the picker shows.
         existing = set(
             EventDefinition.objects.filter(
                 Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id),
