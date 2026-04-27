@@ -65,6 +65,8 @@ interface OpenApiSchema {
     required?: string[]
     $ref?: string
     allOf?: Array<OpenApiSchema | { $ref: string }>
+    oneOf?: Array<OpenApiSchema | { $ref: string }>
+    anyOf?: Array<OpenApiSchema | { $ref: string }>
     enum?: string[]
     maxLength?: number
     default?: unknown
@@ -283,6 +285,7 @@ function composeToolSchema(
     const pathParamNames: string[] = []
     const queryParamNames: string[] = []
     const bodyFieldNames: string[] = []
+    let isUnionBodySchema = false
 
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
@@ -360,8 +363,18 @@ function composeToolSchema(
             const bodyOmitFields = new Set<string>()
             const bodySchema = resolveSchema(spec, bodySchemaRef)
 
-            if (bodySchema?.properties) {
-                for (const [name, prop] of Object.entries(bodySchema.properties)) {
+            // For oneOf/anyOf schemas (polymorphic request bodies), merge
+            // properties from all variants so the codegen can build body fields.
+            let bodyProperties: Record<string, OpenApiSchema> = bodySchema?.properties ?? {}
+            if (!bodySchema?.properties) {
+                for (const variant of bodySchema?.oneOf ?? bodySchema?.anyOf ?? []) {
+                    const resolved = resolveSchema(spec, variant)
+                    Object.assign(bodyProperties, resolved?.properties)
+                }
+            }
+
+            if (Object.keys(bodyProperties).length > 0) {
+                for (const [name, prop] of Object.entries(bodyProperties)) {
                     // Orval excludes readOnly fields from Body schemas — skip them
                     // so we don't try to .omit() keys that don't exist
                     if (prop.readOnly) {
@@ -394,7 +407,29 @@ function composeToolSchema(
                 }
             }
 
-            if (bodyOmitFields.size > 0) {
+            const isUnionBody = !!(bodySchema?.oneOf ?? bodySchema?.anyOf)
+
+            if (isUnionBody) {
+                // Zod unions don't support .omit()/.extend()/.shape — map
+                // .omit() over each variant to preserve the oneOf structure.
+                // Only omit keys that exist in each variant's shape to avoid
+                // Zod throwing on unrecognized keys.
+                if (bodyOmitFields.size > 0) {
+                    const omitFields = [...bodyOmitFields]
+                    schemaParts.push(
+                        `z.union(${importName}.options.map((s: any) => { ` +
+                            `const keys = new Set(Object.keys(s.shape)); ` +
+                            `const omit = Object.fromEntries([${omitFields.map((f) => `['${f}', true]`).join(', ')}].filter(([k]) => keys.has(k as string))); ` +
+                            `return (Object.keys(omit).length > 0 ? s.omit(omit) : s).passthrough(); ` +
+                            `}) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]])`
+                    )
+                } else {
+                    schemaParts.push(
+                        `z.union(${importName}.options.map((s: any) => s.passthrough()) as [z.ZodTypeAny, z.ZodTypeAny, ...z.ZodTypeAny[]])`
+                    )
+                }
+                isUnionBodySchema = true
+            } else if (bodyOmitFields.size > 0) {
                 const omitObj = [...bodyOmitFields].map((f) => `'${f}': true`).join(', ')
                 schemaParts.push(`${importName}.omit({ ${omitObj} })`)
             } else {
@@ -409,6 +444,11 @@ function composeToolSchema(
         schemaExpr = 'z.object({})'
     } else if (schemaParts.length === 1) {
         schemaExpr = schemaParts[0]!
+    } else if (isUnionBodySchema) {
+        // When the body is a oneOf/anyOf union, use z.intersection() with
+        // .passthrough() on the params to avoid additionalProperties:false
+        // making the allOf parts mutually exclusive in JSON Schema.
+        schemaExpr = `z.intersection(${schemaParts[0]}.passthrough(), ${schemaParts.slice(1).join(', ')})`
     } else {
         schemaExpr = schemaParts[0]!
         for (let i = 1; i < schemaParts.length; i++) {

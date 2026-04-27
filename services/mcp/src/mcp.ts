@@ -362,7 +362,7 @@ export class MCP extends McpAgent<Env> {
         await this.trackEvent(event, {}, { context: resolvedContext, ...(previousContext ? { previousContext } : {}) })
     }
 
-    registerTool<TSchema extends z.ZodObject>(
+    registerTool<TSchema extends z.ZodType>(
         tool: Tool<TSchema>,
         handler: (params: z.infer<TSchema>) => Promise<any>
     ): void {
@@ -442,11 +442,11 @@ export class MCP extends McpAgent<Env> {
             {
                 title: tool.title,
                 description: tool.description,
-                inputSchema: tool.schema.shape,
+                inputSchema: tool.schema,
                 annotations: tool.annotations,
                 ...(normalizedMeta ? { _meta: normalizedMeta } : {}),
             },
-            wrappedHandler as unknown as ToolCallback<TSchema['shape']>
+            wrappedHandler as unknown as ToolCallback<TSchema>
         )
     }
 
