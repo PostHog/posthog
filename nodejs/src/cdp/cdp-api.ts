@@ -87,6 +87,7 @@ export class CdpApi {
     private recipientTokensService: RecipientTokensService
     private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
+    private groupsManager: GroupsManagerService
 
     constructor(
         private config: PluginsServerConfig,
@@ -105,6 +106,8 @@ export class CdpApi {
         this.invocationResultsService = services.invocationResultsService
         this.outputs = services.outputs
 
+        this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
+
         // API-only services. The hog-transformer's monitoring service reuses the same
         // resolved outputs registry as the core CDP services — no separate construction.
         this.hogTransformer = createHogTransformerService(config, {
@@ -122,7 +125,7 @@ export class CdpApi {
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
             deps.teamManager,
-            new GroupsManagerService(deps.teamManager, deps.groupRepository),
+            this.groupsManager,
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
@@ -512,11 +515,19 @@ export class CdpApi {
                 },
             }
 
+            // Enrich groups from the event's $groups property, matching production behavior.
+            // Clear any empty groups object the frontend may have sent so addGroupsToGlobals
+            // doesn't short-circuit on a truthy but empty {}.
+            if (!triggerGlobals.groups || Object.keys(triggerGlobals.groups).length === 0) {
+                delete triggerGlobals.groups
+            }
+            await this.groupsManager.addGroupsToGlobals(triggerGlobals)
+
             const filterGlobals = convertToHogFunctionFilterGlobal({
-                event: globals.event,
-                person: globals.person,
-                groups: globals.groups,
-                variables: globals.variables || {},
+                event: triggerGlobals.event,
+                person: triggerGlobals.person,
+                groups: triggerGlobals.groups,
+                variables: triggerGlobals.variables || {},
             })
 
             const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration, filterGlobals)

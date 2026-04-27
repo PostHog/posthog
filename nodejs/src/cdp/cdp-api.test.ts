@@ -2,6 +2,7 @@ import '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
+import { DateTime } from 'luxon'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -11,7 +12,7 @@ import { HogFlow } from '~/schema/hogflow'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import { getFirstTeam, resetTestDatabase, updateOrganizationAvailableFeatures } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
@@ -632,6 +633,111 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(413)
             expect(res.body).toEqual({ error: 'Request entity too large' })
+        })
+    })
+
+    describe('hogflow invocation group enrichment', () => {
+        const setupGroups = async () => {
+            await updateOrganizationAvailableFeatures(hub.postgres, team.organization_id, [
+                { key: 'data_pipelines', name: 'Data Pipelines' },
+                { key: 'group_analytics', name: 'Group Analytics' },
+            ])
+            hub.teamManager['lazyLoader'].clear()
+            api['groupsManager'].clear()
+
+            await hub.groupRepository.insertGroupType(team.id, team.id as any, 'company', 0)
+            await hub.groupRepository.insertGroup(
+                team.id,
+                0 as any,
+                'acme-inc',
+                { name: 'Acme Inc', billing_plan: 'scale' },
+                DateTime.now(),
+                {},
+                {}
+            )
+        }
+
+        it('enriches groups from event $groups property when globals.groups is empty', async () => {
+            await setupGroups()
+
+            const hogFlow = await insertHogFlow({
+                id: new UUIDT().toString(),
+                name: 'test hogflow with groups',
+                status: 'active',
+                version: 1,
+                exit_condition: 'exit_only_at_end',
+                edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                actions: [
+                    {
+                        id: 'trigger',
+                        name: 'trigger',
+                        description: 'trigger',
+                        type: 'trigger',
+                        config: { type: 'event', filters: {} },
+                        filters: {},
+                        created_at: Date.now(),
+                        updated_at: Date.now(),
+                        on_error: 'continue',
+                    },
+                    {
+                        id: 'exit',
+                        name: 'exit',
+                        description: 'exit',
+                        type: 'exit',
+                        config: {},
+                        filters: {},
+                        created_at: Date.now(),
+                        updated_at: Date.now(),
+                        on_error: 'continue',
+                    },
+                ],
+                trigger: { type: 'event', filters: {} },
+            })
+
+            const spy = jest.spyOn(api['groupsManager'], 'addGroupsToGlobals')
+
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/invocations`)
+                .send({
+                    globals: {
+                        // Frontend sends empty groups
+                        groups: {},
+                        person: {
+                            id: '123',
+                            name: 'Jane Doe',
+                            url: 'https://example.com/person/123',
+                            properties: { email: 'test@posthog.com' },
+                        },
+                        event: {
+                            uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                            event: '$pageview',
+                            elements_chain: '',
+                            distinct_id: '123',
+                            timestamp: '2021-09-28T14:00:00Z',
+                            url: 'https://example.com',
+                            properties: {
+                                $groups: { company: 'acme-inc' },
+                            },
+                        },
+                    },
+                    mock_async_functions: true,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(spy).toHaveBeenCalledTimes(1)
+
+            // Verify the globals passed to addGroupsToGlobals had groups cleared
+            // so the enrichment actually ran (groups was undefined, not {})
+            const passedGlobals = spy.mock.calls[0][0]
+            expect(passedGlobals.groups).toBeDefined()
+            expect(passedGlobals.groups!['company']).toMatchObject({
+                id: 'acme-inc',
+                type: 'company',
+                index: 0,
+                properties: { name: 'Acme Inc', billing_plan: 'scale' },
+            })
+
+            spy.mockRestore()
         })
     })
 
