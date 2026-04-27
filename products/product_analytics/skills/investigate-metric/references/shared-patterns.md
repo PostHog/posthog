@@ -5,12 +5,12 @@ Keep this file lean: only patterns that appear in two or more playbooks live her
 
 ## When to use `posthog:execute-sql` instead of structured tools
 
-The structured query tools (`posthog:query-trends`, `posthog:query-funnel`,
+Always use the typed query tools (`posthog:query-trends`, `posthog:query-funnel`,
 `posthog:query-retention`, `posthog:query-paths`, `posthog:query-stickiness`,
-`posthog:query-lifecycle`, `posthog:query-trends-actors`) use LLM-curated schemas
-(simpler than raw `TrendsQuery` / `FunnelsQuery` / etc. — they strip rendering-only fields)
-and their output composes cleanly with `posthog:query-trends-actors`. Prefer them for
-anything that fits.
+`posthog:query-lifecycle`, `posthog:query-trends-actors`) instead of `posthog:query-run`.
+The typed tools have simpler schemas (rendering-only fields are stripped), and their
+output composes cleanly with `posthog:query-trends-actors`. Do not wrap queries in
+`InsightVizNode` — pass the query kind directly.
 
 Reach for `posthog:execute-sql` (HogQL) only when the question cannot be expressed by a
 structured tool:

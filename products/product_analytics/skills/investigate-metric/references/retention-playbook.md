@@ -7,8 +7,8 @@ Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes.
 
 ## 1. Isolate the affected cohort
 
-`posthog:query-retention` broken out by start cohort. Compare the affected cohort(s) to
-baseline cohorts side by side.
+Use `posthog:query-retention` (not `posthog:query-run`) — it accepts `RetentionQuery`
+payloads directly. Compare the affected cohort(s) to baseline cohorts side by side.
 
 `targetEntity` / `returningEntity` use `{type: "events", name: "<event>"}` (or
 `{type: "actions", id: <id>, name: "..."}`). They are nested inside `retentionFilter`.
@@ -67,3 +67,14 @@ returned after week 0 from returning users who churned later in the period:
 
 This distinguishes "we never retained them in the first place" from "we retained them
 initially then lost them later" — different root causes, different follow-ups.
+
+## Config sanity check
+
+Before investigating, check the insight's config for common issues that inflate
+apparent drops:
+
+- **`totalIntervals` exceeds date range** — if the retention grid has intervals beyond
+  the data window, those cells are always zero and make the tail look worse than it is.
+  Match `totalIntervals` to the date range (e.g., 8 intervals for `-56d` at `Week` period).
+- **Partial cohorts** — the most recent cohort hasn't had its full retention window yet.
+  Note this in findings rather than treating it as a real drop.

@@ -72,6 +72,18 @@ corresponding source above (most often `posthog:insight-get` on a saved insight)
 If the metric spans multiple kinds (e.g., "retention and stickiness both dropped"),
 run the playbooks in sequence — do not try to fuse them.
 
+## Tool selection
+
+Use the **typed query tools** — `posthog:query-trends`, `posthog:query-funnel`,
+`posthog:query-retention`, `posthog:query-stickiness`, `posthog:query-lifecycle`,
+`posthog:query-paths` — not `posthog:query-run`. The typed tools have simpler schemas
+(rendering-only fields are stripped), and their output composes with
+`posthog:query-trends-actors` for actor drilldowns. `posthog:query-run` accepts raw
+`InsightVizNode` payloads but doesn't have these benefits.
+
+Use `posthog:insight-query` to fetch a saved insight's data (passes the insight's own
+query through). Use the typed tools for follow-up queries you construct yourself.
+
 ## Step 2 — Common opening moves
 
 Apply these regardless of metric kind, before entering the playbook.
@@ -135,6 +147,9 @@ Pick a segment that the suspected cause should **not** have affected, and rerun 
 query there. If the metric is stable in the control segment, the hypothesis is strong.
 If the metric moved in the control segment too, the cause is broader than you thought —
 expand the investigation.
+
+Skip the cross-check when the anomaly is fully explained by variance or seasonality
+(Step 2.2) — there's no hypothesis to control against.
 
 ## Step 5 — Write findings
 
