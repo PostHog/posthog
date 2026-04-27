@@ -4,7 +4,7 @@ import type { KeyboardEvent } from 'react'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInputSelect } from '@posthog/lemon-ui'
 
-import { SurveyQuestionType } from '~/types'
+import { MultipleSurveyQuestion, SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
 
@@ -36,6 +36,9 @@ export const COMMON_LANGUAGES = [
     { value: 'pl', label: 'Polish (pl)' },
     { value: 'tr', label: 'Turkish (tr)' },
 ]
+
+const isChoiceQuestion = (question: SurveyQuestion): question is MultipleSurveyQuestion =>
+    question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
 
 export function SurveyTranslations(): JSX.Element {
     const { survey, editingLanguage } = useValues(surveyLogic)
@@ -71,17 +74,19 @@ export function SurveyTranslations(): JSX.Element {
                 question: question.question || '',
                 description: question.description || '',
                 buttonText: question.buttonText || '',
-                lowerBoundLabel: question.lowerBoundLabel || '',
-                upperBoundLabel: question.upperBoundLabel || '',
             }
 
-            const newTranslation =
-                question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
+            const newTranslation = {
+                ...baseTranslation,
+                ...(question.type === SurveyQuestionType.Rating
                     ? {
-                          ...baseTranslation,
-                          choices: question.choices || [],
+                          lowerBoundLabel: question.lowerBoundLabel || '',
+                          upperBoundLabel: question.upperBoundLabel || '',
                       }
-                    : baseTranslation
+                    : {}),
+                ...(isChoiceQuestion(question) ? { choices: question.choices || [] } : {}),
+                ...(question.type === SurveyQuestionType.Link ? { link: question.link || '' } : {}),
+            }
 
             return {
                 ...question,

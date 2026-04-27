@@ -13,6 +13,7 @@ import { QuestionBranchingInput } from 'scenes/surveys/components/question-branc
 
 import {
     BasicSurveyQuestion,
+    LinkSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
@@ -40,6 +41,15 @@ type SurveyQuestionHeaderProps = {
 }
 
 const MAX_NUMBER_OF_OPTIONS = 15
+
+const isChoiceQuestion = (question: SurveyQuestion): question is MultipleSurveyQuestion =>
+    question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
+
+const isLinkQuestion = (question: SurveyQuestion): question is LinkSurveyQuestion =>
+    question.type === SurveyQuestionType.Link
+
+const isRatingQuestion = (question: SurveyQuestion): question is RatingSurveyQuestion =>
+    question.type === SurveyQuestionType.Rating
 
 export function SurveyEditQuestionHeader({
     index,
@@ -226,10 +236,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
               ...question.translations?.[editingLanguage],
               choices:
                   question.translations?.[editingLanguage]?.choices ||
-                  (question.type === SurveyQuestionType.SingleChoice ||
-                  question.type === SurveyQuestionType.MultipleChoice
-                      ? question.choices || []
-                      : undefined),
+                  (isChoiceQuestion(question) ? question.choices || [] : undefined),
           }
         : question
 
@@ -241,7 +248,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
 
     // Helper to synchronize choices in all translations when default choices change
     const syncChoicesInTranslations = (newChoices: string[]): void => {
-        if (!hasTranslations || !question.translations) {
+        if (!hasTranslations || !question.translations || !isChoiceQuestion(question)) {
             return
         }
 
@@ -432,7 +439,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         return (
                             <Tooltip title={fieldError?.error || ''} placement="top">
                                 <HTMLEditor
-                                    value={displayQuestion.description}
+                                    value={displayQuestion.description ?? undefined}
                                     onChange={(val) => {
                                         handleQuestionValueChange('description', val)
                                     }}
@@ -486,7 +493,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         )}
                     </LemonField>
                 )}
-                {question.type === SurveyQuestionType.Link && (
+                {isLinkQuestion(question) && (
                     <LemonField
                         name={getFieldName('link')}
                         label="Link"
@@ -497,7 +504,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             return (
                                 <Tooltip title={fieldError?.error || ''} placement="top">
                                     <LemonInput
-                                        value={displayQuestion.link || ''}
+                                        value={(displayQuestion as LinkSurveyQuestion).link || ''}
                                         placeholder={
                                             editingLanguage
                                                 ? question.link || 'https://posthog.com'
@@ -511,7 +518,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         })()}
                     </LemonField>
                 )}
-                {question.type === SurveyQuestionType.Rating && (
+                {isRatingQuestion(question) && (
                     <div className="flex flex-col gap-2">
                         <div className="flex flex-row gap-4">
                             <LemonField name="display" label="Display type" className="w-1/2">
@@ -574,7 +581,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         return (
                                             <Tooltip title={fieldError?.error || ''} placement="top">
                                                 <LemonInput
-                                                    value={displayQuestion.lowerBoundLabel || ''}
+                                                    value={
+                                                        (displayQuestion as RatingSurveyQuestion).lowerBoundLabel || ''
+                                                    }
                                                     placeholder={editingLanguage ? question.lowerBoundLabel : undefined}
                                                     onChange={(val) =>
                                                         handleQuestionValueChange('lowerBoundLabel', val)
@@ -595,7 +604,9 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         return (
                                             <Tooltip title={fieldError?.error || ''} placement="top">
                                                 <LemonInput
-                                                    value={displayQuestion.upperBoundLabel || ''}
+                                                    value={
+                                                        (displayQuestion as RatingSurveyQuestion).upperBoundLabel || ''
+                                                    }
                                                     placeholder={editingLanguage ? question.upperBoundLabel : undefined}
                                                     onChange={(val) =>
                                                         handleQuestionValueChange('upperBoundLabel', val)
@@ -628,8 +639,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         )}
                     </div>
                 )}
-                {(question.type === SurveyQuestionType.SingleChoice ||
-                    question.type === SurveyQuestionType.MultipleChoice) && (
+                {isChoiceQuestion(question) && (
                     <div className="flex flex-col gap-2">
                         <LemonField name="hasOpenChoice">
                             {({ value: hasOpenChoice, onChange: toggleHasOpenChoice }) => (
@@ -646,7 +656,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                             <div className="flex flex-col gap-2">
                                                 {(value || []).map((choice: string, index: number) => {
                                                     const isOpenChoice = hasOpenChoice && index === value?.length - 1
-                                                    const originalChoices = (question.choices || []) as string[]
+                                                    const originalChoices = question.choices || []
                                                     const choiceError = getChoiceError(index)
                                                     return (
                                                         <div className="flex flex-row gap-2 relative" key={index}>

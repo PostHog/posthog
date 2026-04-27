@@ -51,6 +51,7 @@ import {
     FeatureFlagFilters,
     HogFunctionType,
     IntervalType,
+    LinkSurveyQuestion,
     MultipleSurveyQuestion,
     OpenQuestionProcessedResponses,
     OpenQuestionResponseData,
@@ -110,6 +111,20 @@ import {
 export type SurveyBaseStatTuple = [string, number, number, string | null, string | null] // [event_name, total_count, unique_persons, first_seen, last_seen]
 export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
 export type DismissedAndSentCountResult = number | null
+export type TranslationValidationError = {
+    language: string
+    questionIndex: number
+    field: string
+    error: string
+}
+
+type SurveyTranslationField = keyof NonNullable<Survey['translations']>[string]
+type QuestionTranslation = NonNullable<SurveyQuestion['translations']>[string]
+type QuestionTextTranslationField = Exclude<keyof QuestionTranslation, 'choices'>
+type TranslationFieldCheck<T extends string> = {
+    key: T
+    defaultValue?: string | null
+}
 
 const SURVEY_QUERY_TAG_BASE = { scene: 'Survey' as const, productKey: 'surveys' as const }
 
@@ -122,6 +137,15 @@ const SURVEY_QUERY_TAGS = {
     aggregateResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_aggregate' as const },
     openEndedResults: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_results_open_ended' as const },
 }
+
+const isChoiceSurveyQuestion = (question: SurveyQuestion): question is MultipleSurveyQuestion =>
+    question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
+
+const isLinkSurveyQuestion = (question: SurveyQuestion): question is LinkSurveyQuestion =>
+    question.type === SurveyQuestionType.Link
+
+const isRatingSurveyQuestion = (question: SurveyQuestion): question is RatingSurveyQuestion =>
+    question.type === SurveyQuestionType.Rating
 
 const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: PropertyOperator }> = {
     [SurveyQuestionType.Open]: {
@@ -1422,14 +1446,17 @@ export const surveyLogic = kea<surveyLogicType>([
                           )
                         : cleanedTranslations
 
-                    newQuestions[idx] = {
+                    const nextQuestion = {
                         ...q,
                         ...newQuestionDefaults,
                         question,
                         description,
-                        choices: newChoices, // Ensure choices are set for choice-based questions
                         translations: choicesInitializedTranslations,
                     }
+                    newQuestions[idx] =
+                        type === SurveyQuestionType.SingleChoice || type === SurveyQuestionType.MultipleChoice
+                            ? ({ ...nextQuestion, choices: newChoices } as SurveyQuestion)
+                            : (nextQuestion as SurveyQuestion)
                     return {
                         ...state,
                         questions: newQuestions,
@@ -2148,9 +2175,9 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         translationValidationErrors: [
             (s) => [s.survey],
-            (survey): Array<{ language: string; questionIndex: number; field: string; error: string }> => {
-                const errors: Array<{ language: string; questionIndex: number; field: string; error: string }> = []
-                const surveyLevelFieldChecks = [
+            (survey): TranslationValidationError[] => {
+                const errors: TranslationValidationError[] = []
+                const surveyLevelFieldChecks: TranslationFieldCheck<SurveyTranslationField>[] = [
                     { key: 'name', defaultValue: survey.name },
                     { key: 'thankYouMessageHeader', defaultValue: survey.appearance?.thankYouMessageHeader },
                     {
@@ -2251,7 +2278,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 // Validate question-level translations
                 survey.questions.forEach((question, qIndex) => {
                     // Validate default choices for empty strings
-                    if (question.choices && Array.isArray(question.choices)) {
+                    if (isChoiceSurveyQuestion(question) && question.choices && Array.isArray(question.choices)) {
                         question.choices.forEach((choice, choiceIndex) => {
                             if (typeof choice === 'string' && choice.trim() === '') {
                                 errors.push({
@@ -2268,12 +2295,16 @@ export const surveyLogic = kea<surveyLogicType>([
                         return
                     }
 
-                    const textFieldChecks = [
+                    const textFieldChecks: TranslationFieldCheck<QuestionTextTranslationField>[] = [
                         { key: 'question', defaultValue: question.question },
                         { key: 'description', defaultValue: question.description },
                         { key: 'buttonText', defaultValue: question.buttonText },
-                        { key: 'lowerBoundLabel', defaultValue: question.lowerBoundLabel },
-                        { key: 'upperBoundLabel', defaultValue: question.upperBoundLabel },
+                        ...(isRatingSurveyQuestion(question)
+                            ? [
+                                  { key: 'lowerBoundLabel' as const, defaultValue: question.lowerBoundLabel },
+                                  { key: 'upperBoundLabel' as const, defaultValue: question.upperBoundLabel },
+                              ]
+                            : []),
                     ]
 
                     // First collect fields that have translations but empty defaults
@@ -2344,7 +2375,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         })
 
                         // Check link field
-                        if ('link' in trans) {
+                        if (isLinkSurveyQuestion(question) && 'link' in trans) {
                             const linkDefaultHasValue = typeof question.link === 'string' && question.link.trim() !== ''
                             const linkValue = trans.link
 
@@ -2377,7 +2408,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         }
 
                         // Check choices array
-                        if (trans.choices && Array.isArray(trans.choices)) {
+                        if (isChoiceSurveyQuestion(question) && trans.choices && Array.isArray(trans.choices)) {
                             trans.choices.forEach((choice, choiceIndex) => {
                                 if (choice === '[Translation needed]') {
                                     errors.push({
@@ -2402,7 +2433,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 // Also validate default question links
                 survey.questions.forEach((question, qIndex) => {
-                    const link = typeof question.link === 'string' ? question.link.trim() : ''
+                    const link = isLinkSurveyQuestion(question) && question.link ? question.link.trim() : ''
                     if (link && !link.match(/^(https:\/\/|mailto:)/)) {
                         errors.push({
                             language: 'default',
@@ -2423,9 +2454,9 @@ export const surveyLogic = kea<surveyLogicType>([
         translationErrorsByQuestion: [
             (s) => [s.translationValidationErrors, s.editingLanguage],
             (
-                errors: Array<{ language: string; questionIndex: number; field: string; error: string }>,
+                errors: TranslationValidationError[],
                 editingLanguage: string | null
-            ): ((questionIndex: number) => typeof errors) => {
+            ): ((questionIndex: number) => TranslationValidationError[]) => {
                 return (questionIndex: number) => {
                     const targetLanguage = editingLanguage === null ? 'default' : editingLanguage
                     return errors.filter((e) => e.questionIndex === questionIndex && e.language === targetLanguage)
@@ -2435,9 +2466,9 @@ export const surveyLogic = kea<surveyLogicType>([
         translationErrorsForField: [
             (s) => [s.translationValidationErrors, s.editingLanguage],
             (
-                errors: Array<{ language: string; questionIndex: number; field: string; error: string }>,
+                errors: TranslationValidationError[],
                 editingLanguage: string | null
-            ): ((questionIndex: number, fieldPath: string) => (typeof errors)[0] | undefined) => {
+            ): ((questionIndex: number, fieldPath: string) => TranslationValidationError | undefined) => {
                 return (questionIndex: number, fieldPath: string) => {
                     const targetLanguage = editingLanguage === null ? 'default' : editingLanguage
                     return errors.find(

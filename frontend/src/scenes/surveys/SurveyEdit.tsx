@@ -44,6 +44,7 @@ import { SurveyCancelEventTrigger, SurveyEventTrigger } from 'scenes/surveys/Sur
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyTranslations } from 'scenes/surveys/SurveyTranslations'
+import { getSurveyWithTranslatedContent } from 'scenes/surveys/surveyTranslationUtils'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
@@ -302,55 +303,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     const hasActiveTranslationValidationErrors = surveyTranslationsEnabled && hasTranslationValidationErrors
     const activeTranslationValidationErrors = surveyTranslationsEnabled ? translationValidationErrors : []
     const hasVisibleTranslationValidationErrors = hasActiveTranslationValidationErrors && hasActualTranslations
-    const previewSurvey = useMemo(() => {
-        if (!activeEditingLanguage || !survey.translations?.[activeEditingLanguage]) {
-            return survey
-        }
-
-        const processed = { ...survey }
-        const translation = survey.translations[activeEditingLanguage]
-
-        if (translation.name) {
-            processed.name = translation.name
-        }
-        if (
-            translation.thankYouMessageHeader ||
-            translation.thankYouMessageDescription ||
-            translation.thankYouMessageCloseButtonText
-        ) {
-            processed.appearance = {
-                ...survey.appearance,
-                ...(translation.thankYouMessageHeader && {
-                    thankYouMessageHeader: translation.thankYouMessageHeader,
-                }),
-                ...(translation.thankYouMessageDescription && {
-                    thankYouMessageDescription: translation.thankYouMessageDescription,
-                }),
-                ...(translation.thankYouMessageCloseButtonText && {
-                    thankYouMessageCloseButtonText: translation.thankYouMessageCloseButtonText,
-                }),
-            }
-        }
-
-        processed.questions = survey.questions.map((q) => {
-            const qTrans = q.translations?.[activeEditingLanguage]
-            if (qTrans) {
-                return {
-                    ...q,
-                    question: qTrans.question || q.question,
-                    description: qTrans.description || q.description,
-                    choices: qTrans.choices || q.choices,
-                    buttonText: qTrans.buttonText || q.buttonText,
-                    link: qTrans.link || q.link,
-                    lowerBoundLabel: qTrans.lowerBoundLabel || q.lowerBoundLabel,
-                    upperBoundLabel: qTrans.upperBoundLabel || q.upperBoundLabel,
-                }
-            }
-            return q
-        })
-
-        return processed
-    }, [survey, activeEditingLanguage])
+    const previewSurvey = useMemo(
+        () => getSurveyWithTranslatedContent(survey, activeEditingLanguage),
+        [survey, activeEditingLanguage]
+    )
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
     useMountedLogic(actionsModel)
@@ -1067,27 +1023,28 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                               )
                                                                                                           }
                                                                                                       }}
-                                                                                                      onTabChange={
-                                                                                                          activeEditingLanguage
-                                                                                                              ? undefined
-                                                                                                              : (
-                                                                                                                    key
-                                                                                                                ) => {
-                                                                                                                    const updatedAppearance =
-                                                                                                                        {
-                                                                                                                            ...survey.appearance,
-                                                                                                                            thankYouMessageDescriptionContentType:
-                                                                                                                                key ===
-                                                                                                                                'html'
-                                                                                                                                    ? 'html'
-                                                                                                                                    : 'text',
-                                                                                                                        }
-                                                                                                                    setSurveyValue(
-                                                                                                                        'appearance',
-                                                                                                                        updatedAppearance
-                                                                                                                    )
-                                                                                                                }
-                                                                                                      }
+                                                                                                      onTabChange={(
+                                                                                                          key
+                                                                                                      ) => {
+                                                                                                          if (
+                                                                                                              activeEditingLanguage
+                                                                                                          ) {
+                                                                                                              return
+                                                                                                          }
+                                                                                                          const updatedAppearance =
+                                                                                                              {
+                                                                                                                  ...survey.appearance,
+                                                                                                                  thankYouMessageDescriptionContentType:
+                                                                                                                      key ===
+                                                                                                                      'html'
+                                                                                                                          ? 'html'
+                                                                                                                          : 'text',
+                                                                                                              }
+                                                                                                          setSurveyValue(
+                                                                                                              'appearance',
+                                                                                                              updatedAppearance
+                                                                                                          )
+                                                                                                      }}
                                                                                                       activeTab={
                                                                                                           thankYouMessageDescriptionContentType ??
                                                                                                           'text'
