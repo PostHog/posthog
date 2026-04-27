@@ -26,7 +26,7 @@ export type ProxyRecord = {
     target_cname: string
 }
 
-export type FormState = 'collapsed' | 'active' | 'complete'
+export type FormState = 'collapsed' | 'active'
 
 export function domainFor(proxyRecord: ProxyRecord | undefined): string {
     if (!proxyRecord) {
@@ -80,7 +80,6 @@ export const proxyLogic = kea<proxyLogicType>([
     actions(() => ({
         collapseForm: true,
         showForm: true,
-        completeForm: true,
         maybeRefreshRecords: true,
         acknowledgeCloudflareOptIn: true,
         setCloudflareOptInChecked: (checked: boolean) => ({ checked }),
@@ -89,7 +88,7 @@ export const proxyLogic = kea<proxyLogicType>([
     reducers(() => ({
         formState: [
             'collapsed' as FormState,
-            { showForm: () => 'active', collapseForm: () => 'collapsed', completeForm: () => 'complete' },
+            { showForm: () => 'active', collapseForm: () => 'collapsed' },
         ],
         cloudflareOptInAcknowledged: [
             false,
@@ -125,7 +124,7 @@ export const proxyLogic = kea<proxyLogicType>([
                     domain,
                 })
                 lemonToast.success('Record created')
-                actions.completeForm()
+                actions.collapseForm()
                 return [response, ...values.proxyRecords]
             },
             deleteRecord: async (id: ProxyRecord['id']) => {
@@ -159,7 +158,6 @@ export const proxyLogic = kea<proxyLogicType>([
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
         retryRecordFailure: () => actions.loadRecords(),
-        createRecordSuccess: () => actions.loadRecords(),
         loadRecordsSuccess: ({ proxyRecords }) => {
             // Mark the reverse proxy setup task as completed if any proxy is valid
             const hasValidProxy = proxyRecords.some((r) => r.status === 'valid')
