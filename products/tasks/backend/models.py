@@ -283,8 +283,12 @@ class Task(DeletedMetaFields, models.Model):
 
         sandbox_env = None
         if sandbox_environment_id is not None:
-            sandbox_env = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=team).first()
-            if not sandbox_env:
+            sandbox_env = SandboxEnvironment.get_accessible_for_task(
+                environment_id=sandbox_environment_id,
+                team_id=team.id,
+                task_created_by_id=user_id,
+            )
+            if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
         task = Task.objects.create(
@@ -521,14 +525,11 @@ class TaskRun(models.Model):
         env_id = (self.state or {}).get("sandbox_environment_id")
         if not env_id:
             return None
-        env = SandboxEnvironment.objects.filter(id=env_id, team_id=self.team_id).first()
-        if not env:
-            return None
-        if env.private:
-            task_user_id = self.task.created_by_id
-            if not task_user_id or env.created_by_id != task_user_id:
-                return None
-        return env
+        return SandboxEnvironment.get_accessible_for_task(
+            environment_id=env_id,
+            team_id=self.team_id,
+            task_created_by_id=self.task.created_by_id,
+        )
 
     def prepare_for_cloud_handoff(self) -> None:
         """
@@ -1035,6 +1036,29 @@ class SandboxEnvironment(UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_by"]),
         ]
+
+    def is_accessible_for_task_creator(self, task_created_by_id: int | None) -> bool:
+        if not self.private:
+            return True
+        return task_created_by_id is not None and self.created_by_id == task_created_by_id
+
+    @classmethod
+    def get_accessible_for_task(
+        cls,
+        *,
+        environment_id: str | uuid.UUID,
+        team_id: int,
+        task_created_by_id: int | None,
+    ) -> Optional["SandboxEnvironment"]:
+        try:
+            environment = cls.objects.filter(id=environment_id, team_id=team_id).first()
+        except (ValidationError, ValueError):
+            return None
+        if environment is None:
+            return None
+        if not environment.is_accessible_for_task_creator(task_created_by_id):
+            return None
+        return environment
 
     def __str__(self):
         return self.name
