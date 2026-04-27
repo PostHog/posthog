@@ -77,7 +77,7 @@ pub fn start_assigner_with_config(
     cancel: CancellationToken,
 ) -> JoinHandle<Result<()>> {
     let strategy = Arc::new(StickyBalancedStrategy);
-    let assigner = Assigner::new(store, config, strategy);
+    let assigner = Assigner::new(store, config, strategy, None);
     let token = cancel.child_token();
     tokio::spawn(async move { assigner.run(token).await })
 }
@@ -100,6 +100,8 @@ pub async fn register_consumer(
         consumer_name: name.to_string(),
         status: ConsumerStatus::Ready,
         registered_at: assignment_coordination::util::now_seconds(),
+        generation: String::new(),
+        controller: None,
     };
     store.register_consumer(&consumer, lease_id).await.unwrap();
 
@@ -236,7 +238,7 @@ pub async fn start_grpc_server(
     config.consumer_lease_ttl_secs = 5;
     config.consumer_keepalive_interval_secs = 1;
     let service =
-        KafkaAssignerService::from_config(Arc::clone(&store), Arc::clone(&registry), &config);
+        KafkaAssignerService::from_config(Arc::clone(&store), Arc::clone(&registry), &config, None);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

@@ -9,6 +9,7 @@ from asgiref.sync import async_to_sync
 class Status(enum.StrEnum):
     PASSED = "Passed"
     FAILED = "Failed"
+    SKIPPED = "Skipped"
 
 
 DestinationTestStepResultDict = dict[str, str | None]
@@ -47,8 +48,8 @@ class DestinationTestStep:
         result: After running this test step, the result will be populated.
     """
 
-    name: str = NotImplemented
-    description: str = NotImplemented
+    name: str = NotImplemented  # ty: ignore[invalid-assignment]
+    description: str = NotImplemented  # ty: ignore[invalid-assignment]
 
     def __init__(self) -> None:
         self.result: DestinationTestStepResult | None = None

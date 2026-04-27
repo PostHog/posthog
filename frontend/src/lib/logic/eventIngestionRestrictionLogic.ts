@@ -1,7 +1,8 @@
-import { kea, path, selectors } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { eventIngestionRestrictionLogicType } from './eventIngestionRestrictionLogicType'
 
@@ -19,13 +20,18 @@ export interface EventIngestionRestriction {
 export const eventIngestionRestrictionLogic = kea<eventIngestionRestrictionLogicType>([
     path(['lib', 'logic', 'eventIngestionRestrictionLogic']),
 
-    lazyLoaders(() => ({
+    connect(() => ({ values: [teamLogic, ['currentTeamIdStrict']] })),
+
+    lazyLoaders(({ values }) => ({
         eventIngestionRestrictions: {
             __default: [] as EventIngestionRestriction[],
             loadEventIngestionRestrictions: async () => {
                 try {
-                    const response = await api.get('api/environments/@current/event_ingestion_restrictions/')
-                    return response
+                    const response = await api.get(
+                        `api/environments/${values.currentTeamIdStrict}/event_ingestion_restrictions/`
+                    )
+                    // api.get resolves to null on non-JSON responses (204, CDN error pages, etc.) — coerce to []
+                    return Array.isArray(response) ? response : []
                 } catch (error) {
                     console.error('Failed to load event ingestion restrictions:', error)
                     return []

@@ -10,14 +10,18 @@ When a super group condition matches, it takes precedence over all regular featu
 
 Super groups power the early access feature (EAF) system. When users opt into an early access feature through the UI, PostHog sets a person property like `$feature_enrollment/my-feature` with the value `"true"` (stored as a string, not a boolean). The super group condition checks for this property.
 
+Super groups are only added to feature flags for early access features in **active stages**: Alpha, Beta, and General Availability. The Concept stage allows users to register interest, but does not add super groups – the feature flag remains disabled for opted-in users until the feature is promoted to an active stage.
+
 Example flow:
 
-1. Product team creates an early access feature "New Dashboard" linked to feature flag `new-dashboard`
-2. PostHog automatically adds a super group to the flag checking `$feature_enrollment/new-dashboard`
+1. Product team creates an early access feature "New Dashboard" in Alpha stage linked to feature flag `new-dashboard`
+2. PostHog automatically adds a super group to the flag checking `$feature_enrollment/new-dashboard` (only because it's in an active stage)
 3. User opts in via the early access features UI
 4. PostHog sets `$feature_enrollment/new-dashboard` to `"true"` on their person
 5. On next flag evaluation, super group matches → user sees the feature
 6. Regular rollout conditions are never checked for this user
+
+If the feature were in Concept stage instead, steps 3-4 would still occur (user can register interest), but step 2 would not – no super group would be added, so the feature flag would remain disabled.
 
 Note: The condition uses `["true"]` (an array) because property filters in PostHog always expect array values for the `exact` operator, even for single values.
 
@@ -93,7 +97,7 @@ Using `FeatureFlagGroupType` implies you can:
 - Use different operators (only `exact` with `["true"]` is meaningful)
 - Set different rollout percentages (it's always 100% for enrolled users)
 
-The Django code that creates super groups always produces exactly one property:
+The Django code that creates super groups always produces exactly one property, and only for features in `ActiveStage` (Alpha, Beta, GA):
 
 ```python
 # From products/early_access_features/backend/api.py

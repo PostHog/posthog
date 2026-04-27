@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -13,6 +14,7 @@ import {
 } from '~/types'
 
 import { SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE, SurveyTemplate, SurveyTemplateType } from '../constants'
+import { surveyLogic } from '../surveyLogic'
 import { surveyWizardLogic } from './surveyWizardLogic'
 
 const createMockTemplate = (): SurveyTemplate => ({
@@ -82,7 +84,7 @@ describe('surveyWizardLogic', () => {
                     },
                 },
                 patch: {
-                    '/api/environments/@current/add_product_intent/': async (req) => {
+                    '/api/environments/:team_id/add_product_intent/': async (req) => {
                         const data = await req.json()
                         capturedIntentRequests.push(data)
                         return [200, {}]
@@ -180,7 +182,7 @@ describe('surveyWizardLogic', () => {
                     '/api/projects/:team/surveys/responses_count': () => [200, {}],
                 },
                 patch: {
-                    '/api/environments/@current/add_product_intent/': () => [200, {}],
+                    '/api/environments/:team_id/add_product_intent/': () => [200, {}],
                 },
             })
         })
@@ -228,6 +230,25 @@ describe('surveyWizardLogic', () => {
                 currentStep: 'when',
             })
         })
+
+        it('preserves unsaved full editor changes when switching to the guided editor', async () => {
+            const surveyFormLogic = surveyLogic({ id: 'new' })
+            surveyFormLogic.mount()
+
+            await expectLogic(surveyFormLogic, () => {
+                surveyFormLogic.actions.setSurveyValue('description', 'Edited in the full editor')
+            }).toMatchValues({
+                surveyChanged: true,
+            })
+
+            router.actions.push('/surveys/guided/new#preserveLocalChanges=true')
+
+            const logic = surveyWizardLogic({ id: 'new' })
+            logic.mount()
+
+            expect(logic.values.currentStep).toBe('questions')
+            expect(logic.values.survey.description).toBe('Edited in the full editor')
+        })
     })
 
     describe('template selection', () => {
@@ -240,7 +261,7 @@ describe('surveyWizardLogic', () => {
                     '/api/projects/:team/surveys/responses_count': () => [200, {}],
                 },
                 patch: {
-                    '/api/environments/@current/add_product_intent/': () => [200, {}],
+                    '/api/environments/:team_id/add_product_intent/': () => [200, {}],
                 },
             })
         })

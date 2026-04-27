@@ -82,6 +82,8 @@ export interface BehavioralFilterApi {
     event_filters?: (EventPropFilterApi | HogQLFilterApi)[] | null
     /** @nullable */
     explicit_datetime?: string | null
+    /** @nullable */
+    explicit_datetime_to?: string | null
 }
 
 export type CohortFilterApiType = (typeof CohortFilterApiType)[keyof typeof CohortFilterApiType]
@@ -241,6 +243,8 @@ export interface CohortApi {
     readonly created_at: string | null
     /** @nullable */
     readonly last_calculation: string | null
+    /** @nullable */
+    readonly last_backfill_person_properties_at: string | null
     readonly errors_calculating: number
     /** @nullable */
     readonly last_error_message: string | null
@@ -292,6 +296,8 @@ export interface PatchedCohortApi {
     readonly created_at?: string | null
     /** @nullable */
     readonly last_calculation?: string | null
+    /** @nullable */
+    readonly last_backfill_person_properties_at?: string | null
     readonly errors_calculating?: number
     /** @nullable */
     readonly last_error_message?: string | null

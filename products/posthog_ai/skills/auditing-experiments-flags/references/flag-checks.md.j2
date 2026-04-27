@@ -1,0 +1,108 @@
+{%- set c = audit_constants() -%}
+# Feature flag checks
+
+Run these checks against each flag fetched via `read_data("feature_flags", id)` or `list_data("feature_flags")`.
+
+---
+
+## 1. Staleness: fully rolled out
+
+Detects active boolean flags that are effectively permanent and can be removed from code.
+
+**Look at**: `active`, `filters.multivariate` (should be absent or null for boolean flags), `filters.groups`, `last_called_at`
+
+**Findings**:
+
+- **Fully rolled out boolean flag**: Flag is `active: true`, has no multivariate config, and at least one release condition (`filters.groups` entry) with `rollout_percentage: 100` and no `properties` (empty array or missing). This flag always evaluates to true.
+  - Severity: INFO · Category: Cleanup
+  - Report: "This boolean flag is rolled out to 100% with no targeting conditions. It always evaluates to true."
+  - Action: Remove the flag from code and hardcode the value.
+
+- **Possibly unused**: Flag has `last_called_at` that is more than {{ c.staleness_days }} days ago, regardless of rollout configuration.
+  - Severity: INFO · Category: Cleanup
+  - Report: "This flag hasn't been evaluated in N days. It may no longer be referenced in code."
+  - Action: Check if the flag is still referenced in your codebase. If not, delete it.
+
+---
+
+## 2. Staleness: stale draft
+
+Detects flags that were created but never activated.
+
+**Look at**: `active`, `created_at`, activity logs (if available)
+
+**Findings**:
+
+- **Stale draft flag**: `active` is false, flag is more than {{ c.staleness_days }} days old (based on `created_at`), and activity logs confirm it was never activated.
+  - Severity: INFO · Category: Cleanup
+  - Report: "This flag has been inactive for N days and was never activated."
+  - Action: Delete the flag if it's no longer needed, or activate it.
+
+  **Note**: The "never activated" check requires activity logs. If activity logs are unavailable, skip this sub-check and only report based on the flag being inactive and old:
+  - Report: "This flag has been inactive for N days. Could not verify whether it was ever activated (activity logs unavailable)."
+
+---
+
+## 3. Staleness: orphaned experiment flag
+
+Detects flags whose linked experiments are all done.
+
+**Look at**: `experiment_set` (list of linked experiment IDs), and for each experiment, check its `end_date` and `archived` status via `read_data("experiments", id)`.
+
+**Findings**:
+
+- **Orphaned experiment flag**: Flag is `active: true`, has entries in `experiment_set`, and ALL linked experiments have `end_date` set (completed) or `archived: true`.
+  - Severity: INFO · Category: Cleanup
+  - Report: "This flag's linked experiments are all completed or archived. The flag is no longer serving an active experiment."
+  - Action: Roll out the winning variant at 100% and remove the flag from code, or disable the flag.
+
+---
+
+## 4. Rollout integrity: variant sum
+
+Checks multivariate flag rollout percentages for correctness.
+
+**Look at**: `filters.multivariate.variants` (array of `{key, rollout_percentage, ...}`), `experiment_set`
+
+**Findings**:
+
+- **Variant sum != {{ c.variant_sum_target }}%**: The sum of all `rollout_percentage` values across `filters.multivariate.variants` does not equal {{ c.variant_sum_target }}.
+  - Severity: WARNING · Category: Correctness
+  - Report: "Multivariate rollout percentages sum to N%, not {{ c.variant_sum_target }}%. Traffic distribution is incorrect."
+  - Action: Adjust variant rollout percentages to sum to {{ c.variant_sum_target }}%.
+
+- **Dead variant (0% rollout)**: A variant has `rollout_percentage: 0` on a flag that is NOT linked to an experiment (empty `experiment_set`).
+  - Severity: INFO · Category: Cleanup
+  - Report: "Variant 'X' has 0% rollout and receives no traffic."
+  - Action: Either give the variant traffic or remove it.
+
+- **Dead condition (0% rollout)**: A release condition in `filters.groups` has `rollout_percentage: 0`.
+  - Severity: INFO · Category: Cleanup
+  - Report: "A release condition has 0% rollout and is not serving any traffic."
+  - Action: Either increase the rollout or remove the condition.
+
+- **Manual rollout on experiment flag**: A flag with entries in `experiment_set` has release conditions where `rollout_percentage` is not the expected even split. This suggests someone manually adjusted the rollout outside the experiment.
+  - Severity: INFO · Category: Process
+  - Report: "This experiment flag has manual rollout overrides that differ from the experiment's expected split."
+  - Action: Remove manual overrides and let the experiment control the variant split.
+
+---
+
+## 5. Lifecycle
+
+Checks for flags with unstable or high-churn configurations.
+**These checks require activity logs. If unavailable, skip and note it.**
+
+**Look at**: Activity log entries for the flag, `created_at`
+
+**Findings**:
+
+- **Toggle instability**: The flag has been toggled on/off (active → inactive or vice versa) more than 3 times based on activity logs.
+  - Severity: WARNING · Category: Complexity
+  - Report: "This flag has been toggled on/off N times. Frequent toggling suggests it may be used as a kill switch or there's uncertainty about its state."
+  - Action: Consider whether the flag is being used as intended. If it's a kill switch, document that purpose.
+
+- **High config churn**: The flag has more than 20 activity log entries AND the average rate exceeds 0.5 changes per day (calculated from first to last activity log entry).
+  - Severity: WARNING · Category: Complexity
+  - Report: "This flag has been modified N times at a rate of X changes/day. High churn can indicate instability."
+  - Action: Consider stabilizing the configuration or splitting into multiple simpler flags.

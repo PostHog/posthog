@@ -16,8 +16,10 @@ import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import { validateSavedQueryName } from 'scenes/data-warehouse/saved_queries/savedQueryNameValidation'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { DataNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
@@ -55,7 +57,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         }
     }),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentProjectId']],
         actions: [
             dataWarehouseViewsLogic,
             ['createDataWarehouseSavedQuery'],
@@ -69,6 +71,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         setPrompt: (prompt: string) => ({ prompt }),
         setPromptError: (error: string | null) => ({ error }),
         draftFromPrompt: true,
+        draftFromMetadataFix: (prompt: string) => ({ prompt }),
         draftFromPromptComplete: true,
         saveAsView: true,
         saveAsViewSuccess: (name: string) => ({ name }),
@@ -84,7 +87,10 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             null as string | null,
             { setPromptError: (_, { error }) => error, draftFromPrompt: () => null, saveQuery: () => null },
         ],
-        promptLoading: [false, { draftFromPrompt: () => true, draftFromPromptComplete: () => false }],
+        promptLoading: [
+            false,
+            { draftFromPrompt: () => true, draftFromMetadataFix: () => true, draftFromPromptComplete: () => false },
+        ],
     })),
     selectors({
         aiAvailable: [() => [preflightLogic.selectors.preflight], (preflight) => preflight?.openai_available],
@@ -116,8 +122,29 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
             }
             try {
                 const result = await api.get(
-                    combineUrl(`api/projects/@current/query/draft_sql/`, {
+                    combineUrl(`api/projects/${values.currentProjectId}/query/draft_sql/`, {
                         prompt: values.prompt,
+                        current_query: values.queryInput,
+                    }).url
+                )
+                const { sql } = result
+                actions.setQueryInput(sql)
+            } catch (e) {
+                actions.setPromptError((e as { code: string; detail: string }).detail)
+            } finally {
+                actions.draftFromPromptComplete()
+            }
+        },
+        draftFromMetadataFix: async ({ prompt }) => {
+            if (!values.aiAvailable) {
+                throw new Error(
+                    'To use AI features, configure environment variable OPENAI_API_KEY for this instance of PostHog'
+                )
+            }
+            try {
+                const result = await api.get(
+                    combineUrl(`api/projects/@current/query/draft_sql/`, {
+                        prompt,
                         current_query: values.queryInput,
                     }).url
                 )
@@ -139,7 +166,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
                     </LemonField>
                 ),
                 errors: {
-                    viewName: (name) => (!name ? 'You must enter a name' : undefined),
+                    viewName: validateSavedQueryName,
                 },
                 onSubmit: ({ viewName }) => actions.saveAsViewSuccess(viewName),
             })

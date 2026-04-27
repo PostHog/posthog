@@ -10,12 +10,14 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
+import { playerMetaLogic } from '../player-meta/playerMetaLogic'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
 import { PlayerSeekbarTicks } from './PlayerSeekbarTicks'
 import { seekbarLogic } from './seekbarLogic'
+import { SeekbarSegments } from './SeekbarSegments'
 
 const SeekbarSources = React.memo(function SeekbarSourcesRaw({
     sourceLoadingStates,
@@ -78,6 +80,7 @@ export function Seekbar(): JSX.Element {
     const { seekbarItems } = useValues(playerInspectorLogic(logicProps))
     const { endTimeMs, thumbLeftPos, isScrubbing } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
+    const { sessionSummarySegmentRanges } = useValues(playerMetaLogic(logicProps))
 
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
     const { sessionPlayerData, sessionPlayerMetaData, effectiveSourceLoadingStates } = useValues(
@@ -125,6 +128,11 @@ export function Seekbar(): JSX.Element {
                         recordingStartMs={sessionPlayerData.start?.valueOf() ?? 0}
                         recordingEndMs={sessionPlayerData.end?.valueOf() ?? 0}
                     />
+                    <SeekbarSegments
+                        segments={sessionSummarySegmentRanges}
+                        endTimeMs={endTimeMs}
+                        onSeekToSegment={seekToTime}
+                    />
                     <div
                         className="PlayerSeekbar__played"
                         // eslint-disable-next-line react/forbid-dom-props
@@ -138,7 +146,7 @@ export function Seekbar(): JSX.Element {
                         style={{ transform: `translateX(${thumbLeftPos}px)` }}
                     />
 
-                    {hasSnapshots && allowPreviewScrubbing ? (
+                    {hasSnapshots ? (
                         <PlayerSeekbarPreview
                             minMs={0}
                             maxMs={sessionPlayerData.durationMs}
@@ -150,6 +158,7 @@ export function Seekbar(): JSX.Element {
                             }
                             timestampFormat={timestampFormat}
                             startTime={sessionPlayerData.start}
+                            showPreviewFrame={!!allowPreviewScrubbing}
                         />
                     ) : null}
                 </div>

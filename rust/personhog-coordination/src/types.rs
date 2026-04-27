@@ -1,3 +1,4 @@
+use k8s_awareness::types::ControllerRef;
 use serde::{Deserialize, Serialize};
 
 /// A writer pod registered in etcd under `{prefix}pods/{pod_name}`.
@@ -8,11 +9,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegisteredPod {
     pub pod_name: String,
-    /// Placeholder for future blue/green deployments. Currently always "blue".
+    /// Pod-template-hash (Deployment) or controller-revision-hash (StatefulSet).
+    /// Populated via K8s awareness on registration. Empty when K8s awareness is disabled.
+    #[serde(default)]
     pub generation: String,
     pub status: PodStatus,
     pub registered_at: i64,
     pub last_heartbeat: i64,
+    /// The K8s controller (Deployment/StatefulSet) that owns this pod.
+    /// Populated via K8s awareness on registration. None when K8s awareness is disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controller: Option<ControllerRef>,
 }
 
 /// Lifecycle status of a writer pod.
@@ -116,10 +123,11 @@ mod tests {
     fn registered_pod_roundtrip() {
         let pod = RegisteredPod {
             pod_name: "personhog-writer-0".to_string(),
-            generation: "blue".to_string(),
+            generation: String::new(),
             status: PodStatus::Ready,
             registered_at: 1700000000,
             last_heartbeat: 1700000010,
+            controller: None,
         };
         let json = serde_json::to_string(&pod).unwrap();
         let deserialized: RegisteredPod = serde_json::from_str(&json).unwrap();

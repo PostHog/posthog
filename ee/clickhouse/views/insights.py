@@ -9,11 +9,11 @@ from posthog.api.insight import InsightViewSet, capture_legacy_api_call
 from posthog.api.utils import action
 from posthog.decorators import cached_by_filters
 from posthog.models import Insight
-from posthog.models.dashboard import Dashboard
 from posthog.models.filters import Filter
 
+from products.dashboards.backend.models.dashboard import Dashboard
+
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
-from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 
 
 class CanEditInsight(BasePermission):
@@ -28,7 +28,6 @@ class CanEditInsight(BasePermission):
 
 class EnterpriseInsightsViewSet(InsightViewSet):
     permission_classes = [CanEditInsight]
-    stickiness_query_class = ClickhouseStickiness
 
     # ******************************************
     # /projects/:id/insights/funnel/correlation

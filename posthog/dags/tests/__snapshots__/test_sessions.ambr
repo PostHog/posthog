@@ -1,0 +1,21 @@
+# serializer version: 1
+# name: TestExperimentalBackfillChunking.test_chunking_sql[distinct_id_chunks]
+  list([
+    "INSERT INTO raw_sessions_v3 SELECT ... WHERE ('2025-06-15' <= timestamp AND timestamp <= '2025-06-16') AND cityHash64(distinct_id) < 4611686018427387904",
+    "INSERT INTO raw_sessions_v3 SELECT ... WHERE ('2025-06-15' <= timestamp AND timestamp <= '2025-06-16') AND cityHash64(distinct_id) >= 4611686018427387904 AND cityHash64(distinct_id) < 9223372036854775808",
+    "INSERT INTO raw_sessions_v3 SELECT ... WHERE ('2025-06-15' <= timestamp AND timestamp <= '2025-06-16') AND cityHash64(distinct_id) >= 9223372036854775808 AND cityHash64(distinct_id) < 13835058055282163712",
+    "INSERT INTO raw_sessions_v3 SELECT ... WHERE ('2025-06-15' <= timestamp AND timestamp <= '2025-06-16') AND cityHash64(distinct_id) >= 13835058055282163712",
+  ])
+# ---
+# name: TestExperimentalBackfillChunking.test_chunking_sql[no_chunks]
+  list([
+    "INSERT INTO raw_sessions_v3 SELECT ... WHERE '2025-06-15' <= timestamp AND timestamp <= '2025-06-16'",
+  ])
+# ---
+# name: TestExperimentalBackfillChunking.test_chunking_sql[team_id_chunks]
+  list([
+    "INSERT INTO raw_sessions_v3 SELECT ... WHERE ('2025-06-15' <= timestamp AND timestamp <= '2025-06-16') AND team_id % 3 = 0",
+    "INSERT INTO raw_sessions_v3 SELECT ... WHERE ('2025-06-15' <= timestamp AND timestamp <= '2025-06-16') AND team_id % 3 = 1",
+    "INSERT INTO raw_sessions_v3 SELECT ... WHERE ('2025-06-15' <= timestamp AND timestamp <= '2025-06-16') AND team_id % 3 = 2",
+  ])
+# ---

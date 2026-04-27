@@ -25,6 +25,7 @@ Before we do a full review, please:
 - Respond to automated review feedback (e.g. Greptile comments) where applicable.
 - Keep the change focused; add tests and docs where it meaningfully improves clarity.
 - Follow existing patterns and conventions in the areas you touch.
+- If AI helped write your contribution, read our [AI contributions policy](AI_POLICY.md) — we expect disclosure and full understanding of the code you submit.
 
 Escalation/deferral can happen for security-sensitive or critical paths, unclear product impact, or when support load is high—another engineer may pick it up later. We sometimes reward helpful contributions with merch even if a PR doesn’t merge.
 

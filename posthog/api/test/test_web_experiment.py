@@ -5,7 +5,7 @@ from unittest.mock import ANY, patch
 
 from rest_framework import status
 
-from posthog.models import WebExperiment
+from products.experiments.backend.models.web_experiment import WebExperiment
 
 
 class TestWebExperiment(APIBaseTest):
@@ -99,6 +99,7 @@ class TestWebExperiment(APIBaseTest):
                 "has_description": False,
                 "variant_count": 2,
                 "created_at": web_experiment.created_at,
+                "creation_mode": "new",
             },
             team=ANY,
             request=ANY,

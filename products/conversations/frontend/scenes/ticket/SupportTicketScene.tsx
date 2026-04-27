@@ -7,7 +7,9 @@ import { LemonButton, LemonCard, LemonSelect, LemonTag, Link, Spinner } from '@p
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -62,6 +64,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         hasUnsavedChanges,
         draftContent,
         draftIsPrivate,
+        snoozedUntil,
         suggesting,
     } = useValues(logic)
     const {
@@ -69,6 +72,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setPriority,
         setAssignee,
         setTags,
+        setSnoozedUntil,
         sendMessage,
         updateTicket,
         loadOlderMessages,
@@ -163,6 +167,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
+                        minHeight="min(400px, calc(100svh - 320px))"
+                        maxHeight="min(600px, calc(100svh - 320px))"
                         extraActions={
                             aiSuggestionEnabled ? (
                                 <AIConsentPopoverWrapper>
@@ -181,7 +187,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         }
                     />
                     <div className="hidden lg:block">
-                        <Resizer {...resizerLogicProps} />
+                        <Resizer {...resizerLogicProps} className="z-20" />
                     </div>
                 </div>
 
@@ -251,7 +257,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex justify-between">
                                     <span className="text-muted-alt">Channel</span>
                                     <span className="capitalize">
-                                        <ChannelsTag channel={ticket.channel_source} />
+                                        <ChannelsTag channel={ticket.channel_source} detail={ticket.channel_detail} />
                                     </span>
                                 </div>
                             )}
@@ -270,6 +276,43 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         </Link>
                                     </div>
                                 )}
+                            {ticket?.channel_source === 'email' && ticket?.email_subject && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">Subject</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_subject}>
+                                        {ticket.email_subject}
+                                    </span>
+                                </div>
+                            )}
+                            {ticket?.channel_source === 'email' && ticket?.email_from && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">From</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_from}>
+                                        {ticket.email_from}
+                                    </span>
+                                </div>
+                            )}
+                            {ticket?.channel_source === 'email' &&
+                                ticket?.cc_participants &&
+                                ticket.cc_participants.length > 0 && (
+                                    <div className="flex justify-between items-start gap-2">
+                                        <span className="text-muted-alt shrink-0">CC</span>
+                                        <span
+                                            className="text-xs truncate text-right"
+                                            title={ticket.cc_participants.join(', ')}
+                                        >
+                                            {ticket.cc_participants.join(', ')}
+                                        </span>
+                                    </div>
+                                )}
+                            {ticket?.channel_source === 'email' && ticket?.email_to && (
+                                <div className="flex justify-between items-start gap-2">
+                                    <span className="text-muted-alt shrink-0">To</span>
+                                    <span className="text-xs truncate text-right" title={ticket.email_to}>
+                                        {ticket.email_to}
+                                    </span>
+                                </div>
+                            )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>
@@ -327,6 +370,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <SlaDisplay slaDueAt={ticket.sla_due_at} />
                                 </div>
                             )}
+                            <div className="flex justify-between items-center">
+                                <span className="text-muted-alt">Snooze</span>
+                                <LemonCalendarSelectInput
+                                    value={snoozedUntil ? dayjs(snoozedUntil) : null}
+                                    onChange={(date) =>
+                                        setSnoozedUntil(date ? date.startOf('minute').toISOString() : null)
+                                    }
+                                    granularity="minute"
+                                    selectionPeriod="upcoming"
+                                    clearable
+                                    placeholder="Not snoozed"
+                                    buttonProps={{ size: 'small', type: 'secondary', fullWidth: false }}
+                                />
+                            </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Tags</span>
                                 <TicketTags tags={tags} onChange={setTags} saving={false} />

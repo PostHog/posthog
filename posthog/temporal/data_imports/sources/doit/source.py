@@ -68,7 +68,7 @@ class DoItSource(SimpleSource[DoItSourceConfig]):
                     SourceFieldInputConfig(
                         name="api_key",
                         label="API key",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
                     )

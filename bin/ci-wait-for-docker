@@ -1,0 +1,340 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# CI-only helper around Docker Compose startup and readiness checks.
+#
+# `launch` starts services with the current Compose context and returns
+# immediately when `--background` is used so the runner can do other work.
+# `wait` delegates readiness polling to bin/wait-for-docker. It waits for any
+# in-flight background `launch` for the same Compose context before starting
+# health timeouts and retries only when timed-out services never materialized
+# into containers.
+#
+# The workflow must pass the Compose context via standard Docker Compose env
+# such as COMPOSE_FILE, COMPOSE_PROFILES, and any image/tag overrides.
+
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
+WAIT_RETRIES="${WAIT_FOR_DOCKER_RETRIES:-1}"
+WAIT_RETRY_TIMEOUT="${WAIT_FOR_DOCKER_RETRY_TIMEOUT:-120}"
+COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
+LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-1}"
+LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  bin/ci-wait-for-docker launch [--down|--down-all-profiles] [--background] [services...]
+  bin/ci-wait-for-docker wait [services...]
+
+`wait` is the default command when omitted.
+EOF
+}
+
+compose() {
+    local compose_files=()
+    local compose_args=()
+    local compose_file
+    local separator
+
+    if [ -n "${COMPOSE_FILE:-}" ]; then
+        separator="${COMPOSE_PATH_SEPARATOR:-:}"
+        IFS="$separator" read -r -a compose_files <<< "$COMPOSE_FILE"
+        for compose_file in "${compose_files[@]}"; do
+            if [ -n "$compose_file" ]; then
+                compose_args+=(-f "$compose_file")
+            fi
+        done
+        env -u COMPOSE_FILE docker compose "${compose_args[@]}" "$@"
+    else
+        docker compose -f "$DEFAULT_COMPOSE_FILE" "$@"
+    fi
+}
+
+background_launch_pid_file() {
+    local compose_file="${COMPOSE_FILE:-$DEFAULT_COMPOSE_FILE}"
+    local state_key
+
+    state_key=$(printf '%s\n%s\n%s\n' "$REPO_ROOT" "$compose_file" "${COMPOSE_PROFILES:-}" | cksum | awk '{print $1}')
+    printf '%s/ci-wait-for-docker-%s.pid\n' "${TMPDIR:-/tmp}" "$state_key"
+}
+
+read_background_launch_pid() {
+    local pid_file
+    pid_file="$(background_launch_pid_file)"
+    if [ -f "$pid_file" ]; then
+        cat "$pid_file"
+    fi
+}
+
+clear_background_launch_pid() {
+    rm -f "$(background_launch_pid_file)"
+}
+
+background_launch_is_running() {
+    local launch_pid="${1:-}"
+
+    if [ -z "$launch_pid" ]; then
+        return 1
+    fi
+
+    kill -0 "$launch_pid" 2>/dev/null
+}
+
+wait_for_background_launch() {
+    local launch_pid
+    local wait_start
+    local last_progress_log=-10
+    local elapsed
+
+    launch_pid="$(read_background_launch_pid)"
+    if ! background_launch_is_running "$launch_pid"; then
+        if [ -n "$launch_pid" ]; then
+            clear_background_launch_pid
+        fi
+        return 1
+    fi
+
+    echo "Docker Compose launch is still running in background (pid ${launch_pid}); waiting for it to finish..."
+    wait_start=$SECONDS
+    while background_launch_is_running "$launch_pid"; do
+        elapsed=$(( SECONDS - wait_start ))
+        if [ "$elapsed" -ge "$COMPOSE_WAIT_TIMEOUT" ]; then
+            echo "Timed out after ${COMPOSE_WAIT_TIMEOUT}s waiting for background docker compose launch to finish."
+            return 2
+        fi
+
+        if [ $(( elapsed - last_progress_log )) -ge 10 ]; then
+            echo "Waiting for background docker compose launch to finish... (${elapsed}s)"
+            last_progress_log=$elapsed
+        fi
+        sleep 2
+    done
+
+    echo "Background docker compose launch finished after $(( SECONDS - wait_start ))s."
+    clear_background_launch_pid
+    return 0
+}
+
+dedupe_services() {
+    local deduped=()
+    local svc existing already_present
+
+    for svc in "$@"; do
+        already_present=0
+        for existing in "${deduped[@]:-}"; do
+            if [ "$existing" = "$svc" ]; then
+                already_present=1
+                break
+            fi
+        done
+        if [ "$already_present" -eq 0 ]; then
+            deduped+=("$svc")
+        fi
+    done
+
+    printf '%s\n' "${deduped[@]}"
+}
+
+compose_up() {
+    if [ "$#" -eq 0 ]; then
+        compose up -d
+    else
+        compose up -d "$@"
+    fi
+}
+
+missing_services() {
+    local services=("$@")
+    local missing=()
+    local svc
+
+    for svc in "${services[@]}"; do
+        if [ -z "$(compose ps -q "$svc" 2>/dev/null || true)" ]; then
+            missing+=("$svc")
+        fi
+    done
+
+    printf '%s\n' "${missing[@]}"
+}
+
+run_launch_once() {
+    local down_mode="$1"
+    shift
+
+    case "$down_mode" in
+        current)
+            compose down
+            ;;
+        all_profiles)
+            compose --profile '*' down
+            ;;
+        none)
+            ;;
+        *)
+            echo "Unknown down mode: $down_mode" >&2
+            return 2
+            ;;
+    esac
+
+    compose_up "$@"
+}
+
+run_launch() {
+    local down_mode="none"
+    local background=0
+    local launch_services=()
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --down)
+                down_mode="current"
+                ;;
+            --down-all-profiles)
+                down_mode="all_profiles"
+                ;;
+            --background)
+                background=1
+                ;;
+            --help|-h)
+                usage
+                return 0
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*)
+                echo "Unknown launch option: $1" >&2
+                return 2
+                ;;
+            *)
+                break
+                ;;
+        esac
+        shift
+    done
+
+    launch_services=("$@")
+
+    launch_runner() {
+        local inner_attempt=1
+        local inner_sleep_time
+
+        while [ "$inner_attempt" -le "$LAUNCH_RETRIES" ]; do
+            if run_launch_once "$down_mode" "${launch_services[@]}"; then
+                echo "Docker Compose launch succeeded"
+                return 0
+            fi
+
+            if [ "$inner_attempt" -ge "$LAUNCH_RETRIES" ]; then
+                echo "Docker Compose launch failed after ${LAUNCH_RETRIES} attempt(s)" >&2
+                return 1
+            fi
+
+            inner_sleep_time=$(( LAUNCH_RETRY_DELAY * 2 ** (inner_attempt - 1) ))
+            echo "Docker Compose launch failed (attempt ${inner_attempt}/${LAUNCH_RETRIES}), retrying in ${inner_sleep_time}s..."
+            sleep "$inner_sleep_time"
+            inner_attempt=$(( inner_attempt + 1 ))
+        done
+    }
+
+    if [ "$background" -eq 1 ]; then
+        local pid_file
+
+        pid_file="$(background_launch_pid_file)"
+        clear_background_launch_pid
+        (
+            printf '%s\n' "$BASHPID" > "$pid_file"
+            trap 'rm -f "$pid_file"' EXIT
+            launch_runner
+        ) &
+        echo "Docker Compose launch started in background (pid $!)."
+        return 0
+    fi
+
+    clear_background_launch_pid
+    launch_runner
+}
+
+run_wait() {
+    local core_services=(db redis7 kafka clickhouse)
+    local wait_services=("${core_services[@]}" "$@")
+    local initial_timeout="${WAIT_FOR_DOCKER_TIMEOUT:-300}"
+    local current_timeout="$initial_timeout"
+    local attempt=0
+    local missing=()
+    local launch_wait_status
+
+    mapfile -t wait_services < <(dedupe_services "${wait_services[@]}")
+
+    while true; do
+        if wait_for_background_launch; then
+            launch_wait_status=0
+        else
+            launch_wait_status=$?
+        fi
+        if [ "$launch_wait_status" -eq 2 ]; then
+            echo "Proceeding with readiness checks even though the background docker compose launch is still running."
+        fi
+
+        if WAIT_FOR_DOCKER_TIMEOUT="$current_timeout" "${SCRIPT_DIR}/wait-for-docker" "$@"; then
+            return 0
+        fi
+
+        mapfile -t missing < <(missing_services "${wait_services[@]}")
+        if [ "${#missing[@]}" -eq 0 ] || [ -z "${missing[0]}" ]; then
+            return 1
+        fi
+
+        if wait_for_background_launch; then
+            launch_wait_status=0
+        else
+            launch_wait_status=$?
+        fi
+        if [ "$launch_wait_status" -eq 0 ]; then
+            echo "Background docker compose launch finished after the timeout. Re-running readiness checks before issuing any retry."
+            current_timeout="$initial_timeout"
+            continue
+        fi
+        if [ "$launch_wait_status" -eq 2 ]; then
+            echo "Background docker compose launch is still running. Skipping compose retry to avoid colliding with the in-flight launch."
+            return 1
+        fi
+
+        if [ "$attempt" -ge "$WAIT_RETRIES" ]; then
+            return 1
+        fi
+
+        attempt=$(( attempt + 1 ))
+        echo "Retry ${attempt}/${WAIT_RETRIES}: re-running docker compose up for missing services: ${missing[*]}"
+        if ! compose_up "${missing[@]}"; then
+            echo "Retry ${attempt}/${WAIT_RETRIES} failed while starting: ${missing[*]}"
+        fi
+        current_timeout="$WAIT_RETRY_TIMEOUT"
+    done
+}
+
+command="${1:-wait}"
+case "$command" in
+    launch|wait)
+        shift
+        ;;
+    --help|-h)
+        usage
+        exit 0
+        ;;
+    *)
+        command="wait"
+        ;;
+esac
+
+case "$command" in
+    launch)
+        run_launch "$@"
+        ;;
+    wait)
+        run_wait "$@"
+        ;;
+esac

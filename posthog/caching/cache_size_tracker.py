@@ -145,16 +145,9 @@ class TeamCacheSizeTracker:
         self._cache = cache_backend or cache
         self.redis_client = redis_client or redis.get_client()
         self._is_cluster = is_cluster
-        if self._is_cluster:
-            # Redis Cluster requires all keys in a multi-key Lua script to be on the same shard
-            # Wrap in braces to only hash on team_id
-            self.entries_key = f"posthog:cache_sizes:{{{team_id}}}"
-            self.sizes_key = f"posthog:cache_entry_sizes:{{{team_id}}}"
-            self.total_key = f"posthog:cache_total:{{{team_id}}}"
-        else:
-            self.entries_key = f"posthog:cache_sizes:{team_id}"
-            self.sizes_key = f"posthog:cache_entry_sizes:{team_id}"
-            self.total_key = f"posthog:cache_total:{team_id}"
+        self.entries_key = f"posthog:cache_sizes:{{{team_id}}}"
+        self.sizes_key = f"posthog:cache_entry_sizes:{{{team_id}}}"
+        self.total_key = f"posthog:cache_total:{{{team_id}}}"
 
         self._track_write_script = self.redis_client.register_script(TRACK_CACHE_WRITE_SCRIPT)
         self._remove_tracking_script = self.redis_client.register_script(REMOVE_TRACKING_SCRIPT)

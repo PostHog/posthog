@@ -11,9 +11,9 @@ operations = [
         SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
         node_roles=[NodeRole.DATA],
     ),
-    # Create the readable distributed table on DATA and COORDINATOR nodes
+    # Create the readable distributed table on DATA nodes
     run_sql_with_exceptions(
         DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE_SQL(),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
 ]

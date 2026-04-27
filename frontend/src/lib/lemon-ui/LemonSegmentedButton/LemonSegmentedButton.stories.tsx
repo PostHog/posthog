@@ -1,14 +1,14 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { IconBook, IconCalculator, IconCalendar, IconGear } from '@posthog/icons'
 
 import { LemonSegmentedButton, LemonSegmentedButtonOption, LemonSegmentedButtonProps } from './LemonSegmentedButton'
 
-type Story = StoryObj<typeof LemonSegmentedButton>
-const meta: Meta<typeof LemonSegmentedButton> = {
+type Story = StoryObj<LemonSegmentedButtonProps<string>>
+const meta: Meta<LemonSegmentedButtonProps<string>> = {
     title: 'Lemon UI/Lemon Segmented Button',
-    component: LemonSegmentedButton,
+    component: LemonSegmentedButton as any,
     argTypes: {
         options: {
             control: {
@@ -33,31 +33,32 @@ const meta: Meta<typeof LemonSegmentedButton> = {
         ] as LemonSegmentedButtonOption<string>[],
     },
     tags: ['autodocs'],
+    render: (props) => {
+        const [value, setValue] = useState(props.options[1]?.value)
+
+        return <LemonSegmentedButton {...props} value={value} onChange={(newValue) => setValue(newValue)} />
+    },
 }
 export default meta
 
-const Template: StoryFn<typeof LemonSegmentedButton> = (
-    props: Omit<LemonSegmentedButtonProps<any>, 'value' | 'onChange'>
-) => {
-    const [value, setValue] = useState(props.options[1]?.value)
-
-    return <LemonSegmentedButton {...props} value={value} onChange={(newValue) => setValue(newValue)} />
+export const Default: Story = {
+    args: {},
 }
 
-export const Default: Story = Template.bind({})
-Default.args = {}
-
-export const FullWidth: Story = Template.bind({})
-FullWidth.args = {
-    fullWidth: true,
+export const FullWidth: Story = {
+    args: {
+        fullWidth: true,
+    },
 }
 
-export const Small: Story = Template.bind({})
-Small.args = {
-    size: 'small',
+export const Small: Story = {
+    args: {
+        size: 'small',
+    },
 }
 
-export const Disabled: Story = Template.bind({})
-Disabled.args = {
-    disabledReason: 'Choose a chart type first.',
+export const Disabled: Story = {
+    args: {
+        disabledReason: 'Choose a chart type first.',
+    },
 }

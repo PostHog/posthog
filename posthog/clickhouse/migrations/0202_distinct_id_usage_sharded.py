@@ -29,6 +29,6 @@ operations = [
     # Use SYNC because it was a replicated table
     run_sql_with_exceptions(
         "DROP TABLE IF EXISTS distinct_id_usage SYNC",
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
 ]

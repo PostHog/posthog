@@ -24,6 +24,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RetoolInstallation,
     RubyInstallation,
@@ -39,10 +40,13 @@ import {
     WordpressInstallation,
     WebInstallation,
     ZapierInstallation,
+    NodeEventCapture,
+    PythonEventCapture,
 } from '@posthog/shared-onboarding/product-analytics'
 import { StepDefinition } from '@posthog/shared-onboarding/steps'
 
 import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { JS_WEB_SNIPPETS } from 'scenes/onboarding/sdks/shared/jsWebSnippets'
 
 import { SDKInstructionsMap, SDKKey, SDKTag, SDKTagOverrides } from '~/types'
 
@@ -75,78 +79,112 @@ function workflowsModifySteps(steps: StepDefinition[]): StepDefinition[] {
     ]
 }
 
+const NODE_SNIPPETS = { NodeEventCapture }
+const PYTHON_SNIPPETS = { PythonEventCapture }
+
 // JS Web SDKs
 const WorkflowsWebInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: WebInstallation,
     modifySteps: workflowsModifySteps,
+    snippets: JS_WEB_SNIPPETS,
 })
 
 // Frontend frameworks
 const WorkflowsReactInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'React',
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsNextJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NextJSInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Next.js',
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsSvelteInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SvelteInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Svelte',
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsAstroInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AstroInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Astro',
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsTanStackInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: TanStackInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'TanStack Start',
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsAngularInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AngularInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Angular',
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsVueInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: VueInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Vue',
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Nuxt',
+    snippets: JS_WEB_SNIPPETS,
+})
+const WorkflowsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    modifySteps: workflowsModifySteps,
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'React Router',
+    snippets: JS_WEB_SNIPPETS,
 })
 
 // Website builders
 const WorkflowsBubbleInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: BubbleInstallation,
     modifySteps: workflowsModifySteps,
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsFramerInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FramerInstallation,
     modifySteps: workflowsModifySteps,
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsWebflowInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: WebflowInstallation,
     modifySteps: workflowsModifySteps,
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsDocusaurusInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: DocusaurusInstallation,
     modifySteps: workflowsModifySteps,
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsGoogleTagManagerInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: GoogleTagManagerInstallation,
     modifySteps: workflowsModifySteps,
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsShopifyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ShopifyInstallation,
     modifySteps: workflowsModifySteps,
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsWordpressInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: WordpressInstallation,
     modifySteps: workflowsModifySteps,
+    snippets: JS_WEB_SNIPPETS,
 })
 const WorkflowsRetoolInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RetoolInstallation,
@@ -157,10 +195,12 @@ const WorkflowsRetoolInstructionsWrapper = withOnboardingDocsWrapper({
 const WorkflowsAndroidInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AndroidInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Android',
 })
 const WorkflowsIOSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: IOSInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Swift',
 })
 const WorkflowsFlutterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: FlutterInstallation,
@@ -169,20 +209,26 @@ const WorkflowsFlutterInstructionsWrapper = withOnboardingDocsWrapper({
 const WorkflowsRNInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'React Native',
 })
 
 // Server-side SDKs
 const WorkflowsNodeInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NodeJSInstallation,
     modifySteps: workflowsModifySteps,
+    snippets: NODE_SNIPPETS,
 })
 const WorkflowsPythonInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PythonInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Python',
+    snippets: PYTHON_SNIPPETS,
 })
 const WorkflowsDjangoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: DjangoInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Django',
+    snippets: PYTHON_SNIPPETS,
 })
 const WorkflowsGoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: GoInstallation,
@@ -195,10 +241,12 @@ const WorkflowsPHPInstructionsWrapper = withOnboardingDocsWrapper({
 const WorkflowsLaravelInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: LaravelInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Laravel',
 })
 const WorkflowsRubyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyInstallation,
     modifySteps: workflowsModifySteps,
+    wizardIntegrationName: 'Ruby',
 })
 const WorkflowsElixirInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ElixirInstallation,
@@ -282,6 +330,7 @@ export const WorkflowsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: WorkflowsPythonInstructionsWrapper,
     [SDKKey.REACT]: WorkflowsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: WorkflowsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: WorkflowsReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: WorkflowsRemixJSInstructionsWrapper,
     [SDKKey.RETOOL]: WorkflowsRetoolInstructionsWrapper,
     [SDKKey.RUBY]: WorkflowsRubyInstructionsWrapper,

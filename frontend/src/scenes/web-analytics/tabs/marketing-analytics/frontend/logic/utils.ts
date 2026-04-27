@@ -322,7 +322,14 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 return buildConversionExpr(['conversion_signup_total_value', 'conversion_purchase_total_items'], _table)
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
-                return buildConversionExpr(['conversion_purchase_total_value', 'conversion_signup_total_value'], _table)
+                // Reddit Ads API: "Divide by 100: CONVERSION*TOTAL_VALUE"
+                // See: https://ads-api.reddit.com/docs/v3/operations/Get%20A%20Report
+                return buildConversionExpr(
+                    ['conversion_purchase_total_value', 'conversion_signup_total_value'],
+                    _table,
+                    (fields) => `SUM(${fields.map((f) => `ifNull(toFloat(${f}), 0) / 100`).join(' + ')})`,
+                    (fields) => fields.map((f) => `ifNull(toFloat(${f}), 0) / 100`).join(' + ')
+                )
             }
             return null
         },

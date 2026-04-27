@@ -16,9 +16,9 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.models import BatchExport
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema, RedshiftCopyInputs
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
+from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema, RedshiftCopyInputs
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     RedshiftBatchExportInputs,

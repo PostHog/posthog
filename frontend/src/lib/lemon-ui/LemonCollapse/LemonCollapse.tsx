@@ -40,7 +40,7 @@ interface LemonCollapsePropsMultiple<K extends React.Key> extends LemonCollapseP
     multiple: true
 }
 
-type LemonCollapseProps<K extends React.Key> = LemonCollapsePropsSingle<K> | LemonCollapsePropsMultiple<K>
+export type LemonCollapseProps<K extends React.Key> = LemonCollapsePropsSingle<K> | LemonCollapsePropsMultiple<K>
 
 export function LemonCollapse<K extends React.Key>({
     panels,

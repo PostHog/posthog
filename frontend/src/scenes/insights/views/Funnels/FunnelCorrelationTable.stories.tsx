@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
@@ -13,8 +13,8 @@ import { InsightLogicProps } from '~/types'
 
 import { FunnelCorrelationTable } from './FunnelCorrelationTable'
 
-type Story = StoryObj<typeof FunnelCorrelationTable>
-const meta: Meta<typeof FunnelCorrelationTable> = {
+type Story = StoryObj<{}>
+const meta: Meta = {
     title: 'Insights/FunnelCorrelationTable',
     component: FunnelCorrelationTable,
     decorators: [
@@ -24,35 +24,35 @@ const meta: Meta<typeof FunnelCorrelationTable> = {
             },
         }),
     ],
+    render: () => {
+        const [dashboardItemId] = useState(() => `FunnelCorrelationTableStory.${uniqueNode++}`)
+
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
+        const cachedInsight = { ...insight, short_id: dashboardItemId }
+
+        const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
+
+        const dataNodeLogicProps: DataNodeLogicProps = {
+            query: insight.query.source,
+            key: insightVizDataNodeKey(insightProps),
+            cachedResults: getCachedResults(insightProps.cachedInsight, insight.query.source),
+            doNotLoad: insightProps.doNotLoad,
+        }
+
+        return (
+            <BindLogic logic={insightLogic} props={insightProps}>
+                <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                    <FunnelCorrelationTable />
+                </BindLogic>
+            </BindLogic>
+        )
+    },
 }
 export default meta
 
 let uniqueNode = 0
 
-const Template: StoryFn<typeof FunnelCorrelationTable> = () => {
-    const [dashboardItemId] = useState(() => `FunnelCorrelationTableStory.${uniqueNode++}`)
-
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json')
-    const cachedInsight = { ...insight, short_id: dashboardItemId }
-
-    const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
-
-    const dataNodeLogicProps: DataNodeLogicProps = {
-        query: insight.query.source,
-        key: insightVizDataNodeKey(insightProps),
-        cachedResults: getCachedResults(insightProps.cachedInsight, insight.query.source),
-        doNotLoad: insightProps.doNotLoad,
-    }
-
-    return (
-        <BindLogic logic={insightLogic} props={insightProps}>
-            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <FunnelCorrelationTable />
-            </BindLogic>
-        </BindLogic>
-    )
+export const Default: Story = {
+    args: {},
 }
-
-export const Default: Story = Template.bind({})
-Default.args = {}

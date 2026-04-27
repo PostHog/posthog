@@ -12,13 +12,13 @@
  * Invoked by `hogli build:openapi-mcp-types`.
  */
 /* eslint-disable no-console */
-import { execSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { preprocessSchema } from '@posthog/openapi-codegen'
+import { preprocessSchema, runOrvalParallel } from '@posthog/openapi-codegen'
 
 import { resolveSchemaPath } from './lib/definitions.mjs'
 
@@ -41,45 +41,40 @@ const schema = preprocessSchema(JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-types-'))
 
 const tempSchemaFile = path.join(tmpDir, 'openapi.json')
-const configFile = path.join(tmpDir, 'orval.config.mjs')
 const tempTargetFile = path.join(tmpDir, 'generated.ts')
 const tempSchemasFile = path.join(tmpDir, 'generated.schemas.ts')
 
 fs.writeFileSync(tempSchemaFile, JSON.stringify(schema, null, 2))
 
-const config = `
-import { defineConfig } from 'orval';
-export default defineConfig({
-  api: {
-    input: '${tempSchemaFile}',
-    output: {
-      target: '${tempTargetFile}',
-      mode: 'split',
-      client: 'fetch',
-      prettier: false,
-      override: {
-        header: () => [],
-        namingConvention: {
-          enum: 'PascalCase',
+const results = await runOrvalParallel([
+    {
+        label: 'mcp-types',
+        config: {
+            input: tempSchemaFile,
+            output: {
+                target: tempTargetFile,
+                mode: 'split',
+                client: 'fetch',
+                prettier: false,
+                override: {
+                    header: () => [],
+                    namingConvention: {
+                        enum: 'PascalCase',
+                    },
+                    fetch: {
+                        includeHttpResponseReturnType: false,
+                    },
+                    components: {
+                        schemas: { suffix: '' },
+                    },
+                },
+            },
         },
-        fetch: {
-          includeHttpResponseReturnType: false,
-        },
-        components: {
-          schemas: { suffix: '' },
-        },
-      },
     },
-  },
-});
-`
+])
 
-fs.writeFileSync(configFile, config)
-
-try {
-    execSync(`pnpm exec orval --config "${configFile}"`, { stdio: 'pipe', cwd: repoRoot })
-} catch (err) {
-    console.error(`Orval failed: ${err.message}`)
+if (results[0].status === 'rejected') {
+    console.error(`Orval failed: ${results[0].reason.message}`)
     process.exit(1)
 }
 

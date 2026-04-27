@@ -1,7 +1,10 @@
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
+import { createMockIngestionOutputs } from '../../../tests/helpers/mock-ingestion-outputs'
 import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { cloneObject } from '../../utils/utils'
+import { HEATMAPS_OUTPUT, HeatmapsOutput } from '../analytics/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineResultType } from '../pipelines/results'
 import { createExtractHeatmapDataStep } from './extract-heatmap-data-step'
 
@@ -42,18 +45,12 @@ const createTestEvent = (overrides: Partial<PreIngestionEvent> = {}): PreIngesti
 })
 
 describe('createExtractHeatmapDataStep', () => {
-    let mockProducer: jest.Mocked<KafkaProducerWrapper>
+    let mockOutputs: jest.Mocked<IngestionOutputs<HeatmapsOutput>>
     let step: ReturnType<typeof createExtractHeatmapDataStep>
 
     beforeEach(() => {
-        mockProducer = {
-            queueMessages: jest.fn(() => Promise.resolve()),
-        } as any
-
-        step = createExtractHeatmapDataStep({
-            kafkaProducer: mockProducer,
-            CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: 'clickhouse_heatmaps_test',
-        })
+        mockOutputs = createMockIngestionOutputs<HeatmapsOutput>()
+        step = createExtractHeatmapDataStep(mockOutputs)
     })
 
     describe('no heatmap or scroll depth data', () => {
@@ -69,7 +66,7 @@ describe('createExtractHeatmapDataStep', () => {
                 expect(result.sideEffects).toEqual([])
                 expect(result.warnings).toEqual([])
             }
-            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         })
 
         it('returns early when $heatmap_data is null', async () => {
@@ -79,7 +76,7 @@ describe('createExtractHeatmapDataStep', () => {
             const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         })
 
         it('returns early when $heatmap_data is undefined', async () => {
@@ -89,7 +86,7 @@ describe('createExtractHeatmapDataStep', () => {
             const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         })
     })
 
@@ -115,22 +112,21 @@ describe('createExtractHeatmapDataStep', () => {
                 expect(result.warnings).toEqual([])
             }
 
-            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-            expect(mockProducer.queueMessages).toHaveBeenCalledWith({
-                topic: 'clickhouse_heatmaps_test',
-                messages: expect.arrayContaining([
+            expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
+            expect(mockOutputs.queueMessages).toHaveBeenCalledWith(
+                HEATMAPS_OUTPUT,
+                expect.arrayContaining([
                     expect.objectContaining({
                         key: '018eebf3-cb48-750b-bfad-36409ea6f2b2',
-                        value: expect.any(String),
+                        value: expect.any(Buffer),
                     }),
-                ]),
-            })
+                ])
+            )
 
-            const topicMessages = mockProducer.queueMessages.mock.calls[0][0]
-            const queuedMessages = Array.isArray(topicMessages) ? topicMessages[0].messages : topicMessages.messages
+            const queuedMessages = mockOutputs.queueMessages.mock.calls[0][1]
             expect(queuedMessages).toHaveLength(2)
 
-            const firstMessage = parseJSON(queuedMessages[0].value as string)
+            const firstMessage = parseJSON(queuedMessages[0].value!.toString())
             expect(firstMessage).toMatchObject({
                 type: 'mousemove',
                 x: 64, // 1020 / 16
@@ -156,13 +152,12 @@ describe('createExtractHeatmapDataStep', () => {
             const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
 
-            const topicMessages = mockProducer.queueMessages.mock.calls[0][0]
-            const queuedMessages = Array.isArray(topicMessages) ? topicMessages[0].messages : topicMessages.messages
+            const queuedMessages = mockOutputs.queueMessages.mock.calls[0][1]
             expect(queuedMessages).toHaveLength(2)
 
-            const urls = queuedMessages.map((msg: any) => parseJSON(msg.value as string).current_url)
+            const urls = queuedMessages.map((msg: any) => parseJSON(msg.value!.toString()).current_url)
             expect(urls).toContain('http://localhost:3000/')
             expect(urls).toContain('http://localhost:3000/about')
         })
@@ -178,19 +173,18 @@ describe('createExtractHeatmapDataStep', () => {
             const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
 
-            const topicMessages = mockProducer.queueMessages.mock.calls[0][0]
-            const queuedMessages = Array.isArray(topicMessages) ? topicMessages[0].messages : topicMessages.messages
+            const queuedMessages = mockOutputs.queueMessages.mock.calls[0][1]
             expect(queuedMessages).toHaveLength(3) // 2 original + 1 scroll depth
 
             const scrollDepthMessage = queuedMessages.find((msg: any) => {
-                const parsed = parseJSON(msg.value as string)
+                const parsed = parseJSON(msg.value!.toString())
                 return parsed.type === 'scrolldepth'
             })
 
             expect(scrollDepthMessage).toBeDefined()
-            const scrollData = parseJSON(scrollDepthMessage!.value as string)
+            const scrollData = parseJSON(scrollDepthMessage!.value!.toString())
             expect(scrollData).toMatchObject({
                 type: 'scrolldepth',
                 x: 0,
@@ -215,14 +209,13 @@ describe('createExtractHeatmapDataStep', () => {
             const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
 
-            const topicMessages = mockProducer.queueMessages.mock.calls[0][0]
-            const queuedMessages = Array.isArray(topicMessages) ? topicMessages[0].messages : topicMessages.messages
+            const queuedMessages = mockOutputs.queueMessages.mock.calls[0][1]
             expect(queuedMessages).toHaveLength(1) // Only scroll depth, no heatmap data
 
             const scrollDepthMessage = queuedMessages[0]
-            const scrollData = parseJSON(scrollDepthMessage.value as string)
+            const scrollData = parseJSON(scrollDepthMessage.value!.toString())
             expect(scrollData).toMatchObject({
                 type: 'scrolldepth',
                 x: 0,
@@ -245,7 +238,7 @@ describe('createExtractHeatmapDataStep', () => {
                 expect(result.value.preparedEvent.properties.$heatmap_data).toBeUndefined()
                 expect(result.sideEffects).toEqual([])
             }
-            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         })
 
         it('drops event with invalid distinct_id', async () => {
@@ -257,7 +250,7 @@ describe('createExtractHeatmapDataStep', () => {
             if (result.type === PipelineResultType.DROP) {
                 expect(result.reason).toBe('heatmap_invalid_distinct_id')
             }
-            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         })
 
         it('drops event with illegal distinct_id', async () => {
@@ -269,7 +262,7 @@ describe('createExtractHeatmapDataStep', () => {
             if (result.type === PipelineResultType.DROP) {
                 expect(result.reason).toBe('heatmap_invalid_distinct_id')
             }
-            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         })
 
         it('drops event with invalid viewport dimensions', async () => {
@@ -283,7 +276,7 @@ describe('createExtractHeatmapDataStep', () => {
             if (result.type === PipelineResultType.DROP) {
                 expect(result.reason).toBe('heatmap_invalid_viewport_dimensions')
             }
-            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         })
 
         it('drops event with missing viewport dimensions', async () => {
@@ -318,7 +311,7 @@ describe('createExtractHeatmapDataStep', () => {
                     key: '018eebf3-79cd-70da-895f-b6cf352bd688',
                 })
             }
-            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         })
 
         it('adds warning for non-array items in heatmap data', async () => {
@@ -341,7 +334,7 @@ describe('createExtractHeatmapDataStep', () => {
                     key: '018eebf3-79cd-70da-895f-b6cf352bd688',
                 })
             }
-            expect(mockProducer.queueMessages).not.toHaveBeenCalled()
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
         })
 
         it('filters out invalid heatmap items silently', async () => {
@@ -360,10 +353,9 @@ describe('createExtractHeatmapDataStep', () => {
             const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
 
-            const topicMessages = mockProducer.queueMessages.mock.calls[0][0]
-            const queuedMessages = Array.isArray(topicMessages) ? topicMessages[0].messages : topicMessages.messages
+            const queuedMessages = mockOutputs.queueMessages.mock.calls[0][1]
             expect(queuedMessages).toHaveLength(2) // Only 2 valid items
         })
     })
@@ -427,17 +419,52 @@ describe('createExtractHeatmapDataStep', () => {
             const result = await step({ preparedEvent: event })
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+            expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
 
-            const topicMessages = mockProducer.queueMessages.mock.calls[0][0]
-            const queuedMessages = Array.isArray(topicMessages) ? topicMessages[0].messages : topicMessages.messages
-            const message = parseJSON(queuedMessages[0].value as string)
+            const queuedMessages = mockOutputs.queueMessages.mock.calls[0][1]
+            const message = parseJSON(queuedMessages[0].value!.toString())
 
             expect(message.x).toBe(10) // 160 / 16
             expect(message.y).toBe(20) // 320 / 16
             expect(message.viewport_height).toBe(100) // 1600 / 16
             expect(message.viewport_width).toBe(80) // 1280 / 16
             expect(message.scale_factor).toBe(16)
+        })
+    })
+
+    describe('skip_heatmap_processing header (capture redirect)', () => {
+        it('skips extraction and passes event through unchanged when skip_heatmap_processing is true', async () => {
+            const event = createTestEvent()
+            const headers = createTestEventHeaders({ skip_heatmap_processing: true })
+
+            const result = await step({ preparedEvent: event, headers })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.preparedEvent).toBe(event)
+                expect(result.sideEffects).toEqual([])
+                expect(result.warnings).toEqual([])
+            }
+            expect(mockOutputs.queueMessages).not.toHaveBeenCalled()
+        })
+
+        it('extracts normally when skip_heatmap_processing is false', async () => {
+            const event = createTestEvent()
+            const headers = createTestEventHeaders({ skip_heatmap_processing: false })
+
+            const result = await step({ preparedEvent: event, headers })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
+        })
+
+        it('extracts normally when headers are not provided', async () => {
+            const event = createTestEvent()
+
+            const result = await step({ preparedEvent: event })
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(mockOutputs.queueMessages).toHaveBeenCalledTimes(1)
         })
     })
 })

@@ -41,6 +41,17 @@ export function PlayerShareMenu(): JSX.Element {
         newInternalTab(urls.replaySingle(sessionRecordingId))
     }
 
+    const onOpenInBrowserTab = (): void => {
+        if (!sessionRecordingId) {
+            return
+        }
+        const path = urls.replaySingle(sessionRecordingId)
+        const timestamp = getCurrentPlayerTime()
+        const separator = path.includes('?') ? '&' : '?'
+        const fullUrl = `${window.location.origin}${path}${timestamp ? `${separator}t=${timestamp}` : ''}`
+        window.open(fullUrl, '_blank', 'noopener,noreferrer')
+    }
+
     return (
         <LemonMenu
             items={[
@@ -50,6 +61,13 @@ export function PlayerShareMenu(): JSX.Element {
                     onClick: onOpenInNewTab,
                     disabledReason: !sessionRecordingId ? 'Recording not loaded yet' : undefined,
                     'data-attr': 'open-in-new-tab',
+                },
+                {
+                    label: 'Open in new browser tab',
+                    icon: <IconExternal />,
+                    onClick: onOpenInBrowserTab,
+                    disabledReason: !sessionRecordingId ? 'Recording not loaded yet' : undefined,
+                    'data-attr': 'open-in-browser-tab',
                 },
                 {
                     label: 'Share private link',

@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { ButtonTileCardModal } from 'lib/components/Cards/ButtonTileCard/ButtonTileCardModal'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
@@ -24,6 +25,8 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
         subscriptionId,
         showTextTileModal,
         textTileId,
+        showButtonTileModal,
+        buttonTileId,
         terraformModalOpen,
     } = useValues(dashboardLogic)
     const { setTerraformModalOpen } = useActions(dashboardLogic)
@@ -52,6 +55,12 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                         onClose={() => push(urls.dashboard(dashboard.id))}
                         dashboard={dashboard}
                         textTileId={textTileId}
+                    />
+                    <ButtonTileCardModal
+                        isOpen={showButtonTileModal}
+                        onClose={() => push(urls.dashboard(dashboard.id))}
+                        dashboard={dashboard}
+                        buttonTileId={buttonTileId}
                     />
                     <DeleteDashboardModal />
                     <DuplicateDashboardModal />

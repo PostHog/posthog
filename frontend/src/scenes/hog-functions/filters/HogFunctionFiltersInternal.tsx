@@ -39,6 +39,21 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$insight_alert_firing',
                 },
             ]
+        case 'logs-alerting':
+            return [
+                {
+                    label: 'Log alert firing',
+                    value: '$logs_alert_firing',
+                },
+                {
+                    label: 'Log alert resolved',
+                    value: '$logs_alert_resolved',
+                },
+                {
+                    label: 'Log alert auto-disabled',
+                    value: '$logs_alert_auto_disabled',
+                },
+            ]
         case 'discussion-mention':
             return [
                 {
@@ -78,7 +93,13 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
                 'created_at',
             ]
         case 'error-tracking':
-            return ['$exception_types', '$exception_values', '$exception_sources', '$exception_functions']
+            return [
+                '$exception_types',
+                '$exception_values',
+                '$exception_sources',
+                '$exception_functions',
+                '$exception_handled',
+            ]
     }
 
     return []

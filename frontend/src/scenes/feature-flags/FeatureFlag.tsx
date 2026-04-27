@@ -232,7 +232,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             label: 'Overview',
             key: FeatureFlagsTab.OVERVIEW,
             content: useFormUI ? (
-                <FeatureFlagOverviewV2 featureFlag={featureFlag} onGetFeedback={handleGetFeedback} />
+                <FeatureFlagOverviewV2 featureFlag={featureFlag} />
             ) : (
                 <>
                     <div className="flex flex-col gap-4">
@@ -305,20 +305,18 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         content: <FeedbackTab featureFlag={featureFlag} />,
     })
 
-    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_FF_CROSS_SELL] === 'test') {
-        tabs.push({
-            label: (
-                <div className="flex flex-row">
-                    <div>Experiments</div>
-                    <LemonTag className="ml-2 float-right uppercase" type="primary">
-                        New
-                    </LemonTag>
-                </div>
-            ),
-            key: FeatureFlagsTab.EXPERIMENTS,
-            content: <ExperimentsTab featureFlag={featureFlag} />,
-        })
-    }
+    tabs.push({
+        label: (
+            <div className="flex flex-row">
+                <div>Experiments</div>
+                <LemonTag className="ml-2 float-right uppercase" type="primary">
+                    New
+                </LemonTag>
+            </div>
+        ),
+        key: FeatureFlagsTab.EXPERIMENTS,
+        content: <ExperimentsTab featureFlag={featureFlag} />,
+    })
 
     return (
         <>
@@ -376,7 +374,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 <LemonBanner type="warning">
                                     This feature flag is linked to{' '}
                                     <Link target="_blank" to={urls.experiment(featureFlag.experiment_set[0])}>
-                                        {experiment?.name || `experiment ${featureFlag.experiment_set[0]}`}
+                                        {experiment?.name ||
+                                            featureFlag.experiment_set_metadata?.[0]?.name ||
+                                            `experiment ${featureFlag.experiment_set[0]}`}
                                     </Link>
                                     . Make changes from the experiment page unless you need advanced flag settings.
                                 </LemonBanner>
@@ -980,7 +980,11 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                             </Link>
                         </LemonBanner>
                     )}
-                    <Dashboard id={dashboardId!.toString()} placement={DashboardPlacement.FeatureFlag} />
+                    <Dashboard
+                        id={dashboardId!.toString()}
+                        placement={DashboardPlacement.FeatureFlag}
+                        backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlagKey }}
+                    />
                 </>
             ) : (
                 <div>
@@ -1124,6 +1128,7 @@ function FeatureFlagRollout({
                 <>
                     <FeatureFlagConditionWarning
                         properties={properties}
+                        filterGroups={filterGroups}
                         evaluationRuntime={featureFlag.evaluation_runtime}
                     />
                     <div className="flex flex-col">

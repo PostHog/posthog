@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "model_name": {
+            "description": "Filter by model type. Use \"FeatureFlag\" to see feature flag schedules.",
+            "type": "string"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "record_id": {
+            "description": "Filter by the ID of a specific feature flag.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

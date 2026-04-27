@@ -26,6 +26,7 @@ export const defaultDataTableGroupColumns: HogQLExpression[] = ['group_name', 'c
 
 export const defaultDataTableSessionColumns: HogQLExpression[] = [
     'session_id',
+    'session.distinct_id -- Distinct ID',
     '$start_timestamp',
     '$end_timestamp',
     '$session_duration',

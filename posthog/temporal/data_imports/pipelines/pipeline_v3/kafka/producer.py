@@ -36,6 +36,9 @@ class KafkaBatchProducer:
     _partition_mode: PartitionMode | None
     # Partial data loading fields
     _is_first_ever_sync: bool
+    # CDC write mode fields
+    _cdc_write_mode: str | None
+    _cdc_table_mode: str | None
 
     def __init__(
         self,
@@ -55,6 +58,8 @@ class KafkaBatchProducer:
         partition_format: PartitionFormat | None = None,
         partition_mode: PartitionMode | None = None,
         is_first_ever_sync: bool = False,
+        cdc_write_mode: str | None = None,
+        cdc_table_mode: str | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -76,6 +81,9 @@ class KafkaBatchProducer:
         self._partition_mode = partition_mode
         # Partial data loading fields
         self._is_first_ever_sync = is_first_ever_sync
+        # CDC write mode fields
+        self._cdc_write_mode = cdc_write_mode
+        self._cdc_table_mode = cdc_table_mode
 
     @property
     def sync_type(self) -> SyncTypeLiteral:
@@ -129,6 +137,8 @@ class KafkaBatchProducer:
             partition_mode=self._partition_mode,
             is_first_ever_sync=self._is_first_ever_sync,
             cumulative_row_count=cumulative_row_count,
+            cdc_write_mode=self._cdc_write_mode,
+            cdc_table_mode=self._cdc_table_mode,
         )
 
         self._logger.debug(

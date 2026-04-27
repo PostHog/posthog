@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { SparklineOptions } from '../components/SparklineChart/SparklineChart'
+import type { SparklineOptions } from '../components/VolumeSparkline/types'
 
 export function useSparklineOptions(overrides: Partial<SparklineOptions> = {}, deps: any[] = []): SparklineOptions {
     const colorVars = useDefaultSparklineColorVars()

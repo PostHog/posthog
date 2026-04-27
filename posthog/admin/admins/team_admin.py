@@ -21,8 +21,10 @@ from django.utils.safestring import mark_safe
 from structlog import get_logger
 from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
+from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
@@ -33,16 +35,17 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.delete_recordings.object_storage import store_session_id_chunks
-from posthog.temporal.delete_recordings.types import (
+from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
+from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
+from posthog.temporal.session_replay.delete_recordings.types import (
     DeletionConfig,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
     RecordingsWithSessionIdsInput,
     RecordingsWithTeamInput,
 )
-from posthog.temporal.export_recording.types import ExportRecordingInput
-from posthog.temporal.import_recording.types import ImportRecordingInput
+from posthog.temporal.session_replay.export_recording.types import ExportRecordingInput
+from posthog.temporal.session_replay.import_recording.types import ImportRecordingInput
 
 logger = get_logger()
 
@@ -92,7 +95,12 @@ class TeamAdmin(admin.ModelAdmin):
     ]
 
     exclude = DEPRECATED_ATTRS
-    inlines = [OrganizationMemberForRelatedInline, TeamMarketingAnalyticsConfigInline, UserProductListInline]
+    inlines = [
+        OrganizationMemberForRelatedInline,
+        TeamMarketingAnalyticsConfigInline,
+        TeamExperimentsConfigInline,
+        UserProductListInline,
+    ]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request
@@ -122,7 +130,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "timezone",
                     "week_start_day",
                     "base_currency",
-                    "slack_incoming_webhook",
                     "primary_dashboard",
                 ],
             },
@@ -599,12 +606,20 @@ class TeamAdmin(admin.ModelAdmin):
         """Fetch recent delete-recordings workflows for this team from Temporal."""
         try:
             temporal = sync_connect()
-            prefix = f"delete-recordings-{team_id}-"
-            query = f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~"'
+            # Use the PostHogTeamId search attribute (indexed) instead of WorkflowId range scan.
+            # WorkflowId range queries (>=, <) are not efficiently indexed and cause 30s+ timeouts.
+            workflow_types = [
+                "delete-recordings-with-person",
+                "delete-recordings-with-team",
+                "delete-recordings-with-query",
+                "delete-recordings-with-session-ids",
+            ]
+            type_clauses = " OR ".join(f'WorkflowType = "{wt}"' for wt in workflow_types)
+            query = f"PostHogTeamId = {team_id} AND ({type_clauses})"
 
             async def fetch_workflows():
                 workflows = []
-                async for wf in temporal.list_workflows(query=query):
+                async for wf in temporal.list_workflows(query=query, rpc_timeout=timedelta(seconds=5)):
                     workflows.append(
                         {
                             "id": wf.id,
@@ -663,6 +678,9 @@ class TeamAdmin(admin.ModelAdmin):
             temporal = sync_connect()
             workflow_id = f"delete-recordings-{team.id}-{uuid.uuid4()}"
             config = DeletionConfig(reason=reason, dry_run=dry_run, deleted_by=request.user.email)
+            team_search_attrs = TypedSearchAttributes(
+                search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.id)]
+            )
 
             if workflow_type == "person":
                 distinct_ids_raw = request.POST.get("distinct_ids", "").strip()
@@ -683,6 +701,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 
@@ -712,6 +731,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 
@@ -734,6 +754,14 @@ class TeamAdmin(admin.ModelAdmin):
 
                 date_from = request.POST.get("date_from", "").strip()
                 date_to = request.POST.get("date_to", "").strip()
+
+                # Relative dates need a "d" suffix (e.g. "-360d") — bare integers
+                # like "-360" get parsed as ints by query_as_params_to_dict and
+                # fail Pydantic validation downstream.
+                if date_from.lstrip("-").isdigit():
+                    date_from = f"{date_from}d"
+                if date_to.lstrip("-").isdigit():
+                    date_to = f"{date_to}d"
                 duration_min = request.POST.get("duration_min", "").strip()
                 duration_max = request.POST.get("duration_max", "").strip()
                 person_uuid = request.POST.get("person_uuid", "").strip()
@@ -805,6 +833,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 
@@ -872,6 +901,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 

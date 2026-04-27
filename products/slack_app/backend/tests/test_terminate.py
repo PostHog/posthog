@@ -11,7 +11,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.tasks import process_twig_task_termination
+from products.slack_app.backend.tasks import process_posthog_code_task_termination
 
 
 def _command_result(**kwargs):
@@ -20,7 +20,7 @@ def _command_result(**kwargs):
     return SimpleNamespace(**defaults)
 
 
-class TestProcessTwigTaskTermination(TestCase):
+class TestProcessPostHogCodeTaskTermination(TestCase):
     def setUp(self):
         self.Task = apps.get_model("tasks", "Task")
         self.TaskRun = apps.get_model("tasks", "TaskRun")
@@ -28,7 +28,7 @@ class TestProcessTwigTaskTermination(TestCase):
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
         self.integration = Integration.objects.create(
-            team=self.team, kind="slack-twig", integration_id="T_SLACK", config={}
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
         )
         self.task = self.Task.objects.create(
             team=self.team,
@@ -56,7 +56,7 @@ class TestProcessTwigTaskTermination(TestCase):
         )
         return {
             "type": "block_actions",
-            "actions": [{"action_id": "twig_terminate_task", "value": value, "action_ts": "1234567890.123"}],
+            "actions": [{"action_id": "posthog_code_terminate_task", "value": value, "action_ts": "1234567890.123"}],
             "user": {"id": user_id},
             "team": {"id": "T_SLACK"},
             "channel": {"id": "C123"},
@@ -75,7 +75,7 @@ class TestProcessTwigTaskTermination(TestCase):
         payload = self._make_payload()
 
         with patch("posthog.models.integration.SlackIntegration"):
-            process_twig_task_termination(payload)
+            process_posthog_code_task_termination(payload)
 
         mock_token.assert_called_once()
         mock_send_cancel.assert_called_once_with(self.task_run, auth_token="jwt-token")
@@ -95,7 +95,7 @@ class TestProcessTwigTaskTermination(TestCase):
 
         payload = self._make_payload()
         with patch("posthog.models.integration.SlackIntegration"):
-            process_twig_task_termination(payload)
+            process_posthog_code_task_termination(payload)
 
         mock_send_cancel.assert_called_once_with(self.task_run, auth_token="jwt-token")
         mock_handle.signal.assert_called_once()
@@ -113,7 +113,7 @@ class TestProcessTwigTaskTermination(TestCase):
             mock_client = MagicMock()
             mock_client.get_workflow_handle.return_value = mock_handle
             mock_sync_connect.return_value = mock_client
-            process_twig_task_termination(payload)
+            process_posthog_code_task_termination(payload)
             mock_send_cancel.assert_called_once_with(self.task_run, auth_token="jwt-token")
             mock_sync_connect.assert_called_once()
             mock_handle.signal.assert_called_once()
@@ -123,7 +123,7 @@ class TestProcessTwigTaskTermination(TestCase):
         payload["user"]["id"] = "U_BOB"
         # Should return early without any command or signal
         with patch("products.tasks.backend.services.agent_command.send_cancel") as mock_send:
-            process_twig_task_termination(payload)
+            process_posthog_code_task_termination(payload)
             mock_send.assert_not_called()
 
     @patch("posthog.models.integration.SlackIntegration")
@@ -134,7 +134,7 @@ class TestProcessTwigTaskTermination(TestCase):
         mock_slack_cls.return_value = mock_slack_instance
 
         payload = self._make_payload()
-        process_twig_task_termination(payload)
+        process_posthog_code_task_termination(payload)
 
         mock_slack_instance.client.chat_postMessage.assert_called_once()
         call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs

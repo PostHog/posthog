@@ -3,7 +3,10 @@ from datetime import datetime, timedelta
 
 from django.utils.timezone import now
 
+from posthog.schema import ProductKey
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.app_metrics.sql import (
     QUERY_APP_METRICS_DELIVERY_RATE,
     QUERY_APP_METRICS_ERROR_DETAILS,
@@ -25,6 +28,7 @@ class TeamPluginsDeliveryRateQuery:
         self.team = team
 
     def run(self):
+        tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
         results = sync_execute(
             self.QUERY,
             {

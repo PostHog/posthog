@@ -1,3 +1,5 @@
+import { getMarkRange } from '@tiptap/core'
+
 import {
     EditorFocusPosition,
     EditorRange,
@@ -29,6 +31,36 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         getMarks: (type: string) => getMarks(editor, type),
         setMark: (id: string) => editor.commands.setMark('comment', { id }),
         isActive: (name: string, attributes?: {}) => editor.isActive(name, attributes),
+        isSelectionFullyWithinSingleMark: (markName: string) => {
+            const markType = editor.schema.marks[markName]
+            if (!markType) {
+                return false
+            }
+            const { from, to } = editor.state.selection
+            if (from >= to) {
+                return false
+            }
+            // Use TipTap's mark range (same as extendMarkRange): walking text fragments with
+            // nodesBetween is unreliable for mark views / split inline content.
+            const $from = editor.state.doc.resolve(from)
+            // getMarkRange defaults attrs from marks[0]; pass the mark's attrs so link+bold+comment order doesn't break.
+            let markAttrs: Record<string, unknown> | undefined
+            editor.state.doc.nodesBetween(from, Math.min(from + 1, to), (node) => {
+                if (!node.isText) {
+                    return
+                }
+                const instance = node.marks.find((m) => m.type === markType)
+                if (instance) {
+                    markAttrs = instance.attrs
+                    return false
+                }
+            })
+            const range = getMarkRange($from, markType, markAttrs)
+            if (!range) {
+                return false
+            }
+            return range.from <= from && range.to >= to
+        },
         getMentions: () => getMentions(editor),
         deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
         insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
@@ -53,15 +85,17 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         hasChildOfType: (node: RichContentNode, type: string) => !!firstChildOfType(node, type),
         scrollToSelection: () => {
             queueMicrotask(() => {
-                const position = editor.state.selection.$anchor.pos
-                const domEl = editor.view.nodeDOM(position) as HTMLElement
-                domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                editor.commands.scrollIntoView()
             })
         },
         scrollToPosition(position) {
             queueMicrotask(() => {
-                const domEl = editor.view.nodeDOM(position) as HTMLElement
-                domEl.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' })
+                const { node } = editor.view.domAtPos(position)
+                const element =
+                    node.nodeType === Node.TEXT_NODE
+                        ? (node.parentElement as HTMLElement | null)
+                        : (node as HTMLElement)
+                element?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
             })
         },
     }

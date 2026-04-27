@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A unique integer value identifying this cohort.",
+            "type": "number"
+        },
+        "person_id": {
+            "description": "Person UUID to remove from the cohort",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

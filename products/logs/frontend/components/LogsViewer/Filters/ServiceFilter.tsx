@@ -1,11 +1,52 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { CSSProperties, useCallback, useMemo } from 'react'
+import { List } from 'react-window'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
 
 import { serviceFilterLogic, ServiceFilterLogicProps } from './serviceFilterLogic'
+
+const SERVICE_OPTION_HEIGHT = 33
+const MAX_DROPDOWN_HEIGHT = 300
+const DROPDOWN_WIDTH = 300
+
+interface ServiceOptionRowProps {
+    serviceNames: string[]
+    selected: string[]
+    onToggle: (name: string) => void
+}
+
+function ServiceOptionRow({
+    index,
+    style,
+    serviceNames: names,
+    selected,
+    onToggle,
+}: {
+    ariaAttributes: Record<string, unknown>
+    index: number
+    style: CSSProperties
+} & ServiceOptionRowProps): JSX.Element {
+    const name = names[index]
+    const isSelected = selected.includes(name)
+    return (
+        <div style={style}>
+            <LemonButton
+                type="tertiary"
+                size="small"
+                fullWidth
+                icon={<LemonCheckbox checked={isSelected} className="pointer-events-none" />}
+                onClick={() => onToggle(name)}
+                data-attr={`logs-service-option-${name}`}
+            >
+                {name}
+            </LemonButton>
+        </div>
+    )
+}
 
 interface ServiceFilterProps {
     value: LogsQuery['serviceNames']
@@ -36,6 +77,25 @@ function ServiceFilterInner({
 
     const selected = value ?? []
 
+    const onToggle = useCallback(
+        (name: string) => {
+            const isSelected = selected.includes(name)
+            const newNames = isSelected ? selected.filter((n) => n !== name) : [...selected, name]
+            onChange(newNames)
+        },
+        [selected, onChange]
+    )
+
+    const rowProps = useMemo<ServiceOptionRowProps>(
+        () => ({ serviceNames, selected, onToggle }),
+        [serviceNames, selected, onToggle]
+    )
+
+    const listHeight = useMemo(() => {
+        const height = serviceNames.length * SERVICE_OPTION_HEIGHT
+        return Math.min(height, MAX_DROPDOWN_HEIGHT)
+    }, [serviceNames.length])
+
     return (
         <LemonDropdown
             closeOnClickInside={false}
@@ -52,7 +112,7 @@ function ServiceFilterInner({
                             autoFocus
                         />
                     </div>
-                    <div className="max-h-[300px] overflow-y-auto">
+                    <div>
                         {allServiceNamesLoading && allServiceNames.length === 0 ? (
                             <div className="p-2 text-muted text-center text-xs">Loading...</div>
                         ) : serviceNames.length === 0 ? (
@@ -60,29 +120,36 @@ function ServiceFilterInner({
                                 {search ? 'No matching services' : 'No services found'}
                             </div>
                         ) : (
-                            serviceNames.map((name: string) => (
-                                <LemonButton
-                                    key={name}
-                                    type="tertiary"
-                                    size="small"
-                                    fullWidth
-                                    icon={
-                                        <LemonCheckbox
-                                            checked={selected.includes(name)}
-                                            className="pointer-events-none"
-                                        />
-                                    }
-                                    onClick={() => {
-                                        const newNames = selected.includes(name)
-                                            ? selected.filter((n) => n !== name)
-                                            : [...selected, name]
-                                        onChange(newNames)
-                                    }}
-                                    data-attr={`logs-service-option-${name}`}
-                                >
-                                    {name}
-                                </LemonButton>
-                            ))
+                            <>
+                                {selected.length > 0 && (
+                                    <>
+                                        <div className="flex flex-wrap gap-1 px-1 pb-1 max-w-[300px]">
+                                            {selected.map((name: string) => (
+                                                <LemonTag
+                                                    key={`selected-${name}`}
+                                                    type="highlight"
+                                                    closable
+                                                    size="small"
+                                                    onClose={() => {
+                                                        onChange(selected.filter((n) => n !== name))
+                                                    }}
+                                                >
+                                                    {name}
+                                                </LemonTag>
+                                            ))}
+                                        </div>
+                                        <div className="border-b border-border my-1" />
+                                    </>
+                                )}
+                                <List<ServiceOptionRowProps>
+                                    style={{ width: DROPDOWN_WIDTH, height: listHeight }}
+                                    rowCount={serviceNames.length}
+                                    rowHeight={SERVICE_OPTION_HEIGHT}
+                                    overscanCount={5}
+                                    rowComponent={ServiceOptionRow}
+                                    rowProps={rowProps}
+                                />
+                            </>
                         )}
                     </div>
                 </div>

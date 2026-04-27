@@ -52,7 +52,10 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
     }
 
     return (
-        <div className="@container/chat-history flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg">
+        <div
+            className="@container/chat-history flex flex-col gap-4 w-full self-center px-4 py-8 grow max-w-screen-lg"
+            data-attr="max-conversation-history"
+        >
             {conversationHistory.length > 0 ? (
                 conversationHistory.map((conversation) => (
                     <ConversationCard
@@ -111,6 +114,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
     return (
         <Link
             className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
+            data-attr="max-open-conversation"
             to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
             onClick={(e) => {
                 if (sidePanel) {
@@ -160,6 +164,7 @@ function CompactConversationCard({
     return (
         <Link
             to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
+            data-attr="max-open-conversation"
             onClick={(e) => {
                 e.preventDefault()
                 openConversation(conversation.id)

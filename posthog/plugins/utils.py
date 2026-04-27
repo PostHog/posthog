@@ -10,7 +10,7 @@ from zipfile import ZIP_DEFLATED, BadZipFile, Path, ZipFile
 
 from django.conf import settings
 
-from posthog.security.outbound_proxy import external_requests
+import requests
 
 
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:
@@ -53,7 +53,7 @@ def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, O
                     parsed["tag"] or "",
                     parsed["path"] or "",
                 )
-                commits = external_requests.get(commits_url, headers=headers).json()
+                commits = requests.get(commits_url, headers=headers).json()
 
                 if isinstance(commits, dict):
                     raise Exception(commits.get("message"))
@@ -110,7 +110,7 @@ def parse_gitlab_url(url: str, get_latest_if_none=False) -> Optional[dict[str, O
             commits_url = "https://gitlab.com/api/v4/projects/{}/repository/commits".format(
                 quote(parsed["project"], safe="")
             )
-            commits = external_requests.get(commits_url, headers=headers).json()
+            commits = requests.get(commits_url, headers=headers).json()
             if len(commits) > 0 and commits[0].get("id", None):
                 parsed["tag"] = commits[0]["id"]
             else:
@@ -151,7 +151,7 @@ def parse_npm_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Opti
         try:
             token = private_token or settings.NPM_TOKEN
             headers = {"Authorization": "Bearer {}".format(token)} if token else {}
-            details = external_requests.get(
+            details = requests.get(
                 "https://registry.npmjs.org/{}/latest".format(parsed["pkg"]),
                 headers=headers,
             ).json()
@@ -231,7 +231,7 @@ def download_plugin_archive(url: str, tag: Optional[str] = None) -> bytes:
     else:
         raise Exception("Unknown Repository Format")
 
-    response = external_requests.get(url, headers=headers)
+    response = requests.get(url, headers=headers)
     if not response.ok:
         raise Exception("Could not download archive from {}".format(parsed_url["type"]))
 
@@ -275,9 +275,7 @@ def get_file_from_zip_archive(archive: bytes, filename: str, *, json_parse: bool
         file_bytes = reader.read()
         if json_parse:
             return json.loads(file_bytes)
-        if isinstance(file_bytes, bytes):
-            return file_bytes.decode("utf-8")
-        return str(file_bytes)
+        return file_bytes
 
 
 def get_file_from_tgz_archive(archive: bytes, filename, *, json_parse: bool) -> Any:
@@ -314,7 +312,7 @@ def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None
 
 
 def extract_plugin_code(
-    archive: bytes, plugin_json_parsed: Optional[dict[str, Any]] = None
+    archive: bytes | None, plugin_json_parsed: Optional[dict[str, Any]] = None
 ) -> tuple[str, Optional[str], Optional[str], Optional[str]]:
     """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
 

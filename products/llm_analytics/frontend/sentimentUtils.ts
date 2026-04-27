@@ -48,6 +48,39 @@ export function computeExtremes(messages?: Record<string | number, MessageScore>
     return { maxPositive, maxNegative }
 }
 
+/**
+ * Extract plain text from message content, mirroring the backend's _extract_content_text.
+ * Handles string content, Anthropic-style content block arrays, and nested structures.
+ */
+export function extractContentText(content: unknown): string {
+    if (!content) {
+        return ''
+    }
+    if (typeof content === 'string') {
+        return content
+    }
+    if (Array.isArray(content)) {
+        return content
+            .map((block) => {
+                if (typeof block === 'string') {
+                    return block
+                }
+                if (block && typeof block === 'object') {
+                    if ('type' in block && block.type === 'text' && 'text' in block) {
+                        return (block as { text: string }).text
+                    }
+                    if ('content' in block) {
+                        return extractContentText((block as { content: unknown }).content)
+                    }
+                }
+                return ''
+            })
+            .filter(Boolean)
+            .join(' ')
+    }
+    return String(content)
+}
+
 export function buildSentimentBarTooltip(
     sentimentLabel: string,
     widthPercent: number,

@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
 import { BranchingPipeline } from './branching-pipeline'
-import { createContext } from './helpers'
+import { createOkContext } from './helpers'
 import { Pipeline } from './pipeline.interface'
-import { dlq, drop, isDlqResult, isOkResult, ok } from './results'
+import { dlq, isDlqResult, isOkResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 
 describe('BranchingPipeline', () => {
@@ -27,13 +27,13 @@ describe('BranchingPipeline', () => {
             const previousPipeline = new StartPipeline<{ type: string }, unknown>()
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
-            const resultA = await pipeline.process(createContext(ok({ type: 'a' }), { message }))
+            const resultA = await pipeline.process(createOkContext({ type: 'a' }, { message }))
             expect(isOkResult(resultA.result)).toBe(true)
             if (isOkResult(resultA.result)) {
                 expect(resultA.result.value).toEqual({ result: 'processed-a' })
             }
 
-            const resultB = await pipeline.process(createContext(ok({ type: 'b' }), { message }))
+            const resultB = await pipeline.process(createOkContext({ type: 'b' }, { message }))
             expect(isOkResult(resultB.result)).toBe(true)
             if (isOkResult(resultB.result)) {
                 expect(resultB.result.value).toEqual({ result: 'handled-b' })
@@ -56,7 +56,7 @@ describe('BranchingPipeline', () => {
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
-            const result = await pipeline.process(createContext(ok({ type: 'a' }), { message }))
+            const result = await pipeline.process(createOkContext({ type: 'a' }, { message }))
 
             // The previous pipeline uppercased the input, branch received the uppercased value
             expect(preprocessSpy).toHaveBeenCalledWith({ type: 'A' })
@@ -68,22 +68,6 @@ describe('BranchingPipeline', () => {
     })
 
     describe('error handling', () => {
-        it('should pass through non-OK results without executing decision function or branches', async () => {
-            const decisionFn = jest.fn()
-            const branch = new StartPipeline<{ type: string }, unknown>().pipe(() =>
-                Promise.resolve(ok({ result: 'test' }))
-            )
-            const branches = { a: branch }
-
-            const previousPipeline = new StartPipeline<{ type: string }, unknown>()
-            const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
-
-            const result = await pipeline.process(createContext(drop('dropped'), { message }))
-
-            expect(decisionFn).not.toHaveBeenCalled()
-            expect(result.result).toEqual(drop('dropped'))
-        })
-
         it('should send to DLQ when branch name is not found', async () => {
             const decisionFn = (value: { type: string }) => value.type
             const branch = new StartPipeline<{ type: string }, unknown>().pipe(() =>
@@ -94,7 +78,7 @@ describe('BranchingPipeline', () => {
             const previousPipeline = new StartPipeline<{ type: string }, unknown>()
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
-            const result = await pipeline.process(createContext(ok({ type: 'unknown' }), { message }))
+            const result = await pipeline.process(createOkContext({ type: 'unknown' }, { message }))
 
             expect(isDlqResult(result.result)).toBe(true)
             if (isDlqResult(result.result)) {
@@ -117,11 +101,14 @@ describe('BranchingPipeline', () => {
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
             const result = await pipeline.process(
-                createContext(ok({ type: 'unknown' }), {
-                    message,
-                    sideEffects: [existingSideEffect],
-                    warnings: [existingWarning],
-                })
+                createOkContext(
+                    { type: 'unknown' },
+                    {
+                        message,
+                        sideEffects: [existingSideEffect],
+                        warnings: [existingWarning],
+                    }
+                )
             )
 
             expect(result.context.sideEffects).toEqual([existingSideEffect])
@@ -140,7 +127,7 @@ describe('BranchingPipeline', () => {
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
-            const result = await pipeline.process(createContext(ok({ type: 'a' }), { message }))
+            const result = await pipeline.process(createOkContext({ type: 'a' }, { message }))
 
             expect(decisionFn).not.toHaveBeenCalled()
             expect(isDlqResult(result.result)).toBe(true)
@@ -167,7 +154,7 @@ describe('BranchingPipeline', () => {
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
-            const result = await pipeline.process(createContext(ok({ type: 'a' }), { message }))
+            const result = await pipeline.process(createOkContext({ type: 'a' }, { message }))
 
             // Previous side effect is passed through to branch, then branch adds its own
             expect(result.context.sideEffects).toEqual([previousSideEffect, branchSideEffect])
@@ -189,7 +176,7 @@ describe('BranchingPipeline', () => {
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
-            const result = await pipeline.process(createContext(ok({ type: 'a' }), { message }))
+            const result = await pipeline.process(createOkContext({ type: 'a' }, { message }))
 
             // Previous warning is passed through to branch, then branch adds its own
             expect(result.context.warnings).toEqual([previousWarning, branchWarning])
@@ -218,11 +205,14 @@ describe('BranchingPipeline', () => {
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
             const result = await pipeline.process(
-                createContext(ok({ type: 'a' }), {
-                    message,
-                    sideEffects: [inputSideEffect],
-                    warnings: [inputWarning],
-                })
+                createOkContext(
+                    { type: 'a' },
+                    {
+                        message,
+                        sideEffects: [inputSideEffect],
+                        warnings: [inputWarning],
+                    }
+                )
             )
 
             // Side effects and warnings: input and previous are in previousResultWithContext,
@@ -245,7 +235,7 @@ describe('BranchingPipeline', () => {
             )
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
-            await pipeline.process(createContext(ok({ type: 'test' }), { message }))
+            await pipeline.process(createOkContext({ type: 'test' }, { message }))
 
             expect(decisionFn).toHaveBeenCalledWith({ processed: 'TEST' })
         })
@@ -275,7 +265,7 @@ describe('BranchingPipeline', () => {
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
 
             const createResult = await pipeline.process(
-                createContext(ok({ action: 'create' as BranchName }), { message })
+                createOkContext({ action: 'create' as BranchName }, { message })
             )
             expect(isOkResult(createResult.result)).toBe(true)
             if (isOkResult(createResult.result)) {
@@ -283,7 +273,7 @@ describe('BranchingPipeline', () => {
             }
 
             const updateResult = await pipeline.process(
-                createContext(ok({ action: 'update' as BranchName }), { message })
+                createOkContext({ action: 'update' as BranchName }, { message })
             )
             expect(isOkResult(updateResult.result)).toBe(true)
             if (isOkResult(updateResult.result)) {
@@ -291,7 +281,7 @@ describe('BranchingPipeline', () => {
             }
 
             const deleteResult = await pipeline.process(
-                createContext(ok({ action: 'delete' as BranchName }), { message })
+                createOkContext({ action: 'delete' as BranchName }, { message })
             )
             expect(isOkResult(deleteResult.result)).toBe(true)
             if (isOkResult(deleteResult.result)) {

@@ -249,6 +249,13 @@
         </div>
 
         <div class="form-row">
+            <label for="{{ form.active_since_days.id_for_label }}">Active since (days)</label>
+            {{ form.active_since_days }}
+            {% if form.active_since_days.help_text %}<p class="help-text">{{ form.active_since_days.help_text }}</p>{% endif %}
+            {{ form.active_since_days.errors }}
+        </div>
+
+        <div class="form-row">
             <label for="{{ form.team_ids.id_for_label }}">Team IDs</label>
             {{ form.team_ids }}
             {% if form.team_ids.help_text %}<p class="help-text">{{ form.team_ids.help_text }}</p>{% endif %}

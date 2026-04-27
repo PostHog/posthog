@@ -86,7 +86,7 @@ function loadOpenApi(): OpenApiSpec {
 }
 
 function operationIdToToolName(operationId: string): string {
-    return operationId.replace(/_/g, '-')
+    return operationId.replace(/[_.]+/g, '-')
 }
 
 /**
@@ -127,7 +127,7 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
 function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
-    const needle = `/${product}/`
+    const needle = `/${product.replace(/-/g, '_').toLowerCase()}/`
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
         if (!urlPath.toLowerCase().replace(/-/g, '_').includes(needle)) {
@@ -324,11 +324,17 @@ function mergeWithExisting(
         }
     }
 
-    const merged = {
+    const merged: Record<string, unknown> = {
         category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: existing.feature ?? tag.replace(/-/g, '_'),
         url_prefix: existing.url_prefix ?? `/${tag.replace(/_/g, '-')}`,
+        ui_apps: existing.ui_apps ?? {},
         tools: mergedTools,
+    }
+
+    // Query wrappers are hand-authored (schema.json); OpenAPI sync must not drop them.
+    if (existing.wrappers !== undefined) {
+        merged.wrappers = existing.wrappers
     }
 
     return {
@@ -368,9 +374,15 @@ function syncAll(spec: OpenApiSpec): void {
             if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
                 continue
             }
+            // Skip query wrapper configs — they don't map to OpenAPI operations
+            const filePath = path.join(DEFINITIONS_DIR, file)
+            const parsed = parseYaml(fs.readFileSync(filePath, 'utf-8'))
+            if (typeof parsed === 'object' && parsed !== null && 'wrappers' in parsed && !('tools' in parsed)) {
+                continue
+            }
             targets.push({
                 product: file.replace(/\.ya?ml$/, ''),
-                filePath: path.join(DEFINITIONS_DIR, file),
+                filePath,
                 subset: false,
             })
         }
@@ -404,12 +416,19 @@ function syncAll(spec: OpenApiSpec): void {
     }
 
     const writtenFiles: string[] = []
+    const noOpsProducts: string[] = []
 
     for (const { product, filePath, subset } of targets) {
         const rawOps = findOperationsByProduct(spec, product)
         const ops = deduplicateOperations(rawOps)
         if (ops.length === 0) {
-            process.stdout.write(`${product}: no operations found in OpenAPI, skipping\n`)
+            const label = path.relative(REPO_ROOT, filePath)
+            const normalized = product.replace(/-/g, '_').toLowerCase()
+            process.stderr.write(
+                `⚠ ${label}: no operations found in OpenAPI for "${product}"\n` +
+                    `  → ensure the ViewSet has @extend_schema(tags=["${normalized}"]) or the URL contains /${normalized}/\n`
+            )
+            noOpsProducts.push(label)
             continue
         }
         const label = path.relative(REPO_ROOT, filePath)
@@ -454,6 +473,13 @@ function syncAll(spec: OpenApiSpec): void {
     }
 
     formatWithPrettier(writtenFiles)
+
+    if (noOpsProducts.length > 0) {
+        process.stderr.write(
+            `\n${noOpsProducts.length} file(s) had no matching OpenAPI operations — see warnings above\n`
+        )
+        process.exitCode = 1
+    }
 }
 
 function main(): void {

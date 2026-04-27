@@ -3,11 +3,13 @@ from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 import posthoganalytics
+from opentelemetry import trace
 
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog import event_usage
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.core.runner import BaseAgentRunner
@@ -15,6 +17,8 @@ from ee.hogai.research_agent.graph import ResearchAgentGraph
 from ee.hogai.utils.types import AssistantOutput
 from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models import Conversation
+
+_tracer = trace.get_tracer(__name__)
 
 if TYPE_CHECKING:
     from ee.hogai.utils.types.composed import MaxNodeName
@@ -107,16 +111,18 @@ class ResearchAgentRunner(BaseAgentRunner):
         stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
         if self._user:
-            posthoganalytics.capture(
-                distinct_id=self._user.distinct_id,
-                event="ai deep research executed",
-                properties={
-                    "conversation_id": str(self._conversation.id),
-                    "is_new_conversation": self._is_new_conversation,
-                    "$session_id": self._session_id,
-                },
-                groups=event_usage.groups(team=self._team),
-            )
+            with _tracer.start_as_current_span("posthoganalytics.capture"):
+                await database_sync_to_async(posthoganalytics.capture)(
+                    distinct_id=self._user.distinct_id,
+                    event="ai deep research executed",
+                    properties={
+                        "conversation_id": str(self._conversation.id),
+                        "is_new_conversation": self._is_new_conversation,
+                        "$session_id": self._session_id,
+                    },
+                    groups=event_usage.groups(team=self._team),
+                    send_feature_flags=True,
+                )
 
         last_ai_message: AssistantMessage | None = None
         async for stream_event in super().astream(

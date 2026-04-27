@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from contextlib import suppress
+from functools import wraps
 from typing import Optional
 
 import dagster
@@ -78,3 +80,24 @@ def check_for_concurrent_runs(
         return dagster.SkipReason(f"Skipping {job_name} run because another run of the same job is already active")
 
     return None
+
+
+def skip_if_already_running(fn: Callable) -> Callable:
+    """
+    Decorator that skips schedule execution if a previous run is still active.
+
+    Usage:
+        @dagster.schedule(cron_schedule="0 0 * * *", job=my_job, execution_timezone="UTC")
+        @skip_if_already_running
+        def my_schedule(context: dagster.ScheduleEvaluationContext):
+            return dagster.RunRequest()
+    """
+
+    @wraps(fn)
+    def wrapper(context: dagster.ScheduleEvaluationContext):
+        skip_reason = check_for_concurrent_runs(context, tags={})
+        if skip_reason:
+            return skip_reason
+        return fn(context)
+
+    return wrapper

@@ -20,6 +20,7 @@ from posthog.schema import (
 from posthog.hogql_queries.experiments.breakdown_injector import BREAKDOWN_NULL_STRING_LABEL
 from posthog.hogql_queries.experiments.utils import (
     aggregate_variants_across_breakdowns,
+    get_experiment_query_debug,
     get_variant_result,
     get_variant_results,
     validate_variant_result,
@@ -994,3 +995,75 @@ class TestValidateVariantResult:
         # Should have NOT_ENOUGH_EXPOSURES validation failure
         assert result.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES in result.validation_failures
+
+
+class TestGetExperimentQueryDebug:
+    """Tests for get_experiment_query_debug() which generates debug SQL."""
+
+    @pytest.mark.django_db
+    def test_generates_hogql_and_clickhouse_sql(self, team):
+        """Test that function generates both HogQL and ClickHouse SQL."""
+        from posthog.hogql import ast
+
+        # Create a simple query with a table that would use sensitive params
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+            ),
+        )
+
+        hogql, clickhouse_sql = get_experiment_query_debug(select_query, team)
+
+        # HogQL should be generated
+        assert hogql is not None
+        assert len(hogql) > 0
+
+        # ClickHouse SQL should be generated
+        assert clickhouse_sql is not None
+        assert len(clickhouse_sql) > 0
+
+        # Basic sanity check - should contain SQL keywords
+        assert "SELECT" in clickhouse_sql
+
+    @pytest.mark.django_db
+    def test_masks_sensitive_parameters(self, team):
+        """Test that parameters marked _sensitive are masked as [HIDDEN] in output."""
+        from unittest.mock import MagicMock, patch
+
+        from posthog.hogql import ast
+        from posthog.hogql.context import HogQLContext
+
+        select_query = ast.SelectQuery(
+            select=[ast.Constant(value=1)],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+            ),
+        )
+
+        # Mock the executor's generate_clickhouse_sql to return params with _sensitive suffix
+        with patch("posthog.hogql_queries.experiments.utils.HogQLQueryExecutor") as mock_executor_class:
+            mock_executor = MagicMock()
+            mock_executor_class.return_value = mock_executor
+            mock_executor.hogql = "SELECT 1"
+
+            # Simulate query with sensitive parameters
+            mock_context = HogQLContext()
+            mock_context.values = {
+                "hogql_val_0": "s3://bucket/path",
+                "hogql_val_1_sensitive": "SECRETKEY123",
+                "hogql_val_2_sensitive": "SECRETTOKEN456",
+            }
+            mock_executor.generate_clickhouse_sql.return_value = (
+                "SELECT * FROM s3(%(hogql_val_0)s, %(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s)",
+                mock_context,
+            )
+
+            hogql, clickhouse_sql = get_experiment_query_debug(select_query, team)
+
+            # Verify URL is visible
+            assert "s3://bucket/path" in clickhouse_sql
+            # Verify secrets are hidden
+            assert "SECRETKEY123" not in clickhouse_sql
+            assert "SECRETTOKEN456" not in clickhouse_sql
+            assert clickhouse_sql.count("[HIDDEN]") == 2

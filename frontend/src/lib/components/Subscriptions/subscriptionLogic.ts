@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail, isURL } from 'lib/utils'
@@ -15,6 +15,17 @@ import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
 import { SubscriptionBaseProps, urlForSubscription } from './utils'
 
+function subscriptionSaveErrorMessage(error: unknown): string {
+    if (error instanceof ApiError) {
+        const msg = (error.detail || error.message || '').trim()
+        return msg || 'Could not save subscription. Please try again.'
+    }
+    if (error instanceof Error && error.message) {
+        return error.message
+    }
+    return 'Could not save subscription. Please try again.'
+}
+
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',
     interval: 1,
@@ -24,6 +35,8 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     bysetpos: 1,
     dashboard_export_insights: [],
     integration_id: null,
+    summary_enabled: false,
+    summary_prompt_guide: '',
 }
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
@@ -156,6 +169,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
+        submitSubscriptionFailure: ({ error }) => {
+            // Kea-forms emits this when client validation fails; fields already show errors.
+            if (error instanceof Error && error.message === 'Validation Failed') {
+                return
+            }
+            const message = subscriptionSaveErrorMessage(error)
+            if (error instanceof ApiError && error.attr) {
+                actions.setSubscriptionManualErrors({ [error.attr]: message })
+            }
+            lemonToast.error(message)
+        },
+
         setSubscriptionValue: ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
             if (key === 'frequency') {

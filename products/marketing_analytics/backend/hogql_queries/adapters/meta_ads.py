@@ -13,8 +13,10 @@ from ..constants import (
 from .base import MarketingSourceAdapter, MetaAdsConfig, ValidationResult
 
 # Use centralized conversion action types from constants
+# Priority: omni (deduplicated) > fallback/aggregated (deduplicated by Meta) > specific (channel breakdowns)
 META_OMNI_ACTION_TYPES = META_CONVERSION_ACTION_TYPES["omni"]
 META_FALLBACK_ACTION_TYPES = META_CONVERSION_ACTION_TYPES["fallback"]
+META_SPECIFIC_ACTION_TYPES = META_CONVERSION_ACTION_TYPES["specific"]
 
 
 class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
@@ -150,9 +152,17 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         )
 
     def _build_actions_conversion_sum(self, column_name: str, apply_currency: bool = False) -> ast.Expr:
-        """Build a SUM over omni/fallback action types from a JSON array column.
+        """Build a SUM over conversion action types from a JSON array column.
 
-        Used for both conversion counts (actions) and conversion values (action_values).
+        Uses a 3-tier priority to avoid double counting when users have both
+        pixel and server-side (CAPI) events configured:
+        1. Omni types (omni_lead, omni_purchase) — fully deduplicated by Meta
+        2. Aggregated types (lead, purchase) — already deduplicated across channels
+        3. Specific types (offsite_conversion.fb_pixel_lead) — channel-specific breakdowns
+
+        Previously, tiers 2 and 3 were combined into a single fallback, causing
+        double counting (e.g. lead=2 + offsite_conversion.fb_pixel_lead=2 = 4 instead of 2).
+
         Returns 0 if the column doesn't exist in the table.
         """
         stats_table_name = self.config.stats_table.name
@@ -165,7 +175,12 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
 
                 omni_sum = self._build_array_sum_for_action_types(field_non_null, META_OMNI_ACTION_TYPES)
                 fallback_sum = self._build_array_sum_for_action_types(field_non_null, META_FALLBACK_ACTION_TYPES)
+                specific_sum = self._build_array_sum_for_action_types(field_non_null, META_SPECIFIC_ACTION_TYPES)
 
+                # 3-tier priority: omni > aggregated > specific
+                # if omni > 0 then omni
+                # else if aggregated > 0 then aggregated
+                # else specific
                 array_sum = ast.Call(
                     name="if",
                     args=[
@@ -175,7 +190,18 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                             right=ast.Constant(value=0),
                         ),
                         omni_sum,
-                        fallback_sum,
+                        ast.Call(
+                            name="if",
+                            args=[
+                                ast.CompareOperation(
+                                    left=fallback_sum,
+                                    op=ast.CompareOperationOp.Gt,
+                                    right=ast.Constant(value=0),
+                                ),
+                                fallback_sum,
+                                specific_sum,
+                            ],
+                        ),
                     ],
                 )
 

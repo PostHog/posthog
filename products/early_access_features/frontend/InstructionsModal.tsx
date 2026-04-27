@@ -88,7 +88,10 @@ export function InstructionsModal({ onClose, visible, flag }: InstructionsModalP
             <div>
                 <div className="mb-2">
                     Implement manual release condition toggles to give your users the ability choose which features they
-                    want to try
+                    want to try.{' '}
+                    <Link to="https://posthog.com/docs/feature-flags/early-access-feature-management" target="_blank">
+                        Read the full documentation
+                    </Link>
                 </div>
                 {panels}
             </div>

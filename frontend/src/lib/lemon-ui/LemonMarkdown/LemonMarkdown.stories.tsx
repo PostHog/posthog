@@ -1,22 +1,18 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 
 import { LemonMarkdown as LemonMarkdownComponent, LemonMarkdownProps } from './LemonMarkdown'
 
-type Story = StoryObj<typeof LemonMarkdownComponent>
-const meta: Meta<typeof LemonMarkdownComponent> = {
+type Story = StoryObj<LemonMarkdownProps>
+const meta: Meta<LemonMarkdownProps> = {
     title: 'Lemon UI/Lemon Markdown',
     component: LemonMarkdownComponent,
     tags: ['autodocs'],
 }
 export default meta
 
-const Template: StoryFn<typeof LemonMarkdownComponent> = (props: LemonMarkdownProps) => {
-    return <LemonMarkdownComponent {...props} />
-}
-
-export const Default: Story = Template.bind({})
-Default.args = {
-    children: `# Lorem ipsum
+export const Default: Story = {
+    args: {
+        children: `# Lorem ipsum
 
 ## Linguae despexitque sine sua tibi
 
@@ -35,20 +31,22 @@ print("X")
 1. Quattuor creditur
 2. Veniebat patriaeque cavatu
 3. En anguem tamen`,
+    },
 }
 
-export const LowKeyHeadings: Story = Template.bind({})
-LowKeyHeadings.args = {
-    children: `# Level 1
+export const LowKeyHeadings: Story = {
+    args: {
+        children: `# Level 1
 ## Level 2
 
 **Strong** and *emphasized* text.`,
-    lowKeyHeadings: true,
+        lowKeyHeadings: true,
+    },
 }
 
-export const WithTables: Story = Template.bind({})
-WithTables.args = {
-    children: `# Analytics dashboard
+export const WithTables: Story = {
+    args: {
+        children: `# Analytics dashboard
 
 Here's a breakdown of our top traffic sources:
 
@@ -75,11 +73,12 @@ Here's a breakdown of our top traffic sources:
 | Other | 13,890 | 2.2% |
 
 *Data from the last 30 days*`,
+    },
 }
 
-export const GitHubFlavoredMarkdown: Story = Template.bind({})
-GitHubFlavoredMarkdown.args = {
-    children: `# GitHub-flavored Markdown features
+export const GitHubFlavoredMarkdown: Story = {
+    args: {
+        children: `# GitHub-flavored Markdown features
 
 ## Strikethrough text
 This text is ~~deleted~~ and this text is **bold**.
@@ -90,7 +89,7 @@ You can also combine ~~**bold and deleted**~~ text.
 Here's our development progress:
 
 - [x] Add remark-gfm plugin support
-- [x] Implement table styling  
+- [x] Implement table styling
 - [x] Create Storybook stories
 - [ ] Add comprehensive documentation
 - [ ] Performance optimization
@@ -102,22 +101,24 @@ Visit https://posthog.com for more information about our product.
 You can also check out our GitHub repository at https://github.com/PostHog/posthog
 
 Email us at hello@posthog.com for support.`,
+    },
 }
 
-export const Strikethrough: Story = Template.bind({})
-Strikethrough.args = {
-    children: `# Text Formatting
+export const Strikethrough: Story = {
+    args: {
+        children: `# Text Formatting
 
 This is ~~incorrect~~ **correct** information.
 
 ~~The old way~~ → The new way
 
 You can combine ~~strikethrough~~ with *emphasis* and **bold** text.`,
+    },
 }
 
-export const TaskLists: Story = Template.bind({})
-TaskLists.args = {
-    children: `# Project Todo List
+export const TaskLists: Story = {
+    args: {
+        children: `# Project Todo List
 
 ## Sprint 1
 - [x] Setup project repository
@@ -126,7 +127,7 @@ TaskLists.args = {
 - [ ] Implement core features
 - [ ] Add comprehensive tests
 
-## Sprint 2  
+## Sprint 2
 - [ ] Performance optimization
 - [ ] Security audit
 - [ ] User acceptance testing
@@ -136,18 +137,19 @@ TaskLists.args = {
 - Use [x] for completed tasks
 - Use [ ] for pending tasks
 - Tasks can be nested and combined with other markdown`,
+    },
 }
 
-export const AutolinkLiterals: Story = Template.bind({})
-AutolinkLiterals.args = {
-    children: `# Automatic Links
+export const AutolinkLiterals: Story = {
+    args: {
+        children: `# Automatic Links
 
 ## Websites
 Visit https://posthog.com to learn more about our platform.
 
 Check out our documentation at https://posthog.com/docs
 
-## Email Addresses  
+## Email Addresses
 Contact us at hello@posthog.com for general inquiries.
 
 For technical support: support@posthog.com
@@ -156,4 +158,5 @@ For technical support: support@posthog.com
 Our GitHub repository (https://github.com/PostHog/posthog) contains the full source code.
 
 For questions, email team@posthog.com or visit https://posthog.com/questions`,
+    },
 }

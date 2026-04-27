@@ -191,6 +191,7 @@ export const VariableInput = ({
                 {variable.type === 'Date' && (
                     <VariableCalendar
                         value={dayjs(localInputValue)}
+                        rawValue={localInputValue}
                         updateVariable={(date) => {
                             onChange(variable.id, date, isNull)
                             closePopover()
@@ -344,10 +345,11 @@ export const VariableComponent = ({
             <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                 <LemonSelect
                     disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
-                    value={variable.value ?? variable.default_value}
-                    onChange={(value) => onChange(variable.id, value, variable.isNull ?? false)}
+                    value={variable.isNull ? null : (variable.value ?? variable.default_value ?? null)}
+                    onChange={(value) => onChange(variable.id, value, !value)}
                     options={(variable.values ?? []).map((n) => ({ label: n, value: n }))}
                     size={size}
+                    allowClear
                 />
             </LemonField.Pure>
         )

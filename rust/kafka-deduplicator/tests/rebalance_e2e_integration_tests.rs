@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use axum::async_trait;
+use async_trait::async_trait;
 use chrono::Utc;
 use rdkafka::{
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},
@@ -335,6 +335,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
             offset_tracker.clone(),
             Some(importer),
             16, // rebalance_cleanup_parallelism
+            Duration::from_secs(7200),
         ));
 
     // Create routing processor
@@ -360,6 +361,7 @@ async fn test_rebalance_with_checkpoint_import() -> Result<()> {
         rebalance_handler,
         routing_processor,
         offset_tracker.clone(),
+        None, // on_commit - not needed in tests
         shutdown_rx,
         &test_topic,
         50,
@@ -463,6 +465,7 @@ async fn test_messages_dropped_for_revoked_partition() -> Result<()> {
             offset_tracker.clone(),
             None,
             16, // rebalance_cleanup_parallelism
+            Duration::from_secs(7200),
         );
 
     // Assign partition 0
@@ -551,6 +554,7 @@ async fn test_rapid_revoke_assign_preserves_new_store() -> Result<()> {
             offset_tracker.clone(),
             None,
             16, // rebalance_cleanup_parallelism
+            Duration::from_secs(7200),
         );
 
     let mut partitions = TopicPartitionList::new();

@@ -14,7 +14,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.models import User
 from posthog.models.comment import Comment
-from posthog.models.comment.utils import produce_discussion_mention_events
+from posthog.models.comment.utils import produce_discussion_mention_events, send_mention_notifications
 from posthog.tasks.email import send_discussions_mentioned
 
 
@@ -108,6 +108,7 @@ class CommentSerializer(serializers.ModelSerializer):
         if mentions:
             send_discussions_mentioned.delay(comment.id, mentions, slug)
             produce_discussion_mention_events(comment, mentions, slug)
+            send_mention_notifications(comment, mentions, slug)
 
         return comment
 
@@ -137,6 +138,7 @@ class CommentSerializer(serializers.ModelSerializer):
         if mentions:
             send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
             produce_discussion_mention_events(updated_instance, mentions, slug)
+            send_mention_notifications(updated_instance, mentions, slug)
 
         return updated_instance
 
@@ -146,12 +148,27 @@ class CommentPagination(pagination.CursorPagination):
     page_size = 100
 
 
-@extend_schema(tags=["core"])
+class CommentListQueryParamsSerializer(serializers.Serializer):
+    scope = serializers.CharField(
+        required=False,
+        help_text="Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).",
+    )
+    item_id = serializers.CharField(required=False, help_text="Filter by the ID of the resource being commented on.")
+    search = serializers.CharField(required=False, help_text="Full-text search within comment content.")
+    source_comment = serializers.CharField(required=False, help_text="Filter replies to a specific parent comment.")
+
+
+@extend_schema(tags=["core", "platform_features"])
 class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
     serializer_class = CommentSerializer
     pagination_class = CommentPagination
-    scope_object = "INTERNAL"
+    scope_object = "comment"
+    scope_object_read_actions = ["list", "retrieve", "thread", "count"]
+
+    @extend_schema(parameters=[CommentListQueryParamsSerializer])
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         params = self.request.GET.dict()

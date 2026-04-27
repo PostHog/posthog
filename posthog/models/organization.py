@@ -1,6 +1,7 @@
 import sys
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
+from functools import cache as functools_cache
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -69,6 +70,25 @@ class ProductFeature(TypedDict):
     is_plan_default: bool
 
 
+@functools_cache
+def _enterprise_only_feature_keys() -> frozenset[str]:
+    """Enterprise-plan-only feature keys, computed once per process.
+
+    Sourced from `License.ENTERPRISE_FEATURES - SCALE_FEATURES`, plus `ACCESS_CONTROL`
+    (the successor to `ADVANCED_PERMISSIONS` per the `AvailableFeature` enum) which
+    isn't reflected in `License.ENTERPRISE_FEATURES` yet but should classify the same way.
+    """
+    keys: set[str] = {str(AvailableFeature.ACCESS_CONTROL)}
+    try:
+        from ee.models.license import License
+
+        scale_features = {str(f) for f in License.SCALE_FEATURES}
+        keys |= {str(f) for f in License.ENTERPRISE_FEATURES} - scale_features
+    except ImportError:
+        pass
+    return frozenset(keys)
+
+
 class OrganizationManager(models.Manager):
     def create(self, *args: Any, **kwargs: Any):
         # Set default_anonymize_ips based on deployment if not explicitly provided
@@ -115,7 +135,7 @@ def default_anonymize_ips():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
-class Organization(ModelActivityMixin, UUIDTModel):
+class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manager-missing]
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -145,6 +165,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
+        through_fields=("organization", "user"),
         related_name="organizations",
         related_query_name="organization",
     )
@@ -178,8 +199,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
         help_text="Custom session cookie age in seconds. If not set, the global setting SESSION_COOKIE_AGE will be used.",
     )
-    is_member_join_email_enabled = models.BooleanField(default=True)
-    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=True)
+
+    is_member_join_email_enabled = models.BooleanField(
+        default=True
+    )  # DEPRECATED in favor of User.partial_notification_settings
+    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True, default=False)
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_use_personal_api_keys = models.BooleanField(default=True)
@@ -196,12 +220,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Misc
     plugins_access_level = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG,
-        choices=PluginsAccessLevel.choices,
+        choices=PluginsAccessLevel,
     )
     for_internal_metrics = models.BooleanField(default=False)
     default_experiment_stats_method = models.CharField(
         max_length=20,
-        choices=DefaultExperimentStatsMethod.choices,
+        choices=DefaultExperimentStatsMethod,
         default=DefaultExperimentStatsMethod.BAYESIAN,
         help_text="Default statistical method for new experiments in this organization.",
         null=True,
@@ -212,6 +236,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
+    is_pending_deletion = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.",
+    )
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
@@ -229,6 +259,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
     # Also currently indicates if the organization is on billing V2 or not
     usage = models.JSONField(null=True, blank=True)
     never_drop_data = models.BooleanField(default=False, null=True, blank=True)
+
+    if TYPE_CHECKING:
+        oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
 
@@ -308,6 +341,27 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return bool(self.get_available_feature(feature))
+
+    def get_plan_tier(self) -> Literal["free", "paid", "enterprise"]:
+        """Best-effort plan tier derived from `available_product_features`.
+
+        "enterprise" if any Enterprise-only feature is present (per `License.ENTERPRISE_FEATURES`
+        minus `SCALE_FEATURES`, plus `access_control` — the successor to `advanced_permissions`
+        per `AvailableFeature` in constants.py — which is not yet reflected in `License`).
+        "paid" if any feature is present, otherwise "free". Paid uses "any feature present"
+        rather than an allow-list because the billing service grants features (alerts,
+        surveys_styling, ...) that postdate `License.SCALE_FEATURES`, and an allow-list
+        silently downgrades those orgs to free.
+        """
+        available_keys = {
+            feature.get("key") for feature in (self.available_product_features or []) if feature and feature.get("key")
+        }
+        if not available_keys:
+            return "free"
+
+        if available_keys & _enterprise_only_feature_keys():
+            return "enterprise"
+        return "paid"
 
     def limit_product_until_end_of_billing_cycle(self, resource: "QuotaResource") -> None:
         """
@@ -494,15 +548,33 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         related_name="organization_memberships",
         related_query_name="organization_membership",
     )
-    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level.choices)
+    level = models.PositiveSmallIntegerField(default=Level.MEMBER, choices=Level)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Persisted at invite acceptance so the welcome dialog can attribute who invited the member —
+    # the OrganizationInvite row itself is deleted during use() and can't be looked up afterwards.
+    invited_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    # Transient flag set by the pre_save signal to communicate level changes to post_save.
+    _level_changed: bool = False
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["organization_id", "user_id"],
                 name="unique_organization_membership",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["organization", "-joined_at"],
+                name="org_membership_org_joined_idx",
             ),
         ]
 
@@ -617,7 +689,7 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
 
     deleted_count, _ = AlertSubscription.objects.filter(
         user=instance.user,
-        alert_configuration__team__organization=instance.organization,
+        alert_configuration__team__organization_id=instance.organization_id,
     ).delete()
 
     if deleted_count > 0:
@@ -649,16 +721,39 @@ def sync_billing_on_membership_removal(sender, instance: OrganizationMembership,
 def organization_membership_saved(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
     from posthog.event_usage import report_user_organization_membership_level_changed
 
+    instance._level_changed = False
     try:
         old_instance = OrganizationMembership.objects.get(id=instance.id)
         if old_instance.level != instance.level:
-            # the level has been changed
+            instance._level_changed = True
             report_user_organization_membership_level_changed(
                 instance.user, instance.organization, instance.level, old_instance.level
             )
     except OrganizationMembership.DoesNotExist:
         # The instance is new, or we are setting up test data
         pass
+
+
+@receiver(post_save, sender=OrganizationMembership)
+def sync_billing_on_membership_save(sender, instance: OrganizationMembership, created: bool, **kwargs):
+    # Covers any path that creates a membership or changes its level, including
+    # Organization.bootstrap, the Vercel integration, and direct ORM saves that
+    # bypass OrganizationMemberSerializer. Mirrors sync_billing_on_membership_removal.
+    from posthog.tasks.sync_billing import sync_members_to_billing
+
+    if not is_cloud():
+        return
+
+    if not created and not getattr(instance, "_level_changed", False):
+        return
+
+    organization_id = str(instance.organization_id)
+
+    def _sync_if_org_exists():
+        if Organization.objects.filter(id=organization_id).exists():
+            sync_members_to_billing.delay(organization_id)
+
+    transaction.on_commit(_sync_if_org_exists)
 
 
 @receiver(post_save, sender=Organization)

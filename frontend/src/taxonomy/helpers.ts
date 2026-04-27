@@ -57,12 +57,9 @@ export function getCoreFilterDefinition(
         const surveyIndex = value.replace(/^\$survey_response_/, '')
         if (surveyIndex) {
             const index = Number(surveyIndex) + 1
-            // yes this will return 21th, but I'm applying the domain logic of
-            // it being very unlikely that someone will have more than 20 questions,
-            // rather than hyper optimising the suffix.
-            const suffix = index === 1 ? 'st' : index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+            const suffix = index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
             return {
-                label: `Survey Response Question ID: ${surveyIndex}`,
+                label: `Survey response for ${index}${suffix} question`,
                 description: `The response value for the ${index}${suffix} question in the survey.`,
             }
         }

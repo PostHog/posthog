@@ -253,6 +253,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return super().to_internal_value(data)
 
     def validate_type(self, value):
+        if value == HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value:
+            raise serializers.ValidationError(
+                "Cannot create or modify warehouse source webhook functions via this API."
+            )
+
         # Ensure it is only set when creating a new function
         if self.context.get("view") and self.context["view"].action == "create":
             return value
@@ -430,6 +435,13 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
     )
 
 
+class HogFunctionRearrangeSerializer(serializers.Serializer):
+    orders = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Map of hog function UUIDs to their new execution_order values.",
+    )
+
+
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
@@ -442,7 +454,7 @@ class HogFunctionFilterSet(FilterSet):
         fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
-@extend_schema(tags=["hog_functions"])
+@extend_schema(tags=["hog_functions", "cdp"])
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin,
     LogEntryMixin,
@@ -451,6 +463,8 @@ class HogFunctionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
+    scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
+    scope_object_write_actions = ["create", "update", "partial_update", "invocations", "rearrange"]
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     search_fields = ["name", "description"]
@@ -467,6 +481,8 @@ class HogFunctionViewSet(
         return HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
+
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
             # We only want to include deleted functions if we are un-deleting them
             queryset = queryset.filter(deleted=False)
@@ -528,6 +544,10 @@ class HogFunctionViewSet(
 
         return icon_service.get_icon_http_response(id)
 
+    @extend_schema(
+        request=HogFunctionInvocationSerializer,
+        responses={200: HogFunctionInvocationSerializer},
+    )
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
         try:
@@ -584,7 +604,12 @@ class HogFunctionViewSet(
             detail_type=humanize_hog_function_type(serializer.instance.type),
         )
 
-    @action(methods=["PATCH"], detail=False)
+    @extend_schema(
+        request=HogFunctionRearrangeSerializer,
+        responses={200: HogFunctionSerializer(many=True)},
+        filters=False,
+    )
+    @action(methods=["PATCH"], detail=False, pagination_class=None)
     def rearrange(self, request: Request, *args, **kwargs) -> Response:
         """Update the execution order of multiple HogFunctions."""
         team = self.team
@@ -666,6 +691,19 @@ class HogFunctionViewSet(
         if hog_function.batch_export_id:
             return Response({"error": "Backfills already enabled for this function"}, status=400)
 
+        # Only event-sourced destinations support backfills
+        if hog_function.type != HogFunctionType.DESTINATION:
+            return Response(
+                {"error": "Backfills are only supported for destination functions."},
+                status=400,
+            )
+        source = (hog_function.filters or {}).get("source", "events")
+        if source != "events":
+            return Response(
+                {"error": "Backfills are only supported for event-sourced destinations."},
+                status=400,
+            )
+
         # Check feature flag for backfill-workflows-destination
         team = Team.objects.get(id=self.team_id)
         if not posthoganalytics.feature_enabled(
@@ -686,12 +724,12 @@ class HogFunctionViewSet(
         batch_export_data = {
             "name": hog_function.name,
             "paused": True,
-            "interval": "day",
+            "interval": "hour",
             "model": "events",
             "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
             "destination": {
                 "type": "Workflows",
-                "config": {},
+                "config": {"hog_function_id": str(hog_function.id)},
             },
         }
 

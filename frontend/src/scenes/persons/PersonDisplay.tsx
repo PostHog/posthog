@@ -161,8 +161,8 @@ export function PersonDisplay({
             showArrow
         >
             {withCopyButton ? (
-                <div className="flex flex-row items-center justify-between gap-2 min-w-0">
-                    <span className="min-w-0 flex-1">{content}</span>
+                <div className="flex flex-row items-center gap-1 min-w-0">
+                    <span className="min-w-0 truncate">{content}</span>
                     <IconCopy
                         className="text-lg cursor-pointer shrink-0"
                         onClick={() => void copyToClipboard(display)}

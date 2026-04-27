@@ -1,0 +1,59 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cache_age_seconds": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Cache TTL in seconds (60–86400)."
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Human-readable description of what this endpoint returns."
+        },
+        "is_materialized": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether query results are materialized to S3."
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Unique URL-safe name. Must start with a letter, only letters/numbers/hyphens/underscores, max 128 chars."
+        },
+        "query": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "HogQL or insight query this endpoint executes. Changing this auto-creates a new version."
+        }
+    },
+    "type": "object"
+}

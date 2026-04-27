@@ -7,7 +7,7 @@
 //! - [`FailOpenProcessor`] - How to handle fail-open mode (bypass deduplication)
 
 use anyhow::Result;
-use axum::async_trait;
+use async_trait::async_trait;
 
 use crate::kafka::batch_message::KafkaMessage;
 use crate::pipelines::EventSimilarity;

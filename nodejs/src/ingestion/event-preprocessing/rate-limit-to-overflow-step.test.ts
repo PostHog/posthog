@@ -1,16 +1,12 @@
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestPipelineEvent } from '../../../tests/helpers/pipeline-event'
+import { OVERFLOW_OUTPUT } from '../common/outputs'
 import { PipelineResultType } from '../pipelines/results'
 import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-redirect-service'
 import { RateLimitToOverflowStepInput, createRateLimitToOverflowStep } from './rate-limit-to-overflow-step'
 
 const createMockEvent = (token: string, distinctId: string, now?: Date): RateLimitToOverflowStepInput => ({
-    headers: {
-        token,
-        distinct_id: distinctId,
-        now: now ?? new Date(),
-        force_disable_person_processing: false,
-        historical_migration: false,
-    },
+    headers: createTestEventHeaders({ token, distinct_id: distinctId, now: now ?? new Date() }),
     event: createTestPipelineEvent({ distinct_id: distinctId }),
 })
 
@@ -25,7 +21,7 @@ const createMockOverflowRedirectService = (
 describe('createRateLimitToOverflowStep', () => {
     describe('when service is not provided (overflow disabled)', () => {
         it('returns all events as ok', async () => {
-            const step = createRateLimitToOverflowStep('overflow_topic', true, undefined)
+            const step = createRateLimitToOverflowStep(true, undefined)
 
             const events = [
                 createMockEvent('token1', 'user1'),
@@ -45,7 +41,7 @@ describe('createRateLimitToOverflowStep', () => {
     describe('when service is provided (overflow enabled)', () => {
         it('returns ok for events not flagged by service', async () => {
             const service = createMockOverflowRedirectService()
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [createMockEvent('token1', 'user1'), createMockEvent('token1', 'user2')]
 
@@ -59,7 +55,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         it('redirects events flagged by service', async () => {
             const service = createMockOverflowRedirectService(new Set(['token1:user1']))
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [createMockEvent('token1', 'user1'), createMockEvent('token1', 'user2')]
 
@@ -69,14 +65,14 @@ describe('createRateLimitToOverflowStep', () => {
             expect(results[0].type).toBe(PipelineResultType.REDIRECT)
             if (results[0].type === PipelineResultType.REDIRECT) {
                 expect(results[0].reason).toBe('rate_limit_exceeded')
-                expect(results[0].topic).toBe('overflow_topic')
+                expect(results[0].output).toBe(OVERFLOW_OUTPUT)
             }
             expect(results[1].type).toBe(PipelineResultType.OK)
         })
 
         it('redirects all events for flagged key', async () => {
             const service = createMockOverflowRedirectService(new Set(['token1:user1']))
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             // Create 10 events for the same flagged key
             const events = Array.from({ length: 10 }, () => createMockEvent('token1', 'user1'))
@@ -88,14 +84,14 @@ describe('createRateLimitToOverflowStep', () => {
                 expect(result.type).toBe(PipelineResultType.REDIRECT)
                 if (result.type === PipelineResultType.REDIRECT) {
                     expect(result.reason).toBe('rate_limit_exceeded')
-                    expect(result.topic).toBe('overflow_topic')
+                    expect(result.output).toBe(OVERFLOW_OUTPUT)
                 }
             })
         })
 
         it('calls service with correct batch format', async () => {
             const service = createMockOverflowRedirectService()
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             const baseTime = new Date()
             const events = [
@@ -114,7 +110,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         it('groups events by token:distinct_id key', async () => {
             const service = createMockOverflowRedirectService()
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [
                 // 3 events for token1:user1
@@ -147,7 +143,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         it('redirects only keys flagged by service, not others', async () => {
             const service = createMockOverflowRedirectService(new Set(['token1:user1']))
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [
                 // 5 events for token1:user1 (flagged)
@@ -177,7 +173,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         it('handles empty token or distinct_id', async () => {
             const service = createMockOverflowRedirectService()
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [createMockEvent('', 'user1'), createMockEvent('token1', ''), createMockEvent('', '')]
 
@@ -191,7 +187,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         it('preserves input structure in results', async () => {
             const service = createMockOverflowRedirectService()
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [
                 {
@@ -211,7 +207,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         it('maintains ordering of events in results', async () => {
             const service = createMockOverflowRedirectService()
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [
                 createMockEvent('token1', 'user1'),
@@ -235,7 +231,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         it('preserves partition key when preservePartitionLocality is true', async () => {
             const service = createMockOverflowRedirectService(new Set(['token1:user1']))
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [createMockEvent('token1', 'user1')]
 
@@ -250,7 +246,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         it('does not preserve partition key when preservePartitionLocality is false', async () => {
             const service = createMockOverflowRedirectService(new Set(['token1:user1']))
-            const step = createRateLimitToOverflowStep('overflow_topic', false, service)
+            const step = createRateLimitToOverflowStep(false, service)
 
             const events = [createMockEvent('token1', 'user1')]
 
@@ -265,7 +261,7 @@ describe('createRateLimitToOverflowStep', () => {
 
         it('handles distinct_id with colons correctly', async () => {
             const service = createMockOverflowRedirectService(new Set(['token1:user:with:colons']))
-            const step = createRateLimitToOverflowStep('overflow_topic', true, service)
+            const step = createRateLimitToOverflowStep(true, service)
 
             const events = [createMockEvent('token1', 'user:with:colons')]
 

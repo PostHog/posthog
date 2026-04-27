@@ -8,7 +8,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { AlertApi, AlertsListParams, PaginatedAlertListApi, PatchedAlertApi } from './api.schemas'
+import type {
+    AlertApi,
+    AlertSimulateApi,
+    AlertSimulateResponseApi,
+    AlertsListParams,
+    AlertsRetrieveParams,
+    PaginatedAlertListApi,
+    PatchedAlertApi,
+} from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -71,12 +79,29 @@ export const alertsCreate = async (
     })
 }
 
-export const getAlertsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/alerts/${id}/`
+export const getAlertsRetrieveUrl = (projectId: string, id: string, params?: AlertsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/alerts/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/alerts/${id}/`
 }
 
-export const alertsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<AlertApi> => {
-    return apiMutator<AlertApi>(getAlertsRetrieveUrl(projectId, id), {
+export const alertsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AlertsRetrieveParams,
+    options?: RequestInit
+): Promise<AlertApi> => {
+    return apiMutator<AlertApi>(getAlertsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -126,5 +151,25 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     return apiMutator<void>(getAlertsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
+ */
+export const getAlertsSimulateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/alerts/simulate/`
+}
+
+export const alertsSimulateCreate = async (
+    projectId: string,
+    alertSimulateApi: AlertSimulateApi,
+    options?: RequestInit
+): Promise<AlertSimulateResponseApi> => {
+    return apiMutator<AlertSimulateResponseApi>(getAlertsSimulateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertSimulateApi),
     })
 }

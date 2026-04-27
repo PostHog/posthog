@@ -20,7 +20,7 @@ use tracing::{debug, info, warn};
 fn extract_status_error(error: &ReqwestError) -> String {
     if let Some(status) = error.status() {
         match status.as_u16() {
-            400 => "Export endpoint returned 400 -- your data export may be too large to support exporting straight from this source".to_string(),
+            400 => "Export endpoint returned 400 -- check your date range, credentials, and API key permissions".to_string(),
             401 => "Authentication failed, check your credentials".to_string(),
             403 => "Access denied -- check your credentials".to_string(),
             408 => "Request timed out -- data export may be too large to support exporting straight from source".to_string(),
@@ -326,7 +326,11 @@ impl DateRangeExportSource {
         // - Internal interval: [14:00, 15:00)
         // - Without adjustment: start=14:00, end=15:00 → returns hours 14 AND 15 (overlap!)
         // - With adjustment: start=14:00, end=14:00 → returns only hour 14 (correct)
-        let end_for_query = end - ChronoDuration::seconds(self.interval_duration);
+        //
+        // When the interval is shorter than interval_duration (e.g. a partial last interval),
+        // we clamp end_for_query to start so the query never has end < start.
+        let end_for_query =
+            std::cmp::max(end - ChronoDuration::seconds(self.interval_duration), start);
 
         let mut request = self.client.get(&self.base_url).query(&[
             (&self.start_qp, start.format(&self.date_format).to_string()),

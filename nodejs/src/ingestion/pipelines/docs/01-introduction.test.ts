@@ -27,7 +27,7 @@
  * ```
  */
 import { newBatchPipelineBuilder, newPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { PipelineResult, dlq, drop, isOkResult, ok, redirect } from '../results'
 import { ProcessingStep } from '../steps'
 
@@ -75,10 +75,10 @@ describe('Defining Steps', () => {
             .pipe(createMultiplyStep({ factor: 3 }))
             .build()
 
-        const stringResult = await stringPipeline.process(createContext(ok('hello')))
+        const stringResult = await stringPipeline.process(createOkContext('hello', {}))
         expect(isOkResult(stringResult.result) && stringResult.result.value).toBe('HELLO')
 
-        const numberResult = await numberPipeline.process(createContext(ok(5)))
+        const numberResult = await numberPipeline.process(createOkContext(5, {}))
         expect(isOkResult(numberResult.result) && numberResult.result.value).toBe(15)
     })
 
@@ -160,7 +160,7 @@ describe('Defining Steps', () => {
             .pipe(createFinalizeStep())
             .build()
 
-        const result = await pipeline.process(createContext(ok({ eventId: 'evt-123' })))
+        const result = await pipeline.process(createOkContext({ eventId: 'evt-123' }, {}))
 
         expect(isOkResult(result.result)).toBe(true)
         if (isOkResult(result.result)) {
@@ -189,7 +189,7 @@ describe('Pipeline Fundamentals', () => {
 
         const pipeline = newPipelineBuilder<string>().pipe(createProcessDataStep()).build()
 
-        const result = await pipeline.process(createContext(ok('hello')))
+        const result = await pipeline.process(createOkContext('hello', {}))
 
         expect(isOkResult(result.result)).toBe(true)
         if (isOkResult(result.result)) {
@@ -220,7 +220,7 @@ describe('Pipeline Fundamentals', () => {
             .pipe(createAddExclamationStep())
             .build()
 
-        const result = await pipeline.process(createContext(ok('hello')))
+        const result = await pipeline.process(createOkContext('hello', {}))
 
         expect(isOkResult(result.result)).toBe(true)
         if (isOkResult(result.result)) {
@@ -248,7 +248,7 @@ describe('Pipeline Fundamentals', () => {
 
         const pipeline = newPipelineBuilder<ValidateDataInput>().pipe(createValidateDataStep()).build()
 
-        const result = await pipeline.process(createContext(ok({ value: -1 })))
+        const result = await pipeline.process(createOkContext({ value: -1 }, {}))
 
         expect(result.result.type).toBe(1) // PipelineResultType.DLQ
     })
@@ -273,24 +273,25 @@ describe('Pipeline Fundamentals', () => {
 
         const pipeline = newPipelineBuilder<Event>().pipe(createFilterInternalStep()).build()
 
-        const result = await pipeline.process(createContext(ok({ type: 'internal' })))
+        const result = await pipeline.process(createOkContext({ type: 'internal' }, {}))
 
         expect(result.result.type).toBe(2) // PipelineResultType.DROP
     })
 
     /**
-     * A step can return REDIRECT to send an item to a different destination
-     * (e.g., a different Kafka topic) instead of continuing through the pipeline.
+     * A step can return REDIRECT to send an item to a named output
+     * (e.g., overflow) instead of continuing through the pipeline.
      */
     it('a step can return REDIRECT to send an item elsewhere', async () => {
         interface PriorityEvent {
             priority: string
         }
 
-        function createRouteByPriorityStep(): ProcessingStep<PriorityEvent, PriorityEvent> {
+        function createRouteByPriorityStep(): ProcessingStep<PriorityEvent, PriorityEvent, 'high_priority'> {
             return function routeByPriorityStep(event) {
                 if (event.priority === 'high') {
-                    return Promise.resolve(redirect('High priority event', 'high-priority-topic'))
+                    const HIGH_PRIORITY_OUTPUT = 'high_priority' as const
+                    return Promise.resolve(redirect('High priority event', HIGH_PRIORITY_OUTPUT))
                 }
                 return Promise.resolve(ok(event))
             }
@@ -298,7 +299,7 @@ describe('Pipeline Fundamentals', () => {
 
         const pipeline = newPipelineBuilder<PriorityEvent>().pipe(createRouteByPriorityStep()).build()
 
-        const result = await pipeline.process(createContext(ok({ priority: 'high' })))
+        const result = await pipeline.process(createOkContext({ priority: 'high' }, {}))
 
         expect(result.result.type).toBe(3) // PipelineResultType.REDIRECT
     })
@@ -312,7 +313,7 @@ describe('Pipeline Fundamentals', () => {
         type Input = { action: 'ok' | 'dlq' | 'drop' | 'redirect' }
         type Output = { action: string; processed: true }
 
-        function createDecisionStep(): ProcessingStep<Input, Input> {
+        function createDecisionStep(): ProcessingStep<Input, Input, 'other'> {
             return function decisionStep(input) {
                 if (input.action === 'dlq') {
                     return Promise.resolve(dlq('Error condition'))
@@ -321,7 +322,8 @@ describe('Pipeline Fundamentals', () => {
                     return Promise.resolve(drop('Filtered out'))
                 }
                 if (input.action === 'redirect') {
-                    return Promise.resolve(redirect('Redirecting', 'other-topic'))
+                    const OTHER_OUTPUT = 'other' as const
+                    return Promise.resolve(redirect('Redirecting', OTHER_OUTPUT))
                 }
                 return Promise.resolve(ok(input))
             }
@@ -341,22 +343,22 @@ describe('Pipeline Fundamentals', () => {
         const pipeline = newPipelineBuilder<Input>().pipe(createDecisionStep()).pipe(createProcessStep()).build()
 
         // OK result propagates through all steps
-        const okResult = await pipeline.process(createContext(ok({ action: 'ok' })))
+        const okResult = await pipeline.process(createOkContext({ action: 'ok' }, {}))
         expect(isOkResult(okResult.result)).toBe(true)
         expect(okResult.context.lastStep).toBe('processStep')
 
         // DLQ short-circuits - processStep is skipped
-        const dlqResult = await pipeline.process(createContext(ok({ action: 'dlq' })))
+        const dlqResult = await pipeline.process(createOkContext({ action: 'dlq' }, {}))
         expect(dlqResult.result.type).toBe(1) // DLQ
         expect(dlqResult.context.lastStep).toBe('decisionStep')
 
         // DROP short-circuits - processStep is skipped
-        const dropResult = await pipeline.process(createContext(ok({ action: 'drop' })))
+        const dropResult = await pipeline.process(createOkContext({ action: 'drop' }, {}))
         expect(dropResult.result.type).toBe(2) // DROP
         expect(dropResult.context.lastStep).toBe('decisionStep')
 
         // REDIRECT short-circuits - processStep is skipped
-        const redirectResult = await pipeline.process(createContext(ok({ action: 'redirect' })))
+        const redirectResult = await pipeline.process(createOkContext({ action: 'redirect' }, {}))
         expect(redirectResult.result.type).toBe(3) // REDIRECT
         expect(redirectResult.context.lastStep).toBe('decisionStep')
     })
@@ -376,7 +378,7 @@ describe('Batch Pipelines', () => {
 
         const pipeline = newBatchPipelineBuilder<string>().pipeBatch(createUppercaseBatchStep()).build()
 
-        const batch = ['a', 'b', 'c'].map((s) => createContext(ok(s)))
+        const batch = ['a', 'b', 'c'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
 
         const results = await pipeline.next()
@@ -402,7 +404,7 @@ describe('Batch Pipelines', () => {
 
         const pipeline = newBatchPipelineBuilder<number>().pipeBatch(createBatchEnrichStep()).build()
 
-        const batch = [1, 2, 3, 4, 5].map((n) => createContext(ok(n)))
+        const batch = [1, 2, 3, 4, 5].map((n) => createOkContext(n, {}))
         pipeline.feed(batch)
 
         await pipeline.next()
@@ -425,7 +427,7 @@ describe('Batch Pipelines', () => {
 
         const pipeline = newBatchPipelineBuilder<string>().pipeBatch(createPassthroughStep()).build()
 
-        const batch = ['x', 'y'].map((s) => createContext(ok(s)))
+        const batch = ['x', 'y'].map((s) => createOkContext(s, {}))
         pipeline.feed(batch)
 
         const results1 = await pipeline.next()

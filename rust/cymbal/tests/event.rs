@@ -95,6 +95,7 @@ fn make_frame_js(name: &str) -> Frame {
         resolved: true,
         lang: "javascript".to_string(),
         resolve_failure: None,
+
         synthetic: false,
         suspicious: false,
         junk_drawer: None,
@@ -117,6 +118,7 @@ fn make_frame_ts(name: &str) -> Frame {
         resolved: true,
         lang: "typescript".to_string(),
         resolve_failure: None,
+
         synthetic: false,
         suspicious: false,
         junk_drawer: None,
@@ -297,6 +299,12 @@ fn extract_exception_list(response: &SuccessResponse) -> ExceptionList {
         serde_json::from_value(event.as_ref().unwrap().properties.clone())
             .expect("Should deserialize properties");
     props.exception_list
+}
+
+fn extract_exception_list_raw(response: &SuccessResponse) -> serde_json::Value {
+    let event = response.first_event();
+    let props = event.as_ref().unwrap().properties.clone();
+    props["$exception_list"].clone()
 }
 
 // Tests
@@ -545,8 +553,10 @@ async fn handles_missing_sourcemap(db: PgPool) {
     let (status, body): (_, SuccessResponse) = harness.post_event(&event).await;
 
     assert!(status.is_success());
-    let exception_list = extract_exception_list(&body);
-    assert_json_snapshot!(exception_list.0, {
+    // Use raw JSON extraction to avoid losing resolve_failure during
+    // typed deserialization (Frame's resolve_failure is skip_deserializing).
+    let exception_list = extract_exception_list_raw(&body);
+    assert_json_snapshot!(exception_list, {
         "[].id" => "REDACTED",
     });
 }

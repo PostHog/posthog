@@ -16,9 +16,11 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.schema import (
+    ActorsQuery,
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
     CachedRetentionQueryResponse,
+    CohortPropertyFilter,
     EventPropertyFilter,
     EventsQuery,
     HogLanguage,
@@ -27,13 +29,18 @@ from posthog.schema import (
     HogQLQuery,
     MeanRetentionCalculation,
     PersonPropertyFilter,
+    ProductKey,
     PropertyOperator,
+    QueryLogTags,
     RetentionQuery,
 )
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.api.monitoring import Feature
+from posthog.api.query import _infer_query_tags
 from posthog.api.services.query import process_query_dict, process_query_model
+from posthog.clickhouse.query_tagging import QueryTags
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
 
@@ -149,8 +156,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
-    @patch("posthog.api.services.query.get_query_runner")
-    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner):
+    @patch("posthog.api.services.query.get_query_runner_or_none")
+    def test_hogql_autocomplete_bypasses_query_runner(self, mock_get_query_runner_or_none):
         query = HogQLAutocomplete(
             kind="HogQLAutocomplete",
             query="select event from events",
@@ -162,7 +169,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         result = process_query_model(self.team, query, user=self.user)
 
         self.assertIn("suggestions", result.model_dump())  # type: ignore
-        mock_get_query_runner.assert_not_called()
+        mock_get_query_runner_or_none.assert_not_called()
 
     @also_test_with_materialized_columns(["key"])
     @snapshot_clickhouse_queries
@@ -380,7 +387,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     @patch(
-        "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", {})
+        "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", QueryTags())
     )  # Erroneously constructed SQL
     def test_unsafe_clickhouse_error_is_swallowed(self, sqlparse_format_mock):
         query = {"kind": "EventsQuery", "select": ["timestamp"]}
@@ -607,6 +614,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         }
         response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.hogql_queries.query_runner.QueryRunner.run", side_effect=RuntimeError("source query failed"))
+    def test_data_visualization_source_error_is_not_chained_to_wrapper_runner_lookup(self, _mock_run):
+        query = {
+            "kind": "DataVisualizationNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT 1",
+            },
+        }
+
+        with self.assertRaises(RuntimeError) as raised:
+            process_query_dict(team=self.team, query_json=query)
+
+        self.assertIsNone(raised.exception.__context__)
 
     def test_query_not_supported(self):
         query = {
@@ -1232,3 +1254,150 @@ class TestQueryUpgrade(APIBaseTest):
                 }
             },
         )
+
+
+class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
+    ENDPOINT = "query"
+
+    @patch("posthog.api.query.process_query_model")
+    def test_trends_query_includes_formatted_results(self, mock_process_query_model):
+        mock_process_query_model.return_value = {
+            "results": [
+                {
+                    "data": [100, 200, 150],
+                    "labels": ["2024-01-01", "2024-01-02", "2024-01-03"],
+                    "days": ["2024-01-01", "2024-01-02", "2024-01-03"],
+                    "count": 450,
+                    "label": "$pageview",
+                    "action": {
+                        "days": ["2024-01-01", "2024-01-02", "2024-01-03"],
+                        "id": "$pageview",
+                        "type": "events",
+                    },
+                }
+            ],
+            "is_cached": False,
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("results", data)
+        self.assertIn("formatted_results", data)
+        self.assertIn("$pageview", data["formatted_results"])
+        self.assertIn("100", data["formatted_results"])
+        self.assertIn("|", data["formatted_results"])
+
+    @patch("posthog.api.query.process_query_model")
+    def test_hogql_query_includes_formatted_results(self, mock_process_query_model):
+        mock_process_query_model.return_value = {
+            "results": [["sign up", 10], ["sign out", 5]],
+            "columns": ["event", "count"],
+            "is_cached": False,
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "select event, count() from events group by event"}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("formatted_results", data)
+        self.assertIn("sign up", data["formatted_results"])
+        self.assertIn("10", data["formatted_results"])
+
+    @patch("posthog.api.query.process_query_model")
+    def test_no_formatted_results_without_header(self, mock_process_query_model):
+        mock_process_query_model.return_value = {
+            "results": [
+                {
+                    "data": [100],
+                    "labels": ["2024-01-01"],
+                    "days": ["2024-01-01"],
+                    "count": 100,
+                    "label": "$pageview",
+                    "action": {"days": ["2024-01-01"], "id": "$pageview", "type": "events"},
+                }
+            ],
+            "is_cached": False,
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("results", data)
+        self.assertNotIn("formatted_results", data)
+
+    @patch("posthog.api.query.process_query_model")
+    def test_unsupported_query_type_omits_formatted_results(self, mock_process_query_model):
+        mock_process_query_model.return_value = {
+            "results": [{"event": "test"}],
+            "columns": ["event"],
+            "is_cached": False,
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "EventsQuery", "select": ["event"]}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("results", data)
+        self.assertNotIn("formatted_results", data)
+
+    @patch("posthog.api.query.settings")
+    @patch("posthog.api.query.process_query_model")
+    def test_ee_unavailable_omits_formatted_results(self, mock_process_query_model, mock_settings):
+        mock_settings.EE_AVAILABLE = False
+        for attr in ("TEST", "API_QUERIES_PER_TEAM", "API_QUERIES_ENABLED", "API_QUERIES_LEGACY_TEAM_LIST"):
+            setattr(mock_settings, attr, getattr(__import__("posthog").settings, attr))
+
+        mock_process_query_model.return_value = {
+            "results": [
+                {
+                    "data": [100],
+                    "labels": ["2024-01-01"],
+                    "days": ["2024-01-01"],
+                    "count": 100,
+                    "label": "$pageview",
+                    "action": {"days": ["2024-01-01"], "id": "$pageview", "type": "events"},
+                }
+            ],
+            "is_cached": False,
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("results", data)
+        self.assertNotIn("formatted_results", data)
+
+
+class TestInferQueryTags(APIBaseTest):
+    def test_cohort_scene_infers_cohorts_product_and_cohort_feature(self):
+        # Mirrors the payload fired by the Cohort scene when listing members: the frontend's
+        # addTags attaches `tags.scene = "Cohort"` to every query issued from that scene.
+        query = ActorsQuery(
+            fixedProperties=[CohortPropertyFilter(value=1)],
+            select=["person_display_name -- Person", "id", "created_at"],
+            tags=QueryLogTags(scene="Cohort"),
+        )
+        assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": Feature.COHORT}

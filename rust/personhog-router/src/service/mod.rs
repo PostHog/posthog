@@ -5,18 +5,23 @@ use std::sync::Arc;
 
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogService;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
+    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, DeleteCohortMemberRequest, DeleteCohortMemberResponse,
+    DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
+    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
+    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
+    GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
-    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
+    PersonsResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
@@ -145,6 +150,41 @@ impl PersonHogService for PersonHogRouterService {
         route_request!(self, check_cohort_membership, request)
     }
 
+    async fn count_cohort_members(
+        &self,
+        request: Request<CountCohortMembersRequest>,
+    ) -> Result<Response<CountCohortMembersResponse>, Status> {
+        route_request!(self, count_cohort_members, request)
+    }
+
+    async fn delete_cohort_member(
+        &self,
+        request: Request<DeleteCohortMemberRequest>,
+    ) -> Result<Response<DeleteCohortMemberResponse>, Status> {
+        route_request!(self, delete_cohort_member, request)
+    }
+
+    async fn delete_cohort_members_bulk(
+        &self,
+        request: Request<DeleteCohortMembersBulkRequest>,
+    ) -> Result<Response<DeleteCohortMembersBulkResponse>, Status> {
+        route_request!(self, delete_cohort_members_bulk, request)
+    }
+
+    async fn insert_cohort_members(
+        &self,
+        request: Request<InsertCohortMembersRequest>,
+    ) -> Result<Response<InsertCohortMembersResponse>, Status> {
+        route_request!(self, insert_cohort_members, request)
+    }
+
+    async fn list_cohort_member_ids(
+        &self,
+        request: Request<ListCohortMemberIdsRequest>,
+    ) -> Result<Response<ListCohortMemberIdsResponse>, Status> {
+        route_request!(self, list_cohort_member_ids, request)
+    }
+
     // Groups
 
     async fn get_group(
@@ -196,5 +236,30 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<GetGroupTypeMappingsByProjectIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         route_request!(self, get_group_type_mappings_by_project_ids, request)
+    }
+
+    // Person deletes
+
+    async fn delete_persons(
+        &self,
+        request: Request<DeletePersonsRequest>,
+    ) -> Result<Response<DeletePersonsResponse>, Status> {
+        route_request!(self, delete_persons, request)
+    }
+
+    async fn delete_persons_batch_for_team(
+        &self,
+        request: Request<DeletePersonsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
+        route_request!(self, delete_persons_batch_for_team, request)
+    }
+
+    // Person property updates (routed to leader)
+
+    async fn update_person_properties(
+        &self,
+        request: Request<UpdatePersonPropertiesRequest>,
+    ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
+        route_request!(self, update_person_properties, request)
     }
 }

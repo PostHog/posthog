@@ -3,7 +3,6 @@ from typing import NamedTuple, Union
 from django.conf import settings
 from django.core.cache import BaseCache, cache, caches
 
-import posthoganalytics
 from django_redis import get_redis_connection
 from redis import Redis, RedisCluster
 
@@ -21,24 +20,18 @@ class QueryCacheSelection(NamedTuple):
     is_cluster: bool
 
 
-def use_cluster_cache(team_id: int) -> bool:
-    if QUERY_CACHE_ALIAS not in settings.CACHES:
-        return False
-    return posthoganalytics.feature_enabled(
-        "query-cache-cluster-migration",
-        str(team_id),
-        send_feature_flag_events=False,
-    )
+def use_cluster_cache() -> bool:
+    return QUERY_CACHE_ALIAS in settings.CACHES
 
 
-def get_query_cache(team_id: int):
-    if use_cluster_cache(team_id):
+def get_query_cache():
+    if use_cluster_cache():
         return caches[QUERY_CACHE_ALIAS]
     return cache
 
 
-def get_query_cache_selection(team_id: int) -> QueryCacheSelection:
-    if use_cluster_cache(team_id):
+def get_query_cache_selection() -> QueryCacheSelection:
+    if use_cluster_cache():
         return QueryCacheSelection(
             cache_backend=caches[QUERY_CACHE_ALIAS],
             redis_client=get_redis_connection(QUERY_CACHE_ALIAS),

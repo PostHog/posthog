@@ -166,9 +166,9 @@ export class CyclotronV2Worker {
                 )
             },
 
-            async retry(options?: { delayMs?: number; state?: Buffer | null }): Promise<void> {
-                releaseGuard('retry')
-                const delayMs = options?.delayMs ?? 0
+            async reschedule(options?: { scheduledAt?: Date; state?: Buffer | null }): Promise<void> {
+                releaseGuard('reschedule')
+                const scheduled = options?.scheduledAt ?? new Date()
                 const hasStateUpdate = options?.state !== undefined
 
                 if (hasStateUpdate) {
@@ -176,19 +176,19 @@ export class CyclotronV2Worker {
                         `UPDATE cyclotron_jobs
                          SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                              last_transition = NOW(), transition_count = transition_count + 1,
-                             scheduled = NOW() + make_interval(secs => $3::double precision / 1000),
+                             scheduled = $3,
                              state = $4
                          WHERE id = $1 AND lock_id = $2`,
-                        [row.id, lockId, delayMs, options!.state ?? null]
+                        [row.id, lockId, scheduled, options!.state ?? null]
                     )
                 } else {
                     await pool.query(
                         `UPDATE cyclotron_jobs
                          SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                              last_transition = NOW(), transition_count = transition_count + 1,
-                             scheduled = NOW() + make_interval(secs => $3::double precision / 1000)
+                             scheduled = $3
                          WHERE id = $1 AND lock_id = $2`,
-                        [row.id, lockId, delayMs]
+                        [row.id, lockId, scheduled]
                     )
                 }
             },

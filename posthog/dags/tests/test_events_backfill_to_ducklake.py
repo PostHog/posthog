@@ -38,7 +38,7 @@ class TestGetS3PathForPartition:
                 datetime(2025, 1, 15),
                 "chunk_0000_run_abc12345",
                 False,
-                "https://posthog-ducklake-dev.s3.us-east-1.amazonaws.com/backfill/events/team_id=mod64eq0/year=2025/month=01/day=15/chunk_0000_run_abc12345.parquet",
+                "https://posthog-ducklake-dev.s3.us-east-1.amazonaws.com/backfill/events/mod64eq0/2025/01/15/chunk_0000_run_abc12345.parquet",
             ),
             (
                 "posthog-ducklake-prod-eu",
@@ -47,7 +47,7 @@ class TestGetS3PathForPartition:
                 datetime(2025, 12, 31),
                 "chunk_0063_run_xyz98765",
                 False,
-                "https://posthog-ducklake-prod-eu.s3.eu-central-1.amazonaws.com/backfill/events/team_id=mod64eq63/year=2025/month=12/day=31/chunk_0063_run_xyz98765.parquet",
+                "https://posthog-ducklake-prod-eu.s3.eu-central-1.amazonaws.com/backfill/events/mod64eq63/2025/12/31/chunk_0063_run_xyz98765.parquet",
             ),
         ]
     )
@@ -86,7 +86,7 @@ class TestGetS3PathForPartition:
             )
             assert (
                 result
-                == "http://localhost:19000/posthog-ducklake-dev/backfill/events/team_id=mod64eq0/year=2025/month=01/day=15/chunk_0000_run_abc12345.parquet"
+                == "http://localhost:19000/posthog-ducklake-dev/backfill/events/mod64eq0/2025/01/15/chunk_0000_run_abc12345.parquet"
             )
 
 

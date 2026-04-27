@@ -90,7 +90,6 @@ const UniversalSearch = ({
                             focusInput={() => searchInputRef.current?.focus()}
                             taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                             popupAnchorElement={floatingRef.current}
-                            useVerticalLayout={true}
                         />
                     </div>
                 }
@@ -108,7 +107,7 @@ const UniversalSearch = ({
                     size="small"
                     autoFocus={false}
                     fullWidth
-                    docLink="https://posthog.com/docs/error-tracking/filter-and-search-issues"
+                    placeholder="Add a filter or search..."
                 />
             </LemonDropdown>
         </BindLogic>

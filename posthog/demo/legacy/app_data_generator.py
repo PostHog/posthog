@@ -5,7 +5,10 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.models import Action, Dashboard, DashboardTile, EventDefinition, Insight, Person, PropertyDefinition
+from posthog.models import Action, EventDefinition, Insight, Person, PropertyDefinition
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from .data_generator import DataGenerator
 

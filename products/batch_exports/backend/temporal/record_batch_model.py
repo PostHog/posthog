@@ -10,14 +10,18 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
 
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal import sql
+from products.batch_exports.backend.temporal.metrics import log_query_duration
+
+LOGGER = get_write_only_logger()
 
 Query = str
 QueryParameters = dict[str, typing.Any]
@@ -239,7 +243,7 @@ INSERT INTO FUNCTION {s3_function}
         )
 
     async def get_backfill_info(
-        self, start_at: dt.datetime | None, end_at: dt.datetime | None
+        self, start_at: dt.datetime | None, end_at: dt.datetime | None, log_comment: str
     ) -> tuple[dt.datetime | None, int | None]:
         """Estimate record count and earliest timestamp for a backfill.
 
@@ -249,6 +253,8 @@ INSERT INTO FUNCTION {s3_function}
         """
         hogql_query = self.get_backfill_info_hogql_query(start_at, end_at)
         context = await self.get_hogql_context()
+
+        context.values["log_comment"] = log_comment
 
         prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
             hogql_query, context=context, dialect="clickhouse", stack=[]
@@ -262,8 +268,21 @@ INSERT INTO FUNCTION {s3_function}
             stack=[],
         )
 
-        async with get_client(team_id=self.team_id) as client:
-            result = await client.read_query_as_jsonl(printed, query_parameters=context.values)
+        if "settings" not in printed.lower():
+            printed += " SETTINGS log_comment={log_comment}"
+        else:
+            printed += ", log_comment={log_comment}"
+
+        query_id = str(uuid.uuid4())
+        logger = LOGGER.bind(query_id=query_id)
+
+        with log_query_duration(
+            logger=logger,
+            query_id=query_id,
+            query_type="backfill_info:sessions",
+        ):
+            async with get_client(team_id=self.team_id) as client:
+                result = await client.read_query_as_jsonl(printed, query_parameters=context.values, query_id=query_id)
 
         min_timestamp_str = result[0]["min_timestamp"]
         record_count = int(result[0]["record_count"])

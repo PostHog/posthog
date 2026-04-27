@@ -28,6 +28,7 @@ import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 import { normalizeSessionId } from '~/utils/utils'
 
+import { instrumentFn } from '../common/tracing/tracing-utils'
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
@@ -140,6 +141,7 @@ export type KafkaConsumerConfig = {
     callEachBatchWhenEmpty?: boolean
     autoOffsetStore?: boolean
     autoCommit?: boolean
+    enablePartitionEof?: boolean
     waitForBackgroundTasksOnRebalance?: boolean
 }
 
@@ -176,7 +178,7 @@ export class KafkaConsumer {
     private lastStatsEmitTime = 0
     private rebalanceCoordination: RebalanceCoordination = {
         isRebalancing: false,
-        rebalanceTimeoutMs: 20000,
+        rebalanceTimeoutMs: defaultConfig.CONSUMER_REBALANCE_TIMEOUT_MS,
         rebalanceStartTime: 0,
     }
     private consumerLogStatsLevel: LogLevel
@@ -223,11 +225,13 @@ export class KafkaConsumer {
             'client.rack': defaultConfig.KAFKA_CLIENT_RACK, // Helps with cross-AZ traffic awareness and is not unique to the consumer
             'metadata.max.age.ms': 30000, // Refresh metadata every 30s - Relevant for leader loss (MSK Security Patches)
             'socket.timeout.ms': 30000,
+            'enable.partition.eof': this.config.enablePartitionEof ?? true,
             // Only enable statistics when using loop-based health check
             ...(defaultConfig.CONSUMER_LOOP_BASED_HEALTH_CHECK
                 ? { 'statistics.interval.ms': STATISTICS_INTERVAL_MS }
                 : {}),
             // Custom settings and overrides - this is where most configuration overrides should be done
+            // e.g. KAFKA_CONSUMER_ENABLE_PARTITION_EOF=false to override the default above
             ...getKafkaConfigFromEnv('CONSUMER'),
             // Finally any specifically given consumer config overrides
             ...rdKafkaConfig,
@@ -235,7 +239,6 @@ export class KafkaConsumer {
             'partition.assignment.strategy': isTestEnv() ? 'roundrobin' : 'cooperative-sticky', // Roundrobin is used for testing to avoid flakiness caused by running librdkafka v2.2.0
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
             'enable.auto.commit': this.config.autoCommit,
-            'enable.partition.eof': true,
             rebalance_cb: rebalancecb,
             offset_commit_cb: true,
         }
@@ -726,8 +729,18 @@ export class KafkaConsumer {
                     // TRICKY: The commit logic needs to be aware of background work. If we were to just store offsets here,
                     // it would be hard to mix background work with non-background work.
                     // So we just create pretend work to simplify the rest of the logic
-                    const backgroundTask = result?.backgroundTask ?? Promise.resolve()
-                    const stopBackgroundTaskTimer = result?.backgroundTask
+                    const rawBackgroundTask = result?.backgroundTask
+                    const backgroundTask = rawBackgroundTask
+                        ? instrumentFn(
+                              {
+                                  key: 'consumer_background_task',
+                                  timeoutMs: defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS,
+                                  sendException: false,
+                              },
+                              () => rawBackgroundTask
+                          )
+                        : Promise.resolve()
+                    const stopBackgroundTaskTimer = rawBackgroundTask
                         ? consumedBatchBackgroundDuration.startTimer({
                               topic: this.config.topic,
                               groupId: this.config.groupId,
@@ -778,7 +791,10 @@ export class KafkaConsumer {
                             groupId: this.config.groupId,
                         })
                         // If we have more than the max, we need to await one
-                        await this.backgroundTask[0].promise
+                        await instrumentFn(
+                            { key: 'consumer_backpressure_wait', timeoutMs: 30_000, sendException: false },
+                            () => this.backgroundTask[0].promise
+                        )
                         stopTimer()
                     }
                 }
@@ -889,6 +905,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     const result: EventHeaders = {
         force_disable_person_processing: false,
         historical_migration: false,
+        skip_heatmap_processing: false,
     }
 
     headers?.forEach((header) => {
@@ -915,6 +932,8 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 }
             } else if (key === 'historical_migration') {
                 result.historical_migration = value === 'true'
+            } else if (key === 'skip_heatmap_processing') {
+                result.skip_heatmap_processing = value === 'true'
             }
         })
     })
@@ -930,6 +949,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
         'now',
         'force_disable_person_processing',
         'historical_migration',
+        'skip_heatmap_processing',
     ] as const
     trackedHeaders.forEach((header) => {
         const status = result[header] ? 'present' : 'absent'

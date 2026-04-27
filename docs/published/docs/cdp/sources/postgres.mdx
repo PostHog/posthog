@@ -1,0 +1,50 @@
+---
+title: Linking Postgres as a source
+sidebar: Docs
+showTitle: true
+availability:
+  free: full
+  selfServe: full
+  enterprise: full
+sourceId: Postgres
+---
+
+The Postgres connector can link your database tables to PostHog.
+
+To link Postgres:
+
+1. Go to the [Data pipeline page](https://app.posthog.com/data-management/sources) and the sources tab in PostHog
+2. Click **New source** and select Postgres
+3. Enter your database connection details:
+   - **Host:** The hostname or IP your database server like `db.example.com` or `123.132.1.100`.
+   - **Port:** The port your database server is listening to. The default is `5432`.
+   - **Database:** The name of the database you want like `analytics_db`.
+   - **User:** The username with the necessary permissions to access the database.
+   - **Password:** The password for the user.
+   - **Schema:** The schema for your database where your tables are located. The default is `public`.
+4. If you need to connect through an SSH tunnel, enable and configure it (optional):
+   - **Tunnel host:** The hostname of your SSH server.
+   - **Tunnel port:** The port your SSH server is listening on.
+   - **Authentication type:**
+     - For password authentication, enter your SSH username and password.
+     - For key-based authentication, enter your SSH username, private key, and optional passphrase.
+   - **Require TLS through tunnel?** - Whether to require TLS encryption through the SSH tunnel. Enabled by default. Disable if your database does not support TLS.
+5. Click **Link**
+
+The data warehouse then starts syncing your Postgres data. You can see details and progress in the [sources tab](https://app.posthog.com/data-management/sources).
+
+<CalloutBox icon="IconWarning" title="SSL/TLS required for new sources" type="caution">
+
+PostgreSQL sources created after February 18, 2026 require SSL/TLS encryption for database connections. Ensure your PostgreSQL database supports SSL/TLS connections before linking. Existing sources created before this date are not affected. If you're connecting through an SSH tunnel, you can optionally disable TLS using the **Require TLS through tunnel?** toggle since the tunnel already encrypts the connection.
+
+</CalloutBox>
+
+> **Permissions** The Postgres source only requires read permissions on the schemas and tables you intend to sync.
+
+> **Looking for an example of the Postgres source?** Check out our tutorial where we [connect and query Supabase data](/tutorials/supabase-query).
+
+import InboundIpAddresses from '../_snippets/inbound-ip-addresses.mdx'
+
+<InboundIpAddresses />
+
+> **Note:** We currently don't support connections using IPv6, therefore, you may need to enable IPv4 connections to your database. This is required for Supabase, for example.

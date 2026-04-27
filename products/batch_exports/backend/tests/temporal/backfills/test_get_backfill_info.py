@@ -1,22 +1,23 @@
 import uuid
+import typing as t
 import datetime as dt
 
 import pytest
+from unittest.mock import patch
+
+from temporalio.testing import ActivityEnvironment
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.utils import uuid7
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, insert_sessions_in_clickhouse
 
-from products.batch_exports.backend.temporal.backfill_batch_export import (
-    _get_backfill_info_for_events,
-    _get_backfill_info_for_persons,
-    _get_backfill_info_for_sessions,
-)
+from products.batch_exports.backend.temporal.backfill_batch_export import GetBackfillInfoInputs, get_backfill_info
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
     truncate_events,
     truncate_persons,
     truncate_sessions,
 )
+from products.batch_exports.backend.tests.temporal.utils.mock_clickhouse import MockClickHouseClient
 from products.batch_exports.backend.tests.temporal.utils.persons import (
     generate_test_person_distinct_id2,
     generate_test_persons_in_clickhouse,
@@ -25,25 +26,70 @@ from products.batch_exports.backend.tests.temporal.utils.persons import (
 )
 
 
-class TestGetBackfillInfoForEvents:
-    """Tests for the _get_backfill_info_for_events function."""
+@pytest.fixture
+def activity_environment():
+    return ActivityEnvironment()
 
+
+@pytest.fixture
+def run_get_backfill_info(activity_environment):
+    async def _run(batch_export, start_at=None, end_at=None):
+        inputs = GetBackfillInfoInputs(
+            team_id=batch_export.team_id,
+            batch_export_id=str(batch_export.id),
+            start_at=start_at.isoformat() if start_at else None,
+            end_at=end_at.isoformat() if end_at else None,
+        )
+        return await activity_environment.run(get_backfill_info, inputs)
+
+    return _run
+
+
+@pytest.fixture
+def mock_clickhouse_client():
+    mock_client = MockClickHouseClient(
+        read_query_as_jsonl_responses=[[{"min_timestamp": "1970-01-01 00:00:00", "record_count": "0"}]],
+    )
+    with (
+        patch(
+            "products.batch_exports.backend.temporal.backfill_batch_export.get_client",
+            return_value=mock_client.mock_client_cm,
+        ),
+        patch(
+            "products.batch_exports.backend.temporal.record_batch_model.get_client",
+            return_value=mock_client.mock_client_cm,
+        ),
+    ):
+        yield mock_client
+
+
+class TestGetBackfillInfoForEvents:
     @pytest.fixture(autouse=True)
     async def truncate_events_table(self, clickhouse_client):
-        """Fixture to truncate events table before each test."""
         await truncate_events(clickhouse_client)
 
     @pytest.fixture
-    def make_batch_export(self, ateam):
-        """Factory fixture to create BatchExport objects (not saved to DB)."""
-
-        def _make(
+    def create_batch_export(self, ateam):
+        async def _create(
             interval: str = "hour",
             interval_offset: int | None = None,
             timezone: str = "UTC",
+            include_events: list[str] | None = None,
+            exclude_events: list[str] | None = None,
         ) -> BatchExport:
-            destination = BatchExportDestination(type="S3", config={})
-            return BatchExport(
+            config: dict[str, t.Any] = {
+                "bucket_name": "test",
+                "region": "us-east-1",
+                "prefix": "/",
+                "aws_access_key_id": "key",
+                "aws_secret_access_key": "secret",
+            }
+            if include_events:
+                config["include_events"] = include_events
+            if exclude_events:
+                config["exclude_events"] = exclude_events
+            destination = await BatchExportDestination.objects.acreate(type="S3", config=config)
+            return await BatchExport.objects.acreate(
                 team_id=ateam.pk,
                 name="Test Batch Export",
                 destination=destination,
@@ -52,93 +98,78 @@ class TestGetBackfillInfoForEvents:
                 timezone=timezone,
             )
 
-        return _make
+        return _create
 
-    async def test_returns_earliest_start_and_count_when_data_exists(self, ateam, generate_events, make_batch_export):
-        """Test basic case: returns earliest_start and record_count when events exist."""
+    async def test_returns_earliest_start_and_count_when_data_exists(
+        self, ateam, generate_events, create_batch_export, run_get_backfill_info
+    ):
         event_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
         await generate_events(start_time=event_time, count=25, count_other_team=10)
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
-        )
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export, start_at=dt.datetime(2000, 1, 1, tzinfo=dt.UTC))
 
-        assert earliest_start == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
-        assert record_count == 25
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 25
 
-    async def test_returns_none_and_zero_when_no_data_exists(self, ateam, make_batch_export):
-        """Test that (None, 0) is returned when no events exist for the team."""
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
-        )
+    async def test_returns_count_with_no_adjusted_start_when_start_at_is_none(
+        self, ateam, generate_events, create_batch_export, run_get_backfill_info
+    ):
+        event_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
+        await generate_events(start_time=event_time, count=25, count_other_team=10)
 
-        assert earliest_start is None
-        assert record_count == 0
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export)
 
-    async def test_counts_only_events_after_start_at(self, ateam, generate_events, make_batch_export):
-        """Test that count respects start_at filter."""
+        assert result.adjusted_start_at is None
+        assert result.total_records_count == 25
+
+    async def test_returns_zero_when_no_data_exists(self, ateam, create_batch_export, run_get_backfill_info):
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export)
+
+        assert result.total_records_count == 0
+
+    async def test_counts_only_events_after_start_at(
+        self, ateam, generate_events, create_batch_export, run_get_backfill_info
+    ):
         early_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
         late_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
 
         await generate_events(start_time=early_time, count=10, count_other_team=10)
         await generate_events(start_time=late_time, count=15, count_other_team=10)
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
             start_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
         )
 
-        # earliest_start should be the earliest event within the date range
-        assert earliest_start == dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
-        # count should only include events after start_at
-        assert record_count == 15
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 15
 
-    async def test_counts_only_events_before_end_at(self, ateam, generate_events, make_batch_export):
-        """Test that count respects end_at filter."""
+    async def test_counts_only_events_before_end_at(
+        self, ateam, generate_events, create_batch_export, run_get_backfill_info
+    ):
         early_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
         late_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
 
         await generate_events(start_time=early_time, count=10, count_other_team=10)
         await generate_events(start_time=late_time, count=15, count_other_team=10)
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2000, 1, 1, tzinfo=dt.UTC),
             end_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
         )
 
-        # earliest_start should be the earliest event within the date range
-        assert earliest_start == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
-        # count should only include events before end_at
-        assert record_count == 10
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 10
 
-    async def test_counts_only_events_in_range(self, ateam, generate_events, make_batch_export):
-        """Test that count respects both start_at and end_at filters."""
+    async def test_counts_only_events_in_range(
+        self, ateam, generate_events, create_batch_export, run_get_backfill_info
+    ):
         times = [
             dt.datetime(2021, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
             dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
@@ -149,258 +180,87 @@ class TestGetBackfillInfoForEvents:
         for event_time, count in zip(times, counts):
             await generate_events(start_time=event_time, count=count, count_other_team=10)
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
             start_at=dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC),
             end_at=dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC),
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
         )
 
-        # earliest_start should be the earliest event within the date range
-        assert earliest_start == dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC)
-        # count should only include the middle batch (10 events)
-        assert record_count == 10
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 10
 
-    async def test_respects_include_events_filter(self, ateam, generate_events, make_batch_export):
-        """Test that include_events filter is respected."""
-        event_time = dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC)
-        await generate_events(start_time=event_time, count=20, count_other_team=10, event_name="pageview")
-        await generate_events(start_time=event_time, count=30, count_other_team=10, event_name="click")
-
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=["pageview"],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
-        )
-
-        assert earliest_start is not None
-        assert record_count == 20
-
-    async def test_respects_exclude_events_filter(self, ateam, generate_events, make_batch_export):
-        """Test that exclude_events filter is respected."""
-        event_time = dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC)
-        await generate_events(start_time=event_time, count=20, count_other_team=10, event_name="pageview")
-        await generate_events(start_time=event_time, count=30, count_other_team=10, event_name="click")
-
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=["click"],
-            filters_str="",
-            extra_query_parameters={},
-        )
-
-        assert earliest_start is not None
-        assert record_count == 20
-
-    async def test_earliest_start_aligned_to_interval(self, ateam, generate_events, make_batch_export):
-        """Test that earliest_start is aligned to the interval boundary."""
-        event_time = dt.datetime(2021, 1, 15, 10, 37, 45, tzinfo=dt.UTC)
-        await generate_events(
-            start_time=event_time, count=5, end_time=event_time + dt.timedelta(minutes=1), count_other_team=10
-        )
-
-        # Hourly interval - should align to 10:00
-        batch_export = make_batch_export(interval="hour")
-        earliest_start, _ = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
-        )
-        assert earliest_start == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
-
-        # 5-minute interval - should align to 10:35
-        batch_export = make_batch_export(interval="every 5 minutes")
-        earliest_start, _ = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
-        )
-        assert earliest_start == dt.datetime(2021, 1, 15, 10, 35, 0, tzinfo=dt.UTC)
-
-    async def test_custom_filters_str_is_applied(self, ateam, generate_events, make_batch_export):
-        """Test that custom filters_str is included in the query."""
-        event_time = dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC)
-        await generate_events(start_time=event_time, count=50, count_other_team=10)
-
-        # Apply a filter that excludes all events
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="AND 1 = 0",
-            extra_query_parameters={},
-        )
-
-        assert earliest_start is None
-        assert record_count == 0
-
-    async def test_earliest_start_respects_interval_offset_daily(self, ateam, generate_events, make_batch_export):
-        """Test that earliest_start respects interval_offset for daily exports.
-
-        For a daily export with offset_hour=5 (interval_offset=18000):
-        - 10:30am aligns to 5am same day
-        - 4:30am aligns to 5am previous day
-        """
-        # Event at 10:30am on Jan 15 should align to 5am Jan 15
-        event_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
-        await generate_events(start_time=event_time, count=5, end_time=event_time + dt.timedelta(minutes=1))
-
-        # Daily interval with offset_hour=5 (18000s offset)
-        batch_export = make_batch_export(interval="day", interval_offset=5 * 3600)
-        earliest_start, _ = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
-        )
-        assert earliest_start == dt.datetime(2021, 1, 15, 5, 0, 0, tzinfo=dt.UTC)
-
-    async def test_earliest_start_respects_interval_offset_daily_before_offset(
-        self, ateam, generate_events, make_batch_export
+    async def test_respects_include_events_filter(
+        self, ateam, generate_events, create_batch_export, run_get_backfill_info
     ):
-        """Test that earliest_start correctly aligns when event is before offset hour.
+        event_time = dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC)
+        await generate_events(start_time=event_time, count=20, count_other_team=10, event_name="pageview")
+        await generate_events(start_time=event_time, count=30, count_other_team=10, event_name="click")
 
-        For a daily export with offset_hour=5:
-        - Event at 4:30am should align to 5am the PREVIOUS day
+        batch_export = await create_batch_export(include_events=["pageview"])
+        result = await run_get_backfill_info(batch_export, start_at=dt.datetime(2000, 1, 1, tzinfo=dt.UTC))
+
+        assert result.adjusted_start_at is not None
+        assert result.total_records_count == 20
+
+    async def test_respects_exclude_events_filter(
+        self, ateam, generate_events, create_batch_export, run_get_backfill_info
+    ):
+        event_time = dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC)
+        await generate_events(start_time=event_time, count=20, count_other_team=10, event_name="pageview")
+        await generate_events(start_time=event_time, count=30, count_other_team=10, event_name="click")
+
+        batch_export = await create_batch_export(exclude_events=["click"])
+        result = await run_get_backfill_info(batch_export, start_at=dt.datetime(2000, 1, 1, tzinfo=dt.UTC))
+
+        assert result.adjusted_start_at is not None
+        assert result.total_records_count == 20
+
+    async def test_query_metadata(self, mock_clickhouse_client, run_get_backfill_info, create_batch_export, ateam):
+        """Test that the query is executed as expected. This test uses a mocked ClickHouse client to
+        verify the query metadata.
         """
-        # Event at 4:30am on Jan 15 should align to 5am Jan 14
-        event_time = dt.datetime(2021, 1, 15, 4, 30, 0, tzinfo=dt.UTC)
-        await generate_events(start_time=event_time, count=5, end_time=event_time + dt.timedelta(minutes=1))
 
-        # Daily interval with offset_hour=5 (18000s offset)
-        batch_export = make_batch_export(interval="day", interval_offset=5 * 3600)
-        earliest_start, _ = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
+        batch_export = await create_batch_export()
+        await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
         )
-        # Event is before 5am, so it falls in the previous day's interval starting at 5am
-        assert earliest_start == dt.datetime(2021, 1, 14, 5, 0, 0, tzinfo=dt.UTC)
 
-    async def test_earliest_start_respects_interval_offset_weekly(self, ateam, generate_events, make_batch_export):
-        """Test that earliest_start respects interval_offset for weekly exports.
-
-        For a weekly export starting Monday at 5am (offset_day=1, offset_hour=5):
-        - An event on Thursday at 10am should align to Monday 5am of that week
-        """
-        # Thursday Jan 14, 2021 at 10am (Monday was Jan 11)
-        event_time = dt.datetime(2021, 1, 14, 10, 0, 0, tzinfo=dt.UTC)
-        await generate_events(start_time=event_time, count=5, end_time=event_time + dt.timedelta(minutes=1))
-
-        # Weekly interval with offset_day=1 (Monday) and offset_hour=5
-        # offset = 1 * 86400 + 5 * 3600 = 86400 + 18000 = 104400
-        batch_export = make_batch_export(interval="week", interval_offset=1 * 86400 + 5 * 3600)
-        earliest_start, _ = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
+        mock_clickhouse_client.expect_query_count(1)
+        mock_clickhouse_client.expect_all_calls_have_query_id()
+        mock_clickhouse_client.expect_properties_in_log_comment(
+            {
+                "team_id": ateam.pk,
+                "batch_export_id": str(batch_export.id),
+                "product": "batch_export",
+                "query_type": "backfill_estimate",
+            }
         )
-        # Monday Jan 11, 2021 at 5am UTC
-        assert earliest_start == dt.datetime(2021, 1, 11, 5, 0, 0, tzinfo=dt.UTC)
-
-    async def test_earliest_start_respects_timezone_us_pacific(self, ateam, generate_events, make_batch_export):
-        """Test that earliest_start respects timezone for daily exports.
-
-        For a daily export at 1am US/Pacific:
-        - In January (PST = UTC-8), 1am Pacific = 9am UTC
-        - An event at 10:00 UTC (2:00am PST) should align to 9:00 UTC (1:00am PST)
-        - An event at 08:30 UTC (0:30am PST) should align to previous day's 9:00 UTC
-        """
-        # Event at 10:00 UTC on Jan 15 (which is 2:00am PST on Jan 15)
-        event_time = dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
-        await generate_events(start_time=event_time, count=5, end_time=event_time + dt.timedelta(minutes=1))
-
-        # Daily interval at 1am US/Pacific (offset_hour=1)
-        batch_export = make_batch_export(interval="day", interval_offset=1 * 3600, timezone="US/Pacific")
-        earliest_start, _ = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
-        )
-        # 1am PST on Jan 15 = 9am UTC on Jan 15
-        assert earliest_start == dt.datetime(2021, 1, 15, 9, 0, 0, tzinfo=dt.UTC)
-
-    async def test_earliest_start_respects_timezone_before_offset_hour(self, ateam, generate_events, make_batch_export):
-        """Test that earliest_start aligns to previous day when event is before offset hour in local time.
-
-        For a daily export at 1am US/Pacific:
-        - An event at 08:30 UTC (0:30am PST) should align to previous day's 1am PST = 9am UTC
-        """
-        # Event at 08:30 UTC on Jan 15 (which is 0:30am PST on Jan 15, before 1am)
-        event_time = dt.datetime(2021, 1, 15, 8, 30, 0, tzinfo=dt.UTC)
-        await generate_events(start_time=event_time, count=5, end_time=event_time + dt.timedelta(minutes=1))
-
-        # Daily interval at 1am US/Pacific (offset_hour=1)
-        batch_export = make_batch_export(interval="day", interval_offset=1 * 3600, timezone="US/Pacific")
-        earliest_start, _ = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-            include_events=[],
-            exclude_events=[],
-            filters_str="",
-            extra_query_parameters={},
-        )
-        # Event is before 1am PST, so it falls in previous day's interval
-        # 1am PST on Jan 14 = 9am UTC on Jan 14
-        assert earliest_start == dt.datetime(2021, 1, 14, 9, 0, 0, tzinfo=dt.UTC)
 
 
 class TestGetBackfillInfoForPersons:
-    """Tests for the _get_backfill_info_for_persons function."""
-
     @pytest.fixture(autouse=True)
     async def truncate_persons_tables(self, clickhouse_client):
         await truncate_persons(clickhouse_client)
 
     @pytest.fixture
-    def make_batch_export(self, ateam):
-        def _make(
+    def create_batch_export(self, ateam):
+        async def _create(
             interval: str = "hour",
             interval_offset: int | None = None,
             timezone: str = "UTC",
         ) -> BatchExport:
-            destination = BatchExportDestination(type="S3", config={})
-            return BatchExport(
+            config = {
+                "bucket_name": "test",
+                "region": "us-east-1",
+                "prefix": "/",
+                "aws_access_key_id": "key",
+                "aws_secret_access_key": "secret",
+            }
+            destination = await BatchExportDestination.objects.acreate(type="S3", config=config)
+            return await BatchExport.objects.acreate(
                 team_id=ateam.pk,
                 name="Test Batch Export",
                 destination=destination,
@@ -410,7 +270,7 @@ class TestGetBackfillInfoForPersons:
                 model="persons",
             )
 
-        return _make
+        return _create
 
     @pytest.fixture
     def generate_persons(self, clickhouse_client, ateam):
@@ -456,36 +316,41 @@ class TestGetBackfillInfoForPersons:
         return _generate
 
     async def test_returns_earliest_start_and_count_when_data_exists(
-        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+        self, ateam, generate_persons, generate_person_distinct_ids, create_batch_export, run_get_backfill_info
     ):
         person_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
         persons = await generate_persons(start_time=person_time, count=5, count_other_team=3)
         person_ids = [p["id"] for p in persons]
         await generate_person_distinct_ids(timestamp=person_time, count=5, person_ids=person_ids)
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-        )
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export, start_at=dt.datetime(2000, 1, 1, tzinfo=dt.UTC))
 
-        assert earliest_start == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
-        assert record_count == 5
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 5
 
-    async def test_returns_none_and_zero_when_no_data_exists(self, ateam, make_batch_export):
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-        )
+    async def test_returns_count_with_no_adjusted_start_when_start_at_is_none(
+        self, ateam, generate_persons, generate_person_distinct_ids, create_batch_export, run_get_backfill_info
+    ):
+        person_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
+        persons = await generate_persons(start_time=person_time, count=5, count_other_team=3)
+        person_ids = [p["id"] for p in persons]
+        await generate_person_distinct_ids(timestamp=person_time, count=5, person_ids=person_ids)
 
-        assert earliest_start is None
-        assert record_count == 0
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export)
+
+        assert result.adjusted_start_at is None
+        assert result.total_records_count == 5
+
+    async def test_returns_zero_when_no_data_exists(self, ateam, create_batch_export, run_get_backfill_info):
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export)
+
+        assert result.total_records_count == 0
 
     async def test_takes_minimum_timestamp_across_both_tables(
-        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+        self, ateam, generate_persons, generate_person_distinct_ids, create_batch_export, run_get_backfill_info
     ):
         earlier_time = dt.datetime(2021, 1, 10, 5, 0, 0, tzinfo=dt.UTC)
         later_time = dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
@@ -495,21 +360,16 @@ class TestGetBackfillInfoForPersons:
         person_ids = [p["id"] for p in persons]
         await generate_person_distinct_ids(timestamp=earlier_time, count=3, person_ids=person_ids)
 
-        batch_export = make_batch_export()
-        earliest_start, _ = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-        )
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export, start_at=dt.datetime(2000, 1, 1, tzinfo=dt.UTC))
 
         # Should use the earlier timestamp from person_distinct_id2
-        assert earliest_start == dt.datetime(2021, 1, 10, 5, 0, 0, tzinfo=dt.UTC)
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 10, 5, 0, 0, tzinfo=dt.UTC).isoformat()
 
     async def test_count_includes_distinct_ids_from_changed_persons(
-        self, ateam, clickhouse_client, generate_person_distinct_ids, make_batch_export
+        self, ateam, clickhouse_client, generate_person_distinct_ids, create_batch_export, run_get_backfill_info
     ):
         """When a person changes, all their existing distinct_ids should be counted."""
-        # Create a person with 3 distinct_ids at an old timestamp
         old_time = dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC)
         new_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
 
@@ -545,20 +405,21 @@ class TestGetBackfillInfoForPersons:
         # Create 3 distinct_ids for this person at old time (not in the query range)
         await generate_person_distinct_ids(timestamp=old_time, count=3, person_ids=[str(person_id)] * 3)
 
-        batch_export = make_batch_export()
+        batch_export = await create_batch_export()
         # Query range only covers new_time — person changed but distinct_ids didn't
-        _, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
+        result = await run_get_backfill_info(
+            batch_export,
             start_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
             end_at=dt.datetime(2021, 1, 16, 0, 0, 0, tzinfo=dt.UTC),
         )
 
         # All 3 distinct_ids should be counted via the UNION DISTINCT branch
-        assert record_count == 3
+        assert result.total_records_count == 3
 
-    async def test_count_deduplicates_by_latest_version(self, ateam, clickhouse_client, make_batch_export):
+    async def test_count_deduplicates_by_latest_version(
+        self, ateam, clickhouse_client, create_batch_export, run_get_backfill_info
+    ):
         """Only count distinct_ids/persons whose latest version is in range."""
-
         old_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
         new_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
 
@@ -566,7 +427,6 @@ class TestGetBackfillInfoForPersons:
         person_id = uuid.uuid4()
 
         # Insert person with v1 in range and v2 outside range
-        # argMax(_timestamp, version) will return new_time (v2), which is outside the query range
         await insert_person_values_in_clickhouse(
             client=clickhouse_client,
             persons=[
@@ -616,20 +476,20 @@ class TestGetBackfillInfoForPersons:
             ],
         )
 
-        batch_export = make_batch_export()
+        batch_export = await create_batch_export()
 
         # Query range covers only old_time — but latest versions are at new_time for both
-        _, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
+        result = await run_get_backfill_info(
+            batch_export,
             start_at=dt.datetime(2021, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
             end_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
         )
 
         # Neither person nor distinct_id has latest version in range, so count should be 0
-        assert record_count == 0
+        assert result.total_records_count == 0
 
     async def test_counts_only_records_after_start_at(
-        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+        self, ateam, generate_persons, generate_person_distinct_ids, create_batch_export, run_get_backfill_info
     ):
         early_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
         late_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
@@ -640,18 +500,17 @@ class TestGetBackfillInfoForPersons:
         late_persons = await generate_persons(start_time=late_time, count=8)
         await generate_person_distinct_ids(timestamp=late_time, count=8, person_ids=[p["id"] for p in late_persons])
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
             start_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
-            end_at=None,
         )
 
-        assert earliest_start == dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
-        assert record_count == 8
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 8
 
     async def test_counts_only_records_before_end_at(
-        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+        self, ateam, generate_persons, generate_person_distinct_ids, create_batch_export, run_get_backfill_info
     ):
         early_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
         late_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
@@ -662,18 +521,18 @@ class TestGetBackfillInfoForPersons:
         late_persons = await generate_persons(start_time=late_time, count=8)
         await generate_person_distinct_ids(timestamp=late_time, count=8, person_ids=[p["id"] for p in late_persons])
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
-            start_at=None,
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2000, 1, 1, tzinfo=dt.UTC),
             end_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
         )
 
-        assert earliest_start == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
-        assert record_count == 5
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 5
 
     async def test_counts_only_records_in_range(
-        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+        self, ateam, generate_persons, generate_person_distinct_ids, create_batch_export, run_get_backfill_info
     ):
         times = [
             dt.datetime(2021, 1, 5, 0, 0, 0, tzinfo=dt.UTC),
@@ -682,82 +541,98 @@ class TestGetBackfillInfoForPersons:
         ]
         counts = [3, 7, 4]
 
-        for t, c in zip(times, counts):
-            persons = await generate_persons(start_time=t, count=c)
-            await generate_person_distinct_ids(timestamp=t, count=c, person_ids=[p["id"] for p in persons])
+        for time, count in zip(times, counts):
+            persons = await generate_persons(start_time=time, count=count)
+            await generate_person_distinct_ids(timestamp=time, count=count, person_ids=[p["id"] for p in persons])
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
             start_at=dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC),
             end_at=dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC),
         )
 
-        assert earliest_start == dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC)
-        assert record_count == 7
-
-    async def test_earliest_start_aligned_to_interval(
-        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
-    ):
-        person_time = dt.datetime(2021, 1, 15, 10, 37, 45, tzinfo=dt.UTC)
-        persons = await generate_persons(
-            start_time=person_time, count=3, end_time=person_time + dt.timedelta(minutes=1)
-        )
-        await generate_person_distinct_ids(timestamp=person_time, count=3, person_ids=[p["id"] for p in persons])
-
-        # Hourly interval — should align to 10:00
-        batch_export = make_batch_export(interval="hour")
-        earliest_start, _ = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-        )
-        assert earliest_start == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
-
-        # 5-minute interval — should align to 10:35
-        batch_export = make_batch_export(interval="every 5 minutes")
-        earliest_start, _ = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-        )
-        assert earliest_start == dt.datetime(2021, 1, 15, 10, 35, 0, tzinfo=dt.UTC)
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 7
 
     async def test_ignores_data_from_other_teams(
-        self, ateam, generate_persons, generate_person_distinct_ids, make_batch_export
+        self, ateam, generate_persons, create_batch_export, run_get_backfill_info
     ):
         person_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
         # Generate persons for this team AND other team — only other team data
         await generate_persons(start_time=person_time, count=0, count_other_team=10)
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export)
+
+        assert result.total_records_count == 0
+
+    async def test_query_metadata_when_no_data(
+        self, mock_clickhouse_client, run_get_backfill_info, create_batch_export, ateam
+    ):
+        """Persons model runs min_timestamp query first; if no data, skips the count query."""
+        batch_export = await create_batch_export()
+        await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
         )
 
-        assert earliest_start is None
-        assert record_count == 0
+        mock_clickhouse_client.expect_query_count(1)
+        mock_clickhouse_client.expect_all_calls_have_query_id()
+        mock_clickhouse_client.expect_properties_in_log_comment(
+            {
+                "team_id": ateam.pk,
+                "batch_export_id": str(batch_export.id),
+                "product": "batch_export",
+                "query_type": "backfill_estimate",
+            }
+        )
+
+    async def test_executes_two_queries_when_data_exists(
+        self, mock_clickhouse_client, run_get_backfill_info, create_batch_export, ateam
+    ):
+        """Persons model runs both min_timestamp and count queries when data exists."""
+        batch_export = await create_batch_export()
+
+        mock_clickhouse_client.read_query_as_jsonl_responses = [
+            [{"min_timestamp": "2021-01-15 10:30:00"}, {"min_timestamp": "2021-01-15 10:30:00"}],
+            [{"record_count": "42"}],
+        ]
+
+        await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
+        )
+
+        mock_clickhouse_client.expect_query_count(2)
+        mock_clickhouse_client.expect_unique_query_ids()
+        mock_clickhouse_client.expect_properties_in_log_comment({"query_type": "backfill_estimate"})
 
 
 class TestGetBackfillInfoForSessions:
-    """Tests for the _get_backfill_info_for_sessions function."""
-
     @pytest.fixture(autouse=True)
     async def truncate_tables(self, clickhouse_client):
         await truncate_events(clickhouse_client)
         await truncate_sessions(clickhouse_client)
 
     @pytest.fixture
-    def make_batch_export(self, ateam):
-        def _make(
+    def create_batch_export(self, ateam):
+        async def _create(
             interval: str = "hour",
             interval_offset: int | None = None,
             timezone: str = "UTC",
         ) -> BatchExport:
-            destination = BatchExportDestination(type="S3", config={})
-            return BatchExport(
+            config = {
+                "bucket_name": "test",
+                "region": "us-east-1",
+                "prefix": "/",
+                "aws_access_key_id": "key",
+                "aws_secret_access_key": "secret",
+            }
+            destination = await BatchExportDestination.objects.acreate(type="S3", config=config)
+            return await BatchExport.objects.acreate(
                 team_id=ateam.pk,
                 name="Test Batch Export",
                 destination=destination,
@@ -767,7 +642,7 @@ class TestGetBackfillInfoForSessions:
                 model="sessions",
             )
 
-        return _make
+        return _create
 
     @pytest.fixture
     def generate_sessions(self, clickhouse_client, ateam):
@@ -819,82 +694,89 @@ class TestGetBackfillInfoForSessions:
 
         return _generate
 
-    async def test_returns_earliest_start_and_count_when_data_exists(self, generate_sessions, make_batch_export):
+    async def test_returns_earliest_start_and_count_when_data_exists(
+        self, generate_sessions, create_batch_export, run_get_backfill_info
+    ):
         session_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
         await generate_sessions(start_time=session_time, count=5, count_other_team=3)
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_sessions(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-        )
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export, start_at=dt.datetime(2000, 1, 1, tzinfo=dt.UTC))
 
-        assert earliest_start == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)
-        assert record_count == 5
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 5
 
-    async def test_returns_none_and_zero_when_no_data_exists(self, make_batch_export):
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_sessions(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
-        )
+    async def test_returns_count_with_no_adjusted_start_when_start_at_is_none(
+        self, generate_sessions, create_batch_export, run_get_backfill_info
+    ):
+        session_time = dt.datetime(2021, 1, 15, 10, 30, 0, tzinfo=dt.UTC)
+        await generate_sessions(start_time=session_time, count=5, count_other_team=3)
 
-        assert earliest_start is None
-        assert record_count == 0
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export)
 
-    async def test_counts_only_sessions_after_start_at(self, generate_sessions, make_batch_export):
+        assert result.adjusted_start_at is None
+        assert result.total_records_count == 5
+
+    async def test_returns_zero_when_no_data_exists(self, create_batch_export, run_get_backfill_info):
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(batch_export)
+
+        assert result.total_records_count == 0
+
+    async def test_counts_only_sessions_after_start_at(
+        self, generate_sessions, create_batch_export, run_get_backfill_info
+    ):
         early_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
         late_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
 
         await generate_sessions(start_time=early_time, count=5)
         await generate_sessions(start_time=late_time, count=8)
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_sessions(
-            batch_export=batch_export,
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
             start_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
-            end_at=None,
         )
 
-        assert earliest_start == dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
-        assert record_count == 8
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 8
 
-    async def test_counts_only_sessions_before_end_at(self, ateam, generate_sessions, make_batch_export):
+    async def test_counts_only_sessions_before_end_at(
+        self, generate_sessions, create_batch_export, run_get_backfill_info
+    ):
         early_time = dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
         late_time = dt.datetime(2021, 1, 20, 0, 0, 0, tzinfo=dt.UTC)
 
         await generate_sessions(start_time=early_time, count=5)
         await generate_sessions(start_time=late_time, count=8)
 
-        batch_export = make_batch_export()
-        earliest_start, record_count = await _get_backfill_info_for_sessions(
-            batch_export=batch_export,
-            start_at=None,
+        batch_export = await create_batch_export()
+        result = await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2000, 1, 1, tzinfo=dt.UTC),
             end_at=dt.datetime(2021, 1, 15, 0, 0, 0, tzinfo=dt.UTC),
         )
 
-        assert earliest_start == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC)
-        assert record_count == 5
+        assert result.adjusted_start_at == dt.datetime(2021, 1, 10, 0, 0, 0, tzinfo=dt.UTC).isoformat()
+        assert result.total_records_count == 5
 
-    @pytest.mark.parametrize(
-        "interval,expected_start",
-        [
-            ("hour", dt.datetime(2021, 1, 15, 10, 0, 0, tzinfo=dt.UTC)),
-            ("every 5 minutes", dt.datetime(2021, 1, 15, 10, 35, 0, tzinfo=dt.UTC)),
-        ],
-    )
-    async def test_earliest_start_aligned_to_interval(
-        self, interval, expected_start, generate_sessions, make_batch_export
-    ):
-        session_time = dt.datetime(2021, 1, 15, 10, 37, 45, tzinfo=dt.UTC)
-        await generate_sessions(start_time=session_time, count=3)
-
-        batch_export = make_batch_export(interval=interval)
-        earliest_start, _ = await _get_backfill_info_for_sessions(
-            batch_export=batch_export,
-            start_at=None,
-            end_at=None,
+    async def test_query_metadata(self, mock_clickhouse_client, run_get_backfill_info, create_batch_export, ateam):
+        """Test that the query is executed as expected. This test uses a mocked ClickHouse client to verify the query metadata."""
+        batch_export = await create_batch_export()
+        await run_get_backfill_info(
+            batch_export,
+            start_at=dt.datetime(2021, 1, 1, tzinfo=dt.UTC),
+            end_at=dt.datetime(2021, 1, 2, tzinfo=dt.UTC),
         )
-        assert earliest_start == expected_start
+
+        mock_clickhouse_client.expect_query_count(1)
+        mock_clickhouse_client.expect_all_calls_have_query_id()
+        mock_clickhouse_client.expect_properties_in_log_comment(
+            {
+                "team_id": ateam.pk,
+                "batch_export_id": str(batch_export.id),
+                "product": "batch_export",
+                "query_type": "backfill_estimate",
+            }
+        )

@@ -7,7 +7,6 @@ import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
-    IconBolt,
     IconCode,
     IconCopy,
     IconDownload,
@@ -22,6 +21,7 @@ import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip }
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -37,6 +37,7 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { TwoDimensionalHeatmap } from '~/queries/nodes/DataVisualization/Components/Heatmap/TwoDimensionalHeatmap'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -50,9 +51,13 @@ import { type DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
-import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
+import {
+    copyTableToCsv,
+    copyTableToExcel,
+    copyTableToJson,
+    copyTableToMarkdown,
+} from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
-import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import TabScroller from './TabScroller'
@@ -107,6 +112,10 @@ const copyMap = {
         label: 'Excel',
         copyFn: copyTableToExcel,
     },
+    [ExporterFormat.MARKDOWN]: {
+        label: 'Markdown',
+        copyFn: copyTableToMarkdown,
+    },
 }
 
 const createDataTableQuery = (): DataTableNode => ({
@@ -149,6 +158,11 @@ const cleanClickhouseType = (type: string | undefined): string | undefined => {
     }
 
     return type.replace(/\(.+\)+/, '')
+}
+
+const isDateTimeType = (type: string | undefined): boolean => {
+    const cleanedType = cleanClickhouseType(type)
+    return cleanedType === 'DateTime' || cleanedType === 'DateTime32' || cleanedType === 'DateTime64'
 }
 
 function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetailsModalProps): JSX.Element {
@@ -282,7 +296,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
     )
 }
 
-export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
+export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
@@ -336,6 +350,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
             },
             ...(response?.columns?.map((column: string, index: number) => {
                 const type = types?.[index]?.[1]
+                const isDateTimeColumn = isDateTimeType(type)
 
                 const maxContentLength = Math.max(
                     column.length,
@@ -416,6 +431,11 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 return <span className="text-red">Error parsing value</span>
                             }
                         }
+
+                        if (isDateTimeColumn && typeof value === 'string' && value) {
+                            return <TZLabel time={value} timestampStyle="absolute" />
+                        }
+
                         return value
                     },
                 }
@@ -464,11 +484,6 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                   key: OutputTab.Visualization,
                                   label: 'Visualization',
                                   icon: <IconGraph />,
-                              },
-                              {
-                                  key: OutputTab.Materialization,
-                                  label: 'Materialization',
-                                  icon: <IconBolt />,
                               },
                           ]
                         : [
@@ -614,7 +629,6 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                     exportContext={exportContext}
                     queryId={queryId}
                     pollResponse={pollResponse}
-                    tabId={tabId}
                     setProgress={setProgress}
                     progress={queryId ? progressCache[queryId] : undefined}
                 />
@@ -641,7 +655,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const {
         query,
         effectiveVisualizationType,
-        showEditingUI,
         response,
         responseLoading,
         isChartSettingsPanelOpen,
@@ -659,7 +672,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
-    if (!showEditingUI && (!response || responseLoading)) {
+    if (!response || responseLoading) {
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <LoadingBar />
@@ -692,6 +705,20 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 chartSettings={chartSettings}
                 dashboardId={dashboardId}
                 goalLines={goalLines}
+                presetChartHeight={presetChartHeight}
+            />
+        )
+    } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.seriesData.length ? seriesBreakdownData.seriesData : yData
+
+        component = (
+            <PieChart
+                className="p-2"
+                uniqueKey={props.uniqueKey?.toString() ?? dataVisualizationProps.key}
+                xData={_xData}
+                yData={_yData}
+                chartSettings={chartSettings}
                 presetChartHeight={presetChartHeight}
             />
         )
@@ -755,7 +782,6 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
-    tabId,
     setSourceQuery,
     exportContext,
     queryId,
@@ -792,13 +818,46 @@ const Content = ({
             return 0
         })
     }, [rows, sortColumns])
-    if (activeTab === OutputTab.Materialization) {
+    const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
+
+    if (hasError) {
         return (
-            <TabScroller>
-                <div className="px-6 py-4 border-t">
-                    <QueryInfo tabId={tabId} />
+            <ErrorState
+                responseError={responseError}
+                sourceQuery={sourceQuery}
+                queryCancelled={queryCancelled}
+                response={response}
+            />
+        )
+    }
+
+    if (activeTab === OutputTab.Visualization) {
+        if (!response && !responseLoading && !insightLoading) {
+            return (
+                <div
+                    className="flex flex-1 justify-center items-center border-t"
+                    data-attr="sql-editor-output-pane-empty-state"
+                >
+                    <span className="text-secondary mt-3">
+                        Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
+                        query.
+                    </span>
                 </div>
-            </TabScroller>
+            )
+        }
+
+        return (
+            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
+                <InternalDataTableVisualization
+                    uniqueKey={vizKey}
+                    query={sourceQuery}
+                    setQuery={setSourceQuery}
+                    context={{}}
+                    cachedResults={undefined}
+                    exportContext={exportContext}
+                    editMode
+                />
+            </div>
         )
     }
 
@@ -815,17 +874,6 @@ const Content = ({
         )
     }
 
-    if (responseError) {
-        return (
-            <ErrorState
-                responseError={responseError}
-                sourceQuery={sourceQuery}
-                queryCancelled={queryCancelled}
-                response={response}
-            />
-        )
-    }
-
     if (!response) {
         const msg =
             activeTab === OutputTab.Results
@@ -833,11 +881,12 @@ const Content = ({
                 : 'Query results will be visualized here.'
         return (
             <div
-                className="flex flex-1 justify-center items-center border-t"
+                className="flex flex-1 justify-center items-center border-t px-4 text-center"
                 data-attr="sql-editor-output-pane-empty-state"
             >
                 <span className="text-secondary mt-3">
-                    {msg} Press <KeyboardShortcut command enter /> to run the query.
+                    {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
+                    statements with <code>;</code> to run them independently.
                 </span>
             </div>
         )
@@ -854,22 +903,6 @@ const Content = ({
                     onSortColumnsChange={setSortColumns}
                 />
             </TabScroller>
-        )
-    }
-
-    if (activeTab === OutputTab.Visualization) {
-        return (
-            <div className="flex-1 absolute inset-0 hide-scrollbar border-t">
-                <InternalDataTableVisualization
-                    uniqueKey={vizKey}
-                    query={sourceQuery}
-                    setQuery={setSourceQuery}
-                    context={{}}
-                    cachedResults={undefined}
-                    exportContext={exportContext}
-                    editMode
-                />
-            </div>
         )
     }
     return null

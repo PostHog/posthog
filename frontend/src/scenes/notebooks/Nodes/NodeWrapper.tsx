@@ -340,6 +340,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                         size="small"
                                                         icon={<IconPencil />}
                                                         active={editingNodeIds[nodeId]}
+                                                        data-attr="notebook-node-edit-settings"
                                                     />
                                                 ) : null}
 

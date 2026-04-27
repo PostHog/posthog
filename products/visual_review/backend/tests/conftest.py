@@ -19,6 +19,9 @@ import responses
 
 from products.visual_review.backend.models import Repo
 
+PRODUCT_DATABASES = {"default", "visual_review_db_writer", "visual_review_db_reader"}
+
+
 # --- Local Git Repo Fixtures ---
 
 
@@ -175,11 +178,25 @@ def mock_github_api(local_git_repo):
 
         # Track status check calls for assertions
         status_checks = []
+        issue_comments = []
+        next_comment_id = [1000]
 
         def status_callback(request):
             data = json.loads(request.body)
             status_checks.append(data)
             return (201, {}, json.dumps({"id": 1, "state": data["state"]}))
+
+        def issue_comment_callback(request):
+            data = json.loads(request.body)
+            comment_id = next_comment_id[0]
+            next_comment_id[0] += 1
+            issue_comments.append({**data, "id": comment_id, "action": "created"})
+            return (201, {}, json.dumps({"id": comment_id, "body": data["body"]}))
+
+        def issue_comment_update_callback(request):
+            data = json.loads(request.body)
+            issue_comments.append({**data, "action": "updated"})
+            return (200, {}, json.dumps({"id": 1, "body": data["body"]}))
 
         rsps.add_callback(
             responses.GET,
@@ -201,8 +218,19 @@ def mock_github_api(local_git_repo):
             re.compile(r"https://api\.github\.com/repos/.+/statuses/.+"),
             callback=status_callback,
         )
+        rsps.add_callback(
+            responses.POST,
+            re.compile(r"https://api\.github\.com/repos/.+/issues/\d+/comments"),
+            callback=issue_comment_callback,
+        )
+        rsps.add_callback(
+            responses.PATCH,
+            re.compile(r"https://api\.github\.com/repos/.+/issues/comments/\d+"),
+            callback=issue_comment_update_callback,
+        )
 
         rsps.status_checks = status_checks  # type: ignore[attr-defined]
+        rsps.issue_comments = issue_comments  # type: ignore[attr-defined]
         yield rsps
 
 
@@ -248,7 +276,7 @@ def mock_github_integration(team, mocker):
 def vr_project_with_github(team, mock_github_integration):
     """Create a visual review repo configured for GitHub."""
     return Repo.objects.create(
-        team=team,
+        team_id=team.id,
         repo_external_id=12345,
         repo_full_name="test-org/test-repo",
         baseline_file_paths={"storybook": ".snapshots.yml"},

@@ -1,13 +1,42 @@
 use chrono::{DateTime, TimeZone, Utc};
+use common_types::HasEventName;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
 use serde_json::Value;
+
+use super::providers;
 
 pub struct SpanEvent {
     pub event_name: String,
     pub distinct_id: String,
     pub properties: Value,
     pub timestamp: Option<DateTime<Utc>>,
+}
+
+impl HasEventName for SpanEvent {
+    fn event_name(&self) -> &str {
+        &self.event_name
+    }
+
+    fn has_property(&self, key: &str) -> bool {
+        self.properties
+            .as_object()
+            .map(|m| m.contains_key(key))
+            .unwrap_or(false)
+    }
+}
+
+impl HasEventName for &SpanEvent {
+    fn event_name(&self) -> &str {
+        &self.event_name
+    }
+
+    fn has_property(&self, key: &str) -> bool {
+        self.properties
+            .as_object()
+            .map(|m| m.contains_key(key))
+            .unwrap_or(false)
+    }
 }
 
 fn any_value_to_json(value: &any_value::Value) -> Value {
@@ -41,12 +70,27 @@ fn attributes_to_map(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
         .collect()
 }
 
-fn get_event_name(operation_name: Option<&str>) -> &'static str {
-    match operation_name {
-        Some("chat") => "$ai_generation",
-        Some("embeddings") => "$ai_embedding",
-        _ => "$ai_span",
-    }
+/// OTel SDK auto-detected resource attribute prefixes that are noise for AI
+/// events. User-set resource attributes (e.g. `user.id`, `posthog.ai.debug`)
+/// pass through since they don't match these prefixes.
+const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry."];
+
+fn filter_resource_attributes(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
+    attrs
+        .iter()
+        .filter_map(|kv| {
+            if NOISY_RESOURCE_PREFIXES
+                .iter()
+                .any(|prefix| kv.key.starts_with(prefix))
+            {
+                return None;
+            }
+            kv.value
+                .as_ref()
+                .and_then(|v| v.value.as_ref())
+                .map(|v| (kv.key.clone(), any_value_to_json(v)))
+        })
+        .collect()
 }
 
 fn nanos_to_datetime(nanos: u64) -> Option<DateTime<Utc>> {
@@ -68,23 +112,23 @@ pub fn expand_into_events(
         .flat_map(|rs| &rs.scope_spans)
         .map(|ss| ss.spans.len())
         .sum();
-    let mut events = Vec::with_capacity(total_spans);
+    let mut events = Vec::with_capacity(total_spans.min(super::MAX_SPANS_PER_REQUEST));
 
     for rs in &request.resource_spans {
         let resource_attrs = rs
             .resource
             .as_ref()
-            .map(|r| attributes_to_map(&r.attributes))
+            .map(|r| filter_resource_attributes(&r.attributes))
             .unwrap_or_default();
 
         for ss in &rs.scope_spans {
             for span in &ss.spans {
-                let span_attrs = attributes_to_map(&span.attributes);
+                let Some(provider) = providers::get_provider_raw(&span.attributes) else {
+                    continue;
+                };
 
-                let operation_name = span_attrs
-                    .get("gen_ai.operation.name")
-                    .and_then(|v| v.as_str());
-                let event_name = get_event_name(operation_name).to_string();
+                let span_attrs = attributes_to_map(&span.attributes);
+                let event_name = (provider.classify)(&span_attrs);
 
                 let mut properties = resource_attrs.clone();
                 properties.extend(span_attrs);
@@ -126,7 +170,7 @@ pub fn expand_into_events(
                 let timestamp = nanos_to_datetime(span.start_time_unix_nano);
 
                 events.push(SpanEvent {
-                    event_name,
+                    event_name: event_name.to_string(),
                     distinct_id: distinct_id.to_string(),
                     properties: Value::Object(properties),
                     timestamp,
@@ -170,18 +214,6 @@ mod tests {
             name: name.to_string(),
             attributes,
             ..Default::default()
-        }
-    }
-
-    #[test]
-    fn test_event_name_mapping() {
-        for (input, expected) in [
-            (Some("chat"), "$ai_generation"),
-            (Some("embeddings"), "$ai_embedding"),
-            (Some("unknown"), "$ai_span"),
-            (None, "$ai_span"),
-        ] {
-            assert_eq!(get_event_name(input), expected);
         }
     }
 
@@ -288,14 +320,61 @@ mod tests {
     }
 
     #[test]
-    fn test_span_attrs_override_resource_attrs() {
+    fn test_expand_skips_irrelevant_spans() {
         let request = ExportTraceServiceRequest {
             resource_spans: vec![ResourceSpans {
                 resource: Some(Resource {
-                    attributes: vec![make_kv(
-                        "shared.key",
-                        any_value::Value::StringValue("resource-val".to_string()),
+                    attributes: vec![],
+                    dropped_attributes_count: 0,
+                }),
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![make_span(
+                        vec![1; 16],
+                        vec![2; 8],
+                        vec![],
+                        1_704_067_200_000_000_000,
+                        1_704_067_201_000_000_000,
+                        "http POST https://us.i.posthog.com/e",
+                        vec![make_kv(
+                            "http.request.method",
+                            any_value::Value::StringValue("POST".to_string()),
+                        )],
                     )],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let events = expand_into_events(&request, "user-1");
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_noisy_resource_attrs_are_filtered() {
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![
+                        make_kv(
+                            "service.name",
+                            any_value::Value::StringValue("my-svc".to_string()),
+                        ),
+                        make_kv(
+                            "host.name",
+                            any_value::Value::StringValue("my-host".to_string()),
+                        ),
+                        make_kv("process.pid", any_value::Value::IntValue(1234)),
+                        make_kv(
+                            "user.id",
+                            any_value::Value::StringValue("user-123".to_string()),
+                        ),
+                        make_kv(
+                            "posthog.ai.debug",
+                            any_value::Value::StringValue("true".to_string()),
+                        ),
+                    ],
                     dropped_attributes_count: 0,
                 }),
                 scope_spans: vec![ScopeSpans {
@@ -308,8 +387,8 @@ mod tests {
                         0,
                         "",
                         vec![make_kv(
-                            "shared.key",
-                            any_value::Value::StringValue("span-val".to_string()),
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
                         )],
                     )],
                     schema_url: String::new(),
@@ -320,7 +399,11 @@ mod tests {
 
         let events = expand_into_events(&request, "user");
         let props = events[0].properties.as_object().unwrap();
-        assert_eq!(props["shared.key"], "span-val");
+        assert_eq!(props["service.name"], "my-svc");
+        assert!(!props.contains_key("host.name"));
+        assert!(!props.contains_key("process.pid"));
+        assert_eq!(props["user.id"], "user-123");
+        assert_eq!(props["posthog.ai.debug"], "true");
     }
 
     #[test]
@@ -337,7 +420,10 @@ mod tests {
                         0,
                         0,
                         "",
-                        vec![],
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
                     )],
                     schema_url: String::new(),
                 }],
@@ -357,7 +443,18 @@ mod tests {
                 resource: None,
                 scope_spans: vec![ScopeSpans {
                     scope: None,
-                    spans: vec![make_span(vec![0; 16], vec![0; 8], vec![], 0, 0, "", vec![])],
+                    spans: vec![make_span(
+                        vec![0; 16],
+                        vec![0; 8],
+                        vec![],
+                        0,
+                        0,
+                        "",
+                        vec![make_kv(
+                            "gen_ai.request.model",
+                            any_value::Value::StringValue("gpt-4".to_string()),
+                        )],
+                    )],
                     schema_url: String::new(),
                 }],
                 schema_url: String::new(),

@@ -238,7 +238,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
     @freeze_time("2020-01-01T12:00:00Z")
     def test_with_holdout_variant(self):
         """Should handle holdout variants correctly."""
-        from posthog.models.experiment import ExperimentHoldout
+        from products.experiments.backend.models.experiment import ExperimentHoldout
 
         holdout = ExperimentHoldout.objects.create(
             team=self.team, name="Test Holdout", filters=[{"properties": [], "rollout_percentage": 20}]

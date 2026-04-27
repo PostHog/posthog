@@ -1,4 +1,4 @@
-use axum::async_trait;
+use async_trait::async_trait;
 use std::collections::HashMap;
 use thiserror::Error;
 use uuid::Uuid;

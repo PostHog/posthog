@@ -2,50 +2,43 @@ import './FunnelsQuerySteps.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { Tooltip } from '@posthog/lemon-ui'
-
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getInsightPropertyFilterGroupTypes } from 'scenes/insights/utils/propertyTaxonomicGroupTypes'
 
 import { groupsModel } from '~/models/groupsModel'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { EditorFilterProps, FilterType } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { AggregationSelect } from '../filters/AggregationSelect'
-import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
-import { FunnelVizType } from '../views/Funnels/FunnelVizType'
 import { FunnelDataWarehouseStepDefinitionPopover } from './FunnelDataWarehouseStepDefinitionPopover'
 
 export const FUNNEL_STEP_COUNT_LIMIT = 30
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
-    const { series, querySource, hasOnlyDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { series, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const supportsDwhFunnels = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT]
-    const isFunnelDwhStepPopoverVariant =
-        supportsDwhFunnels && featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNEL_DWH_STEP_UI] === 'popover'
-
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
     const actionFilters = isInsightQueryNode(querySource) ? queryNodeToFilter(querySource) : null
     const setActionFilters = (payload: Partial<FilterType>): void => {
         updateQuerySource({
-            series: actionsAndEventsToSeries(payload as any, true, MathAvailability.FunnelsOnly),
+            series: actionsAndEventsToSeries(
+                payload as any,
+                true,
+                MathAvailability.FunnelsOnly,
+                NodeKind.FunnelsDataWarehouseNode
+            ),
         } as FunnelsQuery)
     }
 
-    const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     if (!actionFilters) {
         return null
@@ -57,19 +50,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
     // TODO: Sort out title offset
     return (
         <>
-            <div className="flex justify-between items-center">
-                <LemonLabel>Query Steps</LemonLabel>
-
-                <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
-                    <div className="flex items-center gap-2">
-                        <span className="text-secondary">Graph type</span>
-                        <FunnelVizType insightProps={insightProps} />
-                    </div>
-                </Tooltip>
-            </div>
             <div className="FunnelsQuerySteps">
                 <ActionFilter
-                    bordered
+                    bordered={false}
                     filters={actionFilters}
                     setFilters={setActionFilters}
                     typeKey={keyForInsightLogicProps('new')(insightProps)}
@@ -81,20 +64,11 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                     sortable
                     showNestedArrow
-                    propertiesTaxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.EventMetadata,
-                        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
-                        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
-                        TaxonomicFilterGroupType.EmailAddresses,
-                        ...groupsTaxonomicTypes,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.SessionProperties,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                    ]}
+                    propertiesTaxonomicGroupTypes={getInsightPropertyFilterGroupTypes({
+                        groupsTaxonomicTypes,
+                        hasPageview,
+                        hasScreen,
+                    })}
                     addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
                     actionsTaxonomicGroupTypes={[
                         TaxonomicFilterGroupType.Events,
@@ -102,11 +76,9 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                         ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                         ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
                         TaxonomicFilterGroupType.AutocaptureEvents,
-                        ...(supportsDwhFunnels ? [TaxonomicFilterGroupType.DataWarehouse] : []),
+                        TaxonomicFilterGroupType.DataWarehouse,
                     ]}
-                    definitionPopoverRenderer={
-                        isFunnelDwhStepPopoverVariant ? FunnelDataWarehouseStepDefinitionPopover : undefined
-                    }
+                    definitionPopoverRenderer={FunnelDataWarehouseStepDefinitionPopover}
                     dataWarehousePopoverFields={[
                         {
                             key: 'id_field',
@@ -117,30 +89,12 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                             label: 'Timestamp',
                         },
                         {
-                            key: 'distinct_id_field',
+                            key: 'aggregation_target_field',
                             label: 'Aggregation target',
                             allowHogQL: true,
                         },
                     ]}
                 />
-            </div>
-            <div className="mt-4 deprecated-space-y-4">
-                {showGroupsOptions && (
-                    <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
-                        <span>Aggregating by</span>
-                        <AggregationSelect
-                            insightProps={insightProps}
-                            hogqlAvailable
-                            disabledReason={
-                                hasOnlyDataWarehouseSeries
-                                    ? 'For data warehouse steps, aggregation is configured per step. Please configure the aggregation target in the individual step settings.'
-                                    : undefined
-                            }
-                        />
-                    </div>
-                )}
-
-                <FunnelConversionWindowFilter insightProps={insightProps} />
             </div>
         </>
     )

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::async_trait;
+use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 
 use sha2::{Digest, Sha512};

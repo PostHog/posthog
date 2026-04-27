@@ -88,6 +88,19 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             beginEarlyAccessFeatureFeedback: (_, { flagKey }) => flagKey,
             cancelEarlyAccessFeatureFeedback: () => null,
         },
+        // Concept stage features don't enable their feature flag, so we track
+        // enrollment locally to keep the "Registered" button state stable.
+        conceptEnrollments: [
+            {} as Record<string, boolean>,
+            {
+                updateEarlyAccessFeatureEnrollment: (state, { flagKey, enabled, stage }) => {
+                    if (stage === 'concept') {
+                        return { ...state, [flagKey]: enabled }
+                    }
+                    return state
+                },
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled, stage }) => {
@@ -128,20 +141,31 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     })),
     selectors({
         earlyAccessFeatures: [
-            (s) => [s.rawEarlyAccessFeatures, s.featureFlags],
-            (rawEarlyAccessFeatures, featureFlags): EnrichedEarlyAccessFeature[] => {
+            (s) => [s.rawEarlyAccessFeatures, s.featureFlags, s.conceptEnrollments],
+            (rawEarlyAccessFeatures, featureFlags, conceptEnrollments): EnrichedEarlyAccessFeature[] => {
+                // posthog-js persists enrollment as person properties in localStorage,
+                // which survives page reloads even though concept-stage flags evaluate
+                // to false on the server.
+                const storedPersonProps =
+                    (posthog.get_property('$stored_person_properties') as Record<string, string> | undefined) ?? {}
+
                 const result = rawEarlyAccessFeatures
                     .filter((feature) => !!feature.flagKey) // Filter out features without a flag linked
                     .map((feature) => {
                         const flagKey = feature.flagKey! as FeatureFlagKey
                         const flag = featureFlags[flagKey]
+                        const isConceptEnrolled =
+                            feature.stage === 'concept' &&
+                            (flagKey in conceptEnrollments
+                                ? !!conceptEnrollments[flagKey]
+                                : !!storedPersonProps[`$feature_enrollment/${flagKey}`])
 
                         return {
                             ...feature,
                             flagKey,
                             // Use payload from early access feature, fallback to empty object
                             payload: ((feature as any).payload as Record<string, any> | undefined) || {},
-                            enabled: !!flag,
+                            enabled: !!flag || isConceptEnrolled,
                         }
                     })
 

@@ -77,10 +77,7 @@ export interface BatchExportDestinationApi {
     type: BatchExportDestinationTypeEnumApi
     /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
     config?: unknown
-    /**
-     * The integration for this destination.
-     * @nullable
-     */
+    /** @nullable */
     integration?: number | null
     /** @nullable */
     integration_id?: number | null
@@ -156,6 +153,13 @@ export interface BatchExportRunApi {
      */
     records_completed?: number | null
     /**
+     * The number of records that failed downstream processing (e.g. hog function execution errors).
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    records_failed?: number | null
+    /**
      * The latest error that occurred during this run.
      * @nullable
      */
@@ -190,8 +194,8 @@ export interface BatchExportRunApi {
     records_total_count?: number | null
     /**
      * The number of bytes that have been exported in this BatchExportRun.
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
+     * @minimum -2147483648
+     * @maximum 2147483647
      * @nullable
      */
     bytes_exported?: number | null
@@ -272,6 +276,113 @@ export interface PaginatedBatchExportListApi {
 }
 
 /**
+ * * `Cancelled` - Cancelled
+ * `Completed` - Completed
+ * `ContinuedAsNew` - Continued As New
+ * `Failed` - Failed
+ * `FailedRetryable` - Failed Retryable
+ * `Terminated` - Terminated
+ * `TimedOut` - Timedout
+ * `Running` - Running
+ * `Starting` - Starting
+ */
+export type BatchExportBackfillStatusEnumApi =
+    (typeof BatchExportBackfillStatusEnumApi)[keyof typeof BatchExportBackfillStatusEnumApi]
+
+export const BatchExportBackfillStatusEnumApi = {
+    Cancelled: 'Cancelled',
+    Completed: 'Completed',
+    ContinuedAsNew: 'ContinuedAsNew',
+    Failed: 'Failed',
+    FailedRetryable: 'FailedRetryable',
+    Terminated: 'Terminated',
+    TimedOut: 'TimedOut',
+    Running: 'Running',
+    Starting: 'Starting',
+} as const
+
+/**
+ * @nullable
+ */
+export type BatchExportBackfillApiProgress = {
+    /** @nullable */
+    readonly total_runs?: number | null
+    /** @nullable */
+    readonly finished_runs?: number | null
+    /** @nullable */
+    readonly progress?: number | null
+} | null | null
+
+export interface BatchExportBackfillApi {
+    readonly id: string
+    /** @nullable */
+    readonly progress: BatchExportBackfillApiProgress
+    /**
+     * The start of the data interval.
+     * @nullable
+     */
+    start_at?: string | null
+    /**
+     * The end of the data interval.
+     * @nullable
+     */
+    end_at?: string | null
+    /** The status of this backfill.
+
+* `Cancelled` - Cancelled
+* `Completed` - Completed
+* `ContinuedAsNew` - Continued As New
+* `Failed` - Failed
+* `FailedRetryable` - Failed Retryable
+* `Terminated` - Terminated
+* `TimedOut` - Timedout
+* `Running` - Running
+* `Starting` - Starting */
+    status: BatchExportBackfillStatusEnumApi
+    /** The timestamp at which this BatchExportBackfill was created. */
+    readonly created_at: string
+    /**
+     * The timestamp at which this BatchExportBackfill finished, successfully or not.
+     * @nullable
+     */
+    finished_at?: string | null
+    /** The timestamp at which this BatchExportBackfill was last updated. */
+    readonly last_updated_at: string
+    /**
+     * The total number of records to export. Initially estimated, updated with actual count after completion.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    total_records_count?: number | null
+    /**
+     * The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.
+     * @nullable
+     */
+    adjusted_start_at?: string | null
+    /** The team this belongs to. */
+    team: number
+    /** The BatchExport this backfill belongs to. */
+    batch_export: string
+}
+
+export interface PaginatedBatchExportBackfillListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExportBackfillApi[]
+}
+
+export interface PaginatedBatchExportRunListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BatchExportRunApi[]
+}
+
+/**
  * Serializer for a BatchExport model.
  */
 export interface PatchedBatchExportApi {
@@ -329,112 +440,7 @@ export interface PatchedBatchExportApi {
     offset_hour?: number | null
 }
 
-/**
- * * `Cancelled` - Cancelled
- * `Completed` - Completed
- * `ContinuedAsNew` - Continued As New
- * `Failed` - Failed
- * `FailedRetryable` - Failed Retryable
- * `Terminated` - Terminated
- * `TimedOut` - Timedout
- * `Running` - Running
- * `Starting` - Starting
- */
-export type BatchExportBackfillStatusEnumApi =
-    (typeof BatchExportBackfillStatusEnumApi)[keyof typeof BatchExportBackfillStatusEnumApi]
-
-export const BatchExportBackfillStatusEnumApi = {
-    Cancelled: 'Cancelled',
-    Completed: 'Completed',
-    ContinuedAsNew: 'ContinuedAsNew',
-    Failed: 'Failed',
-    FailedRetryable: 'FailedRetryable',
-    Terminated: 'Terminated',
-    TimedOut: 'TimedOut',
-    Running: 'Running',
-    Starting: 'Starting',
-} as const
-
-export interface BatchExportBackfillApi {
-    readonly id: string
-    readonly progress: string
-    /**
-     * The start of the data interval.
-     * @nullable
-     */
-    start_at?: string | null
-    /**
-     * The end of the data interval.
-     * @nullable
-     */
-    end_at?: string | null
-    /** The status of this backfill.
-
-* `Cancelled` - Cancelled
-* `Completed` - Completed
-* `ContinuedAsNew` - Continued As New
-* `Failed` - Failed
-* `FailedRetryable` - Failed Retryable
-* `Terminated` - Terminated
-* `TimedOut` - Timedout
-* `Running` - Running
-* `Starting` - Starting */
-    status: BatchExportBackfillStatusEnumApi
-    /** The timestamp at which this BatchExportBackfill was created. */
-    readonly created_at: string
-    /**
-     * The timestamp at which this BatchExportBackfill finished, successfully or not.
-     * @nullable
-     */
-    finished_at?: string | null
-    /** The timestamp at which this BatchExportBackfill was last updated. */
-    readonly last_updated_at: string
-    /**
-     * The total number of records to export. Initially estimated, updated with actual count after completion.
-     * @minimum -9223372036854776000
-     * @maximum 9223372036854776000
-     * @nullable
-     */
-    total_records_count?: number | null
-    /**
-     * The actual start time after adjustment for earliest available data. May differ from start_at if user requested a date before data exists.
-     * @nullable
-     */
-    adjusted_start_at?: string | null
-    /** The team this belongs to. */
-    team: number
-    /** The BatchExport this backfill belongs to. */
-    batch_export: string
-}
-
-export interface PaginatedBatchExportBackfillListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: BatchExportBackfillApi[]
-}
-
-export interface PaginatedBatchExportRunListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: BatchExportRunApi[]
-}
-
 export type BatchExportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type BatchExportsList2Params = {
     /**
      * Number of results to return per page.
      */
@@ -465,4 +471,68 @@ export type BatchExportsRunsListParams = {
      * Which field to use when ordering the results.
      */
     ordering?: string
+}
+
+export type BatchExportsRunsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
+}
+
+export type BatchExportsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
 }

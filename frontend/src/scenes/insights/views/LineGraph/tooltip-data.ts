@@ -27,6 +27,7 @@ export function createTooltipData(
                 compare_label: pointDataset?.compare_label ?? pointDataset?.compareLabels?.[dp.dataIndex] ?? undefined,
                 action: pointDataset?.action ?? pointDataset?.actions?.[dp.dataIndex] ?? undefined,
                 label: pointDataset?.label ?? pointDataset.labels?.[dp.dataIndex] ?? undefined,
+                date_label: pointDataset?.labels?.[dp.dataIndex] ?? undefined,
                 order: pointDataset?.order ?? 0,
                 color: Array.isArray(pointDataset.borderColor)
                     ? pointDataset.borderColor?.[dp.dataIndex]
@@ -34,6 +35,7 @@ export function createTooltipData(
                 count: pointDataset?.data?.[dp.dataIndex] || 0,
                 filter: pointDataset?.filter ?? {},
                 hideTooltip: (pointDataset as any).hideTooltip,
+                anomalyScore: (pointDataset as any).anomalyScores?.[dp.dataIndex],
             }
         })
         .sort((a, b) => {

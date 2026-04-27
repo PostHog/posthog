@@ -6,7 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActionFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { deletedRecordingsLogic } from '../deletedRecordingsLogic'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -1092,6 +1092,150 @@ describe('sessionRecordingsPlaylistLogic', () => {
         it('returns date_from as -3d for non-person recordings', () => {
             const result = getDefaultFilters()
             expect(result.date_from).toBe('-3d')
+        })
+
+        it('merges pinnedFilters into the default filter_group', () => {
+            const pinnedFilters = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: 'events',
+                        name: 'All events',
+                        properties: [{ key: "$group_0 = 'abc'", type: 'hogql' }],
+                    } as ActionFilter,
+                ],
+            }
+            const result = getDefaultFilters(undefined, pinnedFilters)
+            const firstGroup = result.filter_group.values[0] as any
+            expect(firstGroup.values).toContainEqual(pinnedFilters.values[0])
+        })
+    })
+
+    describe('pinnedFilters', () => {
+        const groupPinnedFilters = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: 'events',
+                    name: 'All events',
+                    properties: [{ key: "$group_0 = 'test-group'", type: 'hogql' }],
+                } as ActionFilter,
+            ],
+        }
+
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'pinned-filters-test',
+                pinnedFilters: groupPinnedFilters,
+            })
+            logic.mount()
+        })
+
+        it('includes pinned filters in initial state', () => {
+            const firstGroup = logic.values.filters.filter_group.values[0] as any
+            expect(firstGroup.values).toContainEqual(groupPinnedFilters.values[0])
+        })
+
+        it('preserves pinned filters after setFilters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
+                                        operator: PropertyOperator.IContains,
+                                        value: ['warn'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
+            }).toMatchValues({
+                filters: expect.objectContaining({
+                    filter_group: expect.objectContaining({
+                        values: expect.arrayContaining([
+                            expect.objectContaining({
+                                values: expect.arrayContaining([groupPinnedFilters.values[0]]),
+                            }),
+                        ]),
+                    }),
+                }),
+            })
+        })
+
+        it('preserves pinned filters after resetFilters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.resetFilters()
+            }).toMatchValues({
+                filters: expect.objectContaining({
+                    filter_group: expect.objectContaining({
+                        values: expect.arrayContaining([
+                            expect.objectContaining({
+                                values: expect.arrayContaining([groupPinnedFilters.values[0]]),
+                            }),
+                        ]),
+                    }),
+                }),
+            })
+        })
+
+        it('does not count pinned filters in totalFiltersCount', async () => {
+            await expectLogic(logic).toMatchValues({ totalFiltersCount: 0 })
+        })
+
+        it('merges pinned filters into flat filter groups without duplicating', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: PropertyFilterType.Person,
+                                key: 'email',
+                                operator: PropertyOperator.Exact,
+                                value: ['test@example.com'],
+                            },
+                        ],
+                    },
+                })
+            })
+
+            const filterGroup = logic.values.filters.filter_group
+            // Should have exactly one nested group
+            expect(filterGroup.values).toHaveLength(1)
+            const nestedGroup = filterGroup.values[0] as any
+            // Nested group should contain pinned + user filter, not duplicates
+            expect(nestedGroup.values).toHaveLength(2)
+            expect(nestedGroup.values).toContainEqual(groupPinnedFilters.values[0])
+        })
+
+        it('counts user-added filters but not pinned ones', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.LogEntry,
+                                        key: 'level',
+                                        operator: PropertyOperator.IContains,
+                                        value: ['error'],
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                })
+            }).toMatchValues({ totalFiltersCount: 1 })
         })
     })
 })

@@ -32,13 +32,15 @@ from posthog.hogql_queries.experiments.experiment_query_runner import DEFAULT_EX
 from posthog.hogql_queries.experiments.exposure_query_logic import get_entity_key
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -121,6 +123,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
+            sentinel_placeholders={"experiment_date_to"},
         )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
@@ -141,7 +144,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             entity_key=get_entity_key(self.group_type_index),
         )
 
-        if self.experiment.exposure_preaggregation_enabled:
+        # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        if config.experiment_precomputation_enabled:
             try:
                 result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
@@ -251,7 +256,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=600, allow_experimental_analyzer=True),
+            settings=HogQLGlobalSettings(max_execution_time=600, enable_analyzer=True),
         )
 
         response.results = self._fill_date_gaps(response.results)

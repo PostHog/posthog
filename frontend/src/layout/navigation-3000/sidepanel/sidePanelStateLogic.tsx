@@ -9,9 +9,6 @@ import type { sidePanelStateLogicType } from './sidePanelStateLogicType'
 
 // The side panel imports a lot of other components so this allows us to avoid circular dependencies
 
-/**
- * @deprecated Sidepanel is soft-deprecated as only notebooks will be kept in sidepanel in future releases.
- */
 export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStateLogic']),
     actions({
@@ -55,7 +52,7 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         ],
     })),
     windowValues(() => ({
-        modalMode: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
+        modalMode: (window: Window) => window?.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     listeners(({ actions, values, cache }) => ({
         // NOTE: We explicitly reference the actions instead of connecting so that people don't accidentally

@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "archived": {
+            "type": "boolean"
+        },
+        "limit": {
+            "description": "Number of results to return per page.",
+            "type": "number"
+        },
+        "offset": {
+            "description": "The initial index from which to return the results.",
+            "type": "number"
+        },
+        "search": {
+            "description": "A search term.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

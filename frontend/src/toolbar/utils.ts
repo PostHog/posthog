@@ -6,6 +6,8 @@ import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } fro
 import { cssEscape } from 'lib/utils/cssEscape'
 
 import { patch } from '~/toolbar/patch'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { ActionStepType } from '~/types'
 
@@ -25,31 +27,52 @@ export interface ToolbarAuthParams {
 }
 
 /**
- * Clean `__posthog_toolbar=code:…,client_id:…` from the URL hash.
+ * Read `__posthog_toolbar=code:…,client_id:…` from the URL hash without modifying the URL.
  * Returns the matched params if found, or null.
  */
-export function cleanToolbarAuthHash(): ToolbarAuthParams | null {
+export function readToolbarAuthHash(): ToolbarAuthParams | null {
     let hash: string
     try {
         hash = decodeURIComponent(window.location.hash)
     } catch {
         hash = window.location.hash
     }
-    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&#]+)/)
+    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&]+)/)
     if (!codeMatch) {
         return null
     }
-
-    const cleanHash = hash
-        .replace(/__posthog_toolbar=[^&#]*/, '')
-        .replace(/&$/, '')
-        .replace(/^#&/, '#')
-        .replace(/^#$/, '')
-    history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
     return {
         code: codeMatch[1],
         clientId: codeMatch[2],
     }
+}
+
+/**
+ * Remove `__posthog_toolbar=code:…,client_id:…` from the URL hash.
+ *
+ * Separated from reading so that the URL modification (history.replaceState)
+ * can be deferred — some SPAs watch for URL changes and re-render the page,
+ * which can destroy the toolbar mid-initialization if the hash is cleaned
+ * synchronously during mount.
+ */
+export function cleanToolbarAuthHash(): void {
+    let hash: string
+    try {
+        hash = decodeURIComponent(window.location.hash)
+    } catch {
+        hash = window.location.hash
+    }
+    if (!hash.includes('__posthog_toolbar=')) {
+        return
+    }
+
+    const cleanHash = hash
+        .replace(/__posthog_toolbar=[^&]*/g, '')
+        .replace(/&&+/g, '&')
+        .replace(/&$/, '')
+        .replace(/^#&/, '#')
+        .replace(/^#$/, '')
+    history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
 }
 
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
@@ -129,7 +152,8 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
         })
         return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {
-        console.warn('Error while trying to find a selector for element', element, error)
+        toolbarLogger.warn('element_selector', 'Error while trying to find a selector for element')
+        captureToolbarException(error, 'element_selector_computation')
         return undefined
     }
 }
@@ -378,7 +402,8 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     try {
         elements = [...(querySelectorAllDeep(selector || '*', document, allElements) as unknown as HTMLElement[])]
     } catch (e) {
-        console.error('Cannot use selector:', selector, '. with exception: ', e)
+        toolbarLogger.error('element_step_selector', 'Cannot use selector', { selector })
+        captureToolbarException(e, 'element_step_selector', { selector })
         return null
     }
 

@@ -7,22 +7,28 @@ import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { CdpConfig } from './cdp/config'
+import type {
+    KafkaMskProducerEnvConfig,
+    KafkaWarehouseProducerEnvConfig,
+    KafkaWarpstreamCalculatedEventsProducerEnvConfig,
+    KafkaWarpstreamCyclotronProducerEnvConfig,
+    KafkaWarpstreamIngestionProducerEnvConfig,
+} from './cdp/outputs/producers'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
-import { InternalCaptureService } from './common/services/internal-capture'
-import { InternalFetchService } from './common/services/internal-fetch'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
+import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 import { KafkaProducerWrapper } from './kafka/producer'
-import type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+import type { LlmAnalyticsConfig } from './llm-analytics/config'
+import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
-import { ClickhouseGroupRepository } from './worker/ingestion/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
@@ -32,20 +38,15 @@ type Brand<K, T> = K & { __brand: T }
 
 // Re-export config types from domain-specific files, this is to avoid mass refactors, we can eventually update it
 export { CdpConfig } from './cdp/config'
-export {
-    CommonConfig,
-    KafkaSaslMechanism,
-    KafkaSecurityProtocol,
-    LogLevel,
-    PluginServerMode,
-    stringToPluginServerMode,
-} from './common/config'
+export { LlmAnalyticsConfig } from './llm-analytics/config'
+export { CommonConfig, KafkaSaslMechanism, LogLevel, PluginServerMode, stringToPluginServerMode } from './common/config'
 export {
     IngestionConsumerConfig,
     IngestionLane,
     PersonBatchWritingDbWriteMode,
     PersonBatchWritingMode,
 } from './ingestion/config'
+export { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 export { LogsIngestionConsumerConfig } from './logs-ingestion/config'
 export { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 
@@ -113,10 +114,19 @@ export type PluginServerService = {
 export interface PluginsServerConfig
     extends CommonConfig,
         CdpConfig,
+        LlmAnalyticsConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
+        TracesIngestionConsumerConfig,
+        ErrorTrackingConsumerConfig,
         SessionRecordingConfig,
-        SessionRecordingApiConfig {}
+        SessionRecordingApiConfig,
+        // Producer envs needed by the CDP producer registry the legacy big server builds.
+        KafkaMskProducerEnvConfig,
+        KafkaWarpstreamIngestionProducerEnvConfig,
+        KafkaWarpstreamCalculatedEventsProducerEnvConfig,
+        KafkaWarpstreamCyclotronProducerEnvConfig,
+        KafkaWarehouseProducerEnvConfig {}
 
 export interface HubServices {
     postgres: PostgresRouter
@@ -127,7 +137,6 @@ export interface HubServices {
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
-    clickhouseGroupRepository: ClickhouseGroupRepository
     personRepository: PersonRepository
     geoipService: GeoIPService
     encryptedFields: EncryptedFields
@@ -135,8 +144,6 @@ export interface HubServices {
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting
-    internalCaptureService: InternalCaptureService
-    internalFetchService: InternalFetchService
 }
 
 export interface Hub extends PluginsServerConfig, HubServices {}
@@ -146,7 +153,7 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    logsIngestion?: boolean
+    errorTrackingIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
@@ -163,6 +170,7 @@ export interface PluginServerCapabilities {
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
     cdpCyclotronV2Janitor?: boolean
+    cdpHogflowScheduler?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean
 }
@@ -267,6 +275,7 @@ export interface EventSchemaEnforcement {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
 }
@@ -279,7 +288,7 @@ export interface Team {
     name: string
     anonymize_ips: boolean
     api_token: string
-    slack_incoming_webhook: string | null
+    secret_api_token: string | null
     session_recording_opt_in: boolean
     person_processing_opt_out: boolean | null
     heatmaps_opt_in: boolean | null
@@ -873,6 +882,7 @@ export interface EventHeaders {
     now?: Date
     force_disable_person_processing: boolean
     historical_migration: boolean
+    skip_heatmap_processing: boolean
 }
 
 export interface IncomingEvent {

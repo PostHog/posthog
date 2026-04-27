@@ -19,20 +19,29 @@ import { getMetricTag } from './shared/utils'
 const MetricItem = ({
     metric,
     order,
+    isRemoved,
+    canRemove,
+    onRemove,
+    onRestore,
 }: {
     metric: ExperimentMetric & { sharedMetricId?: number; isSharedMetric?: boolean }
     order: number
+    isRemoved: boolean
+    canRemove: boolean
+    onRemove: () => void
+    onRestore: () => void
 }): JSX.Element => {
     const uuid = metric.uuid || (metric as any).query?.uuid
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
         id: uuid,
+        disabled: isRemoved,
     })
 
     return (
         <div
             ref={setNodeRef}
             className={clsx(
-                'relative flex items-center gap-2 p-3 border rounded cursor-move bg-bg-light',
+                'relative flex items-center gap-2 p-3 border rounded bg-bg-light',
                 isDragging && 'z-[999999]'
             )}
             style={{
@@ -40,11 +49,15 @@ const MetricItem = ({
                 transition,
             }}
             {...attributes}
-            {...listeners}
         >
-            <IconDrag className="text-orange-500 flex-shrink-0 text-lg" />
+            <div
+                className={clsx('flex-shrink-0', isRemoved ? 'cursor-default' : 'cursor-move')}
+                {...(isRemoved ? {} : listeners)}
+            >
+                <IconDrag className={clsx('text-lg', isRemoved ? 'text-muted' : 'text-orange-500')} />
+            </div>
             <LemonBadge.Number count={order + 1} maxDigits={3} status="muted" />
-            <div className="flex-1 min-w-0 flex flex-col gap-1">
+            <div className={clsx('flex-1 min-w-0 flex flex-col gap-1', isRemoved && 'line-through opacity-50')}>
                 <div className="font-semibold">
                     <MetricTitle metric={metric} />
                 </div>
@@ -59,6 +72,21 @@ const MetricItem = ({
                     )}
                 </div>
             </div>
+            {isRemoved ? (
+                <LemonButton size="small" type="secondary" onClick={onRestore}>
+                    Restore
+                </LemonButton>
+            ) : (
+                <LemonButton
+                    size="small"
+                    status="danger"
+                    type="secondary"
+                    onClick={onRemove}
+                    disabledReason={!canRemove ? 'At least one metric is required' : undefined}
+                >
+                    Remove
+                </LemonButton>
+            )}
         </div>
     )
 }
@@ -74,6 +102,7 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
     const { updateExperiment } = useActions(experimentLogic)
 
     const [orderedUuids, setOrderedUuids] = useState<string[]>([])
+    const [removedUuids, setRemovedUuids] = useState<Set<string>>(new Set())
 
     useEffect(() => {
         if (isOpen && experiment) {
@@ -81,8 +110,10 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
                 ? (experiment.secondary_metrics_ordered_uuids ?? [])
                 : (experiment.primary_metrics_ordered_uuids ?? [])
             setOrderedUuids([...currentOrder])
+            setRemovedUuids(new Set())
         } else {
             setOrderedUuids([])
+            setRemovedUuids(new Set())
         }
     }, [
         isOpen,
@@ -111,6 +142,9 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
         return orderedUuids.map((uuid) => metricsMap.get(uuid)).filter(Boolean)
     })()
 
+    const activeCount = orderedUuids.length - removedUuids.size
+    const canRemoveMore = isSecondary || activeCount > 1
+
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (active.id && over && active.id !== over.id) {
             const from = orderedUuids.indexOf(active.id as string)
@@ -123,18 +157,64 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
         }
     }
 
-    const handleSaveOrder = async (): Promise<void> => {
-        // Update the appropriate field and send both to preserve state
-        if (isSecondary) {
-            experiment!.secondary_metrics_ordered_uuids = orderedUuids
-        } else {
-            experiment!.primary_metrics_ordered_uuids = orderedUuids
+    const handleSave = async (): Promise<void> => {
+        const hasRemovals = removedUuids.size > 0
+
+        if (!hasRemovals) {
+            // No removals — just update ordering (existing behavior)
+            if (isSecondary) {
+                experiment!.secondary_metrics_ordered_uuids = orderedUuids
+            } else {
+                experiment!.primary_metrics_ordered_uuids = orderedUuids
+            }
+
+            await updateExperiment({
+                primary_metrics_ordered_uuids: experiment?.primary_metrics_ordered_uuids,
+                secondary_metrics_ordered_uuids: experiment?.secondary_metrics_ordered_uuids,
+            })
+
+            closeModal()
+            return
         }
 
-        await updateExperiment({
-            primary_metrics_ordered_uuids: experiment?.primary_metrics_ordered_uuids,
-            secondary_metrics_ordered_uuids: experiment?.secondary_metrics_ordered_uuids,
+        // Build the update payload with removals
+        const filteredOrderedUuids = orderedUuids.filter((uuid) => !removedUuids.has(uuid))
+
+        // Determine which removed metrics are shared vs inline
+        const metricsWithResults = getOrderedMetricsWithResults(isSecondary)
+        const allMetrics = metricsWithResults.map(({ metric }: { metric: any }) => metric)
+        const removedSharedMetricIds = new Set<number>()
+        allMetrics.forEach((metric: any) => {
+            const uuid = metric.uuid || metric.query?.uuid
+            if (uuid && removedUuids.has(uuid) && metric.isSharedMetric && metric.sharedMetricId) {
+                removedSharedMetricIds.add(metric.sharedMetricId)
+            }
         })
+
+        const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
+        const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+
+        // Filter inline metrics to remove the deleted ones
+        const currentInlineMetrics = (experiment?.[metricsField] || []) as ExperimentMetric[]
+        const filteredInlineMetrics = currentInlineMetrics.filter((m) => !removedUuids.has(m.uuid!))
+
+        const updatePayload: Record<string, any> = {
+            [metricsField]: filteredInlineMetrics,
+            [orderingField]: filteredOrderedUuids,
+        }
+
+        // If shared metrics were removed, update saved_metrics_ids
+        if (removedSharedMetricIds.size > 0) {
+            const filteredSavedMetrics = (experiment?.saved_metrics || [])
+                .filter((sm) => !removedSharedMetricIds.has(sm.saved_metric))
+                .map((sm) => ({
+                    id: sm.saved_metric,
+                    metadata: sm.metadata,
+                }))
+            updatePayload.saved_metrics_ids = filteredSavedMetrics
+        }
+
+        await updateExperiment(updatePayload)
 
         closeModal()
     }
@@ -145,19 +225,14 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
             isOpen={isOpen}
             width={600}
             title={`Reorder ${isSecondary ? 'secondary' : 'primary'} metrics`}
-            description={
-                <p>
-                    Change the order in which your {isSecondary ? 'secondary' : 'primary'} metrics are displayed. You
-                    can <b>drag and drop the metrics below</b> to change their order.
-                </p>
-            }
+            description={<p>Drag and drop to reorder, or remove metrics you no longer need.</p>}
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeModal}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={handleSaveOrder}>
-                        Save order
+                    <LemonButton type="primary" onClick={handleSave}>
+                        Save
                     </LemonButton>
                 </>
             }
@@ -170,13 +245,32 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
                                 <p>No metrics available for reordering</p>
                             </div>
                         )}
-                        {displayMetrics.map((metric, index) => (
-                            <MetricItem
-                                key={metric.uuid || (metric as any).query?.uuid}
-                                metric={metric}
-                                order={index}
-                            />
-                        ))}
+                        {displayMetrics.map((metric, index) => {
+                            const uuid = metric.uuid || (metric as any).query?.uuid
+                            const isRemoved = removedUuids.has(uuid)
+                            const effectiveIndex =
+                                displayMetrics.slice(0, index + 1).filter((m) => {
+                                    const id = m.uuid || (m as any).query?.uuid
+                                    return !removedUuids.has(id)
+                                }).length - 1
+                            return (
+                                <MetricItem
+                                    key={uuid}
+                                    metric={metric}
+                                    order={isRemoved ? index : effectiveIndex}
+                                    isRemoved={isRemoved}
+                                    canRemove={canRemoveMore}
+                                    onRemove={() => setRemovedUuids((prev) => new Set([...prev, uuid]))}
+                                    onRestore={() =>
+                                        setRemovedUuids((prev) => {
+                                            const next = new Set(prev)
+                                            next.delete(uuid)
+                                            return next
+                                        })
+                                    }
+                                />
+                            )
+                        })}
                     </SortableContext>
                 </DndContext>
             </div>

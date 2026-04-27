@@ -5,6 +5,14 @@ use std::borrow::Cow;
 
 const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
 
+/// Result of parsing an event timestamp.
+pub struct ParsedTimestamp {
+    /// The parsed and validated event timestamp.
+    pub timestamp: DateTime<Utc>,
+    /// Clock skew (sent_at - now) when correction was applied, None otherwise.
+    pub clock_skew: Option<Duration>,
+}
+
 /// Parse event timestamp with clock skew adjustment and validation
 ///
 /// # Arguments
@@ -13,34 +21,34 @@ const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
 /// * `sent_at` - The client-sent timestamp (optional)
 /// * `ignore_sent_at` - Whether to ignore sent_at for clock skew adjustment
 /// * `now` - The current server timestamp
-///
-/// # Returns
-/// * `DateTime<Utc>` - The parsed and validated timestamp
 pub fn parse_event_timestamp(
     timestamp: Option<&str>,
     offset: Option<i64>,
     sent_at: Option<DateTime<Utc>>,
     ignore_sent_at: bool,
     now: DateTime<Utc>,
-) -> DateTime<Utc> {
+) -> ParsedTimestamp {
     // Use sent_at only if not ignored
     let effective_sent_at = if ignore_sent_at { None } else { sent_at };
 
     // Handle timestamp parsing and clock skew adjustment
-    let mut parsed_ts = handle_timestamp(timestamp, offset, effective_sent_at, now);
+    let mut result = handle_timestamp(timestamp, offset, effective_sent_at, now);
 
     // Check for future events - clamp to now
-    let now_diff = parsed_ts.signed_duration_since(now).num_milliseconds();
+    let now_diff = result
+        .timestamp
+        .signed_duration_since(now)
+        .num_milliseconds();
     if now_diff > FUTURE_EVENT_HOURS_CUTOFF_MILLIS {
-        parsed_ts = now;
+        result.timestamp = now;
     }
 
     // Check if timestamp is out of bounds - fallback to epoch
-    if parsed_ts.year() < 0 || parsed_ts.year() > 9999 {
-        parsed_ts = DateTime::UNIX_EPOCH;
+    if result.timestamp.year() < 0 || result.timestamp.year() > 9999 {
+        result.timestamp = DateTime::UNIX_EPOCH;
     }
 
-    parsed_ts
+    result
 }
 
 fn handle_timestamp(
@@ -48,18 +56,20 @@ fn handle_timestamp(
     offset: Option<i64>,
     sent_at: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
-) -> DateTime<Utc> {
+) -> ParsedTimestamp {
     let mut parsed_ts = now;
+    let mut clock_skew = None;
 
     if let Some(timestamp_str) = timestamp {
         let timestamp_parsed = parse_date(timestamp_str);
 
         if let (Some(sent_at), Some(timestamp_parsed)) = (sent_at, timestamp_parsed) {
-            // Handle clock skew between client and server
-            // skew = sent_at - now
-            // x = now + (timestamp - sent_at)
-            let duration = timestamp_parsed.signed_duration_since(sent_at);
-            parsed_ts = now + duration;
+            // Clock skew: how far the client clock is ahead of the server.
+            // We subtract this from the client-provided timestamp to get
+            // the event time in server clock terms.
+            let skew = sent_at - now;
+            parsed_ts = timestamp_parsed - skew;
+            clock_skew = Some(skew);
         } else if let Some(timestamp_parsed) = timestamp_parsed {
             parsed_ts = timestamp_parsed;
         }
@@ -70,7 +80,10 @@ fn handle_timestamp(
         parsed_ts = now - Duration::milliseconds(offset_ms);
     }
 
-    parsed_ts
+    ParsedTimestamp {
+        timestamp: parsed_ts,
+        clock_skew,
+    }
 }
 
 /// Parse a date string using a streamlined approach
@@ -150,4 +163,80 @@ fn convert_jiff_to_chrono(jiff_timestamp: jiff::Zoned) -> Option<DateTime<Utc>> 
     // Convert i32 to u32 safely (nanoseconds should always be positive)
     let nanos_u32 = nanos.try_into().ok()?;
     DateTime::from_timestamp(seconds, nanos_u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dt(s: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn positive_skew_client_clock_ahead() {
+        // Client clock is 10s ahead of server.
+        // Skew = sent_at - now = +10s
+        // Corrected = timestamp - skew = 11:00:00 - 10s = 10:59:50
+        let now = dt("2023-01-01T12:00:00Z");
+        let sent_at = Some(dt("2023-01-01T12:00:10Z"));
+        let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, false, now);
+        assert_eq!(result.timestamp, dt("2023-01-01T10:59:50Z"));
+        assert_eq!(result.clock_skew, Some(Duration::seconds(10)));
+    }
+
+    #[test]
+    fn negative_skew_client_clock_behind() {
+        // Client clock is 10s behind server.
+        // Skew = sent_at - now = -10s
+        // Corrected = timestamp - skew = 11:00:00 + 10s = 11:00:10
+        let now = dt("2023-01-01T12:00:00Z");
+        let sent_at = Some(dt("2023-01-01T11:59:50Z"));
+        let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, false, now);
+        assert_eq!(result.timestamp, dt("2023-01-01T11:00:10Z"));
+        assert_eq!(result.clock_skew, Some(Duration::seconds(-10)));
+    }
+
+    #[test]
+    fn zero_skew_clocks_aligned() {
+        let now = dt("2023-01-01T12:00:00Z");
+        let sent_at = Some(dt("2023-01-01T12:00:00Z"));
+        let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, false, now);
+        assert_eq!(result.timestamp, dt("2023-01-01T11:00:00Z"));
+        assert_eq!(result.clock_skew, Some(Duration::zero()));
+    }
+
+    #[test]
+    fn no_sent_at_no_correction() {
+        let now = dt("2023-01-01T12:00:00Z");
+        let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, None, false, now);
+        assert_eq!(result.timestamp, dt("2023-01-01T11:00:00Z"));
+        assert!(result.clock_skew.is_none());
+    }
+
+    #[test]
+    fn ignore_sent_at_skips_correction() {
+        let now = dt("2023-01-01T12:00:00Z");
+        let sent_at = Some(dt("2023-01-01T12:00:10Z"));
+        let result = parse_event_timestamp(Some("2023-01-01T11:00:00Z"), None, sent_at, true, now);
+        assert_eq!(result.timestamp, dt("2023-01-01T11:00:00Z"));
+        assert!(result.clock_skew.is_none());
+    }
+
+    #[test]
+    fn no_timestamp_falls_back_to_now() {
+        let now = dt("2023-01-01T12:00:00Z");
+        let result = parse_event_timestamp(None, None, None, false, now);
+        assert_eq!(result.timestamp, now);
+        assert!(result.clock_skew.is_none());
+    }
+
+    #[test]
+    fn no_timestamp_with_sent_at_falls_back_to_now() {
+        let now = dt("2023-01-01T12:00:00Z");
+        let sent_at = Some(dt("2023-01-01T12:00:05Z"));
+        let result = parse_event_timestamp(None, None, sent_at, false, now);
+        assert_eq!(result.timestamp, now);
+        assert!(result.clock_skew.is_none());
+    }
 }

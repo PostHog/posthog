@@ -13,10 +13,10 @@ operations = [
         QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
             table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW()
         ),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     run_sql_with_exceptions(
         QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
 ]

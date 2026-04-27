@@ -4,7 +4,7 @@ import { registerAsyncFunction } from '../async-function-registry'
 
 registerAsyncFunction('produceToWarehouseWebhooks', {
     execute: (args, context, result) => {
-        const [payload] = args
+        const [payload, explicitSchemaId] = args
 
         if (!payload || typeof payload !== 'object') {
             throw new Error('[HogFunction] - produceToWarehouseWebhooks requires an object payload')
@@ -16,10 +16,11 @@ registerAsyncFunction('produceToWarehouseWebhooks', {
             )
         }
 
-        const schemaId = context.invocation.hogFunction.inputs?.schema_id?.value
-        if (!schemaId) {
+        // Use explicit schema_id from Hog code args, or fall back to inputs for backward compat
+        const schemaId = explicitSchemaId ?? context.invocation.hogFunction.inputs?.schema_id?.value
+        if (!schemaId || typeof schemaId !== 'string') {
             throw new Error(
-                '[HogFunction] - produceToWarehouseWebhooks requires schema_id to be set on the hog function inputs'
+                '[HogFunction] - produceToWarehouseWebhooks requires a schema_id (either as second argument or in hog function inputs)'
             )
         }
 
@@ -28,6 +29,12 @@ registerAsyncFunction('produceToWarehouseWebhooks', {
             schema_id: schemaId,
             payload,
         })
+
+        // Async handlers must leave a return value on the resumed VM stack so the trailing
+        // POP from the expression statement has something to pop. fetch / sendEmail defer this
+        // push to executeFetch / executeSendEmail once the real I/O completes; we finish our
+        // work synchronously here, so we push immediately.
+        result.invocation.state.vmState?.stack.push(null)
     },
 
     mock: (args, logs) => {

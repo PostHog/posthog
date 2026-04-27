@@ -18,7 +18,7 @@ import posthoganalytics
 from posthog.schema import RecordingOrder, RecordingsQuery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Comment, Team, User
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -338,7 +338,7 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
             LIMIT 1000
         """
 
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = sync_execute(
             query,
             {
@@ -503,7 +503,7 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
             LIMIT 50000
         """
 
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = sync_execute(
             query,
             {

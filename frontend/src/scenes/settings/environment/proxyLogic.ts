@@ -26,7 +26,7 @@ export type ProxyRecord = {
     target_cname: string
 }
 
-export type FormState = 'collapsed' | 'active' | 'complete'
+export type FormState = 'collapsed' | 'active'
 
 export function domainFor(proxyRecord: ProxyRecord | undefined): string {
     if (!proxyRecord) {
@@ -75,22 +75,18 @@ function initialDomainFor(user: UserType | null): string {
 export const proxyLogic = kea<proxyLogicType>([
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization'], userLogic, ['user']],
+        values: [organizationLogic, ['currentOrganizationId'], userLogic, ['user']],
     })),
     actions(() => ({
         collapseForm: true,
         showForm: true,
-        completeForm: true,
         maybeRefreshRecords: true,
         acknowledgeCloudflareOptIn: true,
         setCloudflareOptInChecked: (checked: boolean) => ({ checked }),
         setMaxProxyRecords: (maxProxyRecords: number) => ({ maxProxyRecords }),
     })),
     reducers(() => ({
-        formState: [
-            'collapsed' as FormState,
-            { showForm: () => 'active', collapseForm: () => 'collapsed', completeForm: () => 'complete' },
-        ],
+        formState: ['collapsed' as FormState, { showForm: () => 'active', collapseForm: () => 'collapsed' }],
         cloudflareOptInAcknowledged: [
             false,
             { persist: true },
@@ -116,20 +112,20 @@ export const proxyLogic = kea<proxyLogicType>([
         proxyRecords: {
             __default: [] as ProxyRecord[],
             loadRecords: async () => {
-                const response = await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                 actions.setMaxProxyRecords(response.max_proxy_records)
                 return response.results
             },
             createRecord: async ({ domain }: { domain: string }) => {
-                const response = await api.create(`api/organizations/${values.currentOrganization?.id}/proxy_records`, {
+                const response = await api.create(`api/organizations/${values.currentOrganizationId}/proxy_records`, {
                     domain,
                 })
                 lemonToast.success('Record created')
-                actions.completeForm()
+                actions.collapseForm()
                 return [response, ...values.proxyRecords]
             },
             deleteRecord: async (id: ProxyRecord['id']) => {
-                void api.delete(`api/organizations/${values.currentOrganization?.id}/proxy_records/${id}`)
+                void api.delete(`api/organizations/${values.currentOrganizationId}/proxy_records/${id}`)
                 const newRecords = [...values.proxyRecords].map((r) => ({
                     ...r,
                     status: r.id === id ? 'deleting' : r.status,
@@ -137,7 +133,7 @@ export const proxyLogic = kea<proxyLogicType>([
                 return newRecords
             },
             retryRecord: async (id: ProxyRecord['id']) => {
-                await api.create(`api/organizations/${values.currentOrganization?.id}/proxy_records/${id}/retry`)
+                await api.create(`api/organizations/${values.currentOrganizationId}/proxy_records/${id}/retry`)
                 lemonToast.success('Retry initiated')
                 return values.proxyRecords.map((r) => ({
                     ...r,
@@ -159,7 +155,6 @@ export const proxyLogic = kea<proxyLogicType>([
         collapseForm: () => actions.loadRecords(),
         deleteRecordFailure: () => actions.loadRecords(),
         retryRecordFailure: () => actions.loadRecords(),
-        createRecordSuccess: () => actions.loadRecords(),
         loadRecordsSuccess: ({ proxyRecords }) => {
             // Mark the reverse proxy setup task as completed if any proxy is valid
             const hasValidProxy = proxyRecords.some((r) => r.status === 'valid')

@@ -1,35 +1,20 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import perf_counter
 from types import UnionType
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Generic,
-    Optional,
-    Protocol,
-    TypeGuard,
-    TypeVar,
-    Union,
-    cast,
-    get_args,
-    get_origin,
-)
+from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
 import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
 
-from posthog.errors import clickhouse_error_type
-
-if TYPE_CHECKING:
-    from rest_framework.request import Request
-
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    BreakdownType,
     CacheMissResponse,
     CalendarHeatmapQuery,
     ChartDisplayType,
@@ -79,6 +64,7 @@ from posthog.schema import (
     UsageMetricsQuery,
     VectorSearchQuery,
     WebGoalsQuery,
+    WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
     WebTrendsQuery,
@@ -105,13 +91,22 @@ from posthog.clickhouse.client.limit import (
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
-from posthog.event_usage import groups, report_user_or_team_action
+from posthog.errors import classify_query_error, clickhouse_error_type
+from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
+from posthog.hogql_queries.insights.utils.entities import has_data_warehouse_node
+from posthog.hogql_queries.insights.utils.properties import has_any_property_filters
 from posthog.hogql_queries.query_cache import count_query_cache_hit
 from posthog.hogql_queries.query_cache_base import QueryCacheManagerBase
 from posthog.hogql_queries.query_cache_factory import get_query_cache_manager
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
+from posthog.hogql_queries.validation.validation import (
+    QueryValidationContext,
+    QueryValidationRule,
+    run_validation_rules,
+)
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -122,14 +117,27 @@ logger = structlog.get_logger(__name__)
 
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
-    "Query executions by status",
-    labelnames=["query_type", "status", "error_type"],
+    "Query executions by category",
+    labelnames=["query_type", "category", "error_type"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
     "posthog_query_execution_duration_seconds",
     "Query execution duration in seconds",
     labelnames=["query_type"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
+)
+
+SURVEY_QUERY_EXECUTION_TOTAL = Counter(
+    "posthog_survey_query_execution_total",
+    "Query executions by category",
+    labelnames=["query_type", "query_name", "category", "error_type"],
+)
+
+SURVEY_QUERY_EXECUTION_DURATION = Histogram(
+    "posthog_survey_query_execution_duration_seconds",
+    "Query execution duration in seconds",
+    labelnames=["query_type", "query_name"],
     buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
 )
 
@@ -159,10 +167,24 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
 }
 
-_REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
+_REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
     True: ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
 }
+
+UNKNOWN_QUERY_METRIC_LABEL = "unknown"
+SURVEYS_PRODUCT_KEY = "surveys"
+
+
+def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
+    tags = getattr(query, "tags", None)
+    if getattr(tags, "productKey", None) != SURVEYS_PRODUCT_KEY:
+        return None
+
+    return {
+        "query_type": getattr(query, "kind", "Other"),
+        "query_name": getattr(tags, "name", None) or UNKNOWN_QUERY_METRIC_LABEL,
+    }
 
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
@@ -208,6 +230,7 @@ RunnableQueryNode = Union[
     WebOverviewQuery,
     WebStatsTableQuery,
     WebGoalsQuery,
+    WebNotableChangesQuery,
     WebTrendsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
@@ -226,12 +249,21 @@ def get_query_runner(
     timings: Optional[HogQLTimings] = None,
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    request: Optional["Request"] = None,
 ) -> "QueryRunner":
     try:
         kind = get_from_dict_or_attr(query, "kind")
     except AttributeError:
         raise ValueError(f"Can't get a runner for an unknown query type: {query}")
+
+    if kind in ("DataTableNode", "DataVisualizationNode", "InsightVizNode"):
+        source = get_from_dict_or_attr(query, "source")
+        return get_query_runner(
+            query=source,
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
 
     if kind == "TrendsQuery":
         # Check if this should use calendar heatmap runner instead
@@ -248,7 +280,6 @@ def get_query_runner(
                 timings=timings,
                 limit_context=limit_context,
                 modifiers=modifiers,
-                request=request,
             )
 
         if display_type == ChartDisplayType.BOX_PLOT:
@@ -270,7 +301,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "FunnelsQuery":
         from .insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -281,10 +311,9 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "RetentionQuery":
-        from .insights.retention_query_runner import RetentionQueryRunner
+        from .insights.retention.retention_query_runner import RetentionQueryRunner
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | dict[str, Any], query),
@@ -292,10 +321,9 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "PathsQuery":
-        from .insights.paths_query_runner import PathsQueryRunner
+        from .insights.paths.paths_query_runner import PathsQueryRunner
 
         return PathsQueryRunner(
             query=cast(PathsQuery | dict[str, Any], query),
@@ -303,7 +331,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
 
     if kind == "CalendarHeatmapQuery":
@@ -315,10 +342,9 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "StickinessQuery":
-        from .insights.stickiness_query_runner import StickinessQueryRunner
+        from .insights.stickiness.stickiness_query_runner import StickinessQueryRunner
 
         return StickinessQueryRunner(
             query=cast(StickinessQuery | dict[str, Any], query),
@@ -326,10 +352,9 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "LifecycleQuery":
-        from .insights.lifecycle_query_runner import LifecycleQueryRunner
+        from .insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 
         return LifecycleQueryRunner(
             query=cast(LifecycleQuery | dict[str, Any], query),
@@ -337,7 +362,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "EventsQuery":
         from .events_query_runner import EventsQueryRunner
@@ -348,7 +372,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "SessionsQuery":
         from .sessions_query_runner import SessionsQueryRunner
@@ -359,7 +382,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "SessionBatchEventsQuery":
         from .ai.session_batch_events_query_runner import SessionBatchEventsQueryRunner
@@ -370,7 +392,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "ActorsQuery":
         from .actors_query_runner import ActorsQueryRunner
@@ -381,7 +402,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
 
     if kind == "GroupsQuery":
@@ -393,10 +413,15 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
-    if kind in ("InsightActorsQuery", "FunnelsActorsQuery", "FunnelCorrelationActorsQuery", "StickinessActorsQuery"):
+    if kind in (
+        "InsightActorsQuery",
+        "FunnelsActorsQuery",
+        "FunnelCorrelationActorsQuery",
+        "ExperimentActorsQuery",
+        "StickinessActorsQuery",
+    ):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
@@ -405,7 +430,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "InsightActorsQueryOptions":
         from .insights.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
@@ -416,7 +440,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "FunnelCorrelationQuery":
         from .insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
@@ -427,7 +450,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "HogQLQuery":
         from .hogql_query_runner import HogQLQueryRunner
@@ -438,7 +460,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "SessionsTimelineQuery":
         from .sessions_timeline_query_runner import SessionsTimelineQueryRunner
@@ -449,7 +470,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
     if kind == "WebOverviewQuery":
         from .web_analytics.web_overview import WebOverviewQueryRunner
@@ -460,7 +480,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "WebStatsTableQuery":
@@ -472,7 +491,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "WebGoalsQuery":
@@ -484,7 +502,17 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
+        )
+
+    if kind == "WebNotableChangesQuery":
+        from .web_analytics.notable_changes import WebNotableChangesQueryRunner
+
+        return WebNotableChangesQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
         )
 
     if kind == "WebTrendsQuery":
@@ -496,7 +524,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "WebExternalClicksTableQuery":
@@ -508,7 +535,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "WebVitalsPathBreakdownQuery":
@@ -517,7 +543,6 @@ def get_query_runner(
         return WebVitalsPathBreakdownQueryRunner(
             query=query,
             team=team,
-            request=request,
         )
 
     if kind == "WebPageURLSearchQuery":
@@ -529,7 +554,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "SessionAttributionExplorerQuery":
@@ -541,7 +565,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "RevenueAnalyticsGrossRevenueQuery":
@@ -555,7 +578,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "RevenueAnalyticsMetricsQuery":
@@ -569,7 +591,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "RevenueAnalyticsMRRQuery":
@@ -583,7 +604,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "RevenueAnalyticsOverviewQuery":
@@ -597,7 +617,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "RevenueAnalyticsTopCustomersQuery":
@@ -611,7 +630,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "RevenueExampleEventsQuery":
@@ -625,7 +643,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "RevenueExampleDataWarehouseTablesQuery":
@@ -639,7 +656,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "ErrorTrackingQuery":
@@ -651,7 +667,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "DocumentSimilarityQuery":
@@ -663,7 +678,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "ErrorTrackingIssueCorrelationQuery":
@@ -677,7 +691,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "ErrorTrackingSimilarIssuesQuery":
@@ -691,7 +704,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "ErrorTrackingBreakdownsQuery":
@@ -705,7 +717,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "ExperimentFunnelsQuery":
@@ -717,7 +728,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "ExperimentTrendsQuery":
@@ -729,7 +739,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "ExperimentQuery":
@@ -741,7 +750,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "ExperimentExposureQuery":
@@ -753,7 +761,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
 
     if kind == "SuggestedQuestionsQuery":
@@ -765,7 +772,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "TeamTaxonomyQuery":
         from .ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -776,7 +782,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "EventTaxonomyQuery":
         from .ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
@@ -787,7 +792,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "ActorsPropertyTaxonomyQuery":
         from .ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
@@ -798,7 +802,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "TracesQuery":
         from .ai.traces_query_runner import TracesQueryRunner
@@ -809,7 +812,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "TraceQuery":
         from .ai.trace_query_runner import TraceQueryRunner
@@ -820,7 +822,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "TraceNeighborsQuery":
         from .ai.trace_neighbors_query_runner import TraceNeighborsQueryRunner
@@ -831,7 +832,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
     if kind == "VectorSearchQuery":
         from .ai.vector_search_query_runner import VectorSearchQueryRunner
@@ -842,7 +842,6 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
-            request=request,
         )
 
     if kind == NodeKind.MARKETING_ANALYTICS_TABLE_QUERY:
@@ -856,7 +855,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY:
@@ -870,7 +868,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
@@ -884,7 +881,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "UsageMetricsQuery":
@@ -896,7 +892,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "EndpointsUsageOverviewQuery":
@@ -908,7 +903,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "EndpointsUsageTableQuery":
@@ -920,7 +914,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     if kind == "EndpointsUsageTrendsQuery":
@@ -932,7 +925,17 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
+        )
+
+    if kind == "RecordingsQuery":
+        from posthog.session_recordings.queries.recordings_query_runner import RecordingsQueryRunner
+
+        return RecordingsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
         )
 
     # Registered here for server-side CSV export only (ExportedAsset + Celery).
@@ -946,7 +949,19 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
+        )
+
+    if kind == "TraceSpansQuery":
+        from posthog.schema import TraceSpansQuery
+
+        from products.tracing.backend.logic import TraceSpansQueryRunner
+
+        return TraceSpansQueryRunner(
+            query=cast(TraceSpansQuery, query),
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
         )
 
     if kind == "PropertyValuesQuery":
@@ -958,7 +973,6 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
-            request=request,
         )
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
@@ -970,11 +984,10 @@ def get_query_runner_or_none(
     timings: Optional[HogQLTimings] = None,
     limit_context: Optional[LimitContext] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    request: Optional["Request"] = None,
 ) -> Optional["QueryRunner"]:
     try:
         return get_query_runner(
-            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers, request=request
+            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers
         )
     except ValueError as e:
         if "Can't get a runner for an unknown" in str(e):
@@ -1017,11 +1030,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         workload: Workload = Workload.DEFAULT,
         extract_modifiers=lambda query: query.modifiers if hasattr(query, "modifiers") else None,
         user: Optional[User] = None,
-        request: Optional["Request"] = None,
     ):
         self.team = team
         self.user = user
-        self.request = request
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
         self.query_id = query_id
@@ -1029,7 +1040,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
-                for query_type in get_args(self.query_type):  # type: ignore
+                for query_type in get_args(self.query_type):
                     try:
                         query = query_type.model_validate(query)
                         break
@@ -1051,7 +1062,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         pass
 
     @property
-    def query_type(self) -> type[Q]:
+    def query_type(self) -> Any:
         return self.__annotations__["query"]  # Enforcing the type annotation of `query` at runtime
 
     @property
@@ -1059,10 +1070,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.__annotations__["cached_response"]
 
     def is_query_node(self, data) -> TypeGuard[Q]:
-        query_type = self.query_type
-        # Resolve type alias if present
-        if hasattr(query_type, "__value__"):
-            query_type = query_type.__value__
+        query_type: Any = self.query_type
+        query_type = getattr(query_type, "__value__", query_type)
         # Handle both UnionType and typing._UnionGenericAlias
         if isinstance(query_type, UnionType) or (type(query_type).__name__ == "_UnionGenericAlias"):
             return any(isinstance(data, t) for t in get_args(query_type))
@@ -1083,7 +1092,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return self.limit_context
 
     def calculate(self) -> R:
+        self.validate()
         return self._calculate()
+
+    def validate(self) -> None:
+        run_validation_rules(self.validators(), self.validation_context)
 
     @abstractmethod
     def _calculate(self) -> R:
@@ -1095,6 +1108,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_manager: QueryCacheManagerBase,
         refresh_requested: bool = False,
         user: Optional[User] = None,
+        analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
@@ -1121,6 +1135,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             refresh_requested=refresh_requested,
             is_query_service=self.is_query_service,
             is_posthog_ai=self.limit_context == LimitContext.POSTHOG_AI,
+            analytics_props=analytics_props,
         )
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
@@ -1134,7 +1149,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return None
 
     def handle_cache_and_async_logic(
-        self, execution_mode: ExecutionMode, cache_manager: QueryCacheManagerBase, user: Optional[User] = None
+        self,
+        execution_mode: ExecutionMode,
+        cache_manager: QueryCacheManagerBase,
+        user: Optional[User] = None,
+        analytics_props: Optional[AnalyticsProps] = None,
     ) -> Optional[CR | CacheMissResponse]:
         CachedResponse: type[CR] = self.cached_response_type
         cached_response: CR | CacheMissResponse
@@ -1189,7 +1208,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             ):
                 # We're allowed to calculate, but we'll do it asynchronously and attach the query status
                 cached_response.query_status = self.enqueue_async_calculation(
-                    cache_manager=cache_manager, user=user, refresh_requested=True
+                    cache_manager=cache_manager, user=user, refresh_requested=True, analytics_props=analytics_props
                 )
                 return cached_response
             elif execution_mode == ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE:
@@ -1197,7 +1216,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 assert isinstance(cached_response, CachedResponse)
                 if self._is_stale(last_refresh=last_refresh_from_cached_result(cached_response), lazy=True):
                     cached_response.query_status = self.enqueue_async_calculation(
-                        cache_manager=cache_manager, user=user
+                        cache_manager=cache_manager, user=user, analytics_props=analytics_props
                     )
                 cached_response.query_status = self.get_async_query_status(cache_key=cache_manager.cache_key)
                 return cached_response
@@ -1213,7 +1232,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
             ):
                 # We're allowed to calculate, but we'll do it asynchronously
-                cached_response.query_status = self.enqueue_async_calculation(cache_manager=cache_manager, user=user)
+                cached_response.query_status = self.enqueue_async_calculation(
+                    cache_manager=cache_manager, user=user, analytics_props=analytics_props
+                )
                 return cached_response
 
         # Nothing useful out of cache, nor async query status
@@ -1272,6 +1293,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
+        analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
         # Set user for access control during query execution
         if user is not None:
@@ -1288,6 +1310,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if dashboard_id:
                 posthoganalytics.tag("dashboard_id", str(dashboard_id))
             if tags := getattr(self.query, "tags", None):
+                if tags.name:
+                    posthoganalytics.tag("query_name", tags.name)
+                    tag_queries(name=tags.name)
                 if tags.productKey:
                     posthoganalytics.tag("product_key", tags.productKey)
                     tag_queries(product=tags.productKey)
@@ -1296,6 +1321,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     tag_queries(scene=tags.scene)
 
             tag_queries(execution_mode=execution_mode.value)
+            tag_queries(cache_key=cache_key)
 
             # Abort early if the user doesn't have access to the query runner
             # We'll proceed as usual if there's no user connected to this request
@@ -1339,13 +1365,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 # We should always kick off async calculation and disregard the cache
                 return QueryStatusResponse(
                     query_status=self.enqueue_async_calculation(
-                        refresh_requested=True, cache_manager=cache_manager, user=user
+                        refresh_requested=True,
+                        cache_manager=cache_manager,
+                        user=user,
+                        analytics_props=analytics_props,
                     )
                 )
             elif execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
                 # Let's look in the cache first
                 results = self.handle_cache_and_async_logic(
-                    execution_mode=execution_mode, cache_manager=cache_manager, user=user
+                    execution_mode=execution_mode,
+                    cache_manager=cache_manager,
+                    user=user,
+                    analytics_props=analytics_props,
                 )
                 if results:
                     cache_tracking_props = {}
@@ -1383,98 +1415,141 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         user=user,
                         team=self.team,
                         organization=self.team.organization,
-                        request=self.request,
+                        analytics_props=analytics_props,
                     )
 
                     return results
 
-            last_refresh = datetime.now(UTC)
-            target_age = self.cache_target_age(last_refresh=last_refresh)
+            def execute_blocking():
+                return self._execute_and_cache_blocking(
+                    cache_key=cache_key,
+                    cache_manager=cache_manager,
+                    execution_mode=execution_mode,
+                    insight_id=insight_id,
+                    dashboard_id=dashboard_id,
+                    trigger=trigger,
+                    user=user,
+                    start_time=start_time,
+                    analytics_props=analytics_props,
+                )
 
-            # Avoid affecting cache key
-            # Add user based modifiers here, primarily for user specific feature flagging
-            if user:
-                self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
-                self.modifiers.useMaterializedViews = True
+            return execute_blocking()
 
-            query_type = getattr(self.query, "kind", "Other")
-            query_start = perf_counter()
-            try:
-                query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-                QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="success", error_type="none").inc()
-            except Exception as e:
-                QUERY_EXECUTION_TOTAL.labels(
-                    query_type=query_type, status="failure", error_type=clickhouse_error_type(e)
+    def _execute_and_cache_blocking(
+        self,
+        *,
+        cache_key: str,
+        cache_manager: QueryCacheManagerBase,
+        execution_mode: ExecutionMode,
+        insight_id: Optional[int],
+        dashboard_id: Optional[int],
+        trigger: Optional[str],
+        user: Optional[User],
+        start_time: float,
+        analytics_props: Optional["AnalyticsProps"] = None,
+    ) -> CR:
+        CachedResponse: type[CR] = self.cached_response_type
+
+        last_refresh = datetime.now(UTC)
+        target_age = self.cache_target_age(last_refresh=last_refresh)
+
+        # Avoid affecting cache key
+        # Add user based modifiers here, primarily for user specific feature flagging
+        if user:
+            self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
+            self.modifiers.useMaterializedViews = True
+
+        query_type = getattr(self.query, "kind", "Other")
+        survey_query_metric_labels = get_survey_query_metric_labels(self.query)
+        query_start = perf_counter()
+        try:
+            query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
+            QUERY_EXECUTION_TOTAL.labels(query_type=query_type, category="success", error_type="none").inc()
+            if survey_query_metric_labels:
+                SURVEY_QUERY_EXECUTION_TOTAL.labels(
+                    **survey_query_metric_labels, category="success", error_type="none"
                 ).inc()
-                raise
-            finally:
-                QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(perf_counter() - query_start)
+        except Exception as e:
+            QUERY_EXECUTION_TOTAL.labels(
+                query_type=query_type,
+                category=classify_query_error(e),
+                error_type=clickhouse_error_type(e),
+            ).inc()
+            if survey_query_metric_labels:
+                SURVEY_QUERY_EXECUTION_TOTAL.labels(
+                    **survey_query_metric_labels,
+                    category=classify_query_error(e),
+                    error_type=clickhouse_error_type(e),
+                ).inc()
+            raise
+        finally:
+            query_duration_seconds = perf_counter() - query_start
+            QUERY_EXECUTION_DURATION.labels(query_type=query_type).observe(query_duration_seconds)
+            if survey_query_metric_labels:
+                SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
-            fresh_response_dict = {
-                **query_result.model_dump(),
-                "is_cached": False,
-                "last_refresh": last_refresh,
-                "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                "cache_key": cache_key,
-                "timezone": self.team.timezone,
-                "cache_target_age": target_age,
-            }
+        fresh_response_dict: dict[str, Any] = {
+            **query_result.model_dump(),
+            "is_cached": False,
+            "last_refresh": last_refresh,
+            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+            "cache_key": cache_key,
+            "timezone": self.team.timezone,
+            "cache_target_age": target_age,
+        }
 
-            try:
-                query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
-                fresh_response_dict["query_metadata"] = query_metadata
+        try:
+            query_metadata = extract_query_metadata(query=self.query, team=self.team).model_dump()
+            fresh_response_dict["query_metadata"] = query_metadata
 
-                # Don't log usage for warming queries
-                if not trigger or not trigger.startswith("warming"):
-                    log_event_usage_from_query_metadata(
-                        query_metadata,
-                        team_id=self.team.id,
-                        user_id=user.id if user else None,
-                    )
-            except Exception as e:
-                # fail silently if we can't extract query metadata
-                capture_exception(
-                    e, {"query": self.query, "team_id": self.team.pk, "context": "query_metadata_extract"}
+            # Don't log usage for warming queries
+            if not trigger or not trigger.startswith("warming"):
+                log_event_usage_from_query_metadata(
+                    query_metadata,
+                    team_id=self.team.id,
+                    user_id=user.id if user else None,
                 )
+        except Exception as e:
+            # fail silently if we can't extract query metadata
+            capture_exception(e, {"query": self.query, "team_id": self.team.pk, "context": "query_metadata_extract"})
 
-            if trigger:
-                fresh_response_dict["calculation_trigger"] = trigger
+        if trigger:
+            fresh_response_dict["calculation_trigger"] = trigger
 
-            # Don't cache debug queries with errors and export queries
-            errors: Optional[list] = fresh_response_dict.get("error", None)
-            has_error = errors is not None and len(errors) > 0
-
-            if not has_error and self.limit_context != LimitContext.EXPORT:
-                cache_manager.set_cache_data(
-                    response=fresh_response_dict,
-                    # This would be a possible place to decide to not ever keep this cache warm
-                    # Example: Not for super quickly calculated insights
-                    # Set target_age to None in that case
-                    target_age=target_age,
-                )
-
-            query_executed_props = {
-                "insight_id": insight_id,
-                "dashboard_id": dashboard_id,
-                "cache_hit": False,
-                "cache_key": cache_key,
-                "calculation_trigger": trigger,
-                "execution_mode": execution_mode.value,
-                "query_type": getattr(self.query, "kind", "Other"),
-                "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
-                "query_duration_ms": query_duration_ms,
-                "has_error": has_error,
-            }
-            report_user_or_team_action(
-                "query executed",
-                query_executed_props,
-                user=user,
-                team=self.team,
-                organization=self.team.organization,
-                request=self.request,
+        # Don't cache debug queries with errors and export queries
+        errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
+        has_error = errors is not None and len(errors) > 0
+        if not has_error and self.limit_context != LimitContext.EXPORT:
+            cache_manager.set_cache_data(
+                response=fresh_response_dict,
+                # This would be a possible place to decide to not ever keep this cache warm
+                # Example: Not for super quickly calculated insights
+                # Set target_age to None in that case
+                target_age=target_age,
             )
 
-            return CachedResponse(**fresh_response_dict)
+        query_executed_props = {
+            "insight_id": insight_id,
+            "dashboard_id": dashboard_id,
+            "cache_hit": False,
+            "cache_key": cache_key,
+            "calculation_trigger": trigger,
+            "execution_mode": execution_mode.value,
+            "query_type": query_type,
+            "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+            "query_duration_ms": query_duration_ms,
+            "has_error": has_error,
+        }
+        report_user_or_team_action(
+            "query executed",
+            query_executed_props,
+            user=user,
+            team=self.team,
+            organization=self.team.organization,
+            analytics_props=analytics_props,
+        )
+
+        return CachedResponse(**fresh_response_dict)
 
     def get_api_queries_concurrency_limit(self):
         """
@@ -1713,6 +1788,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
+    @property
+    def validation_context(self) -> QueryValidationContext[Q]:
+        return QueryValidationContext(query=self.query, team=self.team, user=self.user, runner=self)
+
+    def validators(self) -> Sequence[QueryValidationRule[Q]]:
+        """Overridden by subclasses to add validation rules."""
+        return ()
+
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         # If a custom cache age was provided (e.g., from Endpoint), use our override logic
         target_age = None
@@ -1760,10 +1843,29 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
             return
 
-        # The default logic below applies to all insights and a lot of other queries
-        # Notable exception: `HogQLQuery`, which has `properties` and `dateRange` within `HogQLFilters`
-        if dashboard_filter.properties:
-            if self.query.properties:
+        has_data_warehouse_series = (
+            hasattr(self.query, "series")
+            and isinstance(self.query.series, list)
+            and has_data_warehouse_node(self.query.series)
+        )
+
+        dashboard_breakdown_filter = dashboard_filter.breakdown_filter
+
+        should_ignore_dashboard_breakdown = (
+            isinstance(self.query, TrendsQuery)
+            and has_data_warehouse_series
+            and (
+                has_multi_breakdown(dashboard_breakdown_filter)
+                or (
+                    has_single_breakdown(dashboard_breakdown_filter)
+                    and dashboard_breakdown_filter is not None
+                    and dashboard_breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE
+                )
+            )
+        )
+
+        if dashboard_filter.properties and not has_data_warehouse_series:
+            if self.query.properties and has_any_property_filters(self.query.properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")
                 expects_only_list = properties_field and get_origin(properties_field.annotation) is list
@@ -1791,13 +1893,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if dashboard_filter.date_from or dashboard_filter.date_to:
             if self.query.dateRange is None:
                 self.query.dateRange = DateRange()
-            self.query.dateRange.date_from = dashboard_filter.date_from
-            self.query.dateRange.date_to = dashboard_filter.date_to
+            date_range = self.query.dateRange
+            assert date_range is not None
+            date_range.date_from = dashboard_filter.date_from
+            date_range.date_to = dashboard_filter.date_to
 
             if dashboard_filter.explicitDate is not None:
-                self.query.dateRange.explicitDate = dashboard_filter.explicitDate
+                date_range.explicitDate = dashboard_filter.explicitDate
 
-        if dashboard_filter.breakdown_filter:
+        if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
             if hasattr(self.query, "breakdownFilter"):
                 self.query.breakdownFilter = dashboard_filter.breakdown_filter
             else:
@@ -1825,7 +1929,7 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
     """
 
     def calculate(self) -> AR:
-        response = self._calculate()
+        response = super().calculate()
         if not self.modifiers.timings:
             response.timings = None
         return response

@@ -137,6 +137,8 @@ def clear_supporthog_slack_token(
 
     settings = team.conversations_settings or {}
     settings["slack_enabled"] = False
+    settings.pop("slack_bot_display_name", None)
+    settings.pop("slack_bot_icon_url", None)
     team.conversations_settings = settings
 
     with transaction.atomic():

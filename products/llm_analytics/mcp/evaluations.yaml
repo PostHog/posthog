@@ -1,0 +1,115 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: LLM analytics
+feature: llm_analytics
+url_prefix: /llm-analytics/evaluations
+tools:
+    evaluations-get:
+        operation: evaluations_list
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List evaluations
+        description: >
+            List all LLM evaluations for the current project. Optionally filter by name/description search
+            or enabled status. Evaluations automatically score $ai_generation events for quality, relevance,
+            safety, and other criteria. Two types are supported: 'llm_judge' (LLM scores outputs against
+            a prompt) and 'hog' (deterministic Hog code). Results are stored as '$ai_evaluation' events.
+
+    evaluation-get:
+        operation: evaluations_retrieve
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get evaluation
+        description: >
+            Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including
+            type, config, output type, enabled status, and model configuration.
+
+    evaluation-create:
+        operation: evaluations_create
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create evaluation
+        description: >
+            Create a new LLM evaluation. For 'llm_judge' type, provide evaluation_config.prompt and
+            model_configuration (provider + model). For 'hog' type, provide evaluation_config.source
+            (Hog code returning a boolean). When enabled, the evaluation runs automatically on new
+            $ai_generation events. Results appear as '$ai_evaluation' events.
+
+    evaluation-update:
+        operation: evaluations_partial_update
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update evaluation
+        description: >
+            Update an existing LLM evaluation (partial update). Toggle enabled/disabled, update the
+            evaluation config (prompt or Hog source), or change the model configuration.
+
+    evaluation-delete:
+        operation: evaluations_destroy
+        enabled: true
+        soft_delete: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete evaluation
+        description: >
+            Soft-delete an LLM evaluation. The evaluation stops running and is hidden from list views.
+            Historical evaluation results ($ai_evaluation events) are preserved.
+
+    evaluation-test-hog:
+        operation: evaluations_test_hog_create
+        enabled: true
+        scopes:
+            - evaluation:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Test Hog evaluation code
+        description: >
+            Test Hog evaluation source code against a sample of recent $ai_generation events without
+            saving. Returns per-event results (pass/fail/N/A), reasoning, and input/output previews.
+            Use this to validate Hog code before creating or updating a 'hog' type evaluation.
+
+    evaluation-run:
+        operation: evaluation_runs_create
+        enabled: true
+        scopes:
+            - evaluation:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run evaluation
+        description: >
+            Manually trigger an evaluation run for a specific $ai_generation event. Enqueues a
+            Temporal workflow that asynchronously executes the evaluation and stores the result as a
+            '$ai_evaluation' event. Returns a workflow_id and status "started". Pair with execute-sql
+            to query results: SELECT * FROM events WHERE event = '$ai_evaluation'.

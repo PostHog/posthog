@@ -28,7 +28,6 @@ from posthog.api.utils import unparsed_hostname_in_allowed_url_list
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, is_loopback_host
 from posthog.models.organization import Organization
-from posthog.security.outbound_proxy import external_requests
 
 logger = structlog.get_logger(__name__)
 
@@ -125,10 +124,13 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
             403,
         )
 
-    # Strip __posthog hash params — posthog-js toolbar launch params must not
-    # survive the OAuth round-trip or they cause a re-initialization loop.
+    # Strip __posthog and __posthog_toolbar hash params — posthog-js toolbar
+    # launch params must not survive the OAuth round-trip or they cause a
+    # re-initialization loop, and leftover __posthog_toolbar params cause
+    # duplicate params on re-authentication.
     if parsed.fragment and "__posthog" in parsed.fragment:
-        clean_fragment = re.sub(r"&?__posthog=[^&]*", "", parsed.fragment).strip("&")
+        clean_fragment = re.sub(r"&?__posthog_toolbar=[^&]*", "", parsed.fragment)
+        clean_fragment = re.sub(r"&?__posthog=[^&]*", "", clean_fragment).strip("&")
         return urlunparse(parsed._replace(fragment=clean_fragment))
 
     return app_url
@@ -295,7 +297,7 @@ def _post_to_token_endpoint(data: dict[str, str], error_code: str) -> dict[str, 
     token_url = f"{settings.SITE_URL}/oauth/token/"
 
     try:
-        response = external_requests.post(
+        response = requests.post(
             token_url,
             data=data,
             timeout=settings.TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS,

@@ -6,10 +6,12 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { DomainConnectProviderName } from '~/queries/schema/schema-general'
 
 import cloudflareLogo from './assets/cloudflare.svg'
+import vercelLogo from './assets/vercel.png'
 import { DomainConnectLogicProps, domainConnectLogic } from './domainConnectLogic'
 
 const PROVIDER_LOGOS: Record<DomainConnectProviderName, string> = {
     [DomainConnectProviderName.Cloudflare]: cloudflareLogo,
+    [DomainConnectProviderName.Vercel]: vercelLogo,
 }
 
 function ProviderLogo({ name }: { name: DomainConnectProviderName }): JSX.Element | null {

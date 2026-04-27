@@ -7,6 +7,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
 from posthog.models import EventDefinition, ObjectMediaPreview
+from posthog.models.organization import OrganizationMembership
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
@@ -78,6 +79,17 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
 
         return extra_kwargs
 
+    def validate_owner(self, value):
+        if value is None:
+            return value
+        view = self.context.get("view")
+        organization_id = getattr(view, "organization_id", None) if view else None
+        if organization_id is None:
+            raise serializers.ValidationError("Cannot assign owner without organization context")
+        if not OrganizationMembership.objects.filter(organization_id=organization_id, user=value).exists():
+            raise serializers.ValidationError("Owner must be a member of this organization")
+        return value
+
     def validate_name(self, value):
         # For creation, check if event definition with this name already exists
         if self.instance:
@@ -99,6 +111,27 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
         if "hidden" in validated_data and "verified" in validated_data:
             if validated_data["hidden"] and validated_data["verified"]:
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
+
+        if validated_data.get("enforcement_mode") == "reject":
+            request = self.context.get("request")
+            if not request or not request.user:
+                raise serializers.ValidationError(
+                    'Setting schema enforcement mode to "reject" requires an authenticated request'
+                )
+            user = request.user
+            org = getattr(user, "organization", None)
+            org_id = str(org.id) if org else ""
+            flag_enabled = posthoganalytics.feature_enabled(
+                "schema-enforcement-reject",
+                str(user.distinct_id),
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+            )
+            if not flag_enabled:
+                raise serializers.ValidationError(
+                    'Setting schema enforcement mode to "reject" requires the schema-enforcement-reject feature flag'
+                )
 
         # Set verified metadata when verifying
         if "verified" in validated_data:

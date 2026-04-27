@@ -4,58 +4,17 @@ import { IconClock, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuSection } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter } from 'lib/utils'
 
-import { AnyPropertyFilter } from '~/types'
+import { getFiltersSummaryLines } from 'products/logs/frontend/utils'
 
 import { LogsFiltersHistoryEntry } from '../../../types'
 import { logsFilterHistoryLogic } from './logsFilterHistoryLogic'
 
-const formatDateRange = (dateRange: LogsFiltersHistoryEntry['filters']['dateRange']): string => {
-    const from = dateRange.date_from || 'any'
-    const to = dateRange.date_to || 'now'
-    return `${from} → ${to}`
-}
-
-const isPropertyFilter = (v: unknown): v is AnyPropertyFilter => {
-    return typeof v === 'object' && v !== null && 'key' in v
-}
-
-const formatFilterGroupValues = (filterGroup: LogsFiltersHistoryEntry['filters']['filterGroup']): string[] => {
-    const group = filterGroup?.values?.[0]
-    if (!group || !('values' in group)) {
-        return []
-    }
-
-    return group.values.filter(isPropertyFilter).map((filter) => {
-        const key = filter.key || '?'
-        const value = Array.isArray(filter.value) ? filter.value.join(', ') : String(filter.value ?? '')
-        const truncatedValue = value.length > 15 ? `${value.slice(0, 15)}...` : value
-        return `${key}=${truncatedValue}`
-    })
-}
-
 const formatHistoryEntryDetails = (entry: LogsFiltersHistoryEntry): string => {
-    const parts: string[] = []
-    const { filters } = entry
-
-    parts.push(formatDateRange(filters.dateRange))
-
-    if (filters.severityLevels && filters.severityLevels.length > 0) {
-        parts.push(filters.severityLevels.map((l) => capitalizeFirstLetter(l)).join(', '))
-    }
-
-    if (filters.searchTerm) {
-        const truncated = filters.searchTerm.length > 20 ? `${filters.searchTerm.slice(0, 20)}...` : filters.searchTerm
-        parts.push(`"${truncated}"`)
-    }
-
-    const attributeFilters = formatFilterGroupValues(filters.filterGroup)
-    if (attributeFilters.length > 0) {
-        parts.push(attributeFilters.join(', '))
-    }
-
-    return parts.join(' | ')
+    return getFiltersSummaryLines(entry.filters)
+        .filter((line) => line.label !== 'Service' && line.label !== 'Services')
+        .map((line) => line.value)
+        .join(' | ')
 }
 
 const formatServiceNames = (entry: LogsFiltersHistoryEntry): string => {

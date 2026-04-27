@@ -9,8 +9,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     EnterpriseEventDefinitionApi,
-    EventDefinitionApi,
+    EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
     PaginatedEnterpriseEventDefinitionListApi,
@@ -156,6 +158,34 @@ export const eventDefinitionsMetricsRetrieve = async (
 }
 
 /**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getEventDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_definitions/bulk_update_tags/`
+}
+
+export const eventDefinitionsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getEventDefinitionsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
+/**
  * Get event definition by exact name
  */
 export const getEventDefinitionsByNameRetrieveUrl = (
@@ -181,8 +211,8 @@ export const eventDefinitionsByNameRetrieve = async (
     projectId: string,
     params: EventDefinitionsByNameRetrieveParams,
     options?: RequestInit
-): Promise<EventDefinitionApi> => {
-    return apiMutator<EventDefinitionApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
+): Promise<EventDefinitionRecordApi> => {
+    return apiMutator<EventDefinitionRecordApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
+
+import { recentItemsModel } from '~/models/recentItemsModel'
 
 type FileSystemLogViewType =
     | 'experiment'
@@ -24,10 +26,11 @@ interface TrackFileSystemLogViewOptions {
 }
 
 export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {
-    if (!enabled || window.IMPERSONATED_SESSION || ref === null || ref === undefined) {
+    if (!enabled || window.IMPERSONATED_SESSION || ref === null || ref === undefined || !ApiConfig.hasCurrentTeamId()) {
         return
     }
 
+    recentItemsModel.findMounted()?.actions.recordView(type, String(ref))
     void api.fileSystemLogView.create({ type, ref: String(ref) })
 }
 

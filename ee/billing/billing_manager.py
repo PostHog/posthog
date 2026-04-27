@@ -19,7 +19,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
-from posthog.security.outbound_proxy import external_requests
 
 from ee.billing.billing_types import BillingProvider, BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
@@ -31,6 +30,12 @@ logger = structlog.get_logger(__name__)
 
 class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
+
+
+class BillingServiceOpenInvoicesError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(message)
 
 
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
@@ -140,7 +145,8 @@ class BillingManager:
         # Get billing info from billing service
         billing_service_response = self._get_billing(organization, query_params)
 
-        if not billing_service_response.get("customer"):
+        customer = cast(dict[str, Any], billing_service_response).get("customer")
+        if not customer:
             return self._get_default_billing_response(organization)
 
         # Ensure the license and org are updated with the latest info
@@ -188,7 +194,7 @@ class BillingManager:
     def update_billing(
         self, organization: Organization, data: dict[str, Any], authorizer_actor: Optional[User] = None
     ) -> None:
-        res = external_requests.patch(
+        res = requests.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
             headers=self.get_auth_headers(organization, authorizer_actor=authorizer_actor),
             json=data,
@@ -197,7 +203,7 @@ class BillingManager:
         handle_billing_service_error(res)
 
     def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
-        res = external_requests.get(
+        res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing/available_product_features",
             headers=self.get_auth_headers(organization),
         )
@@ -265,7 +271,7 @@ class BillingManager:
             capture_exception(e, {"organization_id": organization.id})
 
     def activate_subscription(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -276,7 +282,7 @@ class BillingManager:
         return res.json()
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate",
             headers=self.get_auth_headers(organization),
             json={"products": products},
@@ -333,7 +339,7 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = external_requests.get(
+        res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=self.get_auth_headers(organization),
             params=query_params,
@@ -351,7 +357,7 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = external_requests.get(
+        res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing/portal",
             headers=self.get_auth_headers(organization),
         )
@@ -369,7 +375,7 @@ class BillingManager:
         if self.license and organization:
             headers = self.get_auth_headers(organization)
 
-        res = external_requests.get(
+        res = requests.get(
             f"{BILLING_SERVICE_URL}/api/products-v2",
             params=params,
             headers=headers,
@@ -423,7 +429,7 @@ class BillingManager:
             organization.available_product_features = data["available_product_features"]
             org_modified = True
 
-        never_drop_data = data.get("never_drop_data", None)
+        never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
             org_modified = True
@@ -442,7 +448,10 @@ class BillingManager:
                 org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
 
         if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores.update(org_customer_trust_scores)
+            organization.customer_trust_scores = {
+                **(organization.customer_trust_scores or {}),
+                **org_customer_trust_scores,
+            }
             org_modified = True
 
         if org_modified:
@@ -464,7 +473,7 @@ class BillingManager:
         return {"Authorization": f"Bearer {billing_service_token}"}
 
     def get_invoices(self, organization: Organization, status: str | None):
-        res = external_requests.get(
+        res = requests.get(
             # TODO(@zach): update this to /api/invoices
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
             params={"status": status},
@@ -478,7 +487,7 @@ class BillingManager:
         return data
 
     def credits_overview(self, organization: Organization):
-        res = external_requests.get(
+        res = requests.get(
             f"{BILLING_SERVICE_URL}/api/credits/overview",
             headers=self.get_auth_headers(organization),
         )
@@ -488,7 +497,7 @@ class BillingManager:
         return res.json()
 
     def purchase_credits(self, organization: Organization, data: dict[str, Any]):
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/credits/purchase",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -499,7 +508,7 @@ class BillingManager:
         return res.json()
 
     def activate_trial(self, organization: Organization, data: dict[str, Any]):
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/trials/activate",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -512,7 +521,7 @@ class BillingManager:
         return res.json()
 
     def cancel_trial(self, organization: Organization, data: dict[str, Any]):
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/trials/cancel",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -548,7 +557,7 @@ class BillingManager:
 
         data = {"billing_provider": billing_provider}
 
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",
             headers=self.get_auth_headers(organization, billing_provider),
             json=data,
@@ -559,7 +568,7 @@ class BillingManager:
         return res.json()
 
     def authorize_status(self, organization: Organization, data: dict[str, Any]):
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize/status",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -583,19 +592,27 @@ class BillingManager:
         Returns:
             Response from billing service with success status
         """
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize/uninstall",
             headers=self.get_auth_headers(organization),
             json={"billing_provider": billing_provider.value},
             timeout=30,
         )
 
+        if res.status_code == 409:
+            try:
+                data = res.json()
+            except JSONDecodeError:
+                data = {}
+            if data.get("code") == BillingAPIErrorCodes.OPEN_INVOICES_ERROR.value:
+                raise BillingServiceOpenInvoicesError(data.get("error_message", "Open invoices must be resolved first"))
+
         handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()
 
     def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/subscription/switch-plan/",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -607,7 +624,7 @@ class BillingManager:
         return res.json()
 
     def apply_startup_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/startups/apply",
             json=data,
             headers=self.get_auth_headers(organization),
@@ -617,7 +634,7 @@ class BillingManager:
         return res.json()
 
     def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/coupons/claim",
             json=data,
             headers=self.get_auth_headers(organization),
@@ -627,7 +644,7 @@ class BillingManager:
         return res.json()
 
     def coupons_overview(self, organization: Organization) -> dict[str, Any]:
-        res = external_requests.get(
+        res = requests.get(
             f"{BILLING_SERVICE_URL}/api/coupons/overview",
             headers=self.get_auth_headers(organization),
         )
@@ -655,7 +672,7 @@ class BillingManager:
         url = f"{BILLING_SERVICE_URL}{path}"
         headers = self.get_auth_headers(organization)
 
-        res = external_requests.get(url, headers=headers, params=self._to_query_params(params))
+        res = requests.get(url, headers=headers, params=self._to_query_params(params))
 
         if res.status_code in (414, 431):
             logger.info(
@@ -664,7 +681,7 @@ class BillingManager:
                 status_code=res.status_code,
                 organization_id=str(organization.id),
             )
-            res = external_requests.post(url, headers=headers, json=self._to_post_body(params))
+            res = requests.post(url, headers=headers, json=self._to_post_body(params))
 
         handle_billing_service_error(res)
         return res.json()
@@ -721,7 +738,7 @@ class BillingManager:
         Pure passthrough - no transformation of event data.
         Raises exception on failure (causes webhook endpoint to return 500, triggering provider retry).
         """
-        res = external_requests.post(
+        res = requests.post(
             f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
             headers=self.get_auth_headers(organization),
             json={

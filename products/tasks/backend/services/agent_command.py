@@ -15,6 +15,11 @@ logger = structlog.get_logger(__name__)
 
 COMMAND_TIMEOUT_SECONDS = 15
 CANCEL_TIMEOUT_SECONDS = 10
+# Refresh triggers a query.interrupt() + resume with a 30s SDK timeout on the
+# agent-server, so we need more headroom than a plain command.
+REFRESH_TIMEOUT_SECONDS = 45
+
+REFRESH_SESSION_METHOD = "_posthog/refresh_session"
 
 ALLOWED_SANDBOX_SCHEMES = {"https"}
 BLOCKED_IP_RANGES = [
@@ -27,6 +32,8 @@ BLOCKED_IP_RANGES = [
     ipaddress.ip_network("fc00::/7"),
     ipaddress.ip_network("fe80::/10"),
 ]
+
+NO_ACTIVE_SESSION_ERROR = "No active session for this run"
 
 
 @dataclass
@@ -75,24 +82,28 @@ def _get_sandbox_url_and_token(task_run: Any) -> tuple[str | None, str | None]:
     return state.get("sandbox_url"), state.get("sandbox_connect_token")
 
 
-def _build_headers(
+def _build_request_args(
     connect_token: str | None,
     auth_token: str | None,
-) -> dict[str, str]:
-    """Build request headers with appropriate auth scheme.
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Build request headers and query params with appropriate auth scheme.
 
-    When auth_token is provided (API callers): dual-header auth with
-    Authorization: Bearer {auth_token} and modal-token: {connect_token}.
-    Otherwise (internal callers like Slack): single Authorization: Bearer {connect_token}.
+    When auth_token is provided (external callers going through Modal tunnel):
+    JWT goes as Authorization header, Modal connect token as query param.
+    Otherwise (internal callers on same network): connect_token as Authorization header.
+
+    Returns:
+        Tuple of (headers, query_params).
     """
     headers: dict[str, str] = {"Content-Type": "application/json"}
+    query_params: dict[str, str] = {}
     if auth_token:
         headers["Authorization"] = f"Bearer {auth_token}"
         if connect_token:
-            headers["modal-token"] = connect_token
+            query_params["_modal_connect_token"] = connect_token
     elif connect_token:
         headers["Authorization"] = f"Bearer {connect_token}"
-    return headers
+    return headers, query_params
 
 
 def send_agent_command(
@@ -107,9 +118,10 @@ def send_agent_command(
     Uses the sandbox_url and connect_token stored in task_run.state.
 
     Args:
-        auth_token: Optional JWT connection token for API callers.
+        auth_token: Optional JWT connection token for external callers.
             When provided, sent as Authorization header with connect_token
-            as modal-token. When omitted, connect_token is used as Authorization.
+            as ``_modal_connect_token`` query param for Modal tunnel auth.
+            When omitted, connect_token is used directly as Authorization.
     """
     sandbox_url, connect_token = _get_sandbox_url_and_token(task_run)
     if not sandbox_url:
@@ -135,7 +147,7 @@ def send_agent_command(
             retryable=False,
         )
 
-    headers = _build_headers(connect_token, auth_token)
+    headers, query_params = _build_request_args(connect_token, auth_token)
     command_url = f"{sandbox_url.rstrip('/')}/command"
 
     payload: dict[str, Any] = {
@@ -152,6 +164,7 @@ def send_agent_command(
             json=payload,
             headers=headers,
             timeout=timeout,
+            params=query_params or None,
         )
     except requests.ConnectionError:
         return CommandResult(
@@ -184,6 +197,19 @@ def send_agent_command(
         )
 
     if resp.status_code >= 400:
+        try:
+            error_data = resp.json()
+        except ValueError:
+            error_data = None
+
+        if isinstance(error_data, dict) and error_data.get("error") == NO_ACTIVE_SESSION_ERROR:
+            return CommandResult(
+                success=False,
+                status_code=resp.status_code,
+                data=error_data,
+                error=NO_ACTIVE_SESSION_ERROR,
+                retryable=True,
+            )
         return CommandResult(
             success=False,
             status_code=resp.status_code,
@@ -216,15 +242,22 @@ def send_agent_command(
 
 def send_user_message(
     task_run: Any,
-    message: str,
+    message: str | None = None,
+    *,
+    artifacts: list[dict[str, Any]] | None = None,
     auth_token: str | None = None,
     timeout: int = COMMAND_TIMEOUT_SECONDS,
 ) -> CommandResult:
     """Send a user_message command to the sandbox agent."""
+    params: dict[str, Any] = {}
+    if message:
+        params["content"] = message
+    if artifacts:
+        params["artifacts"] = artifacts
     return send_agent_command(
         task_run,
         method="user_message",
-        params={"content": message},
+        params=params,
         auth_token=auth_token,
         timeout=timeout,
     )
@@ -237,4 +270,26 @@ def send_cancel(task_run: Any, auth_token: str | None = None) -> CommandResult:
         method="cancel",
         timeout=CANCEL_TIMEOUT_SECONDS,
         auth_token=auth_token,
+    )
+
+
+def send_refresh_session(
+    task_run: Any,
+    mcp_servers: list[dict[str, Any]],
+    auth_token: str | None = None,
+    timeout: int = REFRESH_TIMEOUT_SECONDS,
+) -> CommandResult:
+    """Push updated MCP server configs into a live sandbox agent-server.
+
+    The agent-server handles this by interrupting its current ACP query and
+    resuming with the new ``mcpServers`` list (preserving conversation
+    history). Must be dispatched between turns — the agent-server will reply
+    with JSON-RPC error -32002 if a prompt is currently in flight.
+    """
+    return send_agent_command(
+        task_run,
+        method=REFRESH_SESSION_METHOD,
+        params={"mcpServers": mcp_servers},
+        auth_token=auth_token,
+        timeout=timeout,
     )

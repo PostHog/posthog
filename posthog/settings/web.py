@@ -60,6 +60,16 @@ PRODUCTS_APPS = [
     "products.mcp_store.backend.apps.McpStoreConfig",
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.logs.backend.apps.LogsConfig",
+    "products.tracing.backend.apps.TracingConfig",
+    "products.metrics.backend.apps.MetricsConfig",
+    "products.notifications.backend.apps.NotificationsConfig",
+    "products.dashboards.backend.apps.DashboardsConfig",
+    "products.messaging.backend.apps.MessagingConfig",
+    "products.mcp_analytics.backend.apps.McpAnalyticsConfig",
+    "products.platform_features.backend.apps.PlatformFeaturesConfig",
+    "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
+    "products.legal_documents.backend.apps.LegalDocumentsConfig",
+    "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
 ]
 
 INSTALLED_APPS = [
@@ -99,9 +109,10 @@ MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
+    "posthog.personhog_client.middleware.PersonHogGateMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
-    "posthog.middleware.ToolbarOAuthCoopMiddleware",
+    "posthog.middleware.OAuthCoopMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
@@ -110,14 +121,17 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
     "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.api.query_coalescer.QueryCoalescingMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
+    "posthog.middleware.KnownLoginDeviceCookieMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
@@ -187,7 +201,7 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 # Authentication
 
 AUTHENTICATION_BACKENDS: list[str] = [
-    "axes.backends.AxesBackend",
+    "axes.backends.AxesStandaloneBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
@@ -248,6 +262,7 @@ SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_
 # For sensitive actions we have an additional permission (default 2 hour)
 SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
 
+SESSION_COOKIE_NAME = get_from_env("SESSION_COOKIE_NAME", "sessionid")
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
 
@@ -336,7 +351,7 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_SCHEMA_CLASS": "posthog.api.documentation.PostHogAutoSchema",
     # These rate limits are defined in `rate_limit.py`, and they're only
     # applied if env variable `RATE_LIMIT_ENABLED` is set to True
     "DEFAULT_THROTTLE_CLASSES": [
@@ -362,11 +377,105 @@ SPECTACULAR_SETTINGS = {
         "posthog.api.documentation.custom_postprocessing_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
-        "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
-        "PropertyGroupOperator": ["AND", "OR"],
-        "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
+        # Overrides fall into two categories depending on how drf-spectacular hashes them:
+        #
+        # 1. Model class paths — used for ChoiceField-backed enums where drf-spectacular
+        #    injects x-spec-enum-id from (value, label) tuples.  The override must point
+        #    to the same Choices/Enum class so _load_enum_name_overrides hashes identically.
+        #
+        # 2. Inline value lists — used for Enum type-hint enums (SerializerMethodField
+        #    return types) where there is NO x-spec-enum-id.  Postprocessing hashes these
+        #    as (value, value) tuples, so the override must also be a plain value list
+        #    (which _load_enum_name_overrides normalizes to (value, value)).
+        #
+        # Getting this wrong means the override hash doesn't match and the warning persists.
+        # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
+        "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
-        "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",
+        "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
+        "ConversationStatus": "ee.models.assistant.Conversation.Status",
+        "ConversationType": "ee.models.assistant.Conversation.Type",
+        "DetailModeEnum": "products.llm_analytics.backend.summarization.models.SummarizationMode",
+        "SavedQueryStatusEnum": "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
+        "DesktopRecordingStatusEnum": "products.desktop_recordings.backend.models.DesktopRecording.Status",
+        "MeetingPlatformEnum": "products.desktop_recordings.backend.models.DesktopRecording.Platform",
+        "PropertyDefinitionTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
+        "ExternalDataSourceTypeEnum": "products.data_warehouse.backend.types.ExternalDataSourceType",
+        "ExperimentMetricKindEnum": "products.llm_analytics.backend.models.score_definitions.ScoreDefinition.Kind",
+        "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        "LLMProviderEnum": "products.llm_analytics.backend.models.provider_keys.LLMProvider",
+        "HogFlowStatusEnum": "posthog.models.hog_flow.hog_flow.HogFlow.State",
+        "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
+        "PropertyGroupOperator": ["AND", "OR"],
+        "PropertyFilterTypeEnum": [
+            "event",
+            "event_metadata",
+            "feature",
+            "person",
+            "cohort",
+            "element",
+            "static-cohort",
+            "dynamic-cohort",
+            "precalculated-cohort",
+            "group",
+            "recording",
+            "log_entry",
+            "behavioral",
+            "session",
+            "hogql",
+            "data_warehouse",
+            "data_warehouse_person_property",
+            "error_tracking_issue",
+            "log",
+            "log_attribute",
+            "log_resource_attribute",
+            "span",
+            "span_attribute",
+            "span_resource_attribute",
+            "revenue_analytics",
+            "flag",
+            "workflow_variable",
+        ],
+        "AssigneeTypeEnum": ["user", "role"],
+        "PropertyGroupTypeEnum": ["cohort", "person", "group"],
+        "ExistenceOperatorEnum": ["is_set", "is_not_set"],
+        "TaskExecutionModeEnum": ["interactive", "background"],
+        "HogFunctionTemplatingEnum": ["hog", "liquid"],
+        "SourceMatchEnum": ["none", "auto", "mapped"],
+        "NotificationDestinationTypeEnum": ["slack", "webhook"],
+        "TaskRunArtifactTypeEnum": [
+            "plan",
+            "context",
+            "reference",
+            "output",
+            "artifact",
+            "tree_snapshot",
+            "user_attachment",
+        ],
+        # Same-value collisions: identical choice sets appear on fields with different names.
+        # href_matching, text_matching, url_matching on ActionStep all share the same choices.
+        "ActionStepMatchingEnum": ["contains", "regex", "exact"],
+        # effective_restriction_level and effective_privilege_level are SerializerMethodFields
+        # returning Dashboard.RestrictionLevel/PrivilegeLevel (IntegerChoices).  Since they
+        # go through the type-hint path (no x-spec-enum-id), they hash as (value, value).
+        "EffectivePrivilegeLevelEnum": [(21, 21), (37, 37)],
+        # effective_membership_level and level on OrganizationMember use the same int values.
+        "EffectiveMembershipLevelEnum": [(1, 1), (8, 8), (15, 15)],
+        # descriptionContentType and thankYouMessageDescriptionContentType share values.
+        "DescriptionContentTypeEnum": ["text", "html"],
+        # Field-name collisions: multiple different choice sets use the same field name
+        # across different serializer components.
+        "StringMatchOperatorEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        "DateOperatorEnum": ["is_date_exact", "is_date_before", "is_date_after"],
+        "DetailModeValueEnum": ["minimal", "detailed"],
+        "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+        # runtime_adapter on TaskRunCreateRequestSerializer (full set) vs
+        # ClaudeTaskRunCreateSchemaSerializer and CodexTaskRunCreateSchemaSerializer (subsets).
+        "RuntimeAdapterEnum": ["claude", "codex"],
+        "ClaudeRuntimeAdapterEnum": ["claude"],
+        "CodexRuntimeAdapterEnum": ["codex"],
     },
 }
 
@@ -393,6 +502,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_RESPONSE_ALLOW_LIST",
         ",".join(
             [
+                "^/?external_surveys/[^/]+/?$",
                 "^/?api/plugin_config/\\d+/frontend/?$",
                 "^/?api/(environments|projects)/@current/property_definitions/?$",
                 "^/?api/(environments|projects)/\\d+/event_definitions/?$",
@@ -435,12 +545,6 @@ PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
 
 ####
 # Proxy and IP egress config
-
-# CONNECT proxy for outbound HTTP — blocks connections to private IPs at the network level (SSRF prevention).
-# Only configured on clients making external/user-controlled requests;
-# internal service-to-service calls bypass the proxy by simply not configuring it.
-OUTBOUND_PROXY_URL = get_from_env("OUTBOUND_PROXY_URL", "")  # e.g. http://proxy:8080
-OUTBOUND_PROXY_ENABLED = get_from_env("OUTBOUND_PROXY_ENABLED", False, type_cast=str_to_bool)
 
 # Used only to display in the UI to inform users of allowlist options
 PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""))
@@ -486,6 +590,13 @@ if REMOTE_CONFIG_DECIDE_ROLLOUT_PERCENTAGE > 1:
 REMOTE_CONFIG_CDN_PURGE_ENDPOINT = get_from_env("REMOTE_CONFIG_CDN_PURGE_ENDPOINT", "")
 REMOTE_CONFIG_CDN_PURGE_TOKEN = get_from_env("REMOTE_CONFIG_CDN_PURGE_TOKEN", "")
 REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DOMAINS", ""))
+
+# Versioned posthog-js S3 bucket — enables versioned JS content serving when set
+POSTHOG_JS_S3_BUCKET = get_from_env("POSTHOG_JS_S3_BUCKET", "")
+# CDN cache control for array.js responses
+POSTHOG_JS_CDN_MAX_AGE = int(os.getenv("POSTHOG_JS_CDN_MAX_AGE", "3600"))
+POSTHOG_JS_CDN_STALE_WHILE_REVALIDATE = int(os.getenv("POSTHOG_JS_CDN_STALE_WHILE_REVALIDATE", "86400"))
+POSTHOG_JS_CDN_STALE_IF_ERROR = int(os.getenv("POSTHOG_JS_CDN_STALE_IF_ERROR", "86400"))
 
 ####
 # /capture
@@ -606,6 +717,7 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:read",
     "element:read",
     "uploaded_media:write",
+    "survey:read",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)

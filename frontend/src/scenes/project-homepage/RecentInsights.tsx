@@ -17,9 +17,11 @@ import { projectHomepageLogic } from './projectHomepageLogic'
 interface InsightRowProps {
     insight: QueryBasedInsightModel
     dataAttr?: string
+    /** When true, text wraps instead of truncating and the row height grows to fit. */
+    allowWrap?: boolean
 }
 
-export function InsightRow({ insight, dataAttr }: InsightRowProps): JSX.Element {
+export function InsightRow({ insight, dataAttr, allowWrap }: InsightRowProps): JSX.Element {
     const { reportInsightOpenedFromRecentInsightList } = useActions(eventUsageLogic)
 
     return (
@@ -32,6 +34,7 @@ export function InsightRow({ insight, dataAttr }: InsightRowProps): JSX.Element 
                 reportInsightOpenedFromRecentInsightList()
             }}
             dataAttr={dataAttr}
+            allowWrap={allowWrap}
         />
     )
 }

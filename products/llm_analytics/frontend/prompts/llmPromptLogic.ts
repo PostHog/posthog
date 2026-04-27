@@ -168,6 +168,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setRelatedTracesQuery: (query: DataTableNode) => ({ query }),
         toggleMarkdownRendering: true,
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
+        toggleOutlineExpanded: true,
     }),
 
     reducers(({ props }) => ({
@@ -205,9 +206,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             },
         ],
         isRenderingMarkdown: [
-            false,
+            props.promptName === 'new' ? false : (props.mode ?? PromptMode.View) !== PromptMode.Edit,
             {
                 toggleMarkdownRendering: (state) => !state,
+                setMode: (_, { mode }) => mode !== PromptMode.Edit,
             },
         ],
         compareVersion: [
@@ -222,6 +224,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             {
                 setCompareVersion: (state, { compareVersion }) => (compareVersion === null ? null : state),
                 loadPromptSuccess: () => null,
+            },
+        ],
+        isOutlineExpanded: [
+            false,
+            {
+                toggleOutlineExpanded: (state) => !state,
             },
         ],
     })),
@@ -490,11 +498,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                         'traceName',
                         'promptVersion',
                         'person',
-                        'errors',
+                        'errorCount',
                         'totalLatency',
                         'usage',
                         'totalCost',
-                        'timestamp',
+                        'createdAt',
                     ],
                     showDateRange: true,
                     showReload: true,

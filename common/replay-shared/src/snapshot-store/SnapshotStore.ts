@@ -115,7 +115,17 @@ export class SnapshotStore {
         return result
     }
 
-    getSourceIndexForTimestamp(ts: number): number {
+    /**
+     * Returns the index of the source whose timestamp range contains `ts`,
+     * or the nearest source if `ts` falls outside any range. Returns `null`
+     * when the store has no sources yet — callers MUST handle this case
+     * explicitly rather than conflating it with "source 0", which is a
+     * valid result and hides initial-load races (see #53893).
+     */
+    getSourceIndexForTimestamp(ts: number): number | null {
+        if (this.entries.length === 0) {
+            return null
+        }
         for (let i = 0; i < this.entries.length; i++) {
             const entry = this.entries[i]
             if (ts >= entry.startMs && ts <= entry.endMs) {
@@ -143,6 +153,9 @@ export class SnapshotStore {
         }
 
         const targetIndex = this.getSourceIndexForTimestamp(ts)
+        if (targetIndex === null) {
+            return false
+        }
 
         for (let i = fullSnapshotInfo.sourceIndex; i <= targetIndex; i++) {
             if (this.entries[i]?.state !== 'loaded') {
@@ -169,6 +182,38 @@ export class SnapshotStore {
             return null
         }
         return { sourceIndex: bestSourceIndex, timestamp: bestTs }
+    }
+
+    syncFullSnapshotTimestamps(processedSnapshots: RecordingSnapshot[]): boolean {
+        let changed = false
+        for (const entry of this.entries) {
+            if (entry.state !== 'loaded') {
+                continue
+            }
+            const timestamps: number[] = []
+            for (const snap of processedSnapshots) {
+                if (
+                    snap.type === EventType.FullSnapshot &&
+                    snap.timestamp >= entry.startMs &&
+                    snap.timestamp <= entry.endMs
+                ) {
+                    timestamps.push(snap.timestamp)
+                }
+            }
+            timestamps.sort((a, b) => a - b)
+            if (
+                timestamps.length > 0 &&
+                (timestamps.length !== entry.fullSnapshotTimestamps.length ||
+                    timestamps.some((t, j) => t !== entry.fullSnapshotTimestamps[j]))
+            ) {
+                entry.fullSnapshotTimestamps = timestamps
+                changed = true
+            }
+        }
+        if (changed) {
+            this.bump()
+        }
+        return changed
     }
 
     clearSnapshotData(): void {

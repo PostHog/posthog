@@ -10,6 +10,7 @@ import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
@@ -164,15 +165,12 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
 
-    job = await database_sync_to_async_pool(update_external_job_status)(
+    await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
         status=ExternalDataJob.Status(inputs.status),
         latest_error=inputs.latest_error,
         team_id=inputs.team_id,
     )
-
-    job.finished_at = dt.datetime.now(dt.UTC)
-    await database_sync_to_async_pool(job.save)()
 
     logger.info(
         f"Updated external data job with for external data source {job_id} to status {inputs.status}",
@@ -261,7 +259,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_name = create_job_result.schema_name
                 last_synced_at = create_job_result.last_synced_at
                 emit_signals_enabled = create_job_result.emit_signals_enabled
-            update_inputs.job_id = job_id
+            update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
             hit_billing_limit = await workflow.execute_activity(
@@ -304,21 +302,35 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
                 is_resumable_source = isinstance(source, ResumableSource)
 
-            timeout_params = (
-                {
+            # Cap retries at 3 in local dev so failing syncs don't loop for
+            # tens of minutes while developers iterate. Prod cadence is
+            # unchanged.
+            max_resumable_attempts = 3 if settings.DEBUG else 15
+            max_incremental_attempts = 3 if settings.DEBUG else 9
+
+            if is_resumable_source:
+                timeout_params = {
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
-                        maximum_attempts=9, non_retryable_error_types=["NonRetryableException"]
+                        maximum_attempts=max_resumable_attempts,
+                        non_retryable_error_types=["NonRetryableException"],
                     ),
                 }
-                if incremental_or_append or is_resumable_source
-                else {
+            elif incremental_or_append:
+                timeout_params = {
+                    "start_to_close_timeout": dt.timedelta(weeks=1),
+                    "retry_policy": RetryPolicy(
+                        maximum_attempts=max_incremental_attempts,
+                        non_retryable_error_types=["NonRetryableException"],
+                    ),
+                }
+            else:
+                timeout_params = {
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
                     ),
                 }
-            )
 
             pipeline_result = await workflow.execute_activity(
                 import_data_activity_sync,
@@ -328,6 +340,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )  # type: ignore
 
             consumer_manages_job_status = pipeline_result.get("consumer_manages_job_status", False)
+            skip_post_import_activities = pipeline_result.get("skip_post_import_activities", False)
 
             if pipeline_result.get("should_trigger_cdp_producer", False):
                 await start_child_workflow(
@@ -345,6 +358,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         non_retryable_error_types=["NondeterminismError"],
                     ),
                 )
+
+            if skip_post_import_activities:
+                workflow.logger.info(
+                    "Skipping post-import activities for externally managed schema",
+                    schema_id=str(inputs.external_data_schema_id),
+                    source_id=str(inputs.external_data_source_id),
+                )
+                return
 
             # Emit signals for new records (if registered for this source type + schema), if FF enabled.
             # Fire-and-forget: runs on its own task queue so it doesn't block the import pipeline.
@@ -387,17 +408,23 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             # Start DuckLake copy workflow as a child (fire-and-forget)
-            await workflow.start_child_workflow(
-                DuckLakeCopyDataImportsWorkflow.run,
-                DataImportsDuckLakeCopyInputs(
-                    team_id=inputs.team_id,
-                    job_id=job_id,
-                    schema_ids=[inputs.external_data_schema_id],
-                ),
-                id=f"ducklake-copy-data-imports-{job_id}",
-                task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-            )
+            try:
+                await workflow.start_child_workflow(
+                    DuckLakeCopyDataImportsWorkflow.run,
+                    DataImportsDuckLakeCopyInputs(
+                        team_id=inputs.team_id,
+                        job_id=job_id,
+                        schema_ids=[inputs.external_data_schema_id],
+                    ),
+                    id=f"ducklake-copy-data-imports-{inputs.team_id}-{inputs.external_data_schema_id}",
+                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                )
+            except WorkflowAlreadyStartedError:
+                workflow.logger.warning(
+                    "DuckLake copy already running, skipping",
+                    schema_id=str(inputs.external_data_schema_id),
+                )
 
         except exceptions.ActivityError as e:
             if isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "WorkerShuttingDownError":

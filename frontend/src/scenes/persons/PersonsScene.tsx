@@ -20,7 +20,7 @@ import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { CustomerProfileScope, OnboardingStepKey } from '~/types'
 
-import { FeedbackBanner } from 'products/customer_analytics/frontend/components/FeedbackBanner'
+import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { PersonDisplayNameNudgeBanner } from 'products/customer_analytics/frontend/components/PersonDisplayNameNudgeBanner'
 import { customerProfileConfigLogic } from 'products/customer_analytics/frontend/customerProfileConfigLogic'
 
@@ -42,7 +42,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         throw new Error('PersonsScene rendered with no tabId')
     }
 
-    const { query, showDisplayNameNudge } = useValues(personsSceneLogic)
+    const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam, baseCurrency } = useValues(teamLogic)
@@ -64,47 +64,45 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     type: sceneConfigurations[Scene.Persons].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <ScenePanel>
-                        <ScenePanelActionsSection>
-                            <ButtonPrimitive
-                                menuItem
-                                variant="danger"
-                                onClick={() => {
-                                    LemonDialog.openForm({
-                                        width: '30rem',
-                                        title: 'Reset deleted person',
-                                        description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used.
+                    <>
+                        <FeedbackButton id="customer-analytics-people-list-feedback-button" />
+                        <ScenePanel>
+                            <ScenePanelActionsSection>
+                                <ButtonPrimitive
+                                    menuItem
+                                    variant="danger"
+                                    onClick={() => {
+                                        LemonDialog.openForm({
+                                            width: '30rem',
+                                            title: 'Reset deleted person',
+                                            description: `Once a person is deleted, the "distinct_id" associated with them can no longer be used.
                                                 You can use this tool to reset the "distinct_id" for a person so that new events associated with it will create a new Person profile.`,
-                                        initialValues: {
-                                            distinct_id: '',
-                                        },
-                                        content: (
-                                            <LemonField name="distinct_id" label="Distinct ID to reset">
-                                                <LemonInput type="text" autoFocus />
-                                            </LemonField>
-                                        ),
-                                        errors: {
-                                            distinct_id: (distinct_id) =>
-                                                !distinct_id ? 'This is required' : undefined,
-                                        },
-                                        onSubmit: async ({ distinct_id }) => await resetDeletedDistinctId(distinct_id),
-                                    })
-                                }}
-                            >
-                                <IconRewind />
-                                Reset a deleted person...
-                            </ButtonPrimitive>
-                        </ScenePanelActionsSection>
-                    </ScenePanel>
+                                            initialValues: {
+                                                distinct_id: '',
+                                            },
+                                            content: (
+                                                <LemonField name="distinct_id" label="Distinct ID to reset">
+                                                    <LemonInput type="text" autoFocus />
+                                                </LemonField>
+                                            ),
+                                            errors: {
+                                                distinct_id: (distinct_id) =>
+                                                    !distinct_id ? 'This is required' : undefined,
+                                            },
+                                            onSubmit: async ({ distinct_id }) =>
+                                                await resetDeletedDistinctId(distinct_id),
+                                        })
+                                    }}
+                                >
+                                    <IconRewind />
+                                    Reset a deleted person...
+                                </ButtonPrimitive>
+                            </ScenePanelActionsSection>
+                        </ScenePanel>
+                    </>
                 }
             />
             <PersonDisplayNameNudgeBanner uniqueKey={queryUniqueKey} />
-            {!showDisplayNameNudge && (
-                <FeedbackBanner
-                    feedbackButtonId="people-list"
-                    message="We're improving the persons experience. Send us your feedback!"
-                />
-            )}
 
             <Query
                 uniqueKey={queryUniqueKey}

@@ -175,6 +175,9 @@ class ExternalDataSourceType(models.TextChoices):
     POSTMARK = "Postmark", "Postmark"
     GRANOLA = "Granola", "Granola"
     BUILDBETTER = "BuildBetter", "BuildBetter"
+    CONVEX = "Convex", "Convex"
+    CLICKHOUSE = "ClickHouse", "ClickHouse"
+    PLAIN = "Plain", "Plain"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

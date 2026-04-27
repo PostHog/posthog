@@ -25,7 +25,7 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
     props({} as InsightAIAnalysisLogicProps),
     key((props) => props.insightId ?? 'new'),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], organizationLogic, ['currentOrganization']],
+        values: [teamLogic, ['currentTeamId'], organizationLogic, ['currentOrganizationId']],
     })),
     actions({
         startAnalysis: true,
@@ -133,7 +133,7 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                 insight_id: props.insightId,
                 insight_type: props.query.kind,
                 team_id: values.currentTeamId,
-                organization_id: values.currentOrganization?.id,
+                organization_id: values.currentOrganizationId,
             })
         },
         setHasClickedSuggestions: () => {
@@ -141,7 +141,7 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                 insight_id: props.insightId,
                 insight_type: props.query.kind,
                 team_id: values.currentTeamId,
-                organization_id: values.currentOrganization?.id,
+                organization_id: values.currentOrganizationId,
             })
         },
         reportAnalysisFeedback: ({ isPositive }) => {
@@ -149,7 +149,7 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                 insight_id: props.insightId,
                 insight_type: props.query.kind,
                 team_id: values.currentTeamId,
-                organization_id: values.currentOrganization?.id,
+                organization_id: values.currentOrganizationId,
                 rating: isPositive ? 'good' : 'bad',
                 analysis: values.analysis,
             })
@@ -159,7 +159,7 @@ export const insightAIAnalysisLogic = kea<insightAIAnalysisLogicType>([
                 insight_id: props.insightId,
                 insight_type: props.query.kind,
                 team_id: values.currentTeamId,
-                organization_id: values.currentOrganization?.id,
+                organization_id: values.currentOrganizationId,
                 suggestion_index: suggestionIndex,
                 suggestion_title: suggestionTitle,
                 rating: isPositive ? 'good' : 'bad',

@@ -19,7 +19,7 @@
  * - Feature flags: Route to different implementations
  */
 import { newPipelineBuilder } from '../builders'
-import { createContext } from '../helpers'
+import { createOkContext } from '../helpers'
 import { isDlqResult, isOkResult, ok } from '../results'
 import { ProcessingStep } from '../steps'
 
@@ -67,18 +67,17 @@ describe('Branching', () => {
         const pipeline = newPipelineBuilder<Event>()
             .branching<Event['type'], ProcessedEvent>(
                 (event) => event.type,
-                (builder) => {
+                (builder) =>
                     builder
                         .branch('pageview', (b) => b.pipe(createPageviewStep()))
                         .branch('click', (b) => b.pipe(createClickStep()))
                         .branch('custom', (b) => b.pipe(createCustomStep()))
-                }
             )
             .build()
 
         // Process items through different branches
-        const pageviewResult = await pipeline.process(createContext(ok<Event>({ type: 'pageview', data: 'home' })))
-        const clickResult = await pipeline.process(createContext(ok<Event>({ type: 'click', data: 'button' })))
+        const pageviewResult = await pipeline.process(createOkContext<Event>({ type: 'pageview', data: 'home' }, {}))
+        const clickResult = await pipeline.process(createOkContext<Event>({ type: 'click', data: 'button' }, {}))
 
         // Each branch applies its own processing logic
         expect(isOkResult(pageviewResult.result) && pageviewResult.result.value.data).toBe('PAGE: home')
@@ -104,13 +103,11 @@ describe('Branching', () => {
         const pipeline = newPipelineBuilder<FlexibleEvent>()
             .branching<string, ProcessedEvent>(
                 (event) => event.type,
-                (builder) => {
-                    builder.branch('pageview', (b) => b.pipe(createPageviewStep()))
-                }
+                (builder) => builder.branch('pageview', (b) => b.pipe(createPageviewStep()))
             )
             .build()
 
-        const result = await pipeline.process(createContext(ok<FlexibleEvent>({ type: 'unknown', data: 'test' })))
+        const result = await pipeline.process(createOkContext({ type: 'unknown', data: 'test' }, {}))
 
         expect(isDlqResult(result.result)).toBe(true)
     })
@@ -140,16 +137,15 @@ describe('Branching', () => {
         const pipeline = newPipelineBuilder<Input>()
             .branching<Input['branch'], Output>(
                 (input) => input.branch,
-                (builder) => {
+                (builder) =>
                     builder
                         .branch('toNumber', (b) => b.pipe(createToNumberStep()))
                         .branch('toString', (b) => b.pipe(createToStringStep()))
-                }
             )
             .build()
 
-        const numberResult = await pipeline.process(createContext(ok<Input>({ branch: 'toNumber', input: '42' })))
-        const stringResult = await pipeline.process(createContext(ok<Input>({ branch: 'toString', input: 'hello' })))
+        const numberResult = await pipeline.process(createOkContext<Input>({ branch: 'toNumber', input: '42' }, {}))
+        const stringResult = await pipeline.process(createOkContext<Input>({ branch: 'toString', input: 'hello' }, {}))
 
         expect(isOkResult(numberResult.result) && numberResult.result.value).toEqual({ kind: 'number', value: 42 })
         expect(isOkResult(stringResult.result) && stringResult.result.value).toEqual({ kind: 'string', value: 'HELLO' })

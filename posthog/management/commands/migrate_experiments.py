@@ -7,7 +7,8 @@ from posthog.schema import ExperimentFunnelsQuery, ExperimentTrendsQuery
 
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Experiment
+
+from products.experiments.backend.models.experiment import Experiment
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -38,7 +39,7 @@ class Command(BaseCommand):
 
                 # Update secondary metrics
                 experiment.metrics_secondary = []
-                for secondary_metric in experiment.secondary_metrics:
+                for secondary_metric in experiment.secondary_metrics or []:
                     secondary_query = self.create_experiment_query(
                         filters=secondary_metric["filters"],
                         name=secondary_metric["name"],

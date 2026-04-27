@@ -93,7 +93,7 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
                     SourceFieldInputConfig(
                         name="encryption_key",
                         label="Encryption key",
-                        type=SourceFieldInputConfigType.TEXT,
+                        type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
                     ),

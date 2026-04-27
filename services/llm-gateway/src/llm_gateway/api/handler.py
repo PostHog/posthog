@@ -41,9 +41,46 @@ class ProviderConfig:
 
 
 ANTHROPIC_CONFIG = ProviderConfig(name="anthropic", endpoint_name="anthropic_messages")
+BEDROCK_CONFIG = ProviderConfig(name="bedrock", endpoint_name="bedrock_messages")
 OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
 OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
 OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
+
+# Google providers require litellm[google], which we don't install. Reject these
+# at the edge so litellm doesn't crash deep in vertex_llm_base with an ImportError.
+# Match both explicit provider prefixes (gemini/foo, vertex_ai/foo) and bare names
+# that litellm will route to vertex/gemini — most commonly anything starting with
+# "gemini-" (e.g. "gemini-3-pro-preview") — since those may not yet be in the cost
+# registry when brand new.
+_UNSUPPORTED_PROVIDERS = frozenset({"vertex_ai", "vertex_ai-language-models", "gemini"})
+_UNSUPPORTED_MODEL_PREFIXES = (
+    *(f"{p}/" for p in _UNSUPPORTED_PROVIDERS),
+    "gemini-",
+)
+
+
+def _raise_unsupported_model(model: str) -> None:
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "error": {
+                "message": f"Model '{model}' is not supported by this gateway",
+                "type": "invalid_request_error",
+                "code": "model_not_supported",
+            }
+        },
+    )
+
+
+def _raise_if_unsupported_model(model: str) -> None:
+    from llm_gateway.services.model_registry import ModelRegistryService
+
+    if model.lower().startswith(_UNSUPPORTED_MODEL_PREFIXES):
+        _raise_unsupported_model(model)
+    info = ModelRegistryService.get_instance().get_model(model)
+    if info is not None and info.provider in _UNSUPPORTED_PROVIDERS:
+        _raise_unsupported_model(model)
+
 
 # Parameters that control LLM client routing/authentication.
 # These must never be accepted from user input to prevent request
@@ -77,6 +114,7 @@ async def handle_llm_request(
     llm_call: Callable[..., Awaitable[Any]],
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
+    _raise_if_unsupported_model(model)
     request_data = _sanitize_request_data(request_data)
     settings = get_settings()
     start_time = time.monotonic()
@@ -125,7 +163,11 @@ async def handle_llm_request(
 
     except TimeoutError:
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout", product=product).inc()
-        logger.error(f"Timeout in {provider_config.endpoint_name} endpoint")
+        logger.error(
+            "llm_request_timeout",
+            endpoint=provider_config.endpoint_name,
+            streaming=False,
+        )
         raise HTTPException(
             status_code=504,
             detail={"error": {"message": "Request timed out", "type": "timeout_error", "code": None}},
@@ -135,8 +177,17 @@ async def handle_llm_request(
     except Exception as e:
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
         capture_exception(e, {"provider": provider_config.name, "model": model, "user_id": user.user_id})
-        logger.exception(f"Error in {provider_config.endpoint_name} endpoint: {e}")
         status_code = getattr(e, "status_code", 500)
+        logger.exception(
+            "llm_request_failed",
+            endpoint=provider_config.endpoint_name,
+            streaming=False,
+            status_code=status_code,
+            error_type=type(e).__name__,
+            error_message=getattr(e, "message", str(e)),
+            provider_error_type=getattr(e, "type", None),
+            provider_error_code=getattr(e, "code", None),
+        )
         raise HTTPException(
             status_code=status_code,
             detail={
@@ -181,7 +232,11 @@ async def _handle_streaming_request(
             streaming="true",
             product=product,
         ).observe(time.monotonic() - start_time)
-        logger.error(f"Streaming timeout for {provider_config.endpoint_name}")
+        logger.error(
+            "llm_request_timeout",
+            endpoint=provider_config.endpoint_name,
+            streaming=True,
+        )
         raise HTTPException(
             status_code=504,
             detail={"error": {"message": "Request timed out", "type": "timeout_error", "code": None}},
@@ -190,8 +245,17 @@ async def _handle_streaming_request(
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
         capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
-        logger.exception(f"Streaming error in {provider_config.endpoint_name} endpoint: {e}")
         status_code = getattr(e, "status_code", 500)
+        logger.exception(
+            "llm_request_failed",
+            endpoint=provider_config.endpoint_name,
+            streaming=True,
+            status_code=status_code,
+            error_type=type(e).__name__,
+            error_message=getattr(e, "message", str(e)),
+            provider_error_type=getattr(e, "type", None),
+            provider_error_code=getattr(e, "code", None),
+        )
         REQUEST_COUNT.labels(
             endpoint=provider_config.endpoint_name,
             provider=provider_config.name,
@@ -240,15 +304,32 @@ async def _handle_streaming_request(
         except TimeoutError:
             status_code = "504"
             PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout", product=product).inc()
-            logger.error(f"Streaming timeout for {provider_config.endpoint_name}")
+            logger.error(
+                "stream_chunk_timeout",
+                endpoint=provider_config.endpoint_name,
+            )
             raise
         except Exception as e:
             status_code = str(getattr(e, "status_code", 500))
             PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
             capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
-            logger.exception(f"Streaming error in {provider_config.endpoint_name} endpoint: {e}")
+            logger.exception(
+                "stream_chunk_failed",
+                endpoint=provider_config.endpoint_name,
+                status_code=status_code,
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
             raise
         finally:
+            duration_ms = round((time.monotonic() - start_time) * 1000, 2)
+            if status_code == "200":
+                logger.info(
+                    "llm_request_completed",
+                    endpoint=provider_config.endpoint_name,
+                    streaming=True,
+                    duration_ms=duration_ms,
+                )
             ACTIVE_STREAMS.labels(provider=provider_config.name, model=model, product=product).dec()
             CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
             REQUEST_COUNT.labels(
@@ -287,6 +368,13 @@ async def _handle_non_streaming_request(
     try:
         response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
         response_dict = response.model_dump() if hasattr(response, "model_dump") else response
+        duration_ms = round((time.monotonic() - start_time) * 1000, 2)
+        logger.info(
+            "llm_request_completed",
+            endpoint=provider_config.endpoint_name,
+            streaming=False,
+            duration_ms=duration_ms,
+        )
         return response_dict
     except TimeoutError:
         status_code = "504"

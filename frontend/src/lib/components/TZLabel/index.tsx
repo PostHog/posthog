@@ -37,6 +37,8 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     /** Timezone to display the time in (e.g., 'UTC', 'America/New_York'). If not set, uses local timezone.
      * Note: When set, forces timestampStyle to 'absolute' to avoid broken relative date comparisons. */
     displayTimezone?: string
+    /** Custom suffix to replace "ago" in relative time display. e.g. suffix="old" renders "5 hours old" */
+    suffix?: string
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
@@ -52,7 +54,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
     const copyDateTime = (dateTime: dayjs.Dayjs, label: string): void => {
-        void copyToClipboard(dateTime.toDate().toISOString(), label)
+        void copyToClipboard(dateTime.format(DATE_OUTPUT_FORMAT), label)
     }
 
     const copyUnixTimestamp = (unixTimestamp: number, label: string): void => {
@@ -181,6 +183,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         className,
         children,
         displayTimezone,
+        suffix,
         ...dropdownProps
     },
     ref
@@ -196,14 +199,19 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
             return parsedTime
         }
     }, [parsedTime, displayTimezone])
+    const effectiveTimestampStyle = displayTimezone ? 'absolute' : timestampStyle
 
     const format = useCallback(() => {
-        return formatDate || formatTime
-            ? humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
-                  timestampStyle: displayTimezone ? 'absolute' : timestampStyle,
-              })
-            : displayTime.fromNow()
-    }, [formatDate, formatTime, displayTime, timestampStyle, displayTimezone])
+        if (formatDate || formatTime || effectiveTimestampStyle === 'absolute') {
+            return humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
+                timestampStyle: effectiveTimestampStyle,
+            })
+        }
+        if (suffix) {
+            return `${displayTime.fromNow(true)} ${suffix}`
+        }
+        return displayTime.fromNow()
+    }, [formatDate, formatTime, displayTime, effectiveTimestampStyle, suffix])
 
     const [formattedContent, setFormattedContent] = useState(format)
 

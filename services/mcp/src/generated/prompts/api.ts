@@ -3,12 +3,12 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 4 ops
+ * PostHog API - MCP 5 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
-export const LlmPromptsListParams = zod.object({
+export const LlmPromptsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,77 +16,22 @@ export const LlmPromptsListParams = zod.object({
         ),
 })
 
-export const LlmPromptsListQueryParams = zod.object({
+export const llmPromptsListQueryContentDefault = `full`
+
+export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
+    content: zod
+        .enum(['full', 'preview', 'none'])
+        .default(llmPromptsListQueryContentDefault)
+        .describe(
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+        ),
+    created_by_id: zod.number().optional().describe('Filter prompts by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
 })
 
-export const llmPromptsListResponseResultsItemNameMax = 255
-
-export const llmPromptsListResponseResultsItemCreatedByOneDistinctIdMax = 200
-
-export const llmPromptsListResponseResultsItemCreatedByOneFirstNameMax = 150
-
-export const llmPromptsListResponseResultsItemCreatedByOneLastNameMax = 150
-
-export const llmPromptsListResponseResultsItemCreatedByOneEmailMax = 254
-
-export const LlmPromptsListResponse = zod.object({
-    count: zod.number(),
-    next: zod.string().url().nullish(),
-    previous: zod.string().url().nullish(),
-    results: zod.array(
-        zod.object({
-            id: zod.string(),
-            name: zod
-                .string()
-                .max(llmPromptsListResponseResultsItemNameMax)
-                .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
-            prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
-            version: zod.number(),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod.string().max(llmPromptsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
-                first_name: zod.string().max(llmPromptsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
-                last_name: zod.string().max(llmPromptsListResponseResultsItemCreatedByOneLastNameMax).optional(),
-                email: zod.string().email().max(llmPromptsListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            created_at: zod.string().datetime({}),
-            updated_at: zod.string().datetime({}),
-            deleted: zod.boolean(),
-            is_latest: zod.boolean(),
-            latest_version: zod.number(),
-            version_count: zod.number(),
-            first_version_created_at: zod.string(),
-        })
-    ),
-})
-
-export const LlmPromptsCreateParams = zod.object({
+export const LlmPromptsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -96,7 +41,7 @@ export const LlmPromptsCreateParams = zod.object({
 
 export const llmPromptsCreateBodyNameMax = 255
 
-export const LlmPromptsCreateBody = zod.object({
+export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
         .max(llmPromptsCreateBodyNameMax)
@@ -106,7 +51,7 @@ export const LlmPromptsCreateBody = zod.object({
 
 export const llmPromptsNameRetrievePathPromptNameRegExp = new RegExp('^[^/]+$')
 
-export const LlmPromptsNameRetrieveParams = zod.object({
+export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -115,7 +60,15 @@ export const LlmPromptsNameRetrieveParams = zod.object({
     prompt_name: zod.string().regex(llmPromptsNameRetrievePathPromptNameRegExp),
 })
 
-export const LlmPromptsNameRetrieveQueryParams = zod.object({
+export const llmPromptsNameRetrieveQueryContentDefault = `full`
+
+export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    content: zod
+        .enum(['full', 'preview', 'none'])
+        .default(llmPromptsNameRetrieveQueryContentDefault)
+        .describe(
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+        ),
     version: zod
         .number()
         .min(1)
@@ -123,23 +76,9 @@ export const LlmPromptsNameRetrieveQueryParams = zod.object({
         .describe('Specific prompt version to fetch. If omitted, the latest version is returned.'),
 })
 
-export const LlmPromptsNameRetrieveResponse = zod.object({
-    id: zod.string(),
-    name: zod.string(),
-    prompt: zod.unknown(),
-    version: zod.number(),
-    created_at: zod.string().datetime({}),
-    updated_at: zod.string().datetime({}),
-    deleted: zod.boolean(),
-    is_latest: zod.boolean(),
-    latest_version: zod.number(),
-    version_count: zod.number(),
-    first_version_created_at: zod.string().datetime({}),
-})
-
 export const llmPromptsNamePartialUpdatePathPromptNameRegExp = new RegExp('^[^/]+$')
 
-export const LlmPromptsNamePartialUpdateParams = zod.object({
+export const LlmPromptsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -148,8 +87,22 @@ export const LlmPromptsNamePartialUpdateParams = zod.object({
     prompt_name: zod.string().regex(llmPromptsNamePartialUpdatePathPromptNameRegExp),
 })
 
-export const LlmPromptsNamePartialUpdateBody = zod.object({
-    prompt: zod.unknown().optional().describe('Prompt payload to publish as a new version.'),
+export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
+    prompt: zod
+        .unknown()
+        .optional()
+        .describe('Full prompt payload to publish as a new version. Mutually exclusive with edits.'),
+    edits: zod
+        .array(
+            zod.object({
+                old: zod.string().describe('Text to find in the current prompt. Must match exactly once.'),
+                new: zod.string().describe('Replacement text.'),
+            })
+        )
+        .optional()
+        .describe(
+            "List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
+        ),
     base_version: zod
         .number()
         .min(1)
@@ -157,50 +110,24 @@ export const LlmPromptsNamePartialUpdateBody = zod.object({
         .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
 })
 
-export const llmPromptsNamePartialUpdateResponseNameMax = 255
+export const llmPromptsNameDuplicateCreatePathPromptNameRegExp = new RegExp('^[^/]+$')
 
-export const llmPromptsNamePartialUpdateResponseCreatedByOneDistinctIdMax = 200
-
-export const llmPromptsNamePartialUpdateResponseCreatedByOneFirstNameMax = 150
-
-export const llmPromptsNamePartialUpdateResponseCreatedByOneLastNameMax = 150
-
-export const llmPromptsNamePartialUpdateResponseCreatedByOneEmailMax = 254
-
-export const LlmPromptsNamePartialUpdateResponse = zod.object({
-    id: zod.string(),
-    name: zod
+export const LlmPromptsNameDuplicateCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
         .string()
-        .max(llmPromptsNamePartialUpdateResponseNameMax)
-        .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
-    prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
-    version: zod.number(),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(llmPromptsNamePartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(llmPromptsNamePartialUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(llmPromptsNamePartialUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(llmPromptsNamePartialUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    created_at: zod.string().datetime({}),
-    updated_at: zod.string().datetime({}),
-    deleted: zod.boolean(),
-    is_latest: zod.boolean(),
-    latest_version: zod.number(),
-    version_count: zod.number(),
-    first_version_created_at: zod.string(),
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    prompt_name: zod.string().regex(llmPromptsNameDuplicateCreatePathPromptNameRegExp),
+})
+
+export const llmPromptsNameDuplicateCreateBodyNewNameMax = 255
+
+export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
+    new_name: zod
+        .string()
+        .max(llmPromptsNameDuplicateCreateBodyNewNameMax)
+        .describe(
+            'Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.'
+        ),
 })

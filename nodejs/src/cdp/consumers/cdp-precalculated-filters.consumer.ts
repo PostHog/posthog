@@ -7,15 +7,12 @@ import {
     RealtimeSupportedFilterManagerCDP,
 } from '~/utils/realtime-supported-filter-manager-cdp'
 
-import {
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
-    KAFKA_EVENTS_JSON,
-} from '../../config/kafka-topics'
+import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
+import { PRECALCULATED_PERSON_PROPERTIES_OUTPUT, PREFILTERED_EVENTS_OUTPUT } from '../outputs/outputs'
 import { HogFunctionFilterGlobals } from '../types'
 import { ProducedPersonPropertiesEvent } from '../types-person-properties'
 import { execHog } from '../utils/hog-exec'
@@ -42,7 +39,6 @@ export type PreCalculatedEvent = {
 }
 
 export type ProducedEvent = {
-    key: string
     payload: PreCalculatedEvent
 }
 
@@ -69,17 +65,16 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
 
     @instrumented('cdpPrecalculatedFiltersConsumer.publishBehavioralEvents')
     private async publishBehavioralEvents(events: ProducedEvent[]): Promise<void> {
-        if (!this.kafkaProducer || events.length === 0) {
+        if (events.length === 0) {
             return
         }
 
         try {
             const messages = events.map((event) => ({
-                value: JSON.stringify(event.payload),
-                key: event.key,
+                value: Buffer.from(JSON.stringify(event.payload)),
             }))
 
-            await this.kafkaProducer.queueMessages({ topic: KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS, messages })
+            await this.outputs.queueMessages(PREFILTERED_EVENTS_OUTPUT, messages)
         } catch (error) {
             logger.error('Error publishing behavioral events', {
                 error,
@@ -91,20 +86,16 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
 
     @instrumented('cdpPrecalculatedFiltersConsumer.publishPersonPropertyEvents')
     private async publishPersonPropertyEvents(events: ProducedPersonPropertiesEvent[]): Promise<void> {
-        if (!this.kafkaProducer || events.length === 0) {
+        if (events.length === 0) {
             return
         }
 
         try {
             const messages = events.map((event) => ({
-                value: JSON.stringify(event.payload),
-                key: event.key,
+                value: Buffer.from(JSON.stringify(event.payload)),
             }))
 
-            await this.kafkaProducer.queueMessages({
-                topic: KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                messages,
-            })
+            await this.outputs.queueMessages(PRECALCULATED_PERSON_PROPERTIES_OUTPUT, messages)
         } catch (error) {
             logger.error('Error publishing person property events', {
                 error,
@@ -244,7 +235,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                             // Only publish if event matches the filter (don't publish non-matches)
                             if (matches) {
                                 const preCalculatedEvent: ProducedEvent = {
-                                    key: filterGlobals.distinct_id,
                                     payload: {
                                         uuid: filterGlobals.uuid,
                                         team_id: clickHouseEvent.team_id,
@@ -279,7 +269,6 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                                 // CRITICAL: Always emit - both matches AND non-matches
                                 // Person properties are mutable state, need to track changes
                                 const personPropertyEvent: ProducedPersonPropertiesEvent = {
-                                    key: clickHouseEvent.distinct_id,
                                     payload: {
                                         distinct_id: clickHouseEvent.distinct_id,
                                         person_id: clickHouseEvent.person_id!,
@@ -302,7 +291,7 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         })
     }
 
-    public async start(): Promise<void> {
+    public override async start(): Promise<void> {
         await super.start()
 
         await this.eventKafkaConsumer.connect(async (messages) => {
@@ -328,7 +317,7 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         })
     }
 
-    public async stop(): Promise<void> {
+    public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.eventKafkaConsumer.disconnect()
 

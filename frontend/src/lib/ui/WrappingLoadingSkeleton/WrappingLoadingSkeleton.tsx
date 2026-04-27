@@ -2,7 +2,7 @@ import './WrappingLoadingSkeleton.scss'
 
 import { cn } from 'lib/utils/css-classes'
 
-interface WrappingLoadingSkeletonProps {
+export interface WrappingLoadingSkeletonProps {
     fullWidth?: boolean
     children: React.ReactNode
     className?: string

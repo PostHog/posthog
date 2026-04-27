@@ -14,7 +14,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.models.organization_integration import OrganizationIntegration
-from posthog.security.outbound_proxy import external_requests
 
 from ee.api.authentication import VercelAuthentication
 
@@ -119,7 +118,7 @@ class VercelRegionProxyMixin:
         headers["Host"] = self.EU_DOMAIN
 
         try:
-            response = external_requests.request(
+            response = requests.request(
                 method=request.method or "GET",
                 url=target_url,
                 headers=headers,
@@ -223,7 +222,7 @@ class VercelRegionProxyMixin:
                 request_path=request.path,
                 integration="vercel",
             )
-            if not is_upsert:
+            if not is_upsert and request.method != "DELETE":
                 self._handle_missing_installation(installation_id)
 
         # If we can't proxy, and the installation exists, we return the response from the current region

@@ -135,7 +135,12 @@ class TestCreateFormTool(BaseTest):
         [
             ("string answer", {"q0": "Option A"}, "Question 0?: Option A"),
             ("list answer", {"q0": ["Option A", "Option B"]}, "Question 0?: Option A, Option B"),
-            ("missing answer", {}, "Question 0?: "),
+            (
+                "list with comma in value",
+                {"q0": ["Option A", "red, white, and blue"]},
+                'Question 0?: Option A, "red, white, and blue"',
+            ),
+            ("missing answer", {}, "Question 0?: (skipped)"),
         ]
     )
     async def test_formats_answers(self, _name: str, answers: dict, expected_line: str):
@@ -284,3 +289,73 @@ class TestCreateFormTool(BaseTest):
                 "Configure settings:\n  Sample size: 1000\n  Notify me: true",
             )
             self.assertEqual(metadata["answers"], {"sample": "1000", "notify": "true"})
+
+    async def test_formats_skipped_questions(self):
+        tool = self._create_tool()
+        questions = self._create_questions(2)
+
+        with patch("ee.hogai.tools.create_form.interrupt") as mock_interrupt:
+            mock_interrupt.return_value = {
+                "action": "form",
+                "form_answers": {"q0": "Option A"},
+            }
+
+            result, metadata = await tool._arun_impl(questions=questions)
+
+            self.assertEqual(
+                result,
+                "Question 0?: Option A\nQuestion 1?: (skipped)",
+            )
+            self.assertEqual(metadata["answers"], {"q0": "Option A"})
+
+    @parameterized.expand(
+        [
+            ("select",),
+            ("multi_select",),
+        ]
+    )
+    def test_schema_accepts_allow_custom_answer_for_selection_types(self, question_type: str):
+        q = MultiQuestionFormQuestion(
+            id="q1",
+            title="Test",
+            question="Test?",
+            type=question_type,
+            options=[{"value": "A"}, {"value": "B"}],
+            allow_custom_answer=False,
+        )
+        self.assertFalse(q.allow_custom_answer)
+
+    async def test_formats_multi_select_with_custom_entries(self):
+        tool = self._create_tool()
+        questions = [
+            MultiQuestionFormQuestion(
+                id="q0",
+                title="Test",
+                question="Pick areas",
+                type="multi_select",
+                options=[{"value": "Option A"}, {"value": "Option B"}],
+            )
+        ]
+
+        with patch("ee.hogai.tools.create_form.interrupt") as mock_interrupt:
+            mock_interrupt.return_value = {
+                "action": "form",
+                "form_answers": {"q0": ["Option A", "My custom choice"]},
+            }
+
+            result, metadata = await tool._arun_impl(questions=questions)
+
+            self.assertEqual(result, "Pick areas: Option A, My custom choice")
+            self.assertEqual(metadata["answers"], {"q0": ["Option A", "My custom choice"]})
+
+    async def test_returns_dismissed_response_when_user_dismisses_form(self):
+        tool = self._create_tool()
+        questions = self._create_questions(1)
+
+        with patch("ee.hogai.tools.create_form.interrupt") as mock_interrupt:
+            mock_interrupt.return_value = {"action": "dismiss_form"}
+
+            result, metadata = await tool._arun_impl(questions=questions)
+
+            self.assertIn("dismissed the form", result)
+            self.assertEqual(metadata, {"status": "dismiss_form"})

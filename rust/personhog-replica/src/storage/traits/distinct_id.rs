@@ -12,6 +12,7 @@ pub trait DistinctIdLookup: Send + Sync {
         team_id: i64,
         person_id: i64,
         consistency: ConsistencyLevel,
+        limit: Option<i64>,
     ) -> StorageResult<Vec<DistinctIdWithVersion>>;
 
     async fn get_distinct_ids_for_persons(
@@ -19,5 +20,6 @@ pub trait DistinctIdLookup: Send + Sync {
         team_id: i64,
         person_ids: &[i64],
         consistency: ConsistencyLevel,
+        limit_per_person: Option<i64>,
     ) -> StorageResult<Vec<DistinctIdMapping>>;
 }

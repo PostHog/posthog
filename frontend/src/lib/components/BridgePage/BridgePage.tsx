@@ -22,7 +22,6 @@ export type BridgePageCommonProps = {
     sideLogo?: boolean
     fixedWidth?: boolean
     leftContainerContent?: JSX.Element
-    theme?: 'default' | 'twig'
     style?: React.CSSProperties
 }
 
@@ -50,7 +49,6 @@ export function BridgePage({
     fixedWidth = true,
     leftContainerContent,
     hedgehog = false,
-    theme = 'default',
     style,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
@@ -65,14 +63,7 @@ export function BridgePage({
     })
 
     return (
-        <div
-            className={clsx(
-                'BridgePage',
-                fixedWidth && 'BridgePage--fixed-width',
-                theme === 'twig' && 'BridgePage--twig'
-            )}
-            style={style}
-        >
+        <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width')} style={style}>
             <div className="BridgePage__main">
                 {leftContainerContent || hedgehog ? (
                     <div className="BridgePage__left-wrapper">

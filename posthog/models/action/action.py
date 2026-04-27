@@ -46,7 +46,7 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
-    events = models.ManyToManyField("Event", blank=True)
+    events = models.ManyToManyField("Event", blank=True)  # type: models.ManyToManyField
     post_to_slack = models.BooleanField(default=False)
     slack_message_format = models.CharField(default="", max_length=1200, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -101,7 +101,7 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
     def get_analytics_metadata(self):
         return {
             "post_to_slack": self.post_to_slack,
-            "name_length": len(self.name),
+            "name_length": len(self.name or ""),
             "custom_slack_message_format": self.slack_message_format != "",
             "event_count_precalc": self.events.count(),  # `precalc` because events are computed async
             "step_count": len(self.steps),

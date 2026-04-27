@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
@@ -19,6 +20,7 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionType,
     HogFunctionTypeType,
+    LogEntry,
     MinimalAppMetric,
 } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -42,7 +44,7 @@ export class CdpEventsConsumer<
         groupId: string = 'cdp-processed-events-consumer'
     ) {
         super(config, deps)
-        this.cyclotronJobQueue = new CyclotronJobQueue(config)
+        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(
             {
@@ -60,6 +62,9 @@ export class CdpEventsConsumer<
         if (!invocationGlobals.length) {
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
+
+        // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
+        await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
         const invocationsToBeQueued = [
             ...(await this.createHogFunctionInvocations(invocationGlobals)),
@@ -92,9 +97,6 @@ export class CdpEventsConsumer<
     protected async createHogFunctionInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
-        // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
-        await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
-
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFunctionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
             teamsToLoad,
@@ -136,7 +138,7 @@ export class CdpEventsConsumer<
                 try {
                     const rateLimit = rateLimits[index][1]
                     if (rateLimit.isRateLimited) {
-                        counterRateLimited.labels({ kind: 'hog_function' }).inc()
+                        counterRateLimited.labels({ kind: 'hog_function', function_id: item.functionId }).inc()
                         // NOTE: We don't return here as we are just monitoring this feature currently
                         // this.hogFunctionMonitoringService.queueAppMetric(
                         //     {
@@ -256,9 +258,6 @@ export class CdpEventsConsumer<
     protected async createHogFlowInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
-        // TODO: Add back in group enrichment if necessary
-        // await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
-
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
 
@@ -295,7 +294,7 @@ export class CdpEventsConsumer<
                 try {
                     const rateLimit = rateLimits[index][1]
                     if (rateLimit.isRateLimited) {
-                        counterRateLimited.labels({ kind: 'hog_flow' }).inc()
+                        counterRateLimited.labels({ kind: 'hog_flow', function_id: item.functionId }).inc()
                         this.hogFunctionMonitoringService.queueAppMetric(
                             {
                                 team_id: item.teamId,
@@ -306,6 +305,29 @@ export class CdpEventsConsumer<
                             },
                             'hog_flow'
                         )
+
+                        const eventUuid = item.state?.event?.uuid
+                        const personId = item.person?.id
+
+                        const logEntry: LogEntry = {
+                            timestamp: DateTime.now(),
+                            level: 'warn',
+                            message: `Workflow invocation dropped due to rate limiting for [Person:${personId ?? 'unknown'}] on [Event:${eventUuid ?? 'unknown'}]`,
+                            team_id: item.teamId,
+                            log_source: 'hog_flow',
+                            log_source_id: item.functionId,
+                            instance_id: item.id,
+                        }
+                        this.hogFunctionMonitoringService.queueLogs([logEntry], 'hog_flow')
+
+                        logger.warn('⚠️', 'Hogflow invocation rate limited', {
+                            teamId: item.teamId,
+                            hogFlowId: item.functionId,
+                            hogFlowName: item.hogFlow.name,
+                            eventUuid,
+                            personId,
+                        })
+
                         return
                     }
                 } catch (e) {
@@ -407,7 +429,7 @@ export class CdpEventsConsumer<
         return events
     }
 
-    public async start(): Promise<void> {
+    public override async start(): Promise<void> {
         await super.start()
         // Make sure we are ready to produce to cyclotron first
         await this.cyclotronJobQueue.startAsProducer()
@@ -426,7 +448,7 @@ export class CdpEventsConsumer<
         })
     }
 
-    public async stop(): Promise<void> {
+    public override async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Stopping cyclotron job queue...')

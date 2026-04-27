@@ -14,7 +14,10 @@ import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
+import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
 import { webVitalsToolbarLogic } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
 
@@ -37,6 +40,7 @@ export type MenuState =
     | 'experiments'
     | 'web-vitals'
     | 'product-tours'
+    | 'surveys'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -67,6 +71,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['allExperimentsLoading'],
             webVitalsToolbarLogic,
             ['remoteWebVitalsLoading'],
+            surveysToolbarLogic,
+            ['allSurveysLoading'],
             hedgehogModeLogic,
             ['hedgehogMode'],
         ],
@@ -87,6 +93,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['enableInspect', 'disableInspect', 'createAction'],
             productToursLogic,
             ['showButtonProductTours', 'hideButtonProductTours'],
+            surveysToolbarLogic,
+            ['showButtonSurveys', 'hideButtonSurveys'],
             heatmapToolbarMenuLogic,
             [
                 'enableHeatmap',
@@ -412,6 +420,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 s.userFlagsLoading,
                 s.allExperimentsLoading,
                 s.remoteWebVitalsLoading,
+                s.allSurveysLoading,
             ],
             (
                 elementStatsLoading,
@@ -420,7 +429,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 allActionsLoading,
                 userFlagsLoading,
                 allExperimentsLoading,
-                remoteWebVitalsLoading
+                remoteWebVitalsLoading,
+                allSurveysLoading
             ) =>
                 elementStatsLoading ||
                 rawHeatmapLoading ||
@@ -428,7 +438,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 allActionsLoading ||
                 userFlagsLoading ||
                 allExperimentsLoading ||
-                remoteWebVitalsLoading,
+                remoteWebVitalsLoading ||
+                allSurveysLoading,
         ],
         hedgehogModeAvailable: [
             (s) => [s.cspBlocksNewFunction],
@@ -441,11 +452,19 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.toggleMinimized(false)
             }
         },
-        setVisibleMenu: ({ visibleMenu }) => {
+        setVisibleMenu: ({ visibleMenu }, _, __, previousState) => {
+            const previousMenu = toolbarLogic.selectors.visibleMenu(previousState)
+            if (visibleMenu !== 'none') {
+                toolbarPosthogJS.capture('toolbar menu opened', { menu: visibleMenu, previous_menu: previousMenu })
+            } else if (previousMenu !== 'none') {
+                toolbarPosthogJS.capture('toolbar menu closed', { menu: previousMenu })
+            }
+
             actions.disableInspect()
             actions.disableHeatmap()
             actions.hideButtonActions()
             actions.hideButtonProductTours()
+            actions.hideButtonSurveys()
 
             if (visibleMenu === 'heatmap') {
                 actions.enableHeatmap()
@@ -459,6 +478,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.enableInspect()
             } else if (visibleMenu === 'product-tours') {
                 actions.showButtonProductTours()
+            } else if (visibleMenu === 'surveys') {
+                actions.showButtonSurveys()
             }
         },
 
@@ -725,7 +746,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
                             actions.setAutomaticActionCreationEnabled(true, e.data.payload.name)
                             return
                         default:
-                            console.warn(`[PostHog Toolbar] Received unknown parent window message: ${type}`)
+                            toolbarLogger.warn('iframe', `Received unknown parent window message: ${type}`)
                     }
                 }
                 window.addEventListener('message', iframeEventListener, false)

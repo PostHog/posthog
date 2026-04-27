@@ -8,7 +8,7 @@ class TestAlterReplicatedValidation(unittest.TestCase):
     def test_metadata_attached_to_operations(self):
         """Test that run_sql_with_exceptions attaches metadata correctly."""
         sql = "ALTER TABLE test_table ADD COLUMN test_col String"
-        node_roles = [NodeRole.DATA, NodeRole.COORDINATOR]
+        node_roles = [NodeRole.DATA]
 
         operation = run_sql_with_exceptions(
             sql=sql,

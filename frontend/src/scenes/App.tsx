@@ -13,6 +13,8 @@ import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrict
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
+import { PostOnboardingModal } from 'scenes/onboarding/PostOnboardingModal'
+import { postOnboardingModalLogic } from 'scenes/onboarding/postOnboardingModalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -35,6 +37,7 @@ export function App(): JSX.Element | null {
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
     useMountedLogic(globalSetupLogic)
+    useMountedLogic(postOnboardingModalLogic)
 
     useThemedHtml()
 
@@ -72,8 +75,6 @@ function AppScene(): JSX.Element | null {
         <ToastContainer
             autoClose={6000}
             transition={Slide}
-            closeOnClick={false}
-            draggable={false}
             closeButton={<ToastCloseButton />}
             position="bottom-right"
             theme={isDarkModeOn ? 'dark' : 'light'}
@@ -146,7 +147,11 @@ function AppScene(): JSX.Element | null {
             <GlobalModals />
             <GlobalShortcuts />
             <Command />
+            <PostOnboardingModal />
             <ImpersonationNotice />
+            {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
+                <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
+            )}
         </div>
     )
 }

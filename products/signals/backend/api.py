@@ -1,85 +1,56 @@
-import json
-from datetime import datetime, timedelta
+import enum
+from datetime import timedelta
+from typing import get_args
 
 from django.conf import settings
 
+import pydantic
 import tiktoken
+import structlog
+import temporalio
+import posthoganalytics
 
-from posthog.schema import EmbeddingModelName, SignalInput
+from posthog.schema import SignalInput
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.api.embedding_worker import emit_embedding_request
+from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflow
-from products.signals.backend.temporal.types import EmitSignalInputs, TeamSignalGroupingInput
+from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
+from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
+from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
 
-EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
+logger = structlog.get_logger(__name__)
+
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
 
 
-def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None:
-    """
-    Soft-delete all ClickHouse signals for a report by re-emitting them with metadata.deleted=True.
+def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
+    """Extract all possible values for a Pydantic field (Literal, StrEnum, or default)."""
+    args = get_args(field.annotation)
+    if args:
+        return args
+    if isinstance(field.annotation, type) and issubclass(field.annotation, enum.Enum):
+        return tuple(m.value for m in field.annotation)
+    if field.default is not pydantic.fields.PydanticUndefined:
+        return (field.default,)
+    return ()
 
-    Preserves the original timestamp so each row lands in the same ReplacingMergeTree partition
-    and replaces the original. Intentionally fetches ALL signals (including already-deleted ones)
-    so no signals are missed on repeated calls.
-    """
-    query = """
-        SELECT
-            document_id,
-            content,
-            metadata,
-            toString(timestamp) as timestamp
-        FROM (
-            SELECT
-                document_id,
-                argMax(content, inserted_at) as content,
-                argMax(metadata, inserted_at) as metadata,
-                argMax(timestamp, inserted_at) as timestamp
-            FROM document_embeddings
-            WHERE model_name = {model_name}
-              AND product = 'signals'
-              AND document_type = 'signal'
-            GROUP BY document_id
-        )
-        WHERE JSONExtractString(metadata, 'report_id') = {report_id}
-        ORDER BY timestamp ASC
-        LIMIT 5000
-    """
 
-    result = execute_hogql_query(
-        query_type="SignalsSoftDeleteForReport",
-        query=query,
-        team=team,
-        placeholders={
-            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-            "report_id": ast.Constant(value=report_id),
-        },
-    )
-
-    for row in result.results or []:
-        document_id, content, metadata_str, timestamp_str = row
-        metadata = json.loads(metadata_str)
-        metadata["deleted"] = True
-
-        emit_embedding_request(
-            content=content,
-            team_id=team_id,
-            product="signals",
-            document_type="signal",
-            rendering="plain",
-            document_id=document_id,
-            models=[m.value for m in EmbeddingModelName],
-            timestamp=datetime.fromisoformat(timestamp_str),
-            metadata=metadata,
-        )
+# Build a lookup from (source_product, source_type) -> variant model class
+# so we can validate signals without needing the synthetic discriminator tag.
+_SIGNAL_VARIANT_LOOKUP: dict[tuple[str, str], type[pydantic.BaseModel]] = {}
+for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
+    _product_field = _variant_type.model_fields.get("source_product")
+    _type_field = _variant_type.model_fields.get("source_type")
+    if _product_field is None or _type_field is None:
+        continue
+    for _product in _get_field_values(_product_field):
+        for _source_type in _get_field_values(_type_field):
+            _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
 
 
 async def emit_signal(
@@ -92,11 +63,10 @@ async def emit_signal(
     extra: dict | None = None,
 ) -> None:
     """
-    Emit a signal for clustering and potential summarization, fire-and-forget.
+    Emit a signal for grouping and potential report generation, fire-and-forget.
 
-    Uses signal-with-start to atomically create the per-team entity workflow
-    if it doesn't exist, or send a signal to the running instance. This serializes
-    all signal grouping for a team, eliminating race conditions.
+    Active path:
+        emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
 
     Args:
         team: The team object
@@ -118,6 +88,17 @@ async def emit_signal(
             extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
         )
     """
+
+    organization = await database_sync_to_async(lambda: team.organization)()
+    if not organization.is_ai_data_processing_approved:
+        return
+
+    is_enabled = await database_sync_to_async(SignalSourceConfig.is_source_enabled, thread_sensitive=False)(
+        team.id, source_product, source_type
+    )
+    if not is_enabled:
+        return
+
     token_count = len(_tiktoken_encoding.encode(description))
     if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
         raise ValueError(
@@ -125,8 +106,21 @@ async def emit_signal(
             f"Truncate the description before calling emit_signal."
         )
 
-    # Raise if signal doesn't match any known schema
-    SignalInput.model_validate(
+    # Validate the signal against the matching schema variant
+    variant_model = _SIGNAL_VARIANT_LOOKUP.get((source_product, source_type))
+    if variant_model is None:
+        raise pydantic.ValidationError.from_exception_data(
+            title="SignalInput",
+            line_errors=[
+                {
+                    "type": "value_error",
+                    "loc": ("source_product", "source_type"),
+                    "input": {"source_product": source_product, "source_type": source_type},
+                    "ctx": {"error": ValueError(f"Unknown signal type: {source_product}/{source_type}")},
+                }
+            ],
+        )
+    variant_model.model_validate(
         {
             "source_product": source_product,
             "source_type": source_type,
@@ -137,9 +131,28 @@ async def emit_signal(
         }
     )
 
-    organization = await database_sync_to_async(lambda: team.organization)()
-    if not organization.is_ai_data_processing_approved:
-        return
+    # Fire a "started" marker so direct callers (error tracking, LLM analytics evals, etc.)
+    # that don't go through the data-source pipeline still have a top-of-funnel event. The
+    # gap to `signal_emitted` surfaces Temporal/dispatch failures.
+    try:
+        posthoganalytics.capture(
+            event="signal_emission_started",
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": source_product,
+                "source_type": source_type,
+                "source_id": source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal_emission_started event",
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+        )
 
     client = await async_connect()
 
@@ -153,16 +166,46 @@ async def emit_signal(
         extra=extra or {},
     )
 
-    workflow_id = TeamSignalGroupingWorkflow.workflow_id_for(team.id)
+    # Ensure the buffer workflow is running (idempotent)
+    try:
+        await client.start_workflow(
+            BufferSignalsWorkflow.run,
+            BufferSignalsInput(team_id=team.id),
+            id=BufferSignalsWorkflow.workflow_id_for(team.id),
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            run_timeout=timedelta(hours=1),
+        )
+    except temporalio.exceptions.WorkflowAlreadyStartedError:
+        pass
 
+    # Fire-and-forget: the emitter workflow will submit the signal to the buffer
+    # via update, blocking if the buffer is full (backpressure).
     await client.start_workflow(
-        TeamSignalGroupingWorkflow.run,
-        TeamSignalGroupingInput(team_id=team.id),
-        id=workflow_id,
+        SignalEmitterWorkflow.run,
+        SignalEmitterInput(team_id=team.id, signal=signal_input),
+        id=SignalEmitterWorkflow.workflow_id_for(team.id),
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-        # run_timeout resets on each continue_as_new; execution_timeout would span all
-        # continuations and eventually kill a healthy long-running entity workflow.
-        run_timeout=timedelta(hours=1),
-        start_signal="submit_signal",
-        start_signal_args=[signal_input],
+        run_timeout=timedelta(minutes=10),
     )
+
+    # Fire the analytics event only after the signal is definitively queued so
+    # Temporal/connection failures don't inflate the "signals emitted" metric.
+    try:
+        posthoganalytics.capture(
+            event="signal_emitted",
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": source_product,
+                "source_type": source_type,
+                "source_id": source_id,
+            },
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture signal_emitted event",
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+        )

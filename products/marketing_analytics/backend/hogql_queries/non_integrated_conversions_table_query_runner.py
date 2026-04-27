@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Literal, Optional, cast
+from typing import Optional
 
 import structlog
 
@@ -356,7 +356,8 @@ class NonIntegratedConversionsTableQueryRunner(
                 if column_name in select_columns:
                     order_by_exprs.append(
                         ast.OrderExpr(
-                            expr=ast.Field(chain=[column_name]), order=cast(Literal["ASC", "DESC"], str(order_by))
+                            expr=ast.Field(chain=[column_name]),
+                            order="DESC" if str(order_by).upper() == "DESC" else "ASC",
                         )
                     )
         else:

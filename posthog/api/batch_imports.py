@@ -7,11 +7,13 @@ from django.dispatch import receiver
 
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
@@ -61,6 +63,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
             validated_data["import_config"] = validated_data.pop("import_config")
         return BatchImport.objects.create(**validated_data)
 
+    @extend_schema_field({"type": "object", "nullable": True})
     def get_created_by(self, obj):
         if obj.created_by_id:
             try:
@@ -325,6 +328,10 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                     "Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods."
                 )
 
+            source_type = data.get("source_type")
+            if source_type == "amplitude" and (end_date - start_date) < timedelta(hours=1):
+                raise serializers.ValidationError("Date range must be at least 1 hour for Amplitude migrations.")
+
         # For Amplitude, ensure at least one of import_events or generate_identify_events is enabled
         source_type = data.get("source_type")
         if source_type == "amplitude":
@@ -444,7 +451,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     scope_object = "INTERNAL"
     queryset = BatchImport.objects.all()
-    serializer_class = BatchImportSerializer
+    serializer_class = _FallbackSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["status"]
     search_fields = ["status_message"]
@@ -461,6 +468,10 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return BatchImportS3GzipSourceCreateSerializer
             elif source_type in ["mixpanel", "amplitude"]:
                 return BatchImportDateRangeSourceCreateSerializer
+            elif source_type is not None:
+                raise serializers.ValidationError("Invalid source type")
+            elif getattr(self, "swagger_fake_view", False):
+                return BatchImportSerializer
             else:
                 raise serializers.ValidationError("Invalid source type")
         return BatchImportSerializer

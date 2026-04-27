@@ -1,5 +1,5 @@
-from datetime import datetime, timedelta
-from typing import Union
+from datetime import datetime, time, timedelta
+from typing import Any, Union
 from zoneinfo import ZoneInfo
 
 from django.db import close_old_connections
@@ -10,16 +10,12 @@ import temporalio.activity
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models.experiment import (
-    Experiment,
-    ExperimentMetricResult as ExperimentMetricResultModel,
-)
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.experiments.models import (
     ExperimentRegularMetricInput,
     ExperimentRegularMetricResult,
@@ -28,69 +24,18 @@ from posthog.temporal.experiments.models import (
 )
 from posthog.temporal.experiments.utils import (
     DEFAULT_EXPERIMENT_RECALCULATION_HOUR,
-    remove_step_sessions_from_experiment_result,
+    check_significance_transition,
+    get_metric,
 )
 
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentMetricResult as ExperimentMetricResultModel,
+    ExperimentTimeseriesRecalculation,
+)
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
-
-
-def _check_significance_transition(
-    experiment: Experiment,
-    metric_uuid: str,
-    fingerprint: str,
-    result_dict: dict,
-    query_to_utc: datetime,
-) -> None:
-    try:
-        if not result_dict.get("significant"):
-            return
-
-        previous = (
-            ExperimentMetricResultModel.objects.filter(
-                experiment=experiment,
-                metric_uuid=metric_uuid,
-                fingerprint=fingerprint,
-                status=ExperimentMetricResultModel.Status.COMPLETED,
-                query_to__lt=query_to_utc,
-            )
-            .order_by("-query_to")
-            .first()
-        )
-
-        if previous and previous.result and previous.result.get("significant"):
-            return
-
-        experiment_url = f"/project/{experiment.team_id}/experiments/{experiment.id}"
-
-        logger.info(
-            "Producing internal event for experiment significance transition",
-            experiment_id=experiment.id,
-            metric_uuid=metric_uuid,
-        )
-
-        produce_internal_event(
-            team_id=experiment.team_id,
-            event=InternalEventEvent(
-                event="$experiment_metric_significant",
-                distinct_id=f"team_{experiment.team_id}",
-                properties={
-                    "experiment_id": experiment.id,
-                    "experiment_name": experiment.name,
-                    "metric_uuid": metric_uuid,
-                    "significance_code": result_dict.get("significance_code"),
-                    "experiment_url": experiment_url,
-                },
-            ),
-        )
-    except Exception:
-        # produce_internal_event already logs on failure; use warning to avoid duplicate tracebacks
-        logger.warning(
-            "Significance transition check failed, skipping notification",
-            experiment_id=experiment.id,
-            metric_uuid=metric_uuid,
-        )
 
 
 @database_sync_to_async
@@ -100,12 +45,15 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
     experiment_metrics: list[ExperimentRegularMetricInput] = []
 
     # Build time filter - teams with NULL recalculation_time default to hour 2 (02:00 UTC)
+    # The filter traverses Experiment -> Team -> TeamExperimentsConfig via Django's reverse relation
     if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
-        time_filter = Q(team__experiment_recalculation_time__hour=hour) | Q(
-            team__experiment_recalculation_time__isnull=True
+        time_filter = (
+            Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
+            | Q(team__teamexperimentsconfig__experiment_recalculation_time__isnull=True)
+            | Q(team__teamexperimentsconfig__isnull=True)
         )
     else:
-        time_filter = Q(team__experiment_recalculation_time__hour=hour)
+        time_filter = Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
 
     experiments = Experiment.objects.filter(
         time_filter,
@@ -135,6 +83,7 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
                 experiment.start_date,
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
+                only_count_matured_users=experiment.only_count_matured_users,
             )
 
             experiment_metrics.append(
@@ -243,7 +192,6 @@ def _calculate_experiment_regular_metric_sync(
             workload=Workload.OFFLINE,
         )
         result = query_runner._calculate()
-        result = remove_step_sessions_from_experiment_result(result)
         result_dict = result.model_dump()
 
         completed_at = datetime.now(ZoneInfo("UTC"))
@@ -263,7 +211,7 @@ def _calculate_experiment_regular_metric_sync(
             },
         )
 
-        _check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+        check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
 
         logger.info(
             "Successfully calculated experiment metric",
@@ -351,11 +299,13 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
     experiment_metrics: list[ExperimentSavedMetricInput] = []
 
     if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
-        time_filter = Q(team__experiment_recalculation_time__hour=hour) | Q(
-            team__experiment_recalculation_time__isnull=True
+        time_filter = (
+            Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
+            | Q(team__teamexperimentsconfig__experiment_recalculation_time__isnull=True)
+            | Q(team__teamexperimentsconfig__isnull=True)
         )
     else:
-        time_filter = Q(team__experiment_recalculation_time__hour=hour)
+        time_filter = Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
 
     experiments = Experiment.objects.filter(
         time_filter,
@@ -383,6 +333,7 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                 experiment.start_date,
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
+                only_count_matured_users=experiment.only_count_matured_users,
             )
 
             experiment_metrics.append(
@@ -491,7 +442,6 @@ def _calculate_experiment_saved_metric_sync(
             workload=Workload.OFFLINE,
         )
         result = query_runner._calculate()
-        result = remove_step_sessions_from_experiment_result(result)
         result_dict = result.model_dump()
 
         completed_at = datetime.now(ZoneInfo("UTC"))
@@ -511,7 +461,7 @@ def _calculate_experiment_saved_metric_sync(
             },
         )
 
-        _check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
+        check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
 
         logger.info(
             "Successfully calculated experiment saved metric",
@@ -590,3 +540,117 @@ async def calculate_experiment_saved_metric(
 ) -> ExperimentSavedMetricResult:
     """Calculate timeseries results for a single experiment-saved metric combination."""
     return await _calculate_experiment_saved_metric_sync(experiment_id, metric_uuid, fingerprint)
+
+
+def _backfill_experiment_metric_sync(recalculation_id: str) -> dict[str, Any]:
+    close_old_connections()
+
+    logger.info("Starting timeseries recalculation", recalculation_id=recalculation_id)
+
+    try:
+        recalculation_request = ExperimentTimeseriesRecalculation.objects.get(id=recalculation_id)
+    except ExperimentTimeseriesRecalculation.DoesNotExist:
+        raise ValueError(f"Recalculation request {recalculation_id} not found")
+
+    if recalculation_request.status in (
+        ExperimentTimeseriesRecalculation.Status.PENDING,
+        ExperimentTimeseriesRecalculation.Status.FAILED,
+    ):
+        recalculation_request.status = ExperimentTimeseriesRecalculation.Status.IN_PROGRESS
+        recalculation_request.save(update_fields=["status"])
+
+    experiment = recalculation_request.experiment
+    if not experiment.start_date:
+        raise ValueError(f"Experiment {experiment.id} has no start_date")
+
+    team_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
+    start_date = experiment.start_date.astimezone(team_tz).date()
+
+    if experiment.end_date:
+        end_date = experiment.end_date.astimezone(team_tz).date()
+    else:
+        end_date = datetime.now(team_tz).date()
+
+    if recalculation_request.last_successful_date:
+        current_date = recalculation_request.last_successful_date + timedelta(days=1)
+        logger.info("Resuming recalculation", current_date=str(current_date))
+    else:
+        current_date = start_date
+        logger.info("Starting fresh recalculation", current_date=str(current_date))
+
+    metric_obj = get_metric(recalculation_request.metric)
+    experiment_query = ExperimentQuery(experiment_id=experiment.id, metric=metric_obj)
+    fingerprint = recalculation_request.fingerprint
+
+    days_processed = 0
+
+    with HeartbeaterSync(logger=logger):
+        while current_date <= end_date:
+            try:
+                end_of_day_team_tz = datetime.combine(current_date + timedelta(days=1), time(0, 0, 0)).replace(
+                    tzinfo=team_tz
+                )
+                query_to_utc = end_of_day_team_tz.astimezone(ZoneInfo("UTC"))
+
+                query_runner = ExperimentQueryRunner(
+                    query=experiment_query,
+                    team=experiment.team,
+                    override_end_date=query_to_utc,
+                    workload=Workload.OFFLINE,
+                )
+                result = query_runner._calculate()
+
+                ExperimentMetricResultModel.objects.update_or_create(
+                    experiment_id=experiment.id,
+                    metric_uuid=recalculation_request.metric["uuid"],
+                    query_to=query_to_utc,
+                    defaults={
+                        "fingerprint": fingerprint,
+                        "query_from": experiment.start_date,
+                        "status": ExperimentMetricResultModel.Status.COMPLETED,
+                        "result": result.model_dump(),
+                        "query_id": None,
+                        "completed_at": datetime.now(ZoneInfo("UTC")),
+                        "error_message": None,
+                    },
+                )
+
+                recalculation_request.last_successful_date = current_date
+                recalculation_request.save(update_fields=["last_successful_date"])
+                days_processed += 1
+
+            except Exception:
+                logger.exception(
+                    "Timeseries recalculation failed",
+                    recalculation_id=recalculation_id,
+                    failed_date=str(current_date),
+                )
+                recalculation_request.status = ExperimentTimeseriesRecalculation.Status.FAILED
+                recalculation_request.save(update_fields=["status"])
+                raise
+
+            current_date += timedelta(days=1)
+
+    recalculation_request.status = ExperimentTimeseriesRecalculation.Status.COMPLETED
+    recalculation_request.save(update_fields=["status"])
+
+    logger.info(
+        "Timeseries recalculation completed",
+        recalculation_id=recalculation_id,
+        days_processed=days_processed,
+    )
+
+    return {
+        "recalculation_id": str(recalculation_id),
+        "experiment_id": experiment.id,
+        "metric_uuid": recalculation_request.metric["uuid"],
+        "days_processed": days_processed,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+    }
+
+
+@temporalio.activity.defn
+def backfill_experiment_metric(recalculation_id: str) -> dict[str, Any]:
+    """Backfill timeseries data for an experiment recalculation request."""
+    return _backfill_experiment_metric_sync(recalculation_id)

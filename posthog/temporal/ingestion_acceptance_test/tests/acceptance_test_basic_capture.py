@@ -13,7 +13,7 @@ class TestBasicCapture(AcceptanceTest):
     """Test basic event capture and retrieval flow."""
 
     def test_capture_event(self) -> None:
-        """Capture a basic event and verify it appears in HogQL queries."""
+        """Capture a basic event and verify it appears in ClickHouse."""
         event_name = "$test_basic_capture"
         distinct_id = str(uuid.uuid4())
 

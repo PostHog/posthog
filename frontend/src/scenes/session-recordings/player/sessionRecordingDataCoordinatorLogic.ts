@@ -93,6 +93,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'loadRecordingCommentsSuccess',
                     'loadRecordingNotebookCommentsSuccess',
                 ],
+                snapLogic,
+                ['storeUpdated'],
             ],
             values: [
                 metaLogic,
@@ -100,6 +102,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionPlayerMetaData',
                     'sessionPlayerMetaDataLoading',
                     'isNotFound',
+                    'loadMetaError',
                     'trackedWindow',
                     'snapshotSources',
                     'snapshotsLoading',
@@ -219,6 +222,12 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
             breakpoint()
 
+            // processAllSnapshots may synthesize full snapshots (e.g. for mobile recordings).
+            // Sync them back to the store so canPlayAt() and LoadingScheduler work correctly.
+            if (values.snapshotStore.syncFullSnapshotTimestamps(result)) {
+                actions.storeUpdated()
+            }
+
             // Release raw snapshot arrays from the store — only the metadata
             // (fullSnapshotTimestamps, metaTimestamps, state) is still needed.
             values.snapshotStore.clearSnapshotData()
@@ -271,9 +280,16 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
 
         durationMs: [
-            (s) => [s.start, s.end],
-            (start, end): number => {
-                return !!start && !!end ? end.diff(start) : 0
+            (s) => [s.start, s.end, s.sessionPlayerMetaData, s.fullyLoaded],
+            (start, end, meta: SessionRecordingType | null, fullyLoaded: boolean): number => {
+                if (!start || !end) {
+                    return 0
+                }
+                const snapshotDuration = end.diff(start)
+                if (fullyLoaded && meta?.recording_duration) {
+                    return Math.min(snapshotDuration, meta.recording_duration * 1000)
+                }
+                return snapshotDuration
             },
         ],
 

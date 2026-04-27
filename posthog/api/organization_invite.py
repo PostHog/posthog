@@ -14,7 +14,7 @@ from posthog.api.utils import action
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
-from posthog.helpers.email_utils import EmailNormalizer
+from posthog.helpers.email_utils import EmailNormalizer, validate_display_name, validate_message_body
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -25,7 +25,8 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     UserCanInvitePermission,
 )
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rate_limit import OrganizationInviteBurstThrottle, OrganizationInviteSustainedThrottle
+from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.tasks.email import send_invite
 
 
@@ -137,6 +138,12 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
     def validate_target_email(self, email: str):
         return EmailNormalizer.normalize(email)
 
+    def validate_first_name(self, value: str) -> str:
+        return validate_display_name(value)
+
+    def validate_message(self, value: str | None) -> str | None:
+        return validate_message_body(value)
+
     def validate_level(self, level: int) -> int:
         # Validate that the user can't invite someone with a higher permission level than their own
         try:
@@ -220,24 +227,21 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             if not team_access_controls.exists():
                 continue
 
-            # Check if there's an access control with level 'none' (private team)
-            private_team_access = team_access_controls.filter(access_level="none").exists()
+            # Team is restricted, check if user has sufficient access
+            user_access_control = UserAccessControl(user=self.context["request"].user, team=team)
+            access_level = user_access_control.access_level_for_object(team)
+            if access_level == "none":
+                raise exceptions.ValidationError(team_error)
 
-            if private_team_access:
-                # Team is private, check if user has admin access
-                uac = UserAccessControl(user=self.context["request"].user, team=team)
-                access_level = uac.access_level_for_object(team)
-                if access_level == "none":
-                    raise exceptions.ValidationError(team_error)
+            # Check if user is trying to invite with a higher level than their own
+            levels = ordered_access_levels("project")
+            user_level_rank = levels.index(access_level) if access_level in levels else 0
+            requested_level_rank = levels.index(level) if level in levels else 0
 
-                # Check if user is trying to invite with a higher level than their own
-                user_level_rank = {"member": 1, "admin": 2}.get(access_level or "", 0)
-                requested_level_rank = {"member": 1, "admin": 2}.get(level, 0)
-
-                if requested_level_rank > user_level_rank:
-                    raise exceptions.ValidationError(
-                        "You cannot invite to a private project with a higher level than your own."
-                    )
+            if requested_level_rank > user_level_rank:
+                raise exceptions.ValidationError(
+                    "You cannot invite to a restricted project with a higher level than your own."
+                )
 
         return private_project_access
 
@@ -341,6 +345,14 @@ class OrganizationInviteViewSet(
 
     def safely_get_queryset(self, queryset):
         return queryset.select_related("created_by").order_by(self.ordering)
+
+    def get_throttles(self):
+        # Apply invite-specific throttles only to actions that create invites,
+        # so listing/deleting stays under the default throttles.
+        base_throttles = super().get_throttles()
+        if self.action in ("create", "bulk"):
+            return [*base_throttles, OrganizationInviteBurstThrottle(), OrganizationInviteSustainedThrottle()]
+        return base_throttles
 
     def create(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data.copy())

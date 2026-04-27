@@ -50,6 +50,25 @@ class TestPropertyUtil(BaseTest):
         qs.filter.assert_called_once_with(description__in=["description"])
         qs.filter.reset_mock()
 
+    def test_rejects_orm_traversal_keys(self):
+        qs = MagicMock()
+
+        with pytest.raises(ValueError, match="Unsupported error tracking filter key"):
+            property_to_django_filter(
+                qs,
+                ErrorTrackingIssueFilter(
+                    key="assignment__user__password", value="x", operator=PropertyOperator.ICONTAINS
+                ),
+            )
+
+        with pytest.raises(ValueError, match="Unsupported error tracking filter key"):
+            property_to_django_filter(
+                qs,
+                ErrorTrackingIssueFilter(key="team__api_token", value="x", operator=PropertyOperator.ICONTAINS),
+            )
+
+        qs.filter.assert_not_called()
+
     def test_unimplemented_filter_types_raise(self):
         qs = MagicMock()
 

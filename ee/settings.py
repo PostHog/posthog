@@ -33,8 +33,8 @@ SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 
 
 # Google SSO
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY: str | None = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET: str | None = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
 if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
     SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: list[str] = os.environ[
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
@@ -123,7 +123,12 @@ SQS_QUEUES = {
     },
 }
 
-# Salesforce API credentials
+# Salesforce OAuth Client Credentials for internal enrichment (preferred over username/password auth)
+SALESFORCE_INTERNAL_CONSUMER_KEY = get_from_env("SF_INTERNAL_CONSUMER_KEY", "", type_cast=str)
+SALESFORCE_INTERNAL_CONSUMER_SECRET = get_from_env("SF_INTERNAL_CONSUMER_SECRET", "", type_cast=str)
+SALESFORCE_INTERNAL_DOMAIN = get_from_env("SF_INTERNAL_DOMAIN", "posthog.my.salesforce.com", type_cast=str)
+
+# Salesforce legacy API credentials (fallback)
 SALESFORCE_USERNAME = get_from_env("SF_USERNAME", "", type_cast=str)
 SALESFORCE_PASSWORD = get_from_env("SF_PASSWORD", "", type_cast=str)
 SALESFORCE_SECURITY_TOKEN = get_from_env("SF_SECURITY_TOKEN", "", type_cast=str)

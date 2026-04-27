@@ -1,9 +1,12 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
+from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import ArtifactContentType, AssistantToolCallMessage
+
+from posthog.models import Insight
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool
@@ -81,3 +84,23 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         # Verify artifact_id is included in the second message content
         tool_call_content = artifact_messages.messages[1].content
         self.assertIn(artifact_id, tool_call_content)
+
+    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+    async def test_select_from_system_insights(self):
+        await sync_to_async(Insight.objects.create)(
+            team=self.team,
+            name="Revenue Trends",
+            query={"kind": "TrendsQuery", "series": [{"event": "$pageview", "kind": "EventsNode"}]},
+        )
+
+        tool = await self._create_tool()
+
+        result_text, artifact_messages = await tool._arun_impl(
+            "SELECT id, name FROM system.insights",
+            "System insights",
+            "List all insights",
+        )
+
+        self.assertEqual(result_text, "")
+        self.assertIsNotNone(artifact_messages)
+        self.assertIn("Revenue Trends", artifact_messages.messages[1].content)

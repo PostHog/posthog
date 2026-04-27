@@ -11,6 +11,27 @@ from temporalio.service import RPCError
 
 from posthog.temporal.common.client import sync_connect
 
+# Direct import of fixtures needed by test_external_data_source_end_to_end.py.
+# Using direct imports rather than pytest_plugins avoids double-registration
+# when pytest auto-discovers the conftest through directory traversal.
+from posthog.temporal.tests.data_imports.conftest import (  # noqa: F401
+    mock_stripe_client,
+    stripe_balance_transaction,
+    stripe_charge,
+    stripe_credit_note,
+    stripe_customer,
+    stripe_customer_balance_transaction,
+    stripe_customer_payment_method,
+    stripe_dispute,
+    stripe_invoice,
+    stripe_invoiceitem,
+    stripe_payout,
+    stripe_price,
+    stripe_product,
+    stripe_refund,
+    stripe_subscription,
+)
+
 from products.data_warehouse.backend.models import ExternalDataSchema
 
 

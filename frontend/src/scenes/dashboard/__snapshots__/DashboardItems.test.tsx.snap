@@ -1,0 +1,31 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`DashboardItems matches snapshot in edit mode with layout zoom enabled 1`] = `
+<div
+  class="dashboard-items-wrapper"
+>
+  <div
+    class="relative"
+  >
+    <div
+      data-attr="grid-background"
+      data-margin="14.4,14.4"
+      data-row-height="60"
+    />
+    <div
+      data-attr="react-grid-layout"
+      data-class-name="dashboard-edit-mode"
+      data-drag-enabled="true"
+      data-margin="14.4,14.4"
+      data-resize-enabled="false"
+      data-row-height="60"
+    >
+      <div
+        data-attr="insight-card"
+        data-show-resize-handles="false"
+        data-tile-id="1"
+      />
+    </div>
+  </div>
+</div>
+`;

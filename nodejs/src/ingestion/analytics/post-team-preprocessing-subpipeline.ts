@@ -9,6 +9,9 @@ import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-re
 import { EventSchemaEnforcementManager } from '../../utils/event-schema-enforcement-manager'
 import { prefetchPersonsStep } from '../../worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { EventFilterManager } from '../common/event-filters'
+import { EventFiltersBatchAppMetrics } from '../common/event-filters/batch-app-metrics'
+import { createApplyEventFiltersStep } from '../common/steps/event-filters-steps'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
     createApplyCookielessProcessingStep,
@@ -29,14 +32,15 @@ export interface PostTeamPreprocessingSubpipelineInput {
     headers: EventHeaders
     event: PluginEvent
     team: Team
+    eventFiltersBatchAppMetrics: EventFiltersBatchAppMetrics
 }
 
 export interface PostTeamPreprocessingSubpipelineConfig {
+    eventFilterManager: EventFilterManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     eventSchemaEnforcementEnabled: boolean
     cookielessManager: CookielessManager
-    overflowTopic: string
     preservePartitionLocality: boolean
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
@@ -51,11 +55,11 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {
+        eventFilterManager,
         eventIngestionRestrictionManager,
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
         cookielessManager,
-        overflowTopic,
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
@@ -78,6 +82,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
                 return schemaChecked
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
                     .pipe(createDropOldEventsStep())
+                    .pipe(createApplyEventFiltersStep(eventFilterManager))
             })
             // We want to call cookieless with the whole batch at once.
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
@@ -86,7 +91,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
             // Rate limit to overflow must run after cookieless, as it uses the final distinct ID
-            .pipeBatch(createRateLimitToOverflowStep(overflowTopic, preservePartitionLocality, overflowRedirectService))
+            .pipeBatch(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Prefetch must run after cookieless, as cookieless changes distinct IDs

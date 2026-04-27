@@ -12,10 +12,12 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
-// eslint-disable-next-line import/no-cycle
-import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
+import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
+import type { EmailTemplate } from './types'
+
+export type { EmailTemplate }
 
 export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTags']
 
@@ -25,7 +27,7 @@ export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTa
  * native_email_template: editor for creating reusable templates, with only subject and preheader, and email content fields
  */
 export type EmailTemplaterType = 'email' | 'native_email' | 'native_email_template'
-export type EmailMetaFieldKey = 'from' | 'to' | 'replyTo' | 'subject' | 'preheader'
+export type EmailMetaFieldKey = 'from' | 'to' | 'replyTo' | 'cc' | 'bcc' | 'subject' | 'preheader'
 export type EmailMetaField = {
     key: EmailMetaFieldKey
     label: string
@@ -44,6 +46,20 @@ const EMAIL_META_FIELDS = {
         isAdvancedField: true,
         helpText: 'Optional reply-to email address. You can comma separate multiple reply-to addresses.',
     },
+    CC: {
+        key: 'cc',
+        label: 'Cc',
+        optional: true,
+        isAdvancedField: true,
+        helpText: 'Comma-separated list of CC recipients.',
+    },
+    BCC: {
+        key: 'bcc',
+        label: 'Bcc',
+        optional: true,
+        isAdvancedField: true,
+        helpText: 'Comma-separated list of BCC recipients.',
+    },
     PREHEADER: {
         key: 'preheader',
         label: 'Preheader',
@@ -60,6 +76,8 @@ export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaFi
         EMAIL_META_FIELDS.FROM,
         EMAIL_META_FIELDS.TO,
         EMAIL_META_FIELDS.REPLY_TO,
+        EMAIL_META_FIELDS.CC,
+        EMAIL_META_FIELDS.BCC,
         EMAIL_META_FIELDS.SUBJECT,
         EMAIL_META_FIELDS.PREHEADER,
     ],
@@ -70,17 +88,6 @@ export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaFi
 export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
-
-export type EmailTemplate = {
-    design: JSONTemplate | null
-    html: string
-    subject: string
-    text: string
-    from: string
-    to: string
-    replyTo?: string
-    preheader?: string
-}
 
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null

@@ -4,13 +4,15 @@ import { PluginEvent } from '~/plugin-scaffold'
 
 import { EventHeaders, Team } from '../../types'
 import { createProcessAiEventStep } from '../ai/pipelines/steps/process-ai-event-step'
+import { IngestionWarningsOutput } from '../common/outputs'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createDisablePersonProcessingWithFakePersonStep } from '../event-processing/disable-person-processing-with-fake-person-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
-import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
+import { EVENTS_OUTPUT, EventOutput } from './outputs'
 
 export interface TestingAiEventSubpipelineInput {
     message: Message
@@ -20,7 +22,7 @@ export interface TestingAiEventSubpipelineInput {
 }
 
 export interface TestingAiEventSubpipelineConfig {
-    outputs: IngestionOutputs<EventOutput>
+    outputs: IngestionOutputs<EventOutput | IngestionWarningsOutput>
     groupId: string
 }
 

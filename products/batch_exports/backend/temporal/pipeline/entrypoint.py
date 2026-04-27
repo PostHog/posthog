@@ -8,10 +8,15 @@ from temporalio import exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import BackfillDetails, BatchExportField, BatchExportModel, BatchExportSchema
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.service import (
+    BackfillDetails,
+    BatchExportField,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.batch_exports import FinishBatchExportRunInputs, finish_batch_export_run
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
@@ -96,7 +101,7 @@ async def execute_batch_export_using_internal_stage(
             activity.
     """
     if hasattr(inputs, "batch_export"):
-        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export
+        batch_export_inputs: _BatchExportInputsProtocol = inputs.batch_export  # ty: ignore[invalid-assignment]
     else:
         batch_export_inputs = inputs
 
@@ -184,6 +189,7 @@ async def execute_batch_export_using_internal_stage(
         )
         finish_inputs.records_completed = result.records_completed
         finish_inputs.bytes_exported = result.bytes_exported
+        finish_inputs.records_failed = result.records_failed
         if result.error_repr:
             finish_inputs.latest_error = result.error_repr
             finish_inputs.status = BatchExportRun.Status.FAILED

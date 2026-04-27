@@ -91,6 +91,7 @@ class HealthCheck:
     rollout_percentage: float = 1.0
     not_processed_threshold: float = 0.1
     dry_run: bool = False
+    active_since_days: int | None = DEFAULT_ACTIVE_SINCE_DAYS
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         raise NotImplementedError
@@ -106,6 +107,7 @@ class HealthCheck:
 | `rollout_percentage`      | `float`                 | `1.0`                      | Fraction of teams to include (0–1, e.g. 0.01 = 1%). Deterministic by team ID                                                      |
 | `not_processed_threshold` | `float`                 | `0.1`                      | Fail the workflow if this fraction of teams are skipped or errored                                                                |
 | `dry_run`                 | `bool`                  | `False`                    | Run detection but skip DB writes (upsert/resolve). Sets the default for scheduled runs; can be overridden per-run in the admin UI |
+| `active_since_days`       | `int \| None`           | `90`                       | Only process teams whose org has a member with `User.last_login` within this many days. Set to `None` to process all teams        |
 
 ## `HealthCheckResult`
 
@@ -222,6 +224,11 @@ rows = execute_clickhouse_health_team_query(
 
 Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 
+## ClickHouse kill switch
+
+Health checks are automatically skipped when the ClickHouse kill switch is active (LIGHT or FULL).
+The `get_team_id_batches` activity returns an empty list, and the workflow completes with `total_teams: 0`.
+
 ## Admin UI
 
 Health checks can be triggered manually from the Django admin at `/admin/health_checks/`. Staff access is required. The trigger form allows overriding:
@@ -230,6 +237,7 @@ Health checks can be triggered manually from the Django admin at `/admin/health_
 - **batch_size** — teams per batch (1–10,000)
 - **max_concurrent** — concurrent batch activities (1–20)
 - **rollout_percentage** — fraction of teams to process (0.01–1.0)
-- **team_ids** — comma-separated list to target specific teams
+- **active_since_days** — only process teams with org members who logged in within the last N days (0 or blank = all teams)
+- **team_ids** — comma-separated list to target specific teams (bypasses the active_since filter)
 
 The admin also shows recent workflow runs with links to the Temporal UI.

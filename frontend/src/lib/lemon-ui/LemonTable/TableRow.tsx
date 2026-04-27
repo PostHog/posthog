@@ -166,14 +166,7 @@ function TableRowRaw<T extends Record<string, any>>({
                             )
                         })
                 )}
-                {rowActions && (
-                    <td className="w-0">
-                        {(() => {
-                            const actionsOverlay = rowActions(record, recordIndex)
-                            return actionsOverlay ? <More overlay={actionsOverlay} /> : null
-                        })()}
-                    </td>
-                )}
+                {rowActions && <td className="w-0">{rowActions(record, recordIndex)}</td>}
             </tr>
 
             {expandable && !!rowExpandable && isRowExpanded && (

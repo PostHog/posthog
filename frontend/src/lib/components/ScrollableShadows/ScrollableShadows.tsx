@@ -6,15 +6,21 @@ import React, { CSSProperties, MutableRefObject } from 'react'
 
 export type ScrollableShadowsProps = {
     children: React.ReactNode
-    direction: 'horizontal' | 'vertical'
+    /**
+     * Which axis to scroll and show shadows for.
+     * When omitted, both axes can scroll and shadows appear on whichever axis overflows.
+     */
+    direction?: 'horizontal' | 'vertical'
     className?: string
     innerClassName?: string
+    contentClassName?: string
     scrollRef?: MutableRefObject<HTMLDivElement | null>
     tabIndex?: number
     role?: string
     ariaLabel?: string
     ariaActivedescendant?: string
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void
+    onFocusCapture?: (event: React.FocusEvent<HTMLDivElement>) => void
     onBlur?: () => void
     styledScrollbars?: boolean
     style?: CSSProperties
@@ -32,6 +38,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
         direction,
         className,
         innerClassName,
+        contentClassName,
         scrollRef,
         styledScrollbars = false,
         disableScroll = false,
@@ -47,7 +54,6 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
             ref={ref}
             className={clsx(
                 'ScrollableShadows',
-                `ScrollableShadows--${direction}`,
                 hideShadows && 'ScrollableShadows--hide-shadows',
                 hideScrollbars && 'ScrollableShadows--hide-scrollbars',
                 className
@@ -70,13 +76,15 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
                 style={
                     disableScroll
                         ? { overflow: 'hidden' }
-                        : {
-                              overflowX: direction === 'horizontal' ? undefined : 'hidden',
-                              overflowY: direction === 'vertical' ? undefined : 'hidden',
-                          }
+                        : direction
+                          ? {
+                                overflowX: direction === 'horizontal' ? undefined : 'hidden',
+                                overflowY: direction === 'vertical' ? undefined : 'hidden',
+                            }
+                          : undefined
                 }
             >
-                {children}
+                <ScrollArea.Content className={clsx('min-w-0', contentClassName)}>{children}</ScrollArea.Content>
             </ScrollArea.Viewport>
         </ScrollArea.Root>
     )

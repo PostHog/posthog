@@ -13,7 +13,6 @@ import {
     GoogleTagManagerInstallation,
     HeliconeInstallation,
     IOSInstallation,
-    JSEventCapture,
     LangfuseInstallation,
     LaravelInstallation,
     MoEngageInstallation,
@@ -27,6 +26,7 @@ import {
     PythonInstallation,
     ReactInstallation,
     ReactNativeInstallation,
+    ReactRouterInstallation,
     RemixInstallation,
     RetoolInstallation,
     RubyInstallation,
@@ -47,12 +47,8 @@ import {
 
 import { SDKInstructionsMap, SDKKey, SDKTag, SDKTagOverrides } from '~/types'
 
+import { JS_WEB_SNIPPETS } from '../shared/jsWebSnippets'
 import { withMobileReplay, withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
-
-// Snippet configurations (defined once, not recreated on render)
-const JS_WEB_SNIPPETS = {
-    JSEventCapture,
-}
 
 const NODE_SNIPPETS = {
     NodeEventCapture,
@@ -67,11 +63,13 @@ const ProductAnalyticsAndroidInstructionsWrapper = withMobileReplay({
     Installation: AndroidInstallation,
     sdkKey: SDKKey.ANDROID,
     onboardingContext: 'product-analytics-onboarding',
+    wizardIntegrationName: 'Android',
 })
 const ProductAnalyticsIOSInstructionsWrapper = withMobileReplay({
     Installation: IOSInstallation,
     sdkKey: SDKKey.IOS,
     onboardingContext: 'product-analytics-onboarding',
+    wizardIntegrationName: 'Swift',
 })
 const ProductAnalyticsFlutterInstructionsWrapper = withMobileReplay({
     Installation: FlutterInstallation,
@@ -115,22 +113,32 @@ const ProductAnalyticsAstroInstructionsWrapper = withOnboardingDocsWrapper({
 const ProductAnalyticsTanStackInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: TanStackInstallation,
     snippets: JS_WEB_SNIPPETS,
+    wizardIntegrationName: 'TanStack Start',
 })
 const ProductAnalyticsAngularInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: AngularInstallation,
     snippets: JS_WEB_SNIPPETS,
+    wizardIntegrationName: 'Angular',
 })
 const ProductAnalyticsVueInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: VueInstallation,
     snippets: JS_WEB_SNIPPETS,
+    wizardIntegrationName: 'Vue',
 })
 const ProductAnalyticsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NuxtInstallation,
     snippets: JS_WEB_SNIPPETS,
+    wizardIntegrationName: 'Nuxt',
+})
+const ProductAnalyticsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ReactRouterInstallation,
+    snippets: JS_WEB_SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const ProductAnalyticsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,
     snippets: JS_WEB_SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const ProductAnalyticsBubbleInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: BubbleInstallation,
@@ -160,6 +168,7 @@ const ProductAnalyticsNodeInstructionsWrapper = withOnboardingDocsWrapper({
 const ProductAnalyticsPythonInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PythonInstallation,
     snippets: PYTHON_SNIPPETS,
+    wizardIntegrationName: 'Python',
 })
 const ProductAnalyticsDjangoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: DjangoInstallation,
@@ -168,10 +177,17 @@ const ProductAnalyticsDjangoInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const ProductAnalyticsGoInstructionsWrapper = withOnboardingDocsWrapper({ Installation: GoInstallation })
 const ProductAnalyticsPHPInstructionsWrapper = withOnboardingDocsWrapper({ Installation: PHPInstallation })
-const ProductAnalyticsLaravelInstructionsWrapper = withOnboardingDocsWrapper({ Installation: LaravelInstallation })
-const ProductAnalyticsRubyInstructionsWrapper = withOnboardingDocsWrapper({ Installation: RubyInstallation })
+const ProductAnalyticsLaravelInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LaravelInstallation,
+    wizardIntegrationName: 'Laravel',
+})
+const ProductAnalyticsRubyInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: RubyInstallation,
+    wizardIntegrationName: 'Ruby',
+})
 const ProductAnalyticsRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RubyOnRailsInstallation,
+    wizardIntegrationName: 'Ruby on Rails',
 })
 const ProductAnalyticsElixirInstructionsWrapper = withOnboardingDocsWrapper({ Installation: ElixirInstallation })
 
@@ -227,6 +243,7 @@ export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.PYTHON]: ProductAnalyticsPythonInstructionsWrapper,
     [SDKKey.REACT]: ProductAnalyticsReactInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: ProductAnalyticsRNInstructionsWrapper,
+    [SDKKey.REACT_ROUTER]: ProductAnalyticsReactRouterInstructionsWrapper,
     [SDKKey.REMIX]: ProductAnalyticsRemixJSInstructionsWrapper,
     [SDKKey.RETOOL]: ProductAnalyticsRetoolInstructionsWrapper,
     [SDKKey.RUBY]: ProductAnalyticsRubyInstructionsWrapper,

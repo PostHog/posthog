@@ -1165,13 +1165,13 @@ async fn it_routes_exceptions_and_heapmaps_to_separate_topics() -> Result<()> {
 
     let main_topic = EphemeralTopic::new().await;
     let warnings_topic = EphemeralTopic::new().await;
-    let exceptions_topic = EphemeralTopic::new().await;
+    let error_tracking_topic = EphemeralTopic::new().await;
     let heatmaps_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
     config.kafka.kafka_topic = main_topic.topic_name().to_string();
     config.kafka.kafka_client_ingestion_warning_topic = warnings_topic.topic_name().to_string();
-    config.kafka.kafka_exceptions_topic = exceptions_topic.topic_name().to_string();
+    config.kafka.kafka_error_tracking_topic = error_tracking_topic.topic_name().to_string();
     config.kafka.kafka_heatmaps_topic = heatmaps_topic.topic_name().to_string();
 
     let server = ServerHandle::for_config(config).await;
@@ -1227,14 +1227,14 @@ async fn it_routes_exceptions_and_heapmaps_to_separate_topics() -> Result<()> {
 
     // Special-cased events are pushed to their own topics
     assert_json_include!(
-        actual: exceptions_topic.next_event()?,
+        actual: error_tracking_topic.next_event()?,
         expected: json!({
             "token": token,
         "uuid": uuids[2],
             "distinct_id": distinct_id
         })
     );
-    exceptions_topic.assert_empty();
+    error_tracking_topic.assert_empty();
     assert_json_include!(
         actual: heatmaps_topic.next_event()?,
         expected: json!({

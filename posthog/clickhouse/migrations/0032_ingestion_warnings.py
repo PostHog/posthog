@@ -9,7 +9,7 @@ from posthog.models.ingestion_warnings.sql import (
 
 operations = [
     run_sql_with_exceptions(INGESTION_WARNINGS_DATA_TABLE_SQL(), node_roles=[NodeRole.DATA]),
-    # coordinator concept was added much later, there's a separate migration fixing it
+    # separate migration 0129 re-runs these to fix missing tables in some envs
     run_sql_with_exceptions(DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL(), node_roles=NodeRole.DATA),
     run_sql_with_exceptions(KAFKA_INGESTION_WARNINGS_TABLE_SQL(), node_roles=NodeRole.DATA),
     run_sql_with_exceptions(

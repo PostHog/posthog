@@ -26,6 +26,7 @@ import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { BotDetail } from 'scenes/web-analytics/BotDetail'
 import {
     ProductTab,
     QueryTile,
@@ -53,7 +54,7 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
-import { WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { BotAnalyticsFilters, WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -204,6 +205,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 insightProps: tab.insightProps,
             }))}
             tileId={tile.tileId}
+            splitIndices={tile.splitIndices}
             getNewInsightUrl={getNewInsightUrl}
         />
     )
@@ -237,6 +239,7 @@ export const WebTabs = ({
     setActiveTabId,
     getNewInsightUrl,
     tileId,
+    splitIndices,
 }: {
     className?: string
     activeTabId: string
@@ -254,6 +257,7 @@ export const WebTabs = ({
     setActiveTabId: (id: string) => void
     getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
     tileId: TileId
+    splitIndices?: number[]
 }): JSX.Element => {
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
@@ -340,7 +344,7 @@ export const WebTabs = ({
                 )}
 
                 <LemonSegmentedDropdown
-                    splitIndices={tabSplitIndicesMap[tileId]}
+                    splitIndices={splitIndices ?? tabSplitIndicesMap[tileId]}
                     size="small"
                     value={activeTabId}
                     onChange={setActiveTabId}
@@ -411,13 +415,15 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.HEALTH:
         case ProductTab.LIVE:
             return null
+        case ProductTab.BOT_ANALYTICS:
+            return <BotAnalyticsFilters tabs={tabs} />
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
 }
 
 const MainContent = (): JSX.Element => {
-    const { productTab } = useValues(webAnalyticsLogic)
+    const { productTab, botDetailName } = useValues(webAnalyticsLogic)
 
     if (productTab === ProductTab.PAGE_REPORTS) {
         return <PageReports />
@@ -429,6 +435,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.LIVE) {
         return <LiveWebAnalyticsMetrics />
+    }
+
+    if (productTab === ProductTab.BOT_ANALYTICS && botDetailName) {
+        return <BotDetail />
     }
 
     return <Tiles />
@@ -458,12 +468,12 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
         {
             key: ProductTab.HEALTH,
             label: <HealthTabLabel />,
-            link: '/web/health',
+            link: urls.webAnalyticsHealth(),
         },
     ]
 }
 
-const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string; link: string }[] => {
+const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
         return []
     }
@@ -471,8 +481,38 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
     return [
         {
             key: ProductTab.LIVE,
-            label: 'Live',
+            label: (
+                <div className="flex items-center gap-1">
+                    Live
+                    <LemonTag type="highlight" className="uppercase">
+                        Alpha
+                    </LemonTag>
+                </div>
+            ),
             link: '/web/live',
+        },
+    ]
+}
+
+const botAnalyticsTab = (
+    featureFlags: FeatureFlagsSet
+): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.BOT_ANALYTICS,
+            label: (
+                <div className="flex items-center gap-1">
+                    Bot analytics
+                    <LemonTag type="warning" className="uppercase">
+                        Beta
+                    </LemonTag>
+                </div>
+            ),
+            link: urls.webAnalyticsBotAnalytics(),
         },
     ]
 }
@@ -593,6 +633,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 },
                 ...liveTab(featureFlags),
                 ...healthTab(featureFlags),
+                ...botAnalyticsTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"

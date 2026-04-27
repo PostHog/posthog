@@ -19,7 +19,7 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const {
         workflow,
-        workflowChanged,
+        hasUnsavedChanges,
         isWorkflowSubmitting,
         workflowLoading,
         workflowHasErrors,
@@ -35,7 +35,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isCreatedFromTemplate = props.id === 'new' && !!templateId
-    const isManualWorkflow = ['manual', 'schedule', 'batch'].includes(workflow?.trigger?.type || '')
+    const isManualWorkflow = ['manual', 'batch'].includes(workflow?.trigger?.type || '')
     const [displayStatus, setDisplayStatus] = useState(workflow?.status)
     const [isTransitioning, setIsTransitioning] = useState(false)
     const prevStatusRef = useRef(workflow?.status)
@@ -82,7 +82,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     }
                                     size="small"
                                     disabledReason={
-                                        workflowChanged
+                                        hasUnsavedChanges
                                             ? 'Save changes first'
                                             : workflow?.status === 'draft' && workflowHasActionErrors
                                               ? 'Fix all errors before enabling'
@@ -102,11 +102,19 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 <LemonDivider vertical />
                                 <ScenePanel>
                                     <ScenePanelActionsSection>
-                                        <ButtonPrimitive menuItem onClick={() => duplicate()}>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={() => duplicate()}
+                                            data-attr="workflow-duplicate-btn"
+                                        >
                                             <IconCopy />
                                             Duplicate
                                         </ButtonPrimitive>
-                                        <ButtonPrimitive menuItem onClick={showSaveAsTemplateModal}>
+                                        <ButtonPrimitive
+                                            menuItem
+                                            onClick={showSaveAsTemplateModal}
+                                            data-attr="workflow-save-as-template-btn"
+                                        >
                                             <IconScreen />
                                             Save as template
                                         </ButtonPrimitive>
@@ -117,6 +125,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                             menuItem
                                             onClick={() => archiveWorkflow(workflow)}
                                             variant="danger"
+                                            data-attr="workflow-archive-btn"
                                         >
                                             <IconArchive />
                                             Archive
@@ -125,7 +134,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 </ScenePanel>
                             </>
                         )}
-                        {workflowChanged && (
+                        {hasUnsavedChanges && (
                             <LemonButton
                                 data-attr="discard-workflow-changes"
                                 type="secondary"
@@ -146,6 +155,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             </LemonButton>
                         ) : (
                             <LemonButton
+                                data-attr="workflow-save"
                                 type="primary"
                                 size="small"
                                 htmlType="submit"
@@ -157,7 +167,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         ? 'Some fields still need work'
                                         : isCreatedFromTemplate
                                           ? undefined
-                                          : workflowChanged
+                                          : hasUnsavedChanges
                                             ? undefined
                                             : 'No changes to save'
                                 }

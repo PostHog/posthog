@@ -29,6 +29,7 @@ class QueryExecutorNode(AssistantNode):
         try:
             context = InsightContext(
                 team=self._team,
+                user=self._user,
                 query=content.query,
                 name=content.name,
                 description=content.description,

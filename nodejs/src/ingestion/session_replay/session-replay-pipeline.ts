@@ -1,6 +1,5 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { ParsedMessageData } from '../../session-recording/kafka/types'
 import { SessionBatchManager } from '../../session-recording/sessions/session-batch-manager'
 import { TeamForReplay } from '../../session-recording/teams/types'
@@ -8,7 +7,9 @@ import { TeamService } from '../../session-replay/shared/teams/team-service'
 import { ValueMatcher } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
+import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '../common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '../event-preprocessing'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '../pipelines/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '../pipelines/extensions/tophog'
@@ -29,17 +30,13 @@ export interface SessionReplayPipelineOutput {
 }
 
 export interface SessionReplayPipelineConfig {
-    kafkaProducer: KafkaProducerWrapper
+    outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
-    overflowTopic: string
-    dlqTopic: string
     promiseScheduler: PromiseScheduler
     teamService: TeamService
     /** TopHog registry for tracking metrics. */
     topHog: TopHogRegistry
-    /** Producer for ingestion warnings. */
-    ingestionWarningProducer: KafkaProducerWrapper
     /** Session batch manager for recording sessions. */
     sessionBatchManager: SessionBatchManager
     /** Debug logging matcher for partition-based debugging. */
@@ -58,24 +55,25 @@ export interface SessionReplayPipelineConfig {
  */
 export function createSessionReplayPipeline(
     config: SessionReplayPipelineConfig
-): BatchPipelineUnwrapper<SessionReplayPipelineInput, SessionReplayPipelineOutput, { message: Message }> {
+): BatchPipelineUnwrapper<
+    SessionReplayPipelineInput,
+    SessionReplayPipelineOutput,
+    { message: Message },
+    OverflowOutput
+> {
     const {
-        kafkaProducer,
+        outputs,
         eventIngestionRestrictionManager,
         overflowEnabled,
-        overflowTopic,
-        dlqTopic,
         promiseScheduler,
         teamService,
         topHog,
-        ingestionWarningProducer,
         sessionBatchManager,
         isDebugLoggingEnabled,
     } = config
 
-    const pipelineConfig: PipelineConfig = {
-        kafkaProducer,
-        dlqTopic,
+    const pipelineConfig: PipelineConfig<OverflowOutput> = {
+        outputs,
         promiseScheduler,
     }
 
@@ -91,7 +89,6 @@ export function createSessionReplayPipeline(
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
                                 overflowEnabled,
-                                overflowTopic,
                                 preservePartitionLocality: true, // Sessions must stay on the same partition
                             })
                         )
@@ -150,7 +147,7 @@ export function createSessionReplayPipeline(
                                     )
                                     .gather()
                             )
-                            .handleIngestionWarnings(ingestionWarningProducer)
+                            .handleIngestionWarnings(outputs)
                 )
         )
         .handleResults(pipelineConfig)
@@ -168,7 +165,12 @@ export function createSessionReplayPipeline(
  * In future commits, the pipeline will handle all processing internally.
  */
 export async function runSessionReplayPipeline(
-    pipeline: BatchPipelineUnwrapper<SessionReplayPipelineInput, SessionReplayPipelineOutput, { message: Message }>,
+    pipeline: BatchPipelineUnwrapper<
+        SessionReplayPipelineInput,
+        SessionReplayPipelineOutput,
+        { message: Message },
+        OverflowOutput
+    >,
     messages: Message[]
 ): Promise<SessionReplayPipelineOutput[]> {
     if (messages.length === 0) {

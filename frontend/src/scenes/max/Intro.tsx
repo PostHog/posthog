@@ -35,7 +35,7 @@ export function Intro({
     return (
         <>
             <div
-                className={`flex *:h-full *:w-12 p-2 cursor-pointer ${hedgehogLastJumped ? 'animate-logomark-jump' : ''}`}
+                className={`flex *:h-full *:w-12 p-2 cursor-pointer select-none ${hedgehogLastJumped ? 'animate-logomark-jump' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={
                     {

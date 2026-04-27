@@ -2,12 +2,11 @@ import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/in
 
 import { Meta, StoryObj } from '@storybook/react'
 
-import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
 import { mswDecorator } from '~/mocks/browser'
 
-type Story = StoryObj<typeof App>
+type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/Retention',
     parameters: {
@@ -53,6 +52,17 @@ export const RetentionEdit: Story = createInsightStory(
 )
 RetentionEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+}
+
+export const RetentionEditViewports: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/retention.json'),
+    'edit'
+)
+RetentionEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
 }
 
 /* eslint-enable @typescript-eslint/no-var-requires */

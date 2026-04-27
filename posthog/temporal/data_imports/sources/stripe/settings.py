@@ -58,7 +58,7 @@ INCREMENTAL_ENDPOINTS = (
     CREDIT_NOTE_RESOURCE_NAME,
 )
 
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+APPEND_ONLY_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ACCOUNT_RESOURCE_NAME: [
         {
             "label": "created_at",

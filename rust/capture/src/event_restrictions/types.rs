@@ -185,6 +185,18 @@ impl AppliedRestrictions {
     pub fn redirect_to_topic(&self) -> Option<&str> {
         self.redirect_to_topic.as_deref()
     }
+
+    /// OR two sets of restrictions together. Used for all-or-nothing batch processing
+    /// where any span triggering a flag applies it to the whole batch.
+    pub fn merge(self, other: AppliedRestrictions) -> Self {
+        Self {
+            should_drop: self.should_drop || other.should_drop,
+            force_overflow: self.force_overflow || other.force_overflow,
+            skip_person_processing: self.skip_person_processing || other.skip_person_processing,
+            redirect_to_dlq: self.redirect_to_dlq || other.redirect_to_dlq,
+            redirect_to_topic: self.redirect_to_topic.or(other.redirect_to_topic),
+        }
+    }
 }
 
 /// Filters for a restriction. AND logic between types, OR logic within each type.
@@ -463,6 +475,105 @@ mod tests {
         assert!(set.contains(RestrictionType::RedirectToTopic));
         assert_eq!(set.redirect_topic(), Some("custom_topic"));
         assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_defaults() {
+        let a = AppliedRestrictions::default();
+        let b = AppliedRestrictions::default();
+        let merged = a.merge(b);
+        assert!(merged.is_empty());
+        assert!(!merged.should_drop());
+        assert!(!merged.force_overflow());
+        assert!(!merged.skip_person_processing());
+        assert!(!merged.redirect_to_dlq());
+        assert!(merged.redirect_to_topic().is_none());
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_should_drop_propagates() {
+        for (left, right) in [(true, false), (false, true), (true, true)] {
+            let a = AppliedRestrictions {
+                should_drop: left,
+                ..Default::default()
+            };
+            let b = AppliedRestrictions {
+                should_drop: right,
+                ..Default::default()
+            };
+            assert!(a.merge(b).should_drop());
+        }
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_boolean_flags_or() {
+        let a = AppliedRestrictions {
+            force_overflow: true,
+            ..Default::default()
+        };
+        let b = AppliedRestrictions {
+            skip_person_processing: true,
+            redirect_to_dlq: true,
+            ..Default::default()
+        };
+        let merged = a.merge(b);
+        assert!(merged.force_overflow());
+        assert!(merged.skip_person_processing());
+        assert!(merged.redirect_to_dlq());
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_redirect_to_topic_first_wins() {
+        let a = AppliedRestrictions {
+            redirect_to_topic: Some("topic_a".to_string()),
+            ..Default::default()
+        };
+        let b = AppliedRestrictions {
+            redirect_to_topic: Some("topic_b".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(a.merge(b).redirect_to_topic(), Some("topic_a"));
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_redirect_to_topic_from_right() {
+        let a = AppliedRestrictions::default();
+        let b = AppliedRestrictions {
+            redirect_to_topic: Some("topic_b".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(a.merge(b).redirect_to_topic(), Some("topic_b"));
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_accumulates_all_flags() {
+        let merged = AppliedRestrictions::default()
+            .merge(AppliedRestrictions {
+                should_drop: true,
+                ..Default::default()
+            })
+            .merge(AppliedRestrictions {
+                force_overflow: true,
+                ..Default::default()
+            })
+            .merge(AppliedRestrictions {
+                skip_person_processing: true,
+                ..Default::default()
+            })
+            .merge(AppliedRestrictions {
+                redirect_to_dlq: true,
+                ..Default::default()
+            })
+            .merge(AppliedRestrictions {
+                redirect_to_topic: Some("final_topic".to_string()),
+                ..Default::default()
+            });
+
+        assert!(merged.should_drop());
+        assert!(merged.force_overflow());
+        assert!(merged.skip_person_processing());
+        assert!(merged.redirect_to_dlq());
+        assert_eq!(merged.redirect_to_topic(), Some("final_topic"));
     }
 
     #[test]

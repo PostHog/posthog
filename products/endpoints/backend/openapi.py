@@ -238,7 +238,7 @@ def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
 
 
 # Query types that support user-configurable breakdown filtering
-BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
+BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "RetentionQuery"}
 
 
 def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) -> dict | None:

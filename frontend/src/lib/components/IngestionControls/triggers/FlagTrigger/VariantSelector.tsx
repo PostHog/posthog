@@ -60,7 +60,7 @@ export const FlagTriggerVariantSelector = ({ tooltip }: { tooltip: JSX.Element }
                 value={flag?.variant ?? ANY_VARIANT}
                 options={variantOptions(
                     linkedFlag?.filters.multivariate,
-                    (restrictedReason ?? featureFlagLoading) ? 'Loading...' : undefined
+                    restrictedReason ?? (featureFlagLoading ? 'Loading...' : undefined)
                 )}
                 onChange={(variant) => {
                     if (!linkedFlag) {

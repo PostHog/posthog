@@ -6,5 +6,14 @@
     "type": "module",
     "exports": {
         ".": "./index.mjs"
+    },
+    "scripts": {
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "orval": "8.0.3"
+    },
+    "devDependencies": {
+        "vitest": "^3.0.0"
     }
 }

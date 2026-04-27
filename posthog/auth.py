@@ -1,7 +1,10 @@
 import re
 import hmac
+import time
+import hashlib
 import logging
 import functools
+from abc import abstractmethod
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
 from urllib.parse import parse_qs, urlparse
@@ -25,12 +28,19 @@ from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
-from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import (
+    LEGACY_PERSONAL_API_KEY_SALT,
+    PERSONAL_API_KEY_AUTH_COUNTER,
+    PERSONAL_API_KEY_MODES_TO_TRY,
+    PersonalAPIKey,
+)
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+from posthog.models.utils import hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
@@ -50,6 +60,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 structlog_logger = structlog.get_logger(__name__)
+
+_SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
+
+SECRET_API_KEY_BODY_COUNTER = Counter(
+    "api_auth_secret_api_key_body",
+    "Requests where the secret API key is provided in the request body instead of the Authorization header",
+)
 
 PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
     "api_auth_personal_api_key_query_param",
@@ -80,7 +97,6 @@ def get_auth_brand_from_next_param(next_param: str | None) -> str | None:
         client_id = parse_qs(parsed.query).get("client_id", [None])[0]
         return get_auth_brand_for_client_id(client_id)
     except (ValueError, IndexError, KeyError):
-        # Only catch expected parsing errors
         return None
 
 
@@ -166,6 +182,18 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
     personal_api_key: PersonalAPIKey
+    personal_api_key_source: Optional[str] = None
+
+    # Normalized source identifiers returned by find_key_with_source
+    SOURCE_HEADER = "header"
+    SOURCE_BODY = "body"
+    SOURCE_QUERY_STRING = "query_string"
+
+    _SOURCE_DISPLAY = {
+        SOURCE_HEADER: "Authorization header",
+        SOURCE_BODY: "body",
+        SOURCE_QUERY_STRING: "query string",
+    }
 
     message = "Invalid personal API key."
 
@@ -186,13 +214,13 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                     "pha_"
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
-                return token, "Authorization header"
+                return token, cls.SOURCE_HEADER
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
         if data and "personal_api_key" in data:
-            return data["personal_api_key"], "body"
+            return data["personal_api_key"], cls.SOURCE_BODY
         if "personal_api_key" in request.GET:
-            return request.GET["personal_api_key"], "query string"
+            return request.GET["personal_api_key"], cls.SOURCE_QUERY_STRING
         return None
 
     @classmethod
@@ -216,7 +244,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         mode_used = None
 
         for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
-            secure_value = hash_key_value(personal_api_key, mode=mode, iterations=iterations)
+            secure_value = hash_key_value(
+                personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
+            )
             try:
                 personal_api_key_object = (
                     PersonalAPIKey.objects.select_related("user")
@@ -224,12 +254,14 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                     .get(secure_value=secure_value)
                 )
                 mode_used = mode
+                PERSONAL_API_KEY_AUTH_COUNTER.labels(hash_mode=mode).inc()
                 break
             except PersonalAPIKey.DoesNotExist:
                 pass
 
         if not personal_api_key_object:
-            raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
+            source_display = cls._SOURCE_DISPLAY.get(source, source)
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
@@ -238,7 +270,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_to_update.secure_value = hash_key_value(personal_api_key)
             key_to_update.save(update_fields=["secure_value"])
 
-        if source == "query string":
+        if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
 
         return personal_api_key_object
@@ -248,6 +280,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if not personal_api_key_with_source:
             return None
 
+        _, source = personal_api_key_with_source
         personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
         now = timezone.now()
@@ -269,6 +302,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         )
 
         self.personal_api_key = personal_api_key_object
+        self.personal_api_key_source = source
 
         return personal_api_key_object.user, None
 
@@ -299,9 +333,11 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
         if "authorization" in request.headers:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.headers["authorization"])
+            authorization_match = re.match(rf"^{cls.keyword}\s+(.+)$", request.headers["authorization"])
             if authorization_match:
-                return authorization_match.group(1).strip()
+                token = authorization_match.group(1).strip()
+                if _SECRET_API_KEY_RE.match(token):
+                    return token
 
         # Wrap HttpRequest in DRF Request if needed
         if not isinstance(request, Request):
@@ -310,7 +346,10 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         data = request.data
 
         if data and "secret_api_key" in data:
-            return data["secret_api_key"]
+            secret_api_key = data["secret_api_key"]
+            if isinstance(secret_api_key, str) and _SECRET_API_KEY_RE.match(secret_api_key):
+                SECRET_API_KEY_BODY_COUNTER.inc()
+                return secret_api_key
 
         return None
 
@@ -390,6 +429,47 @@ class JwtAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
+class ExportRendererAuthentication(authentication.BaseAuthentication):
+    """
+    Scoped JWT auth for the export renderer. Only accepted on viewsets that opt in.
+    """
+
+    keyword = "Bearer"
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        if request.method not in ("GET", "HEAD"):
+            return None
+        if "authorization" not in request.headers:
+            return None
+        authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
+        if not authorization_match:
+            return None
+        try:
+            token = authorization_match.group(1).strip()
+            info = decode_jwt(token, PosthogJwtAudience.EXPORT_RENDERER)
+            user = User.objects.get(pk=info["id"])
+            return user, None
+        except (jwt.DecodeError, jwt.InvalidAudienceError):
+            return None
+        except Exception:
+            raise AuthenticationFailed(detail="Token invalid.")
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
+
+
+def _organization_disallows_public_sharing(sharing_configuration: SharingConfiguration) -> bool:
+    """Returns True when the organization has disabled public sharing under the
+    ORGANIZATION_SECURITY_SETTINGS feature. Sharing tokens must fail closed in that case,
+    even though individual `SharingConfiguration` rows remain `enabled=True`.
+    """
+    organization = sharing_configuration.team.organization
+    return (
+        organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not organization.allow_publicly_shared_resources
+    )
+
+
 class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
     """Limited access for sharing views e.g. insights/dashboards for refreshing.
     Remember to add access restrictions based on `sharing_configuration` using `SharingTokenPermission` or manually.
@@ -414,6 +494,9 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
             else:
+                if _organization_disallows_public_sharing(sharing_configuration):
+                    raise AuthenticationFailed(detail="Sharing access token is invalid.")
+
                 self.sharing_configuration = sharing_configuration
                 return (AnonymousUser(), None)
         return None
@@ -472,6 +555,9 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             if sharing_configuration.access_token != payload.get("access_token"):
                 return None
 
+            if _organization_disallows_public_sharing(sharing_configuration):
+                raise AuthenticationFailed(detail="Sharing access token is invalid.")
+
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
             return (AnonymousUser(), None)
@@ -480,6 +566,10 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             # Expected: JWT decode failed (likely a personal API key was passed)
             # Let the next authenticator (PersonalAPIKeyAuthentication) handle it
             return None
+        except AuthenticationFailed:
+            # Intentional auth failures (e.g. organization kill switch) must propagate,
+            # not be swallowed by the generic Exception handler below.
+            raise
         except Exception as e:
             # Unexpected: Database issues, programming errors, etc.
             # Log for debugging but still fail gracefully
@@ -810,3 +900,93 @@ class WebauthnBackend(BaseBackend):
             return User.objects.get(pk=user_id)
         except User.DoesNotExist:
             return None
+
+
+class WebhookSignatureAuthentication(authentication.BaseAuthentication):
+    """
+    Base HMAC-SHA256 webhook signature authentication.
+
+    Subclass and implement the abstract methods to support a specific provider.
+    On success, sets request.auth to whatever `get_auth_context` returns.
+
+    Typical provider differences:
+      - Customer.io: signature header "X-Cio-Signature", input format "v0:{ts}:{body}"
+      - Stripe:      signature header "Stripe-Signature",  input format "{ts}.{body}"
+    """
+
+    timestamp_tolerance: int = 300  # seconds
+
+    @abstractmethod
+    def get_signature_header(self) -> str:
+        """Return the HTTP header name containing the HMAC signature."""
+        ...
+
+    @abstractmethod
+    def get_timestamp_header(self) -> str:
+        """Return the HTTP header name containing the request timestamp."""
+        ...
+
+    @abstractmethod
+    def build_hmac_input(self, timestamp: str, body: str) -> str:
+        """Build the string that was signed. Provider-specific format."""
+        ...
+
+    @abstractmethod
+    def get_signing_secret(self, request: Request) -> str | None:
+        """
+        Look up the signing secret for this request.
+        Return None if the webhook integration doesn't exist or is disabled.
+        """
+        ...
+
+    def get_auth_context(self, request: Request) -> Any:
+        """
+        Return the object to set as ``request.auth`` after successful verification.
+        Override to return an Integration, team, or other context.
+        Defaults to the team_id from URL kwargs.
+        """
+        return self._get_team_id(request)
+
+    def _get_team_id(self, request: Request) -> int | None:
+        """Extract team_id from URL kwargs (works for both DRF and Django requests)."""
+        django_request = getattr(request, "_request", request)
+        resolver_match = getattr(django_request, "resolver_match", None)
+        if resolver_match and resolver_match.kwargs:
+            tid = resolver_match.kwargs.get("team_id")
+            if tid is not None:
+                return int(tid)
+        return None
+
+    def authenticate(self, request: Request) -> tuple[None, Any] | None:
+        signature = request.headers.get(self.get_signature_header())
+        timestamp = request.headers.get(self.get_timestamp_header())
+        if not signature or not timestamp:
+            raise AuthenticationFailed("Missing webhook signature headers.")
+
+        signing_secret = self.get_signing_secret(request)
+        if not signing_secret:
+            raise AuthenticationFailed("Webhook integration not found or disabled.")
+
+        django_request = getattr(request, "_request", request)
+        raw_body = django_request.body.decode()
+
+        hmac_input = self.build_hmac_input(timestamp, raw_body)
+        expected = hmac.new(
+            signing_secret.encode(),
+            hmac_input.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise AuthenticationFailed("Invalid webhook signature.")
+
+        try:
+            ts = int(timestamp)
+        except (ValueError, TypeError):
+            raise AuthenticationFailed("Invalid webhook timestamp.")
+        if abs(time.time() - ts) > self.timestamp_tolerance:
+            raise AuthenticationFailed("Webhook timestamp too old.")
+
+        return (None, self.get_auth_context(request))
+
+    def authenticate_header(self, request: Request) -> str:
+        return "WebhookSignature"

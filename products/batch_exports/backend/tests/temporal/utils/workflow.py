@@ -9,8 +9,8 @@ from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import create_batch_export_run
 
+from products.batch_exports.backend.service import create_batch_export_run
 from products.batch_exports.backend.temporal.batch_exports import StartBatchExportRunInputs
 
 

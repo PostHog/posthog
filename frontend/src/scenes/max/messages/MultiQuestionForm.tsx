@@ -1,4 +1,4 @@
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 
 import { MultiQuestionForm as MultiQuestionFormType } from '~/queries/schema/schema-assistant-messages'
 
@@ -8,17 +8,36 @@ interface MultiQuestionFormRecapProps {
     form: MultiQuestionFormType
     /** Saved answers from the backend (used when the form was previously submitted and page is reloaded) */
     savedAnswers?: Record<string, string | string[]>
+    formStatus?: string
 }
 
 /**
  * Displays a completed multi-question form recap in the chat thread.
  * The interactive form is handled by MultiQuestionFormInput in InputFormArea.tsx.
  */
-export function MultiQuestionFormRecap({ form, savedAnswers }: MultiQuestionFormRecapProps): JSX.Element | null {
+export function MultiQuestionFormRecap({
+    form,
+    savedAnswers,
+    formStatus,
+}: MultiQuestionFormRecapProps): JSX.Element | null {
     const questions = form.questions
 
     if (!questions || questions.length === 0) {
         return null
+    }
+
+    if (formStatus === 'dismiss_form') {
+        return (
+            <MessageTemplate type="ai">
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-1.5 text-xs text-muted">
+                        <IconX />
+                        <span>Form dismissed</span>
+                    </div>
+                    <div className="text-sm text-muted">The user chose not to answer these questions.</div>
+                </div>
+            </MessageTemplate>
+        )
     }
 
     return (
@@ -46,7 +65,9 @@ export function MultiQuestionFormRecap({ form, savedAnswers }: MultiQuestionForm
                                                             ? Array.isArray(answer)
                                                                 ? answer.join(', ')
                                                                 : answer
-                                                            : '—'}
+                                                            : savedAnswers
+                                                              ? 'Skipped'
+                                                              : '—'}
                                                     </span>
                                                 </div>
                                             )
@@ -59,7 +80,7 @@ export function MultiQuestionFormRecap({ form, savedAnswers }: MultiQuestionForm
                                             {(() => {
                                                 const answer = savedAnswers?.[question.id]
                                                 if (!answer) {
-                                                    return '—'
+                                                    return savedAnswers ? 'Skipped' : '—'
                                                 }
                                                 return Array.isArray(answer) ? answer.join(', ') : answer
                                             })()}

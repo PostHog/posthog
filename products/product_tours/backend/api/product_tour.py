@@ -26,7 +26,6 @@ from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -35,6 +34,7 @@ from posthog.utils_cors import cors_response
 from products.product_tours.backend.constants import ProductTourEventName, ProductTourPersonProperties
 from products.product_tours.backend.generate_tour_content import ContentGenerationResult, generate_with_gemini
 from products.product_tours.backend.models import ProductTour
+from products.surveys.backend.models import Survey
 
 logger = logging.getLogger(__name__)
 

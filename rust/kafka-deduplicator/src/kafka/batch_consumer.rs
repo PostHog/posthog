@@ -14,7 +14,7 @@ use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 
 use anyhow::{Context, Result};
-use axum::async_trait;
+use async_trait::async_trait;
 use futures_util::StreamExt;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{CommitMode, Consumer, MessageStream, StreamConsumer};
@@ -22,6 +22,7 @@ use rdkafka::error::KafkaResult;
 use rdkafka::message::Message;
 use rdkafka::TopicPartitionList;
 use serde::Deserialize;
+use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot::Receiver;
 use tracing::{error, info, warn};
@@ -29,6 +30,16 @@ use tracing::{error, info, warn};
 #[async_trait]
 pub trait BatchConsumerProcessor<T>: Send + Sync {
     async fn process_batch(&self, messages: Vec<KafkaMessage<T>>) -> Result<()>;
+}
+
+/// Callback invoked after a successful Kafka offset commit.
+///
+/// Implementations receive the committed offsets (partition → next offset to consume)
+/// and can perform side effects like updating local metadata. Failures should be
+/// handled internally (non-fatal).
+#[async_trait]
+pub trait OnCommit: Send + Sync {
+    async fn on_commit(&self, offsets: &HashMap<Partition, i64>);
 }
 
 pub struct BatchConsumer<T> {
@@ -59,6 +70,9 @@ pub struct BatchConsumer<T> {
 
     // timeout for seek_partitions after checkpoint import
     seek_timeout: Duration,
+
+    // optional callback invoked after successful offset commits
+    on_commit: Option<Arc<dyn OnCommit>>,
 }
 
 impl<T> BatchConsumer<T>
@@ -71,6 +85,7 @@ where
         rebalance_handler: Arc<dyn RebalanceHandler>,
         processor: Arc<dyn BatchConsumerProcessor<T>>,
         offset_tracker: Arc<OffsetTracker>,
+        on_commit: Option<Arc<dyn OnCommit>>,
         shutdown_rx: Receiver<()>,
         topic: &str,
         batch_size: usize,
@@ -97,6 +112,7 @@ where
             batch_timeout,
             processor,
             offset_tracker,
+            on_commit,
             shutdown_rx,
             consumer_command_rx,
             seek_timeout,
@@ -234,7 +250,7 @@ where
                 // The offset tracker contains offsets that have been successfully processed
                 // by partition workers, ensuring we only commit what's been processed
                 _ = commit_interval.tick() => {
-                    Self::commit_tracked_offsets(&consumer, &self.offset_tracker);
+                    Self::commit_tracked_offsets(&consumer, &self.offset_tracker, &self.on_commit);
                 }
             }
         }
@@ -263,6 +279,7 @@ where
     fn commit_tracked_offsets(
         consumer: &StreamConsumer<BatchConsumerContext>,
         offset_tracker: &OffsetTracker,
+        on_commit: &Option<Arc<dyn OnCommit>>,
     ) {
         let offsets = match offset_tracker.get_committable_offsets() {
             Ok(offsets) => offsets,
@@ -298,6 +315,16 @@ where
                 // Update the offset tracker with the committed offsets
                 // These are used for checkpointing to track the true recovery point
                 offset_tracker.mark_committed(&offsets);
+
+                // Notify the on_commit callback (fire-and-forget).
+                // Failures are non-fatal — handled internally by the callback.
+                if let Some(callback) = on_commit {
+                    let callback = Arc::clone(callback);
+                    let offsets = offsets.clone();
+                    tokio::spawn(async move {
+                        callback.on_commit(&offsets).await;
+                    });
+                }
             }
             Err(e) => {
                 warn!("Failed to commit tracked offsets: {e:#}");

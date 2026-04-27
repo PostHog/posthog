@@ -19,7 +19,7 @@ export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, dashboardLoading, dashboardMode, canEditDashboard, isNewDashboard } = useValues(dashboardLogic)
+    const { dashboard, dashboardLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
 
@@ -43,15 +43,17 @@ export function DashboardHeader(): JSX.Element | null {
                 resourceType={{
                     type: sceneConfigurations[Scene.Dashboard].iconType || 'default_icon_type',
                 }}
-                onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                onDescriptionChange={(value) =>
+                onNameChange={(value) => {
+                    updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })
+                }}
+                onDescriptionChange={(value) => {
                     updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
-                }
+                }}
                 markdown
                 canEdit={canEditDashboard}
                 isLoading={dashboardLoading}
-                forceEdit={dashboardMode === DashboardMode.Edit || isNewDashboard}
-                renameDebounceMs={1000}
+                saveOnBlur
+                renameDebounceMs={0}
                 maxToolProps={
                     dashboard && canEditDashboard
                         ? {

@@ -1,14 +1,14 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { PathCleaningRulesDebugger } from './PathCleaningRulesDebugger'
+import { PathCleaningRulesDebugger, PathCleaningRulesDebuggerProps } from './PathCleaningRulesDebugger'
 
-const meta: Meta<typeof PathCleaningRulesDebugger> = {
+const meta: Meta<PathCleaningRulesDebuggerProps> = {
     title: 'Filters/PathCleaningRulesDebugger',
     component: PathCleaningRulesDebugger,
 }
 export default meta
 
-export const Default: StoryObj<typeof PathCleaningRulesDebugger> = {
+export const Default: StoryObj<PathCleaningRulesDebuggerProps> = {
     args: {
         testPath: '/insights/my-dashboard/dashboard',
         filters: [

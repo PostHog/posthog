@@ -124,6 +124,18 @@ export const HeatmapSeriesTab = (): JSX.Element => {
                     disabledReason={responseLoading ? 'Query loading...' : undefined}
                     onChange={(value) => updateHeatmapSettings({ valueColumn: value ?? undefined })}
                 />
+                <LemonLabel className="mt-2 mb-1">Label for null</LemonLabel>
+                <LemonInput
+                    value={heatmapSettings.nullLabel ?? 'null'}
+                    placeholder="null"
+                    onChange={(value) => updateHeatmapSettings({ nullLabel: value ?? '' })}
+                />
+                <LemonLabel className="mt-2 mb-1">Value for null</LemonLabel>
+                <LemonInput
+                    value={heatmapSettings.nullValue ?? ''}
+                    placeholder="Blank"
+                    onChange={(value) => updateHeatmapSettings({ nullValue: value ?? '' })}
+                />
             </div>
 
             <div>

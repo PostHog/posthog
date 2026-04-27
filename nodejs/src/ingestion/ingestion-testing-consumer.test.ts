@@ -121,9 +121,9 @@ describe('IngestionTestingConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id, 'THIS IS NOT A TOKEN FOR TEAM 3')
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = (await getTeam(hub.postgres, team2Id))!
 
         ingester = await createIngestionTestingConsumer(hub)
     })

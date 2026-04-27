@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPencil, IconPlusSmall, IconShare } from '@posthog/icons'
+import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
@@ -25,14 +25,23 @@ export function EditModeActions(): JSX.Element {
 
     return (
         <>
-            <LemonButton
-                data-attr="dashboard-edit-mode-discard"
-                type="secondary"
-                onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
-                size="small"
+            <AppShortcut
+                name="CancelDashboardEdit"
+                keybind={[keyBinds.escape]}
+                intent="Cancel edit mode"
+                interaction="click"
+                scope={Scene.Dashboard}
             >
-                Cancel
-            </LemonButton>
+                <LemonButton
+                    data-attr="dashboard-edit-mode-discard"
+                    type="secondary"
+                    onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                    size="small"
+                    tooltip="Discard changes and exit edit mode"
+                >
+                    Cancel
+                </LemonButton>
+            </AppShortcut>
             <AppShortcut
                 name="SaveDashboard"
                 keybind={[keyBinds.edit, keyBinds.save]}
@@ -81,12 +90,10 @@ export function FullscreenModeActions(): JSX.Element {
 }
 
 export function ViewModeActions(): JSX.Element {
-    const { dashboard, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboard, canEditDashboard, tiles } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { push } = useActions(router)
-    const hasTileRedesign = useFeatureFlag('DASHBOARD_TILE_REDESIGN')
-
     if (!dashboard) {
         return <></>
     }
@@ -99,52 +106,28 @@ export function ViewModeActions(): JSX.Element {
                 onClick={() => push(urls.dashboardSharing(dashboard.id))}
                 size="small"
                 icon={<IconShare fontSize="16" />}
-                tooltip="Share"
-                tooltipPlacement="top"
-            />
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Dashboard}
-                minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={dashboard.user_access_level}
+                disabledReason={tiles.length === 0 ? 'Add at least one tile before sharing this dashboard' : undefined}
             >
-                <AppShortcut
-                    name="AddTextTileToDashboard"
-                    scope={Scene.Dashboard}
-                    keybind={[keyBinds.dashboardAddTextTile]}
-                    intent="Add text card"
-                    interaction="click"
-                >
-                    <LemonButton
-                        onClick={() => {
-                            push(urls.dashboardTextTile(dashboard.id, 'new'))
-                        }}
-                        data-attr="add-text-tile-to-dashboard"
-                        type="secondary"
-                        size="small"
-                        tooltip="Add text card"
-                        tooltipPlacement="top"
-                        icon={<IconPlusSmall />}
-                    >
-                        Text card
-                    </LemonButton>
-                </AppShortcut>
-            </AccessControlAction>
-            {canEditDashboard && hasTileRedesign && (
+                Share
+            </LemonButton>
+            {canEditDashboard && (
                 <AppShortcut
                     name="EnterEditMode"
                     scope={Scene.Dashboard}
                     keybind={[keyBinds.edit]}
                     intent="Enter edit mode"
                     interaction="click"
+                    disabled={tiles.length === 0}
                 >
                     <LemonButton
                         type="secondary"
                         data-attr="dashboard-edit-mode-button"
                         onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)}
                         size="small"
-                        icon={<IconPencil fontSize="16" />}
+                        icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Edit layout"
                         tooltipPlacement="top"
+                        disabledReason={tiles.length === 0 ? 'Add at least one tile to edit layout' : undefined}
                     >
                         Edit layout
                     </LemonButton>
@@ -173,14 +156,34 @@ export function ViewModeActions(): JSX.Element {
                     minAccessLevel={AccessControlLevel.Editor}
                     userAccessLevel={dashboard.user_access_level}
                 >
-                    <LemonButton
-                        onClick={showAddInsightToDashboardModal}
-                        type="primary"
-                        data-attr="dashboard-add-graph-header"
-                        size="small"
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Insight',
+                                onClick: showAddInsightToDashboardModal,
+                                'data-attr': 'dashboard-add-insight',
+                            },
+                            {
+                                label: 'Text card',
+                                onClick: () => push(urls.dashboardTextTile(dashboard.id, 'new')),
+                                'data-attr': 'dashboard-add-text-tile',
+                            },
+                            {
+                                label: 'Button',
+                                onClick: () => push(urls.dashboardButtonTile(dashboard.id, 'new')),
+                                'data-attr': 'dashboard-add-button-tile',
+                            },
+                        ]}
                     >
-                        Add insight
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            data-attr="dashboard-add-tile"
+                            size="small"
+                            icon={<IconPlusSmall />}
+                        >
+                            Add
+                        </LemonButton>
+                    </LemonMenu>
                 </AccessControlAction>
             </MaxTool>
         </>

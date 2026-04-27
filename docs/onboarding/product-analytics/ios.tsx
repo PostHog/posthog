@@ -13,8 +13,8 @@ export const getIOSSteps = (
 ): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
-    const podVersion = options?.minVersionPod || '3.0'
-    const spmVersion = options?.minVersionSPM || '3.0.0'
+    const podVersion = options?.minVersionPod || '3.56'
+    const spmVersion = options?.minVersionSPM || '3.56.0'
 
     return [
         {
@@ -74,10 +74,10 @@ export const getIOSSteps = (
 
                                     class AppDelegate: NSObject, UIApplicationDelegate {
                                         func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
-                                            let POSTHOG_API_KEY = "<ph_project_token>"
+                                            let POSTHOG_PROJECT_TOKEN = "<ph_project_token>"
                                             let POSTHOG_HOST = "<ph_client_api_host>"
 
-                                            let config = PostHogConfig(apiKey: POSTHOG_API_KEY, host: POSTHOG_HOST)
+                                            let config = PostHogConfig(projectToken: POSTHOG_PROJECT_TOKEN, host: POSTHOG_HOST)
                                             PostHogSDK.shared.setup(config)
 
                                             return true

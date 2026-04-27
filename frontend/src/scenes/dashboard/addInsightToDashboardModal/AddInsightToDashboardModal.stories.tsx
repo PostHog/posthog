@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -42,7 +42,7 @@ const mockInsightsList = {
 
 const DASHBOARD_ID = 1
 
-const meta: Meta<typeof AddInsightToDashboardModal> = {
+const meta: Meta = {
     component: AddInsightToDashboardModal,
     title: 'Scenes-App/Dashboards/Add Insight to Dashboard Modal',
     decorators: [
@@ -66,6 +66,8 @@ const meta: Meta<typeof AddInsightToDashboardModal> = {
 }
 export default meta
 
+type Story = StoryObj<{}>
+
 function ModalStory({ showMore = false }: { showMore?: boolean }): JSX.Element {
     addInsightToDashboardLogic.mount()
     addInsightToDashboardLogic.actions.showAddInsightToDashboardModal()
@@ -80,20 +82,26 @@ function ModalStory({ showMore = false }: { showMore?: boolean }): JSX.Element {
     )
 }
 
-export const Default: StoryFn = () => <ModalStory />
+export const Default: Story = {
+    render: () => <ModalStory />,
+}
 
-export const WithMoreInsightTypes: StoryFn = () => <ModalStory showMore />
+export const WithMoreInsightTypes: Story = {
+    render: () => <ModalStory showMore />,
+}
 
-export const Empty: StoryFn = () => <ModalStory />
-Empty.decorators = [
-    mswDecorator({
-        get: {
-            '/api/environments/:team_id/dashboards/': require('../__mocks__/dashboards.json'),
-            [`/api/environments/:team_id/dashboards/${DASHBOARD_ID}/`]: dashboard,
-            '/api/environments/:team_id/insights/': { results: [], count: 0, next: null, previous: null },
-        },
-        post: {
-            '/api/environments/:team_id/insights/cancel/': [201],
-        },
-    }),
-]
+export const Empty: Story = {
+    render: () => <ModalStory />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/dashboards/': require('../__mocks__/dashboards.json'),
+                [`/api/environments/:team_id/dashboards/${DASHBOARD_ID}/`]: dashboard,
+                '/api/environments/:team_id/insights/': { results: [], count: 0, next: null, previous: null },
+            },
+            post: {
+                '/api/environments/:team_id/insights/cancel/': [201],
+            },
+        }),
+    ],
+}

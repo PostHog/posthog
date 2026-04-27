@@ -8,7 +8,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { llmProviderKeysLogicType } from './llmProviderKeysLogicType'
 
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks'
+export type LLMProvider = 'openai' | 'anthropic' | 'gemini' | 'openrouter' | 'fireworks' | 'azure_openai'
+
+/** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
+export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
@@ -16,6 +19,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     gemini: 'Google Gemini',
     openrouter: 'OpenRouter',
     fireworks: 'Fireworks',
+    azure_openai: 'Azure OpenAI',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -52,6 +56,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     if (normalized === 'google' || normalized === 'google-ai-studio') {
         return 'gemini'
     }
+    if (normalized === 'azure_openai' || normalized === 'azure-openai' || normalized === 'azure openai') {
+        return 'azure_openai'
+    }
 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
 }
@@ -63,6 +70,8 @@ export interface LLMProviderKey {
     state: LLMProviderKeyState
     error_message: string | null
     api_key_masked: string
+    azure_endpoint_display: string | null
+    api_version_display: string | null
     created_at: string
     created_by: {
         id: number
@@ -126,16 +135,29 @@ export interface CreateLLMProviderKeyPayload {
     name: string
     api_key: string
     set_as_active?: boolean
+    azure_endpoint?: string
+    api_version?: string
 }
 
 export interface UpdateLLMProviderKeyPayload {
     name?: string
     api_key?: string
+    azure_endpoint?: string
+    api_version?: string
 }
 
 export interface KeyValidationResult {
     state: LLMProviderKeyState
     error_message: string | null
+    // Form field the error should be attributed to in the UI (e.g. 'azure_endpoint', 'api_key').
+    // Only set for providers that validate multiple inputs — most providers leave it null.
+    error_field?: string | null
+}
+
+export interface TrialEvaluation {
+    id: string
+    name: string
+    enabled: boolean
 }
 
 export interface DependentEvaluation {
@@ -164,6 +186,9 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         setEditingKey: (key: LLMProviderKey | null) => ({ key }),
         setKeyToDelete: (key: LLMProviderKey | null) => ({ key }),
         confirmDelete: (replacementKeyId?: string) => ({ replacementKeyId }),
+        setNewlyCreatedKey: (key: LLMProviderKey | null) => ({ key }),
+        confirmAssignKey: (evaluationIds: string[], enable: boolean) => ({ evaluationIds, enable }),
+        dismissAssignKey: true,
     }),
 
     reducers({
@@ -203,9 +228,31 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 deleteProviderKeySuccess: () => null,
             },
         ],
+        newlyCreatedKey: [
+            null as LLMProviderKey | null,
+            {
+                setNewlyCreatedKey: (_, { key }) => key,
+                dismissAssignKey: () => null,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
+        trialEvaluations: [
+            [] as TrialEvaluation[],
+            {
+                loadTrialEvaluations: async ({ provider }: { provider: LLMProvider }): Promise<TrialEvaluation[]> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return []
+                    }
+                    const response = await api.get(
+                        `/api/environments/${teamId}/llm_analytics/provider_keys/trial_evaluations/?provider=${encodeURIComponent(provider)}`
+                    )
+                    return response.evaluations
+                },
+            },
+        ],
         dependentConfigs: [
             null as DependentConfigsResponse | null,
             {
@@ -230,18 +277,29 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 preValidateKey: async ({
                     apiKey,
                     provider,
+                    azure_endpoint,
+                    api_version,
                 }: {
                     apiKey: string
                     provider: LLMProvider
+                    azure_endpoint?: string
+                    api_version?: string
                 }): Promise<KeyValidationResult> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return { state: 'error', error_message: 'No team selected' }
                     }
                     try {
+                        const body: Record<string, string> = { api_key: apiKey, provider }
+                        if (azure_endpoint) {
+                            body.azure_endpoint = azure_endpoint
+                        }
+                        if (api_version) {
+                            body.api_version = api_version
+                        }
                         const response = await api.create(
                             `/api/environments/${teamId}/llm_analytics/provider_key_validations/`,
-                            { api_key: apiKey, provider }
+                            body
                         )
                         return response
                     } catch (error) {
@@ -297,6 +355,9 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                     )
                     actions.setNewKeyModalOpen(false)
                     actions.loadEvaluationConfig()
+                    // Check if there are trial evaluations that could use this key
+                    actions.setNewlyCreatedKey(response)
+                    actions.loadTrialEvaluations({ provider: response.provider })
                     return [...values.providerKeys, response]
                 },
                 updateProviderKey: async ({
@@ -399,10 +460,42 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                 actions.loadDependentConfigs({ keyId: key.id })
             }
         },
+        loadTrialEvaluationsSuccess: ({ trialEvaluations }) => {
+            // If no trial evaluations found, auto-dismiss the assign key modal
+            if (trialEvaluations.length === 0 && values.newlyCreatedKey) {
+                actions.setNewlyCreatedKey(null)
+            }
+        },
         confirmDelete: ({ replacementKeyId }) => {
             if (values.keyToDelete) {
                 actions.deleteProviderKey({ id: values.keyToDelete.id, replacementKeyId })
             }
+        },
+        confirmAssignKey: async ({ evaluationIds, enable }) => {
+            const key = values.newlyCreatedKey
+            if (!key || evaluationIds.length === 0) {
+                actions.setNewlyCreatedKey(null)
+                return
+            }
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                await api.create(`/api/environments/${teamId}/llm_analytics/provider_keys/${key.id}/assign/`, {
+                    evaluation_ids: evaluationIds,
+                    enable,
+                })
+                const count = evaluationIds.length
+                lemonToast.success(
+                    enable
+                        ? `Assigned key and re-enabled ${count} evaluation${count !== 1 ? 's' : ''}`
+                        : `Assigned key to ${count} evaluation${count !== 1 ? 's' : ''}`
+                )
+            } catch {
+                lemonToast.error('Failed to assign key to evaluations')
+            }
+            actions.setNewlyCreatedKey(null)
         },
     })),
 

@@ -2,14 +2,35 @@ import re
 import json
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.llm_prompt import LLMPrompt
+from posthog.models.llm_prompt import LLMPrompt, get_prompt_outline, normalize_prompt_to_string
+
+
+class LLMPromptOutlineEntrySerializer(serializers.Serializer):
+    level = serializers.IntegerField(min_value=1, max_value=6, help_text="Markdown heading level (1-6).")
+    text = serializers.CharField(help_text="Heading text with markdown link syntax preserved.")
+
 
 RESERVED_PROMPT_NAMES = {"new"}
 DEFAULT_VERSION_PAGE_SIZE = 50
 MAX_PROMPT_PAYLOAD_BYTES = 1_000_000
+
+
+def validate_prompt_name_value(value: str) -> str:
+    if value.lower() in RESERVED_PROMPT_NAMES:
+        raise serializers.ValidationError(
+            "'new' is a reserved name and cannot be used.",
+            code="reserved_name",
+        )
+    if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+        raise serializers.ValidationError(
+            "Only letters, numbers, hyphens (-) and underscores (_) are allowed.",
+            code="invalid_name",
+        )
+    return value
 
 
 def validate_prompt_payload_size(prompt_payload: Any) -> Any:
@@ -22,6 +43,14 @@ def validate_prompt_payload_size(prompt_payload: Any) -> Any:
     return prompt_payload
 
 
+CONTENT_MODE_CHOICES = ["full", "preview", "none"]
+CONTENT_MODE_HELP = (
+    "Controls how much prompt content is included in the response. "
+    "'full' includes the full prompt, 'preview' includes a short prompt_preview, "
+    "and 'none' omits prompt content entirely. The outline field is always included."
+)
+
+
 class LLMPromptFetchQuerySerializer(serializers.Serializer):
     version = serializers.IntegerField(
         min_value=1,
@@ -30,11 +59,30 @@ class LLMPromptFetchQuerySerializer(serializers.Serializer):
     )
 
 
+class LLMPromptGetByNameQuerySerializer(LLMPromptFetchQuerySerializer):
+    content = serializers.ChoiceField(
+        choices=CONTENT_MODE_CHOICES,
+        required=False,
+        default="full",
+        help_text=CONTENT_MODE_HELP,
+    )
+
+
 class LLMPromptListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         required=False,
         allow_blank=True,
         help_text="Optional substring filter applied to prompt names and prompt content.",
+    )
+    created_by_id = serializers.IntegerField(
+        required=False,
+        help_text="Filter prompts by the ID of the user who created them.",
+    )
+    content = serializers.ChoiceField(
+        choices=CONTENT_MODE_CHOICES,
+        required=False,
+        default="full",
+        help_text=CONTENT_MODE_HELP,
     )
 
 
@@ -67,8 +115,29 @@ class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):
         return attrs
 
 
+class LLMPromptEditOperationSerializer(serializers.Serializer):
+    old = serializers.CharField(
+        help_text="Text to find in the current prompt. Must match exactly once.",
+    )
+    new = serializers.CharField(
+        help_text="Replacement text.",
+    )
+
+
 class LLMPromptPublishSerializer(serializers.Serializer):
-    prompt = serializers.JSONField(help_text="Prompt payload to publish as a new version.")
+    prompt = serializers.JSONField(
+        required=False,
+        help_text="Full prompt payload to publish as a new version. Mutually exclusive with edits.",
+    )
+    edits = LLMPromptEditOperationSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "List of find/replace operations to apply to the current prompt version. "
+            "Each edit's 'old' text must match exactly once. Edits are applied sequentially. "
+            "Mutually exclusive with prompt."
+        ),
+    )
     base_version = serializers.IntegerField(
         min_value=1,
         help_text="Latest version you are editing from. Used for optimistic concurrency checks.",
@@ -77,6 +146,22 @@ class LLMPromptPublishSerializer(serializers.Serializer):
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
 
+    def validate_edits(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        if len(value) == 0:
+            raise serializers.ValidationError("At least one edit operation is required.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        has_prompt = "prompt" in attrs
+        has_edits = "edits" in attrs
+
+        if has_prompt and has_edits:
+            raise serializers.ValidationError("Provide either 'prompt' or 'edits', not both.")
+        if not has_prompt and not has_edits:
+            raise serializers.ValidationError("Either 'prompt' or 'edits' is required.")
+
+        return attrs
+
 
 class LLMPromptSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
@@ -84,6 +169,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
     latest_version = serializers.SerializerMethodField()
     version_count = serializers.SerializerMethodField()
     first_version_created_at = serializers.SerializerMethodField()
+    outline = serializers.SerializerMethodField()
 
     class Meta:
         model = LLMPrompt
@@ -100,6 +186,7 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "latest_version",
             "version_count",
             "first_version_created_at",
+            "outline",
         ]
         read_only_fields = [
             "id",
@@ -112,11 +199,16 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             "latest_version",
             "version_count",
             "first_version_created_at",
+            "outline",
         ]
         extra_kwargs = {
             "name": {"help_text": "Unique prompt name using letters, numbers, hyphens, and underscores only."},
             "prompt": {"help_text": "Prompt payload as JSON or string data."},
         }
+
+    @extend_schema_field(LLMPromptOutlineEntrySerializer(many=True))
+    def get_outline(self, instance: LLMPrompt) -> list[dict[str, Any]]:
+        return get_prompt_outline(instance.prompt)
 
     def get_is_latest(self, instance: LLMPrompt) -> bool:
         return bool(getattr(instance, "is_latest", False))
@@ -135,32 +227,26 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             return value
         return value.isoformat().replace("+00:00", "Z")
 
+    def to_representation(self, instance: LLMPrompt) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if "prompt" in data:
+            data["prompt"] = normalize_prompt_to_string(data["prompt"])
+        return data
+
     def validate_name(self, value: str) -> str:
-        if value.lower() in RESERVED_PROMPT_NAMES:
-            raise serializers.ValidationError(
-                "'new' is a reserved name and cannot be used.",
-                code="reserved_name",
-            )
-
-        if not re.match(r"^[a-zA-Z0-9_-]+$", value):
-            raise serializers.ValidationError(
-                "Only letters, numbers, hyphens (-) and underscores (_) are allowed.",
-                code="invalid_name",
-            )
-
-        return value
+        return validate_prompt_name_value(value)
 
     def validate_prompt(self, value: Any) -> Any:
         return validate_prompt_payload_size(value)
 
-    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["get_team"]()
-        name = data.get("name")
+        name = attrs.get("name")
 
         if self.instance is None:
             if name and LLMPrompt.objects.filter(name=name, team=team, deleted=False).exists():
                 raise serializers.ValidationError({"name": "A prompt with this name already exists."}, code="unique")
-            return data
+            return attrs
 
         if name is not None and self.instance.name != name:
             raise serializers.ValidationError(
@@ -168,13 +254,13 @@ class LLMPromptSerializer(serializers.ModelSerializer):
                 code="immutable",
             )
 
-        if "prompt" in data:
+        if "prompt" in attrs:
             raise serializers.ValidationError(
                 {"prompt": "Prompt content is versioned and cannot be updated in place. Create a new version instead."},
                 code="immutable",
             )
 
-        return data
+        return attrs
 
     def create(self, validated_data: dict[str, Any]) -> LLMPrompt:
         request = self.context["request"]
@@ -186,6 +272,35 @@ class LLMPromptSerializer(serializers.ModelSerializer):
             is_latest=True,
             **validated_data,
         )
+
+
+class LLMPromptListSerializer(LLMPromptSerializer):
+    prompt_size_bytes = serializers.SerializerMethodField()
+    prompt_preview = serializers.SerializerMethodField()
+
+    class Meta(LLMPromptSerializer.Meta):
+        fields = [*LLMPromptSerializer.Meta.fields, "prompt_preview", "prompt_size_bytes"]
+        read_only_fields = fields
+
+    def get_prompt_size_bytes(self, instance: LLMPrompt) -> int:
+        return int(getattr(instance, "prompt_size_bytes", 0))
+
+    def get_prompt_preview(self, instance: LLMPrompt) -> str:
+        prompt = instance.prompt
+        display_value = prompt if isinstance(prompt, str) else json.dumps(prompt, ensure_ascii=False)
+        return display_value[:160] + ("..." if len(display_value) > 160 else "")
+
+    def to_representation(self, instance: LLMPrompt) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        content_mode = self.context.get("content_mode", "full")
+        if content_mode == "none":
+            data.pop("prompt", None)
+            data.pop("prompt_preview", None)
+        elif content_mode == "preview":
+            data.pop("prompt", None)
+        else:
+            data.pop("prompt_preview", None)
+        return data
 
 
 class LLMPromptVersionSummarySerializer(serializers.ModelSerializer):
@@ -206,7 +321,18 @@ class LLMPromptVersionSummarySerializer(serializers.ModelSerializer):
 class LLMPromptPublicSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     name = serializers.CharField()
-    prompt = serializers.JSONField()
+    prompt = serializers.JSONField(
+        required=False,
+        help_text="Full prompt content. Omitted when 'content=preview' or 'content=none'.",
+    )
+    prompt_preview = serializers.CharField(
+        required=False,
+        help_text="First 160 characters of the prompt. Only present when 'content=preview'.",
+    )
+    outline = LLMPromptOutlineEntrySerializer(
+        many=True,
+        help_text="Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents.",
+    )
     version = serializers.IntegerField()
     created_at = serializers.DateTimeField()
     updated_at = serializers.DateTimeField()
@@ -215,6 +341,16 @@ class LLMPromptPublicSerializer(serializers.Serializer):
     latest_version = serializers.IntegerField()
     version_count = serializers.IntegerField()
     first_version_created_at = serializers.DateTimeField()
+
+
+class LLMPromptDuplicateSerializer(serializers.Serializer):
+    new_name = serializers.CharField(
+        max_length=255,
+        help_text="Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.",
+    )
+
+    def validate_new_name(self, value: str) -> str:
+        return validate_prompt_name_value(value)
 
 
 class LLMPromptResolveResponseSerializer(serializers.Serializer):

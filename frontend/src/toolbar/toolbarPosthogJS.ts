@@ -46,6 +46,18 @@ if (runningOnPosthog && window.JS_POSTHOG_SELF_CAPTURE) {
     toolbarPosthogJS.debug()
 }
 
+/** Capture an exception with a required toolbar context tag for filtering. */
+export function captureToolbarException(
+    error: unknown,
+    context: string,
+    additionalProperties?: Record<string, unknown>
+): void {
+    toolbarPosthogJS.captureException(error, {
+        toolbar_context: context,
+        ...additionalProperties,
+    })
+}
+
 export const useToolbarFeatureFlag = (flag: FeatureFlagKey, match?: string): boolean => {
     const [flagValue, setFlagValue] = useState<boolean | string | undefined>(toolbarPosthogJS.getFeatureFlag(flag))
 

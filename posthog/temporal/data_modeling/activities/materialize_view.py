@@ -43,6 +43,12 @@ MB_100_IN_BYTES = 100 * 1000 * 1000
 CLICKHOUSE_MAX_BLOCK_SIZE_ROWS = 50 * 1000
 DELTA_TABLE_RETENTION_HOURS = 24
 
+# Limits concurrent ClickHouse queries per worker. Each worker pod runs a single
+# process with a single event loop — all async activities share it, so this
+# module-level semaphore gates every activity on the same worker.
+MAX_CONCURRENT_CLICKHOUSE_QUERIES = 10
+_clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIES)
+
 
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
@@ -135,6 +141,27 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
             new_fields.append(field)
             continue
 
+        # Handle array/list types (e.g., Array(DateTime))
+        if pa.types.is_list(field.type):
+            if "datetime" in type.lower():
+                list_element_type: pa.DataType = pa.timestamp("us", tz="UTC")
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
+                list_int64 = pc.cast(column, pa.list_(pa.int64()))
+                list_timestamp_s = pc.cast(list_int64, pa.list_(pa.timestamp("s")))
+                list_column = pc.cast(list_timestamp_s, list_type)
+            else:
+                list_element_type = pa.date32()
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
+                list_int32 = pc.cast(column, pa.list_(pa.int32()))
+                list_column = pc.cast(list_int32, list_type)
+
+            new_fields.append(list_field)
+            new_columns.append(list_column)
+            continue
+
+        # Handle scalar types
         if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
             new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
             new_column = pc.cast(column, new_field.type)
@@ -240,7 +267,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
 
     await logger.adebug(f"Running count query: {printed}")
 
-    async with get_clickhouse_client(allow_experimental_analyzer=1) as client:
+    async with _clickhouse_query_semaphore, get_clickhouse_client(enable_analyzer=1) as client:
         result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
@@ -288,25 +315,34 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         "IPv6": ("toString", ()),
     }
 
-    has_type_to_convert = lambda ch_type: any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
+    def _needs_conversion(ch_type: str) -> bool:
+        # Skip array types from conversion — they are already properly typed by ClickHouse
+        # and attempting to convert them causes errors like:
+        # "Illegal type Array(DateTime) of argument of function toTimezone"
+        is_array_type = ch_type.lower().startswith("array(")
+        if is_array_type:
+            return False
+        return any(uat.lower() in ch_type.lower() for uat in arrow_type_conversion)
+
     get_call_tuple = lambda ch_type: next(
         iter([call_tuple for uat, call_tuple in arrow_type_conversion.items() if uat.lower() in ch_type.lower()])
     )
 
     query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
-    async with get_clickhouse_client(allow_experimental_analyzer=1) as client:
+    async with _clickhouse_query_semaphore, get_clickhouse_client(enable_analyzer=1) as client:
         async with client.apost_query(
             query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
         ) as ch_response:
             table_describe_response = await ch_response.content.read()
             for line in table_describe_response.decode("utf-8").splitlines():
                 column_name, ch_type = line.strip().split("\t")
-                if has_type_to_convert(ch_type):
+                if _needs_conversion(ch_type):
                     query_typings.append((column_name, ch_type, get_call_tuple(ch_type)))
                 else:
                     query_typings.append((column_name, ch_type, None))
 
-    if query_typings:
+    has_type_to_convert = any(call_tuple is not None for _, _, call_tuple in query_typings)
+    if has_type_to_convert:
         await logger.adebug("Query has fields that need converting")
         select_fields: list[ast.Expr] = []
         for column_name, ch_type, call_tuple in query_typings:
@@ -340,9 +376,10 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     await logger.adebug(f"Running clickhouse query: {arrow_printed}")
 
-    async with get_clickhouse_client(
-        max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, allow_experimental_analyzer=1
-    ) as client:
+    async with (
+        _clickhouse_query_semaphore,
+        get_clickhouse_client(max_block_size=CLICKHOUSE_MAX_BLOCK_SIZE_ROWS, enable_analyzer=1) as client,
+    ):
         batches = []
         batches_size = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
@@ -372,7 +409,7 @@ def _get_matview_input_objects(
 ) -> tuple[Team, Node, DataWarehouseSavedQuery, DataModelingJob]:
     team = Team.objects.get(id=inputs.team_id)
     node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id
+        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
     if node.type == NodeType.TABLE:
         raise InvalidNodeTypeException(f"Cannot materialize a TABLE node: {node.name}")
@@ -397,40 +434,39 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
     team, node, saved_query, job = await _get_matview_input_objects(inputs)
-    await logger.adebug(f"Starting materialization for node {node.name}")
+    await logger.ainfo(f"Starting materialization for node {node.name}")
 
     table_uri = _build_model_table_uri(team.pk, saved_query.id.hex, saved_query.normalized_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
 
-    # delete existing table first to avoid schema conflicts
-    s3 = get_s3_client()
-    try:
-        # non-blocking delete returns control to the event loop so heartbeats continue
-        await asyncio.to_thread(s3.delete, table_uri, recursive=True)
-        await logger.adebug(f"Table recursively deleted: uri={table_uri}")
-    except FileNotFoundError:
-        await logger.adebug(f"Skipping deletion because table not found: uri={table_uri}")
-
-    hogql_query = typing.cast(dict, saved_query.query)["query"]
-    try:
-        rows_expected = await get_query_row_count(hogql_query, team, logger)
-        await logger.ainfo(f"Expected rows: {rows_expected}")
-        job.rows_expected = rows_expected
-        await database_sync_to_async(job.save)()
-    except Exception as e:
-        await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
-        job.rows_expected = None
-        await database_sync_to_async(job.save)()
-
-    row_count = 0
-    storage_options = _get_aws_storage_options()
-    delta_table: deltalake.DeltaTable | None = None
     async with Heartbeater():
+        # delete existing table first to avoid schema conflicts
+        s3 = get_s3_client()
+        try:
+            # non-blocking delete returns control to the event loop so heartbeats continue
+            await asyncio.to_thread(s3.delete, table_uri, recursive=True)
+            await logger.adebug(f"Table recursively deleted: uri={table_uri}")
+        except FileNotFoundError:
+            await logger.adebug(f"Skipping deletion because table not found: uri={table_uri}")
+
+        hogql_query = typing.cast(dict, saved_query.query)["query"]
+        try:
+            rows_expected = await get_query_row_count(hogql_query, team, logger)
+            await logger.ainfo(f"Expected rows: {rows_expected}")
+            job.rows_expected = rows_expected
+            await database_sync_to_async(job.save)()
+        except Exception as e:
+            await logger.awarning(f"Failed to get expected row count: {str(e)}. Continuing without progress tracking.")
+            job.rows_expected = None
+            await database_sync_to_async(job.save)()
+
+        row_count = 0
+        storage_options = _get_aws_storage_options()
+        delta_table: deltalake.DeltaTable | None = None
         async for index, res in asyncstdlib.enumerate(hogql_table(hogql_query, team, logger)):
             batch, ch_types = res
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
-            # i know this isn't DRY but it was the only way to make type checking shut up
             if index == 0:
                 await logger.adebug(
                     f"Writing batch to delta table: index={index} mode=overwrite schema_mode=overwrite batch_row_count={batch.num_rows}"
@@ -443,44 +479,45 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                     schema_mode="overwrite",
                     storage_options=storage_options,
                 )
+                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
             else:
                 await logger.adebug(
                     f"Writing batch to delta table: index={index} mode=append batch_row_count={batch.num_rows}"
                 )
                 await asyncio.to_thread(
-                    deltalake.write_deltalake,
-                    table_or_uri=table_uri,
+                    deltalake.write_deltalake,  # type: ignore[arg-type]
+                    table_or_uri=delta_table,
                     data=batch,
                     mode="append",
                     storage_options=storage_options,
                 )
-            if index == 0:
-                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
             await database_sync_to_async(job.save)()
-
-    await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
-    # row count validation warning
-    if job.rows_expected is not None:
-        if row_count != job.rows_expected:
-            await logger.awarning(
-                "Row count mismatch after materialization",
-                expected=job.rows_expected,
-                actual=row_count,
+            # explicitly delete batch to free memory after writing
+            del batch, ch_types
+        await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
+        # row count validation warning
+        if job.rows_expected is not None:
+            if row_count != job.rows_expected:
+                await logger.awarning(
+                    "Row count mismatch after materialization",
+                    expected=job.rows_expected,
+                    actual=row_count,
+                )
+        file_uris = []
+        if delta_table is not None:
+            await logger.ainfo("Compacting delta table")
+            await asyncio.to_thread(delta_table.optimize.compact)
+            await logger.ainfo("Vacuuming delta table")
+            await asyncio.to_thread(
+                delta_table.vacuum,
+                retention_hours=DELTA_TABLE_RETENTION_HOURS,
+                enforce_retention_duration=False,
+                dry_run=False,
             )
-
-    if delta_table is None:
-        delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=storage_options)
-
-    await logger.adebug("Compacting delta table")
-    delta_table.optimize.compact()
-    await logger.adebug("Vacuuming delta table")
-    delta_table.vacuum(retention_hours=DELTA_TABLE_RETENTION_HOURS, enforce_retention_duration=False, dry_run=False)
-
-    file_uris = delta_table.file_uris()
-
-    await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")
+            file_uris = delta_table.file_uris()
+        await logger.ainfo(f"Materialized node {node.name} with {row_count} rows")
     return MaterializeViewResult(
         node_id=node.id,
         node_name=node.name,
