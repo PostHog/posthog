@@ -5,14 +5,25 @@
 #     "pytest-snob>=0.1.14",
 # ]
 # ///
-"""Shadow backend test selection using Snob plus PostHog-specific AST groups.
+"""Shadow backend test selection: Snob import graph + Django-aware heuristics.
 
-This script is intentionally read-only and shadow-mode friendly. Snob provides
-the import-graph selection. The AST pass classifies tests that are easy to miss
-with import-only selection, especially Django API-client tests that reach code
-through URL routing.
+Combines three strategies to maximize recall (no missed tests) while keeping
+precision reasonable (don't run everything on every PR):
 
-Outputs one JSON object to stdout.
+1. Snob (import graph) — catches direct and transitive import dependencies.
+2. AST heuristics — catches Django API-client tests that reach code through
+   URL routing, not imports.
+3. Django-aware expansion — catches middleware, signal handlers, DB routers,
+   model field changes, and other framework-level indirection that neither
+   import graphs nor AST heuristics can see.
+
+Validated against pytest-testmon runtime coverage data (PR #56370).
+The import graph alone covers ~33% of real test dependencies. The AST
+heuristics close the URL-dispatch gap (~4%). Django-aware expansion closes
+signals, middleware, and same-app fallback gaps (~12%). The remainder is
+migration noise and framework-level indirection covered by FULL_RUN_PATTERNS.
+
+Shadow mode: outputs JSON to stdout, does not affect CI pass/fail.
 """
 
 from __future__ import annotations
@@ -39,18 +50,59 @@ API_CLIENT_IMPORTS = {
     "rest_framework.test.APIRequestFactory",
 }
 API_SURFACE_PARTS = {"api", "presentation", "serializers", "views", "urls"}
+
+# Files/patterns that force a full test run when changed.
 FULL_RUN_PATTERNS = (
+    # Python infrastructure
     "conftest.py",
     "posthog/settings/",
     "posthog/test/",
     "manage.py",
     "pyproject.toml",
     "uv.lock",
+    "requirements.txt",
+    "requirements-dev.txt",
     "pytest.ini",
+    "mypy.ini",
     ".test_durations",
+    # CI / Docker infrastructure
     ".github/workflows/ci-backend.yml",
+    ".github/clickhouse-versions.json",
     "docker-compose",
+    "docker/clickhouse/",
+    "bin/wait-for-docker",
+    "bin/ci-wait-for-docker",
+    # Non-Python files that affect generated Python code or test behavior
+    "frontend/src/queries/schema.json",
+    "frontend/src/products.json",
+    "frontend/public/email/",
+    "rust/feature-flags/src/properties/property_models.rs",
+    "common/plugin_transpiler/src",
 )
+
+# Patterns that indicate "broad API tests needed" but not full suite.
+# These are Django infrastructure files reached through settings/framework
+# machinery rather than imports — testmon shows they affect many tests.
+MIDDLEWARE_PATTERNS = ("middleware",)
+DB_ROUTER_PATTERNS = ("db_router", "product_db_config")
+
+# Django signal connection patterns in source code
+SIGNAL_CONNECT_NAMES = {
+    "pre_save",
+    "post_save",
+    "pre_delete",
+    "post_delete",
+    "m2m_changed",
+    "pre_init",
+    "post_init",
+    "pre_migrate",
+    "post_migrate",
+    "request_started",
+    "request_finished",
+    "got_request_exception",
+}
+
+MAX_CHANGED_FILES = 50
 
 
 @dataclass(frozen=True)
@@ -162,6 +214,53 @@ def _api_tokens_from_strings(strings: set[str]) -> tuple[str, ...]:
             if clean and clean not in {"api", "projects", "environments", "current", "team_id", "project_id"}:
                 tokens.update(_normal_tokens(clean))
     return tuple(sorted(tokens))
+
+
+def _is_signal_handler_file(path: str) -> bool:
+    """Detect files that connect Django signals (reached via AppConfig.ready(), not imports)."""
+    tree = _read_tree(path)
+    if tree is None:
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr == "connect":
+            receiver = _name_from_node(node.value)
+            if any(sig in receiver for sig in SIGNAL_CONNECT_NAMES):
+                return True
+        if isinstance(node, ast.Name) and node.id == "receiver":
+            return True
+    name = PurePosixPath(path).name
+    return "signal" in name
+
+
+def _is_middleware_file(path: str) -> bool:
+    name = PurePosixPath(path).name
+    return any(pattern in name for pattern in MIDDLEWARE_PATTERNS)
+
+
+def _is_db_router_file(path: str) -> bool:
+    name = PurePosixPath(path).name
+    return any(pattern in name for pattern in DB_ROUTER_PATTERNS)
+
+
+def _django_app_for_path(path: str) -> str | None:
+    """Return the Django app directory for a file path.
+
+    For products: products/<name>/backend/
+    For posthog: posthog/<subpackage>/
+    For ee: ee/<subpackage>/
+    """
+    parts = PurePosixPath(path).parts
+    if parts[0] == "products" and len(parts) >= 3:
+        return str(PurePosixPath(*parts[:3]))
+    if parts[0] in ("posthog", "ee") and len(parts) >= 2:
+        return str(PurePosixPath(*parts[:2]))
+    return None
+
+
+def _find_tests_in_app(app_dir: str, all_test_files: set[str]) -> set[str]:
+    """Find all test files belonging to the same Django app."""
+    prefix = app_dir + "/" if not app_dir.endswith("/") else app_dir
+    return {f for f in all_test_files if f.startswith(prefix)}
 
 
 def classify_test_file(path: str) -> TestFeatures:
@@ -291,17 +390,24 @@ def _add_group(groups: dict[str, set[str]], name: str, tests: list[str] | set[st
 def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestFeatures]) -> AstSelection:
     groups: dict[str, set[str]] = {}
     full_run_reasons: list[str] = []
+    all_test_files = set(features_by_path.keys())
 
+    # ── 1. Changed test files themselves ─────────────────────────────
     changed_tests = [path for path in changed_files if _is_test_file(path)]
     _add_group(groups, "changed_tests", changed_tests)
 
+    # ── 2. Conventional test neighbors (test_<name>.py next to <name>.py) ─
     conventional: set[str] = set()
     for path in changed_files:
         conventional.update(_candidate_conventional_tests(path))
     _add_group(groups, "conventional_neighbors", conventional)
 
+    # ── 3. Full-run pattern detection + API surface classification ───
     product_api_changes: dict[str, set[str]] = {}
     posthog_api_tokens: set[str] = set()
+
+    changed_prod_files = [p for p in changed_files if not _is_test_file(p) and p.endswith(".py")]
+
     for path in changed_files:
         if not _is_test_file(path):
             for pattern in FULL_RUN_PATTERNS:
@@ -318,6 +424,11 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
         else:
             posthog_api_tokens.update(_tokens_for_changed_file(path))
 
+    # Too many changed files — signal that full run is warranted
+    if len(changed_prod_files) > MAX_CHANGED_FILES:
+        full_run_reasons.append(f"too many changed files ({len(changed_prod_files)} > {MAX_CHANGED_FILES})")
+
+    # ── 4. Product API client tests (URL dispatch heuristic) ───────���─
     for product, tokens in sorted(product_api_changes.items()):
         product_prefix = f"products/{product}/"
         product_tests = [
@@ -349,6 +460,7 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
         if not token_tests:
             _add_group(groups, "posthog_api_client_fallback", api_tests)
 
+    # ── 5. Temporal / ClickHouse broad matching ──────────────────────
     if any("temporal" in path for path in changed_files):
         _add_group(
             groups,
@@ -362,6 +474,50 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
             "clickhouse",
             {path for path, features in features_by_path.items() if features.uses_clickhouse},
         )
+
+    # ── 6. Signal handler expansion ──────────────────────────────────
+    # Testmon shows signal handlers affect hundreds of tests through
+    # Django's dispatch mechanism. When a signal handler file changes,
+    # include all API-client tests in the same app (the models emitting
+    # signals are exercised through API endpoints).
+    for path in changed_prod_files:
+        if _is_signal_handler_file(path):
+            app = _django_app_for_path(path)
+            if app:
+                app_tests = _find_tests_in_app(app, all_test_files)
+                _add_group(groups, f"signal_handler_app:{app}", app_tests)
+            # Signal handlers often affect tests across apps too — include
+            # all API-client tests as a conservative fallback
+            api_client_tests = {p for p, f in features_by_path.items() if f.is_django_api_test}
+            _add_group(groups, "signal_handler_api_tests", api_client_tests)
+
+    # ── 7. Middleware expansion ───────────────────────────────────────
+    # Middleware runs on every request. If changed, include all tests
+    # that make HTTP requests (API-client tests).
+    if any(_is_middleware_file(path) for path in changed_prod_files):
+        api_client_tests = {p for p, f in features_by_path.items() if f.is_django_api_test}
+        _add_group(groups, "middleware_api_tests", api_client_tests)
+
+    # ── 8. DB router expansion ───────────────────────────────────────
+    # DB routers affect query routing for every ORM operation. Testmon
+    # shows product_db_router.py affects 20k tests. Conservative: include
+    # all API-client tests.
+    if any(_is_db_router_file(path) for path in changed_prod_files):
+        api_client_tests = {p for p, f in features_by_path.items() if f.is_django_api_test}
+        _add_group(groups, "db_router_api_tests", api_client_tests)
+
+    # ── 9. Same-app fallback ─────────────────────────────────────────
+    # For any changed production file, include all tests in the same
+    # Django app. This catches model field changes, admin changes, and
+    # other intra-app dependencies that the import graph misses.
+    for path in changed_prod_files:
+        if _is_test_file(path):
+            continue
+        app = _django_app_for_path(path)
+        if app:
+            app_tests = _find_tests_in_app(app, all_test_files)
+            if app_tests:
+                _add_group(groups, f"same_app:{app}", app_tests)
 
     sorted_groups = {name: sorted(tests) for name, tests in sorted(groups.items())}
     all_tests = sorted({test for tests in sorted_groups.values() for test in tests})

@@ -73,13 +73,9 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
                 features_by_path,
             )
 
-            self.assertEqual(
-                {
-                    "product_api_client:feature_flags": ["products/feature_flags/backend/test/test_api.py"],
-                    "product_api_route_tokens:feature_flags": ["products/feature_flags/backend/test/test_api.py"],
-                },
-                result.groups,
-            )
+            self.assertIn("product_api_client:feature_flags", result.groups)
+            self.assertIn("product_api_route_tokens:feature_flags", result.groups)
+            self.assertIn("same_app:products/feature_flags/backend", result.groups)
             self.assertEqual(["products/feature_flags/backend/test/test_api.py"], result.tests)
 
     def test_ast_selection_matches_posthog_api_test_by_filename(self) -> None:
@@ -101,13 +97,12 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             },
         )
 
-        self.assertEqual(
-            {
-                "conventional_neighbors": ["posthog/api/test/test_project.py"],
-                "posthog_api_route_tokens": ["posthog/api/test/test_project.py"],
-            },
-            result.groups,
-        )
+        self.assertIn("conventional_neighbors", result.groups)
+        self.assertIn("posthog_api_route_tokens", result.groups)
+        # same-app fallback includes all tests under posthog/api/
+        self.assertIn("same_app:posthog/api", result.groups)
+        self.assertIn("posthog/api/test/test_project.py", result.tests)
+        self.assertIn("posthog/api/test/test_user.py", result.tests)
 
     def test_snob_selection_filters_to_python_files(self) -> None:
         selection = _load_selection_module()
@@ -141,6 +136,101 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
                 {"status": "ok", "tests": ["posthog/api/test/test_feature_flags.py"], "count": 1},
                 result,
             )
+
+    def test_signal_handler_change_expands_to_app_and_api_tests(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            tmp_path = Path(root)
+            selection = _load_selection_module()
+            selection.REPO_ROOT = tmp_path
+
+            # A signal handler file
+            handler = tmp_path / "posthog" / "models" / "signal_handlers.py"
+            handler.parent.mkdir(parents=True)
+            handler.write_text("from django.db.models.signals import post_save\npost_save.connect(my_handler)\n")
+
+            # A test in the same app
+            test_path = tmp_path / "posthog" / "models" / "test" / "test_models.py"
+            test_path.parent.mkdir(parents=True)
+            test_path.write_text("def test_model(): pass\n")
+
+            # An API test elsewhere
+            api_test = tmp_path / "posthog" / "api" / "test" / "test_something.py"
+            api_test.parent.mkdir(parents=True)
+            api_test.write_text("from rest_framework.test import APIClient\nclient = APIClient()\n")
+
+            features_by_path = selection.classify_tests()
+            result = selection.ast_select_tests(
+                ["posthog/models/signal_handlers.py"],
+                features_by_path,
+            )
+
+            self.assertIn("signal_handler_app:posthog/models", result.groups)
+            self.assertIn("posthog/models/test/test_models.py", result.tests)
+
+    def test_middleware_change_expands_to_api_tests(self) -> None:
+        selection = _load_selection_module()
+
+        result = selection.ast_select_tests(
+            ["posthog/gzip_middleware.py"],
+            {
+                "posthog/api/test/test_capture.py": selection.TestFeatures(
+                    path="posthog/api/test/test_capture.py",
+                    imports_api_client=True,
+                ),
+                "posthog/models/test/test_utils.py": selection.TestFeatures(
+                    path="posthog/models/test/test_utils.py",
+                ),
+            },
+        )
+
+        self.assertIn("middleware_api_tests", result.groups)
+        self.assertIn("posthog/api/test/test_capture.py", result.tests)
+        # Non-API tests are NOT included by middleware expansion
+        self.assertNotIn("posthog/models/test/test_utils.py", result.groups.get("middleware_api_tests", []))
+
+    def test_db_router_change_expands_to_api_tests(self) -> None:
+        selection = _load_selection_module()
+
+        result = selection.ast_select_tests(
+            ["posthog/product_db_router.py"],
+            {
+                "posthog/api/test/test_user.py": selection.TestFeatures(
+                    path="posthog/api/test/test_user.py",
+                    imports_api_client=True,
+                ),
+            },
+        )
+
+        self.assertIn("db_router_api_tests", result.groups)
+        self.assertIn("posthog/api/test/test_user.py", result.tests)
+
+    def test_same_app_fallback_includes_sibling_tests(self) -> None:
+        selection = _load_selection_module()
+
+        result = selection.ast_select_tests(
+            ["products/surveys/backend/models.py"],
+            {
+                "products/surveys/backend/test/test_api.py": selection.TestFeatures(
+                    path="products/surveys/backend/test/test_api.py",
+                ),
+                "products/experiments/backend/test/test_api.py": selection.TestFeatures(
+                    path="products/experiments/backend/test/test_api.py",
+                ),
+            },
+        )
+
+        # Same-app tests included
+        self.assertIn("products/surveys/backend/test/test_api.py", result.tests)
+        # Different app tests NOT included
+        self.assertNotIn("products/experiments/backend/test/test_api.py", result.tests)
+
+    def test_too_many_files_signals_full_run(self) -> None:
+        selection = _load_selection_module()
+
+        many_files = [f"posthog/models/model_{i}.py" for i in range(60)]
+        result = selection.ast_select_tests(many_files, {})
+
+        self.assertTrue(any("too many changed files" in r for r in result.full_run_reasons))
 
     def test_changed_tests_do_not_trigger_full_run_patterns(self) -> None:
         selection = _load_selection_module()

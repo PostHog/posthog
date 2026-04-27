@@ -92,3 +92,31 @@ jobs:
                   fi
 
                   echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode: .mode, changed: .changed_file_count, snob_status: .snob.status, snob: .snob.count, ast: (.ast.tests | length), combined: .combined.count, snob_dur: .durations.snob_seconds, ast_dur: .durations.ast_seconds, combined_dur: .combined.duration_seconds, total_dur: .durations.total_seconds}')"
+
+            - name: Save selection result for bulk analysis
+              if: always()
+              env:
+                  SELECTION_RESULT: ${{ steps.selection.outputs.result }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  PR_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+                  PR_BASE: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  mkdir -p /tmp/shadow-selection
+                  echo "$SELECTION_RESULT" | jq '.' > /tmp/shadow-selection/selection.json
+                  jq -n \
+                    --arg pr "$PR_NUMBER" \
+                    --arg sha "$PR_SHA" \
+                    --arg branch "$PR_BRANCH" \
+                    --arg base "$PR_BASE" \
+                    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                    '{pr: $pr, sha: $sha, branch: $branch, base: $base, timestamp: $timestamp}' \
+                    > /tmp/shadow-selection/metadata.json
+
+            - name: Upload shadow selection artifact
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: shadow-test-selection-pr${{ github.event.pull_request.number }}
+                  path: /tmp/shadow-selection/
+                  retention-days: 30
