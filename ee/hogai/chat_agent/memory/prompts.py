@@ -51,6 +51,14 @@ SCRAPING_INITIAL_MESSAGE = (
 
 ENQUIRY_INITIAL_MESSAGE = "Let me now ask you a few questions to help me understand your project better…"
 
+ENQUIRY_NO_EVENTS_INITIAL_MESSAGE = (
+    "I'd usually start by reading your site to learn about your product, "
+    "but I haven't seen any pageview or screen events for this project yet, "
+    "so I'll ask you a few questions instead. "
+    "Once you've captured at least one event from a real domain, "
+    "re-run /init and I'll pick up your site automatically."
+)
+
 SCRAPING_VERIFICATION_MESSAGE = "Does this look like a comprehensive description of your project?"
 
 SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this"
