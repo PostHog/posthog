@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.dags.sessions import (
     BACKFILL_PROGRESS_TTL_SECONDS,
+    MAX_UINT64,
     OOM_RETRY_SUB_CHUNKS,
     ExperimentalSessionsBackfillConfig,
     _do_experimental_backfill,
@@ -282,9 +283,6 @@ class TestTooManyPartsRetry:
         assert mock_sync_execute.call_count == num_chunks + 1
 
 
-MAX_UINT64 = 2**64
-
-
 class TestSubChunking:
     """Cover the OOM-retry sub-chunk where function returned by _get_experimental_chunking.
 
@@ -294,30 +292,37 @@ class TestSubChunking:
     subdivide *that* range so each sub-chunk actually contains a fraction of the parent's data.
     """
 
-    def test_distinct_id_sub_chunks_subdivide_parent_range(self):
+    @pytest.mark.parametrize(
+        "parent_i,all_have_upper_bound,all_have_lower_bound",
+        [
+            # First parent chunk: `< high`, so every sub-chunk has an upper bound but the very
+            # first sub-chunk does not have a lower bound
+            pytest.param(0, True, False, id="first_parent_chunk"),
+            # Middle parent chunks: bounded on both sides, so every sub-chunk has both bounds
+            pytest.param(1, True, True, id="middle_parent_chunk_1"),
+            pytest.param(2, True, True, id="middle_parent_chunk_2"),
+            # Last parent chunk: `>= low`, so every sub-chunk has a lower bound but the very
+            # last sub-chunk does not have an upper bound
+            pytest.param(3, False, True, id="last_parent_chunk"),
+        ],
+    )
+    def test_distinct_id_sub_chunks_subdivide_parent_range(
+        self, parent_i: int, all_have_upper_bound: bool, all_have_lower_bound: bool
+    ):
         config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
-        num_chunks, _, chunk_where_fn, sub_chunk_where_fn = _get_experimental_chunking(config)
+        num_chunks, _, _, sub_chunk_where_fn = _get_experimental_chunking(config)
         assert num_chunks == 4
 
-        for parent_i in range(num_chunks):
-            sub_filters = [sub_chunk_where_fn(parent_i, sub_i, 8) for sub_i in range(8)]
+        sub_filters = [sub_chunk_where_fn(parent_i, sub_i, 8) for sub_i in range(8)]
 
-            # Every sub-chunk filters cityHash64(distinct_id) — primary-index aligned
-            assert all("cityHash64(distinct_id)" in f for f in sub_filters)
+        # Every sub-chunk filters cityHash64(distinct_id) — primary-index aligned
+        assert all("cityHash64(distinct_id)" in f for f in sub_filters)
 
-            # Sub-chunks should be a strict subset of the parent's range — not span the whole uint64 space
-            parent_filter = chunk_where_fn(parent_i)
-            if parent_i == 0:
-                # Parent uses `< high`, so all sub-chunks must also have `< something`
-                assert all("<" in f for f in sub_filters)
-            elif parent_i == num_chunks - 1:
-                # Parent uses `>= low`, so all sub-chunks must also have `>=`
-                assert all(">=" in f for f in sub_filters)
-            else:
-                # Parent has both bounds — sub-chunks must lie inside, so they all use both bounds too
-                assert all(">=" in f and "<" in f for f in sub_filters), (
-                    f"sub-chunks of parent {parent_i} ({parent_filter}) should be bounded on both sides"
-                )
+        # Sub-chunks should be a strict subset of the parent's range — not span the whole uint64 space
+        if all_have_upper_bound:
+            assert all("<" in f for f in sub_filters)
+        if all_have_lower_bound:
+            assert all(">=" in f for f in sub_filters)
 
     def test_distinct_id_sub_chunks_cover_parent_range_without_gaps(self):
         config = ExperimentalSessionsBackfillConfig(distinct_id_chunks=4, client_overrides={})
@@ -341,18 +346,18 @@ class TestSubChunking:
         assert sub_bounds[0][0] == parent_chunk_size  # parent 1 starts at chunk_size
         assert sub_bounds[-1][1] == 2 * parent_chunk_size  # parent 1 ends at 2 * chunk_size
 
-    def test_team_id_sub_chunks_use_distinct_id_hash(self):
+    @pytest.mark.parametrize("parent_i", [0, 1, 2])
+    @pytest.mark.parametrize("sub_i", [0, 1, 2, 3])
+    def test_team_id_sub_chunks_use_distinct_id_hash(self, parent_i: int, sub_i: int):
         # team_id parent uses modulo (not primary-index-aligned), but sub-chunks should still split by
         # cityHash64(distinct_id) ranges across the full uint64 space so the SELECT can skip granules.
         config = ExperimentalSessionsBackfillConfig(team_id_chunks=3, distinct_id_chunks=None, client_overrides={})
         num_chunks, _, _, sub_chunk_where_fn = _get_experimental_chunking(config)
         assert num_chunks == 3
 
-        for parent_i in range(num_chunks):
-            for sub_i in range(4):
-                f = sub_chunk_where_fn(parent_i, sub_i, 4)
-                assert f"team_id % {num_chunks} = {parent_i}" in f
-                assert "cityHash64(distinct_id)" in f
+        f = sub_chunk_where_fn(parent_i, sub_i, 4)
+        assert f"team_id % {num_chunks} = {parent_i}" in f
+        assert "cityHash64(distinct_id)" in f
 
     def test_no_chunk_sub_chunks_use_distinct_id_hash(self):
         # No parent chunking — sub-chunks should still split by cityHash64(distinct_id) ranges
