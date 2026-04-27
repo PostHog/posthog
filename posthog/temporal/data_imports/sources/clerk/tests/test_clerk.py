@@ -304,19 +304,13 @@ class TestClerkSourceNonRetryableErrors:
     def test_lists_403_and_401_as_non_retryable(self) -> None:
         errors = ClerkSource().get_non_retryable_errors()
 
-        assert any(
-            "403 Client Error: Forbidden for url: https://api.clerk.com" in key for key in errors
-        )
-        assert any(
-            "401 Client Error: Unauthorized for url: https://api.clerk.com" in key for key in errors
-        )
+        assert any("403 Client Error: Forbidden for url: https://api.clerk.com" in key for key in errors)
+        assert any("401 Client Error: Unauthorized for url: https://api.clerk.com" in key for key in errors)
 
     def test_403_message_matches_real_exception_substring(self) -> None:
         """The dispatcher in import_data_sync.py uses substring matching against
         ``str(exception)``. Verify our key is a real substring of the
         ``HTTPError`` text raised by ``response.raise_for_status()``."""
         errors = ClerkSource().get_non_retryable_errors()
-        real_exception_message = (
-            "403 Client Error: Forbidden for url: https://api.clerk.com/v1/organizations?limit=100"
-        )
+        real_exception_message = "403 Client Error: Forbidden for url: https://api.clerk.com/v1/organizations?limit=100"
         assert any(key in real_exception_message for key in errors)
