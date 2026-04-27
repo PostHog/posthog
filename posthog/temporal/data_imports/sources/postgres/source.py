@@ -147,7 +147,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "Connection refused": None,
             "No route to host": None,
             "password authentication failed connection": None,
-            "connection timeout expired": None,
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",

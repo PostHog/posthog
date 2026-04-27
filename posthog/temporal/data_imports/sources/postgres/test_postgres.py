@@ -99,6 +99,7 @@ class TestPostgresSourceNonRetryableErrors:
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: MaxClientsInSessionMode: max clients reached',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: too many connections for role "user"',
+            "ConnectionTimeout: connection timeout expired",
         ],
     )
     def test_transient_connection_errors_are_retryable(self, source, error_msg):

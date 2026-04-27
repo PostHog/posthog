@@ -133,7 +133,6 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
             "InsufficientPrivilege": None,
             "No route to host": None,
             "password authentication failed connection": None,
-            "connection timeout expired": None,
             "Connection refused": None,
         }
 
