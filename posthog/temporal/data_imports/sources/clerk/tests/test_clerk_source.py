@@ -43,8 +43,14 @@ class TestClerkSource:
     def test_non_retryable_errors_contains_key(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
 
-    def test_non_retryable_errors_matches_real_production_message(self):
-        real_message = "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/invitations?limit=100"
+    @pytest.mark.parametrize(
+        "real_message",
+        [
+            "401 Client Error: Unauthorized for url: https://api.clerk.com/v1/invitations?limit=100",
+            "403 Client Error: Forbidden for url: https://api.clerk.com/v1/organizations",
+        ],
+    )
+    def test_non_retryable_errors_matches_real_production_message(self, real_message):
         assert any(key in real_message for key in self.source.get_non_retryable_errors())
 
     def test_get_schemas(self):
