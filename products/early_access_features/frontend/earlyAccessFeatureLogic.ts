@@ -186,7 +186,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     })
 
                     if (rolloutToAll === null) {
-                        return // User cancelled
+                        // Throw to trigger submitFailure so kea-forms doesn't
+                        // set hasSubmitted=true when the user just cancelled.
+                        throw new Error('Cancelled')
                     }
 
                     if (rolloutToAll) {
