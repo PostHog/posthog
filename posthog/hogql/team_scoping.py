@@ -44,6 +44,7 @@ def get_scoped_team_ids(team: Team, user: User | None, teams_to_query: TeamsToQu
     if teams_to_query == "all":
         return sorted(org_team_ids)
 
+    assert isinstance(teams_to_query, list)
     requested_team_ids = _normalize_requested_team_ids(teams_to_query)
     unauthorized_team_ids = sorted(set(requested_team_ids) - org_team_ids)
     if unauthorized_team_ids:

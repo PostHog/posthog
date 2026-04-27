@@ -963,7 +963,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             setSourceQuery: ({ sourceQuery }) => {
                 const nextSourceQuery = sanitizeSourceQuery(sourceQuery)
                 const currentTeamsToQuery = values.sourceQuery.source.modifiers?.teamsToQuery
-                const nextTeamsToQuery = nextSourceQuery.source.modifiers?.teamsToQuery
+                const nextTeamsToQuery = nextSourceQuery.source.modifiers?.teamsToQuery ?? null
                 actions.setTeamsToQuery(nextTeamsToQuery)
                 if (currentTeamsToQuery !== nextTeamsToQuery) {
                     actions.loadDatabase()

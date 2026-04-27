@@ -409,6 +409,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     logs_settings: () => {
         return { description: [<>updated logs settings</>] }
     },
+    can_query_across_organization_projects: createBooleanToggleHandler('cross-project querying'),
 
     // Feature flag confirmation config
     feature_flag_confirmation_enabled: createBooleanToggleHandler('feature flag confirmation'),

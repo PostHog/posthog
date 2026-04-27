@@ -1,4 +1,5 @@
 import json
+from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import (
@@ -13,6 +14,7 @@ from posthog.test.base import (
 from unittest import mock
 from unittest.mock import patch
 
+from pydantic import BaseModel
 from rest_framework import status
 
 from posthog.schema import (
@@ -75,12 +77,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = process_query_model(self.team, query, user=self.user)
+        response_data = cast(dict, response.model_dump() if isinstance(response, BaseModel) else response)
 
-        assert response.results is not None
-        assert len(response.results) == 1
-        assert "data" in response.results[0]
-        assert response.modifiers is not None
-        assert response.modifiers.teamsToQuery == "all"
+        assert response_data["results"] is not None
+        assert len(response_data["results"]) == 1
+        assert "data" in response_data["results"][0]
+        assert response_data["modifiers"] is not None
+        assert response_data["modifiers"]["teamsToQuery"] == "all"
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):

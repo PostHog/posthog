@@ -52,7 +52,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setConnection: (connectionId: string | null) => ({ connectionId }),
-        setTeamsToQuery: (teamsToQuery: 'all' | 'self' | number[] | undefined) => ({ teamsToQuery }),
+        setTeamsToQuery: (teamsToQuery: 'all' | 'self' | number[] | null) => ({ teamsToQuery }),
     }),
     loaders(({ values }) => ({
         database: [
@@ -75,7 +75,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                             kind: NodeKind.DatabaseSchemaQuery,
                             connectionId: requestConnectionId,
                             modifiers: {
-                                teamsToQuery: requestTeamsToQuery,
+                                teamsToQuery: requestTeamsToQuery ?? undefined,
                             },
                         }) as DatabaseSchemaQuery
                     )
@@ -108,7 +108,7 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         searchTerm: ['', { setSearchTerm: (_, { searchTerm }) => searchTerm }],
         connectionId: [null as string | null, { setConnection: (_, { connectionId }) => connectionId }],
         teamsToQuery: [
-            undefined as 'all' | 'self' | number[] | undefined,
+            null as 'all' | 'self' | number[] | null,
             { setTeamsToQuery: (_, { teamsToQuery }) => teamsToQuery },
         ],
     }),
