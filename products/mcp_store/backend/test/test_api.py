@@ -1038,8 +1038,10 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_install_template_without_oauth_credentials_returns_400(self):
-        template = self._template(oauth_credentials={})
+    def test_install_template_shared_creds_without_oauth_metadata_returns_400(self):
+        # Shared-creds templates require admin-seeded metadata. (DCR templates
+        # don't — they discover at install time; see below.)
+        template = self._template(oauth_metadata={})
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
@@ -1047,6 +1049,87 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        return_value="minted-per-user-client",
+    )
+    @patch(
+        "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
+        return_value={
+            "authorization_endpoint": "https://auth.discovered.example.com/authorize",
+            "token_endpoint": "https://auth.discovered.example.com/token",
+            "registration_endpoint": "https://auth.discovered.example.com/register",
+        },
+    )
+    def test_install_template_dcr_discovers_metadata_and_mints_per_user_client(self, mock_discover, mock_register):
+        # DCR template with NO admin-seeded metadata: the install flow discovers
+        # OAuth endpoints at install time (same as the custom-install flow).
+        # The discovered metadata is cached on the installation, never on the
+        # template — a first-installer can't poison template state for other users.
+        template = self._template(oauth_credentials={}, oauth_metadata={})
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert mock_discover.called
+        assert mock_register.called
+
+        redirect_url = response.json()["redirect_url"]
+        assert urlparse(redirect_url).netloc == "auth.discovered.example.com"
+        params = parse_qs(urlparse(redirect_url).query)
+        assert params["client_id"][0] == "minted-per-user-client"
+
+        installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
+        sensitive = installation.sensitive_configuration or {}
+        assert sensitive["dcr_client_id"] == "minted-per-user-client"
+        # Discovered metadata is cached on the installation, not written back to the template.
+        assert installation.oauth_metadata["token_endpoint"] == "https://auth.discovered.example.com/token"
+        template.refresh_from_db()
+        assert template.oauth_metadata == {}
+
+    @patch(
+        "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
+        side_effect=RuntimeError("discovery network error"),
+    )
+    def test_install_template_dcr_discovery_failure_returns_400_and_cleans_up(self, _mock):
+        template = self._template(oauth_credentials={}, oauth_metadata={})
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        side_effect=ValueError("dcr not supported"),
+    )
+    @patch(
+        "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
+        return_value={
+            "authorization_endpoint": "https://auth.discovered.example.com/authorize",
+            "token_endpoint": "https://auth.discovered.example.com/token",
+            "registration_endpoint": "https://auth.discovered.example.com/register",
+        },
+    )
+    def test_install_template_dcr_not_supported_returns_400_and_cleans_up(self, _discover, _register):
+        template = self._template(oauth_credentials={}, oauth_metadata={})
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # A half-created installation should not linger after DCR failure.
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
 
 
 class TestInstallationToolsAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-24 10:30:41 UTC
+// Generated at: 2026-04-27 20:20:40 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -22,7 +22,7 @@ export type CanonicalProvider =
     | 'baidu-fp8'
     | 'baseten-fp4'
     | 'cerebras-fp16'
-    | 'chutes-bf16'
+    | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
     | 'clarifai-bf16'
@@ -30,7 +30,6 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'

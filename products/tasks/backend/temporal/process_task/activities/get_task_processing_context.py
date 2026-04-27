@@ -35,6 +35,7 @@ class TaskProcessingContext:
     github_integration_id: int | None
     repository: str | None
     distinct_id: str
+    task_created_by_id: int | None = None
     create_pr: bool = True
     pr_loop_enabled: bool = False
     state: dict | None = None
@@ -78,14 +79,15 @@ class TaskProcessingContext:
         return value if isinstance(value, str) else None
 
     def get_sandbox_environment(self):
-        """Resolve the SandboxEnvironment, team-scoped via the TaskRun model."""
-        from products.tasks.backend.models import TaskRun
-
-        try:
-            task_run = TaskRun.objects.select_related("task").get(id=self.run_id)
-            return task_run.get_sandbox_environment()
-        except TaskRun.DoesNotExist:
+        """Resolve the SandboxEnvironment, team-scoped and respecting privacy."""
+        sandbox_environment_id = self.sandbox_environment_id
+        if not sandbox_environment_id:
             return None
+        return SandboxEnvironment.get_accessible_for_task(
+            environment_id=sandbox_environment_id,
+            team_id=self.team_id,
+            task_created_by_id=self.task_created_by_id,
+        )
 
     @property
     def branch(self) -> str | None:
@@ -145,12 +147,14 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     allowed_domains: list[str] | None = None
 
     if sandbox_environment_id:
-        sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
+        sandbox_environment = task_run.get_sandbox_environment()
         if sandbox_environment is None:
             raise TaskInvalidStateError(
-                f"Sandbox environment {sandbox_environment_id} not found for team {task.team_id}",
+                f"Sandbox environment {sandbox_environment_id} not accessible for team {task.team_id}",
                 {"sandbox_environment_id": sandbox_environment_id, "team_id": task.team_id},
-                cause=RuntimeError(f"Sandbox environment {sandbox_environment_id} does not exist"),
+                cause=RuntimeError(
+                    f"Sandbox environment {sandbox_environment_id} does not exist or is not accessible to the task creator"
+                ),
             )
         else:
             sandbox_environment_name = sandbox_environment.name
@@ -198,6 +202,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         github_integration_id=task.github_integration_id,
         repository=task.repository,
         distinct_id=distinct_id,
+        task_created_by_id=task.created_by_id,
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,
         state=state,

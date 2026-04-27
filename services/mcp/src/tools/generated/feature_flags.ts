@@ -312,6 +312,9 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
         if (params.copy_schedule !== undefined) {
             body['copy_schedule'] = params.copy_schedule
         }
+        if (params.disable_copied_flag !== undefined) {
+            body['disable_copied_flag'] = params.disable_copied_flag
+        }
         const result = await context.api.request<Schemas.CopyFlagsResponse>({
             method: 'POST',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/`,

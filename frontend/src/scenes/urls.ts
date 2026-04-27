@@ -207,6 +207,7 @@ export const urls = {
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
+    stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
     shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
         combineUrl(
             `/shared/${token}`,
@@ -265,7 +266,8 @@ export const urls = {
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
-    webAnalyticsBotAnalytics: (): string => '/web/bot-analytics',
+    webAnalyticsBotAnalytics: (): string => '/web/bots',
+    webAnalyticsBotDetail: (botName: string): string => `/web/bots/${encodeURIComponent(botName)}`,
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkDoctor: (): string => '/health/sdk-doctor',
