@@ -19,6 +19,7 @@ packages:
     - docs/onboarding
     - services/oauth-proxy
     - services/mcp
+    - services/mcp/exec
     - services/stripe-app
     - tools/*
     - '!tools/hedgebox-dummy'

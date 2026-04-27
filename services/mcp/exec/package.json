@@ -1,0 +1,31 @@
+{
+    "name": "@posthog/mcp-exec",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Prototype MCP server that exposes the PostHog API as three meta-tools: search, read, exec — letting agents navigate types and execute snippets instead of loading hundreds of per-endpoint tool schemas",
+    "license": "MIT",
+    "bin": {
+        "posthog-mcp-exec": "./dist/index.js"
+    },
+    "type": "module",
+    "scripts": {
+        "generate": "tsx scripts/generate.ts",
+        "build": "pnpm run generate && tsc -p tsconfig.build.json",
+        "start": "node dist/index.js",
+        "dev": "pnpm run generate && tsx src/index.ts",
+        "test": "vitest run",
+        "test:watch": "vitest watch",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.29.0",
+        "fuse.js": "catalog:",
+        "typescript": "catalog:",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "tsx": "^4.20.5",
+        "vitest": "^3.2.4"
+    }
+}

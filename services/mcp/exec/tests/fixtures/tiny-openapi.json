@@ -1,0 +1,108 @@
+{
+    "openapi": "3.0.3",
+    "info": { "title": "Tiny Test API", "version": "1.0.0" },
+    "paths": {
+        "/api/pets/": {
+            "get": {
+                "operationId": "pets_list",
+                "summary": "List all pets",
+                "description": "Returns all pets in the project, paginated.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "limit",
+                        "required": false,
+                        "schema": { "type": "integer" }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": { "$ref": "#/components/schemas/PaginatedPetList" }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "pets_create",
+                "summary": "Create a pet",
+                "description": "Adds a new pet.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": { "$ref": "#/components/schemas/Pet" }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "content": {
+                            "application/json": {
+                                "schema": { "$ref": "#/components/schemas/Pet" }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/pets/{id}/": {
+            "get": {
+                "operationId": "pets_retrieve",
+                "summary": "Get a pet by ID",
+                "description": "Returns a single pet.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "required": true,
+                        "schema": { "type": "integer" }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": { "$ref": "#/components/schemas/Pet" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "Pet": {
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": { "type": "integer" },
+                    "name": { "type": "string" },
+                    "tag": { "$ref": "#/components/schemas/PetTag" }
+                }
+            },
+            "PetTag": {
+                "type": "object",
+                "properties": {
+                    "label": { "type": "string" }
+                }
+            },
+            "PaginatedPetList": {
+                "type": "object",
+                "properties": {
+                    "count": { "type": "integer" },
+                    "results": {
+                        "type": "array",
+                        "items": { "$ref": "#/components/schemas/Pet" }
+                    }
+                }
+            }
+        }
+    }
+}
