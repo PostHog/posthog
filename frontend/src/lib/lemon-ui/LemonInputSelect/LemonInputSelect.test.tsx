@@ -247,6 +247,30 @@ describe('LemonInputSelect', () => {
         expect(onChange).toHaveBeenCalledWith([])
     })
 
+    it('single-select mode: deleting the value character by character clears the selection (snack does not snap back)', async () => {
+        const onChange = jest.fn()
+
+        const { container } = render(
+            <LemonInputSelect<string>
+                mode="single"
+                singleValueAsSnack
+                options={[{ key: 'x', label: 'Short label' }]}
+                value={['x']}
+                onChange={onChange}
+                allowCustomValues
+            />
+        )
+
+        expect(screen.getByText('Short label')).toBeInTheDocument()
+
+        const input = await openDropdown(container)
+        // Focus prefills the input with the option key ("x")
+        expect(input.value).toBe('x')
+
+        await userEvent.keyboard('{Backspace}')
+        expect(onChange).toHaveBeenCalledWith([])
+    })
+
     it('custom values: typing prefix of existing option shows both entries, completing shows only one', async () => {
         const onChange = jest.fn()
 

@@ -217,6 +217,8 @@ export function LemonInputSelect<T = string>({
     const [inputValue, _setInputValue] = useState('')
     const [itemBeingEditedIndex, setItemBeingEditedIndex] = useState<number | null>(null)
     const popoverFocusRef = useRef<boolean>(false)
+    /** Skips emitting onChange([]) when single-select input is cleared for internal resets (pick option, blur partial search). */
+    const suppressSingleSelectEmptyClearRef = useRef(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [frozenOptions, setFrozenOptions] = useState<LemonInputSelectOption<T>[] | null>(null)
@@ -418,6 +420,15 @@ export function LemonInputSelect<T = string>({
             setShowPopover(true)
         }
 
+        const suppressEmptyClear = suppressSingleSelectEmptyClearRef.current
+        suppressSingleSelectEmptyClearRef.current = false
+
+        // Single-select: clearing the edit box must clear `value`, or the controlled selection snaps back (snack/pill).
+        // Suppress when we only reset the input after picking an option or after blur dismissed partial search text.
+        if (mode === 'single' && values.length > 0 && !newValue && !suppressEmptyClear) {
+            onChange?.([])
+        }
+
         _setInputValue(newValue)
         onInputChange?.(newValue)
     }
@@ -441,6 +452,7 @@ export function LemonInputSelect<T = string>({
     const _addItem = (item: string, atIndex?: number | null, currentValues: T[] = values): void => {
         const actualTypedValue = getTypedValue(item)
         if (mode === 'single') {
+            suppressSingleSelectEmptyClearRef.current = true
             setInputValue('')
             onChange?.([actualTypedValue])
             return
@@ -520,6 +532,10 @@ export function LemonInputSelect<T = string>({
         if (hasCustomValue) {
             _onActionItem(inputValue.trim(), null)
         } else {
+            // Do not treat blur-driven input reset as "user cleared the committed value" when search text remains.
+            if (mode === 'single' && values.length > 0 && inputValue.trim()) {
+                suppressSingleSelectEmptyClearRef.current = true
+            }
             setInputValue('')
         }
         setShowPopover(false)
@@ -566,7 +582,6 @@ export function LemonInputSelect<T = string>({
                 if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
                     e.preventDefault()
                     setInputValue('')
-                    onChange?.([])
                 }
             }
         } else if (e.key === 'ArrowDown') {
@@ -610,7 +625,6 @@ export function LemonInputSelect<T = string>({
                                 canClear
                                     ? () => {
                                           setInputValue('')
-                                          onChange?.([])
                                       }
                                     : undefined
                             }
@@ -712,7 +726,6 @@ export function LemonInputSelect<T = string>({
                                 e.preventDefault()
                                 e.stopPropagation()
                                 setInputValue('')
-                                onChange?.([])
                             }}
                             tooltip="Clear selection"
                             noPadding
