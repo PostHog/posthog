@@ -178,6 +178,189 @@ def _is_bot_mention(activity: dict) -> bool:
     return False
 
 
+_HELP_CARD_BODY = [
+    {
+        "type": "TextBlock",
+        "text": "\U0001f44b Hi, I'm SupportHog!",
+        "weight": "Bolder",
+        "size": "Medium",
+    },
+    {
+        "type": "TextBlock",
+        "text": (
+            "I turn Microsoft Teams messages into PostHog support tickets so your team "
+            "never loses track of a customer question.\n\n"
+            "**How to use me**\n"
+            "\u2022 @mention me in any channel to open a new ticket from that message\n"
+            "\u2022 Reply in the thread and I'll sync the conversation to PostHog\n"
+            "\u2022 Pick a dedicated support channel in PostHog \u2192 Settings \u2192 "
+            "Conversations \u2192 Microsoft Teams to auto-create a ticket from every "
+            "new message there\n\n"
+            "**Commands**\n"
+            "\u2022 `@SupportHog help` \u2014 show this message\n"
+            "\u2022 `@SupportHog hi` \u2014 say hi"
+        ),
+        "wrap": True,
+    },
+]
+
+
+def _build_help_card(open_url: str) -> dict[str, Any]:
+    return {
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "content": {
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "type": "AdaptiveCard",
+            "version": "1.2",
+            "body": _HELP_CARD_BODY,
+            "actions": [
+                {
+                    "type": "Action.OpenUrl",
+                    "title": "Open PostHog",
+                    "url": open_url,
+                }
+            ],
+        },
+    }
+
+
+def _post_activity_to_conversation(
+    *,
+    service_url: str,
+    conversation_id: str,
+    payload: dict[str, Any],
+    log_prefix: str,
+    log_context: dict[str, Any] | None = None,
+) -> bool:
+    """Shared bot-framework outbound POST with 401 retry and trusted-URL check."""
+    if not is_trusted_teams_service_url(service_url):
+        logger.warning(f"{log_prefix}_untrusted_service_url", service_url=service_url, **(log_context or {}))
+        return False
+
+    try:
+        bot_token = get_bot_framework_token()
+    except ValueError:
+        logger.warning(f"{log_prefix}_no_bot_token", **(log_context or {}))
+        return False
+
+    encoded_conversation_id = quote(conversation_id, safe="")
+    url = f"{service_url.rstrip('/')}/v3/conversations/{encoded_conversation_id}/activities"
+
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={"Authorization": f"Bearer {bot_token}", "Content-Type": "application/json"},
+            timeout=15,
+        )
+        if resp.status_code == 401:
+            invalidate_bot_framework_token()
+            try:
+                bot_token = get_bot_framework_token(force_refresh=True)
+            except ValueError:
+                logger.warning(f"{log_prefix}_no_bot_token_on_retry", **(log_context or {}))
+                return False
+            resp = requests.post(
+                url,
+                json=payload,
+                headers={"Authorization": f"Bearer {bot_token}", "Content-Type": "application/json"},
+                timeout=15,
+            )
+        if resp.status_code not in (200, 201):
+            logger.warning(
+                f"{log_prefix}_post_failed",
+                status=resp.status_code,
+                body=resp.text[:500],
+                url=url,
+                **(log_context or {}),
+            )
+            return False
+        return True
+    except Exception:
+        logger.warning(f"{log_prefix}_post_error", **(log_context or {}))
+        return False
+
+
+def is_bot_added_event(activity: dict) -> bool:
+    """True if this conversationUpdate adds the bot itself to a team/conversation."""
+    if activity.get("type") != "conversationUpdate":
+        return False
+    recipient_id = (activity.get("recipient") or {}).get("id", "")
+    if not recipient_id:
+        return False
+    members_added = activity.get("membersAdded") or []
+    return any(m.get("id") == recipient_id for m in members_added)
+
+
+_GREETING_COMMANDS = frozenset({"hi", "hello", "hey", "hola", "yo", "help", "?", "start", "get started", "supporthog"})
+
+
+def is_command_message(activity: dict) -> bool:
+    """Return True if the @mention text is a recognized greeting/help command."""
+    raw_html = activity.get("text", "") or ""
+    cleaned, _ = teams_html_to_content_and_rich_content(raw_html)
+    normalized = cleaned.strip().lower().rstrip("!.?")
+    return normalized in _GREETING_COMMANDS
+
+
+def send_teams_welcome_card(activity: dict) -> None:
+    """Proactively greet the team when SupportHog is first added (cert 11.4.4.3)."""
+    service_url = activity.get("serviceUrl", "")
+    conversation_id = _extract_conversation_id(activity)
+    if not (service_url and conversation_id):
+        return
+
+    try:
+        bot_from_id = get_bot_from_id()
+    except ValueError:
+        logger.warning("teams_welcome_no_bot_id")
+        return
+
+    payload: dict[str, Any] = {
+        "type": "message",
+        "from": {"id": bot_from_id},
+        "conversation": {"id": conversation_id},
+        "attachments": [_build_help_card(open_url=settings.SITE_URL)],
+    }
+    _post_activity_to_conversation(
+        service_url=service_url,
+        conversation_id=conversation_id,
+        payload=payload,
+        log_prefix="teams_welcome",
+    )
+
+
+def send_teams_help_reply(activity: dict) -> None:
+    """Reply to a greeting/help @mention with the help card (cert 11.4.4.3)."""
+    service_url = activity.get("serviceUrl", "")
+    conversation_id = _extract_conversation_id(activity)
+    activity_id = activity.get("id", "")
+    if not (service_url and conversation_id):
+        return
+
+    try:
+        bot_from_id = get_bot_from_id()
+    except ValueError:
+        logger.warning("teams_help_no_bot_id")
+        return
+
+    payload: dict[str, Any] = {
+        "type": "message",
+        "from": {"id": bot_from_id},
+        "conversation": {"id": conversation_id},
+        "attachments": [_build_help_card(open_url=settings.SITE_URL)],
+    }
+    if activity_id:
+        payload["replyToId"] = activity_id
+
+    _post_activity_to_conversation(
+        service_url=service_url,
+        conversation_id=conversation_id,
+        payload=payload,
+        log_prefix="teams_help",
+    )
+
+
 def _send_confirmation_card(
     service_url: str,
     conversation_id: str,
@@ -500,6 +683,12 @@ def handle_teams_mention(activity: dict, team: Team, tenant_id: str) -> None:
 
     settings_dict = team.conversations_settings or {}
     if not settings_dict.get("teams_enabled"):
+        return
+
+    # Greeting/help commands (cert 11.4.4.3) reply with the help card and do
+    # NOT create a ticket — otherwise testers typing "Hi" generate noise.
+    if is_command_message(activity):
+        send_teams_help_reply(activity)
         return
 
     conversation_id = _extract_conversation_id(activity)

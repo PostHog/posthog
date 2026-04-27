@@ -55,7 +55,12 @@ from products.conversations.backend.support_teams import (
     invalidate_bot_framework_token,
     is_trusted_teams_service_url,
 )
-from products.conversations.backend.teams import _is_bot_mention, handle_teams_mention, handle_teams_message
+from products.conversations.backend.teams import (
+    _is_bot_mention,
+    handle_teams_mention,
+    handle_teams_message,
+    send_teams_welcome_card,
+)
 from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
@@ -527,6 +532,19 @@ def send_email_reply(
         to=ticket.email_from,
         message_id=outbound_message_id,
     )
+
+
+@shared_task(ignore_result=True, max_retries=2, default_retry_delay=5)
+def send_teams_welcome(activity: dict[str, Any]) -> None:
+    """Post the proactive welcome card after the bot is added to a team.
+
+    Required by Microsoft Teams Store certification policy 11.4.4.3.
+    Runs in Celery so the Bot Framework webhook can ack within its 15s budget.
+    """
+    try:
+        send_teams_welcome_card(activity)
+    except Exception as e:
+        logger.exception("supporthog_teams_welcome_failed", error=str(e))
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
