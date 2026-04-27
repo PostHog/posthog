@@ -7,8 +7,8 @@ Steps reference [shared-patterns.md](./shared-patterns.md) for reusable recipes.
 
 ## 1. Isolate the affected cohort
 
-Use `posthog:query-retention` (not `posthog:query-run`) — it accepts `RetentionQuery`
-payloads directly. Compare the affected cohort(s) to baseline cohorts side by side.
+Use `posthog:query-retention` — it accepts `RetentionQuery` payloads directly.
+Compare the affected cohort(s) to baseline cohorts side by side.
 
 `targetEntity` / `returningEntity` use `{type: "events", name: "<event>"}` (or
 `{type: "actions", id: <id>, name: "..."}`). They are nested inside `retentionFilter`.

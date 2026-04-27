@@ -15,36 +15,55 @@ each metric type has its own playbook reference with specific tool calls and rec
 
 ## Tools
 
-**Always use these typed query tools. Do NOT use `posthog:query-run`.**
+This skill targets PostHog MCP v2. The typed query tools below accept the query body
+directly — pass `kind: "TrendsQuery"`, `series`, `dateRange`, etc. as top-level fields.
+Do not wrap in `InsightVizNode`.
 
-| Tool                                              | Purpose                                                                |
-| ------------------------------------------------- | ---------------------------------------------------------------------- |
-| `posthog:query-trends`                            | Trends queries (count over time)                                       |
-| `posthog:query-funnel`                            | Funnel queries (multi-step conversion)                                 |
-| `posthog:query-retention`                         | Retention queries (cohort return rates)                                |
-| `posthog:query-stickiness`                        | Stickiness queries (active days per user)                              |
-| `posthog:query-lifecycle`                         | Lifecycle queries (new/returning/resurrecting/dormant)                 |
-| `posthog:query-paths`                             | Paths queries (navigation flow)                                        |
-| `posthog:query-trends-actors`                     | Drill into the users behind a trend bucket                             |
-| `posthog:execute-sql`                             | HogQL — only when no typed tool fits (see shared-patterns.md)          |
-| `posthog:insight-get`                             | Fetch a saved insight's metadata (read `query.kind` from the response) |
-| `posthog:insight-query`                           | Fetch a saved insight's data (runs the insight's own query)            |
-| `posthog:feature-flag-get-all`                    | List flags to find rollouts in the anomaly window                      |
-| `posthog:experiment-get-all`                      | List experiments to find launches/conclusions in the window            |
-| `posthog:annotations-list`                        | List annotations to find deploys/incidents in the window               |
-| `posthog:annotation-create`                       | Mark a discovered cause for future investigations                      |
-| `posthog:properties-list`                         | Discover available properties before breaking down                     |
-| `posthog:event-definitions-list`                  | Find an event by name fragment                                         |
-| `posthog:error-tracking-issues-list`              | Cross-check the anomaly against errors                                 |
-| `posthog:query-logs`                              | Cross-check the anomaly against logs                                   |
-| `posthog:query-session-recordings-list`           | Pull recordings for affected users                                     |
-| `posthog:cohorts-list` / `posthog:cohorts-create` | Reuse or create cohorts                                                |
-| `posthog:insight-create`                          | Save a chart from the investigation                                    |
+| Tool                                              | Purpose                                                                                                   |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `posthog:query-trends`                            | Trends queries (count over time)                                                                          |
+| `posthog:query-funnel`                            | Funnel queries (multi-step conversion)                                                                    |
+| `posthog:query-retention`                         | Retention queries (cohort return rates)                                                                   |
+| `posthog:query-stickiness`                        | Stickiness queries (active days per user)                                                                 |
+| `posthog:query-lifecycle`                         | Lifecycle queries (new/returning/resurrecting/dormant)                                                    |
+| `posthog:query-paths`                             | Paths queries (navigation flow)                                                                           |
+| `posthog:query-trends-actors`                     | Drill into the users behind a trend bucket                                                                |
+| `posthog:execute-sql`                             | HogQL — only when no typed tool fits (see shared-patterns.md)                                             |
+| `posthog:read-data-schema`                        | Discover events, properties, and sample values (replaces v1 `properties-list` / `event-definitions-list`) |
+| `posthog:insight-get`                             | Fetch a saved insight's metadata (read `query.kind` from the response)                                    |
+| `posthog:insight-query`                           | Fetch a saved insight's data (runs the insight's own query)                                               |
+| `posthog:feature-flag-get-all`                    | List flags to find rollouts in the anomaly window                                                         |
+| `posthog:experiment-get-all`                      | List experiments to find launches/conclusions in the window                                               |
+| `posthog:annotations-list`                        | List annotations to find deploys/incidents in the window                                                  |
+| `posthog:annotation-create`                       | Mark a discovered cause for future investigations                                                         |
+| `posthog:error-tracking-issues-list`              | Cross-check the anomaly against errors                                                                    |
+| `posthog:query-logs`                              | Cross-check the anomaly against logs                                                                      |
+| `posthog:query-session-recordings-list`           | Pull recordings for affected users                                                                        |
+| `posthog:cohorts-list` / `posthog:cohorts-create` | Reuse or create cohorts                                                                                   |
+| `posthog:insight-create`                          | Save a chart from the investigation                                                                       |
 
-The typed query tools accept the query body directly — pass `kind: "TrendsQuery"`,
-`series`, `dateRange`, etc. as top-level fields. Do not wrap in `InsightVizNode`.
-`InsightVizNode` is the rendering wrapper used by the PostHog UI; the typed tools strip
-rendering fields automatically.
+## Helper scripts
+
+Two scripts in [`scripts/`](./scripts/) automate the repetitive numerical work so the
+agent doesn't recompute it from raw query output:
+
+- [`compare_to_prior_periods.py`](./scripts/compare_to_prior_periods.py) — given a
+  trends result, auto-detects interval and compares each recent value to the right
+  cycle: hour-of-week for hourly data, day-of-week for daily data, sequential
+  median range for weekly/monthly. Use after step 2.1 to resolve the variance
+  question (step 2.2) without recomputing it inline.
+- [`breakdown_attribution.py`](./scripts/breakdown_attribution.py) — given a breakdown
+  trends result, ranks segments by **absolute** contribution to the delta (not %),
+  and detects "offsetting" cases where the aggregate looks flat but segments moved
+  in opposite directions. Use after running breakdowns in any playbook to follow
+  the **interpreting breakdown results** guidance from shared-patterns.
+
+Pipe the raw `posthog:query-trends` JSON straight in:
+
+```bash
+python3 scripts/compare_to_prior_periods.py < query_result.json
+WINDOW=7 python3 scripts/breakdown_attribution.py < breakdown_result.json
+```
 
 ## When to use
 
@@ -122,6 +141,14 @@ Otherwise, widen to 3–4× the user's interval (e.g., 90 days for a 7-day drop)
 For TrendsQuery or StickinessQuery, add `compareFilter: {"compare": true}` to show
 the prior period alongside. Other query kinds don't support `compareFilter` — compare
 by running the same query for two date ranges instead.
+
+Pipe the widened query result through
+[`scripts/compare_to_prior_periods.py`](./scripts/compare_to_prior_periods.py). It
+auto-detects the interval and compares each recent value to its position in the
+natural cycle (hour-of-week for hourly, day-of-week for daily, sequential range for
+weekly/monthly). For daily metrics specifically, the most common cause of "looks
+like a drop" is weekend seasonality plus a partial-day right edge — the script
+flags both.
 
 Single-interval spikes or dips can be real (deploy, campaign, brief outage) — investigate them.
 If the movement looks like normal variance, flag that in the findings but continue the
@@ -224,7 +251,8 @@ Include direct links where useful: `[Insight: name](/insights/short_id)`, `[Dash
 ## Handling unavailable data
 
 - **Missing breakdown dimension** — if a key property isn't set on events, call
-  `posthog:properties-list` to confirm what is available and note the gap.
+  `posthog:read-data-schema` with `kind: "event_properties"` to confirm what is
+  available and note the gap.
 - **Tool call failure** — continue the investigation with the remaining tools and report
   which steps were skipped.
 - **Variance / single-point anomalies** — covered in Step 2.2. If the change is within

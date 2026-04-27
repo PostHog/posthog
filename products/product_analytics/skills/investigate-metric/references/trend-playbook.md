@@ -28,6 +28,8 @@ technical / version.
 Apply the **interpreting breakdown results** guidance: check absolute contribution (a
 dramatic % swing on a small series is usually noise); if no single dimension isolates the
 delta, the cause is likely system-wide (bad deploy, tracking regression, infra).
+[`scripts/breakdown_attribution.py`](../scripts/breakdown_attribution.py) ranks
+segments by absolute contribution and flags offsetting moves automatically.
 
 Example call:
 

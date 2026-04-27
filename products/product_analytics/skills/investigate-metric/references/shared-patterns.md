@@ -5,12 +5,11 @@ Keep this file lean: only patterns that appear in two or more playbooks live her
 
 ## When to use `posthog:execute-sql` instead of structured tools
 
-Always use the typed query tools (`posthog:query-trends`, `posthog:query-funnel`,
+The typed query tools (`posthog:query-trends`, `posthog:query-funnel`,
 `posthog:query-retention`, `posthog:query-paths`, `posthog:query-stickiness`,
-`posthog:query-lifecycle`, `posthog:query-trends-actors`) instead of `posthog:query-run`.
-The typed tools have simpler schemas (rendering-only fields are stripped), and their
-output composes cleanly with `posthog:query-trends-actors`. Do not wrap queries in
-`InsightVizNode` — pass the query kind directly.
+`posthog:query-lifecycle`, `posthog:query-trends-actors`) accept query bodies directly.
+Pass `kind`, `series`, `dateRange`, etc. as top-level fields — do not wrap in
+`InsightVizNode`.
 
 Reach for `posthog:execute-sql` (HogQL) only when the question cannot be expressed by a
 structured tool:
@@ -50,28 +49,47 @@ ORDER BY day, segment
 Before breaking down, discover what's attached. A breakdown on a non-existent property
 produces an empty chart that looks like "no data" but really means "wrong property name".
 
-**Event properties** (including custom properties the app sets):
+Use `posthog:read-data-schema` for every discovery query. The `query.kind` field
+selects what you're asking for:
+
+**Event properties** (including custom ones the app sets):
 
 ```json
+posthog:read-data-schema
 {
-  "type": "event",
-  "eventName": "<your event>"
+  "query": { "kind": "event_properties", "event_name": "<your event>" }
 }
 ```
 
-Scopes `posthog:properties-list` to a specific event. By default this excludes core PostHog
-properties (`$browser`, `$current_url`, etc.) so app-specific ones surface naturally
-(`plan`, `tier`, `feature_area`, `channel`). Set `"includePredefinedProperties": true` if
-you want built-ins in the same list.
-
-**Person properties**:
+**Person / group properties**:
 
 ```json
-{ "type": "person" }
+posthog:read-data-schema
+{
+  "query": { "kind": "entity_properties", "entity": "person" }
+}
 ```
 
-**Finding an event when you don't know its exact name**: `posthog:event-definitions-list`
-with no filters enumerates events; search client-side for the one the user meant.
+**Finding an event when you don't know its exact name**:
+
+```json
+posthog:read-data-schema
+{
+  "query": { "kind": "events" }
+}
+```
+
+Search the returned list client-side for the event the user meant.
+
+**Sample values for a property** (handy when you've found the property but don't know
+what values to filter on):
+
+```json
+posthog:read-data-schema
+{
+  "query": { "kind": "event_property_values", "event_name": "<event>", "property_name": "<property>" }
+}
+```
 
 ## Breakdown dimensions
 
@@ -95,6 +113,12 @@ Measure "absorbs most of the delta" in **absolute** terms, not percentages. A 50
 series that's 1% of volume explains only 0.5% of the aggregate delta. Check each series'
 volume and absolute contribution before concluding it's the driver — a dramatic movement on
 a small series is usually noise.
+
+Pipe a breakdown trends result through
+[`scripts/breakdown_attribution.py`](./../scripts/breakdown_attribution.py) to rank
+segments by absolute delta contribution. The script also detects "offsetting" cases
+where the aggregate looks flat but individual segments moved in opposite directions
+— that's a different diagnostic than a uniform shift.
 
 If no breakdown value isolates the delta, the cause is likely system-wide (bad deploy,
 tracking regression, infra issue) rather than segment-specific. Note the negative result

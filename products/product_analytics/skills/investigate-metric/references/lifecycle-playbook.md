@@ -52,9 +52,9 @@ Use the **breakdown dimensions** menu from shared-patterns for candidate segment
 ### New-user drop
 
 Identify the canonical first-session event for the project first — call
-`posthog:event-definitions-list` and look for `$session_start`, `$pageview`, or a
-product-specific signup event. Then run `posthog:query-paths` from that event to see
-where new users fall off in onboarding.
+`posthog:read-data-schema` with `{ "query": { "kind": "events" } }` and look for
+`$session_start`, `$pageview`, or a product-specific signup event. Then run
+`posthog:query-paths` from that event to see where new users fall off in onboarding.
 
 ```json
 posthog:query-paths
@@ -62,7 +62,7 @@ posthog:query-paths
   "kind": "PathsQuery",
   "dateRange": { "date_from": "-30d" },
   "pathsFilter": {
-    "startPoint": "<first-session event name from event-definitions-list>",
+    "startPoint": "<first-session event name from read-data-schema>",
     "includeEventTypes": ["$pageview", "custom_event"],
     "edgeLimit": 50
   }

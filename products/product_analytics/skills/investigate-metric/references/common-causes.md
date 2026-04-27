@@ -55,7 +55,8 @@ firing under different conditions.
   changed.
 - Breakdown on `properties.$lib_version`. A drop concentrated in one SDK version points to
   tracking code changes.
-- `posthog:event-definitions-list` for recently added / deprecated events with similar names.
+- `posthog:read-data-schema` with `{ "query": { "kind": "events" } }` for recently
+  added / deprecated events with similar names.
 
 **Remediation**: flag to engineering — this is probably a tracking bug, not a product issue.
 
