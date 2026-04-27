@@ -4,13 +4,7 @@ import { pickResponseFields } from '@/tools/tool-utils'
 import { POSTHOG_META_KEY, type Context, type ToolBase } from '@/tools/types'
 
 import { normalizeErrorTrackingProperty } from './exceptionProperties'
-
-const dateRangeSchema = z
-    .object({
-        date_from: z.string().optional(),
-        date_to: z.string().nullable().optional(),
-    })
-    .optional()
+import { asRecord, compactObject, dateRangeSchema, escapeHogQLString, normalizeColumn } from './utils'
 
 const schema = z.object({
     issueId: z
@@ -52,46 +46,6 @@ const ISSUE_FIELDS = [
 ]
 
 const CONTEXT_EVENT_SELECTS = ['properties.$exception_list', 'properties.$exception_releases']
-
-function escapeHogQLString(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
-}
-
-function normalizeColumn(column: unknown): string {
-    if (typeof column === 'string') {
-        return column
-    }
-    if (column && typeof column === 'object') {
-        const record = column as Record<string, unknown>
-        for (const key of ['key', 'name', 'id', 'field']) {
-            if (typeof record[key] === 'string') {
-                return record[key] as string
-            }
-        }
-    }
-    return ''
-}
-
-function compactObject(record: Record<string, unknown>): Record<string, unknown> {
-    return Object.fromEntries(
-        Object.entries(record).filter(([, value]) => {
-            if (value === undefined || value === null) {
-                return false
-            }
-            if (Array.isArray(value)) {
-                return value.length > 0
-            }
-            if (typeof value === 'object') {
-                return Object.keys(value as Record<string, unknown>).length > 0
-            }
-            return true
-        })
-    )
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
-}
 
 function toNumber(value: unknown): number | undefined {
     return typeof value === 'number' && Number.isFinite(value) ? value : undefined

@@ -3,42 +3,7 @@ import { z } from 'zod'
 import { pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
-const dateRangeSchema = z
-    .object({
-        date_from: z.string().optional(),
-        date_to: z.string().nullable().optional(),
-    })
-    .optional()
-
-const propertyFilterSchema = z.object({
-    key: z.string().describe('Property key, for example $browser, $current_url, email, or a HogQL expression.'),
-    type: z
-        .enum(['event', 'person', 'session', 'group', 'cohort', 'hogql', 'feature', 'flag'])
-        .describe('Property namespace to filter. Most exception event filters use event, person, or session.'),
-    operator: z
-        .enum([
-            'exact',
-            'is_not',
-            'icontains',
-            'not_icontains',
-            'regex',
-            'not_regex',
-            'gt',
-            'lt',
-            'is_date_exact',
-            'is_date_before',
-            'is_date_after',
-            'is_set',
-            'is_not_set',
-            'in',
-            'not_in',
-            'flag_evaluates_to',
-        ])
-        .optional()
-        .describe('Comparison operator. Omit for hogql filters.'),
-    value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]).optional(),
-    group_type_index: z.coerce.number().int().optional(),
-})
+import { dateRangeSchema, getPageInfo, propertyFilterSchema, type PropertyFilter } from './utils'
 
 const stringOrStringsSchema = z.union([z.string(), z.array(z.string()).min(1)])
 
@@ -102,7 +67,6 @@ const schema = z.object({
 })
 
 type Params = z.infer<typeof schema>
-type PropertyFilter = z.infer<typeof propertyFilterSchema>
 
 const ISSUE_FIELDS = [
     'id',
@@ -167,16 +131,6 @@ function buildSearchQuery(params: Params): string | undefined {
     }
 
     return terms.map(searchTerm).join(' ')
-}
-
-function getPageInfo(
-    data: Record<string, unknown>,
-    limit: number,
-    offset: number
-): { hasMore: boolean; nextOffset?: number } {
-    const rawRows = Array.isArray(data.results) ? data.results : []
-    const hasMore = Boolean(data.hasMore) || rawRows.length > limit
-    return hasMore ? { hasMore, nextOffset: offset + limit } : { hasMore }
 }
 
 export const queryIssuesListHandler: ToolBase<typeof schema>['handler'] = async (

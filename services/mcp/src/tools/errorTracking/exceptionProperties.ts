@@ -1,26 +1,7 @@
+import { asRecord, compactObject } from './utils'
+
 const MAX_NORMALIZED_TEXT_CHARS = 1000
 const TRUNCATABLE_PROPERTY_NAMES = new Set(['$exception_message', '$exception_value'])
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
-}
-
-function compactObject(record: Record<string, unknown>): Record<string, unknown> {
-    return Object.fromEntries(
-        Object.entries(record).filter(([, value]) => {
-            if (value === undefined || value === null) {
-                return false
-            }
-            if (Array.isArray(value)) {
-                return value.length > 0
-            }
-            if (typeof value === 'object') {
-                return Object.keys(value as Record<string, unknown>).length > 0
-            }
-            return true
-        })
-    )
-}
 
 function truncateText(value: unknown, options: NormalizeOptions): unknown {
     if (options.verbosity === 'raw' || typeof value !== 'string' || value.length <= MAX_NORMALIZED_TEXT_CHARS) {
