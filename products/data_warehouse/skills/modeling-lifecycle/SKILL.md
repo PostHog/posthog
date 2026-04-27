@@ -126,8 +126,10 @@ Once the query is validated, persist it with `view-create`:
 ```
 
 Naming matters — this view will be referenced by name in every downstream query for as long as it exists. Follow
-the conventions in `layering-warehouse-models` (`raw_<source>__<table>`, `stg_<source>__<entity>`,
+
+the conventions in `layering-warehouse-models` (`<source>_<table>`, `stg_<source>__<entity>`,
 `int_<grain>`, `final_<domain>`).
+
 
 After save, `view-get` to confirm the inferred column schema matches what you expected. Surface the column list to
 the user — they'll often spot something missing immediately.
