@@ -91,7 +91,7 @@ class _OutputConfigField(serializers.JSONField):
 class ModelConfigurationSerializer(serializers.Serializer):
     """Nested serializer for model configuration."""
 
-    provider = serializers.ChoiceField(choices=LLMProvider)
+    provider = serializers.ChoiceField(choices=LLMProvider.choices)
     model = serializers.CharField(max_length=100)
     provider_key_id = serializers.UUIDField(required=False, allow_null=True)
     provider_key_name = serializers.SerializerMethodField(read_only=True)

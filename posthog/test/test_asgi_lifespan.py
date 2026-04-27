@@ -38,7 +38,7 @@ async def test_uvicorn_boots_posthog_application_under_django_5() -> None:
     server = uvicorn.Server(config)
 
     # Running inside pytest means signal handlers are managed by the test process.
-    server.install_signal_handlers = lambda: None  # type: ignore[assignment]
+    server.install_signal_handlers = lambda: None
 
     serve_task = asyncio.create_task(server.serve())
 

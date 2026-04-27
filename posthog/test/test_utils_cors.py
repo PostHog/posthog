@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from django.test import TestCase
 from django.test.client import RequestFactory
 
@@ -23,6 +24,6 @@ class TestCorsResponse(TestCase):
                 request = RequestFactory().get("/", HTTP_ORIGIN=origin)
                 self.assertEqual(
                     expected,
-                    cors_response(request, {}).get("Access-Control-Allow-Origin"),
+                    cors_response(request, HttpResponse()).get("Access-Control-Allow-Origin"),
                     msg=f"with origin='{origin}', actual did not equal {expected}",
                 )

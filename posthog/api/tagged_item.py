@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Sequence
 from typing import Any, Literal, Optional, cast
 
 from django.db import models
@@ -128,7 +129,7 @@ class BulkUpdateTagsResponseSerializer(serializers.Serializer):
     skipped = BulkUpdateTagsErrorSerializer(many=True)
 
 
-def _prefetch_tags_for_instances(instances: list) -> None:
+def _prefetch_tags_for_instances(instances: Sequence) -> None:
     """Manually prefetch tagged_items for a list of model instances.
 
     Handles RawQuerySet results that may have NULL PKs (e.g., from FULL OUTER JOINs)
@@ -153,7 +154,9 @@ def _prefetch_tags_for_instances(instances: list) -> None:
 
 
 class TaggedItemViewSetMixin(viewsets.GenericViewSet):
-    def prefetch_tagged_items_if_available(self, queryset: QuerySet) -> QuerySet:
+    def prefetch_tagged_items_if_available(
+        self, queryset: QuerySet | models.query.RawQuerySet
+    ) -> QuerySet | models.query.RawQuerySet:
         if isinstance(queryset, models.query.RawQuerySet):
             return queryset
         return queryset.prefetch_related(
@@ -164,7 +167,7 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             )
         )
 
-    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet | models.query.RawQuerySet:  # type: ignore[override]
         queryset = super().filter_queryset(queryset)
         return self.prefetch_tagged_items_if_available(queryset)
 

@@ -86,7 +86,7 @@ class TaskSerializer(serializers.ModelSerializer):
 
     title = serializers.CharField(max_length=255, required=False, allow_blank=True)
     description = serializers.CharField(required=False, allow_blank=True)
-    origin_product = serializers.ChoiceField(choices=Task.OriginProduct, required=False)
+    origin_product = serializers.ChoiceField(choices=Task.OriginProduct.choices, required=False)
     # Write-only: which SignalReportTask row to create when linking a task to a report from the
     # public task API (e.g. PostHog Code inbox). Only implementation is supported; research/repo
     # selection links are created by server-side flows.

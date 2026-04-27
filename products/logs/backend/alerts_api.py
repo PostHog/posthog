@@ -113,7 +113,7 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window.",
     )
     threshold_operator = serializers.ChoiceField(
-        choices=LogsAlertConfiguration.ThresholdOperator,
+        choices=LogsAlertConfiguration.ThresholdOperator.choices,
         default=LogsAlertConfiguration.ThresholdOperator.ABOVE,
         help_text="Whether the alert fires when the count is above or below the threshold.",
     )
@@ -504,7 +504,7 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
         help_text="Threshold count to evaluate against.",
     )
     threshold_operator = serializers.ChoiceField(
-        choices=LogsAlertConfiguration.ThresholdOperator,
+        choices=LogsAlertConfiguration.ThresholdOperator.choices,
         help_text="Whether the alert fires when the count is above or below the threshold.",
     )
     window_minutes = serializers.IntegerField(
