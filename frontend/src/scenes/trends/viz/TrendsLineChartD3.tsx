@@ -107,17 +107,17 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
                 }
                 const baseColor = getTrendsColor(r)
                 const displayColor = r.compare_label === 'previous' ? hexToRGBA(baseColor, 0.5) : baseColor
-                const hidden = getTrendsHidden(r)
+                const excluded = getTrendsHidden(r)
                 const mainSeries: Series<TrendsSeriesMeta> = {
                     key: `${r.id}`,
                     label: r.label ?? '',
                     data: r.data,
                     color: displayColor,
-                    fillArea: display === ChartDisplayType.ActionsAreaGraph,
-                    dashedFromIndex,
-                    hidden,
                     yAxisId,
                     meta,
+                    fill: display === ChartDisplayType.ActionsAreaGraph ? {} : undefined,
+                    stroke: dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined,
+                    visibility: excluded ? { excluded: true } : undefined,
                 }
                 const series: Series<TrendsSeriesMeta>[] = [mainSeries]
 
@@ -127,16 +127,11 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
                         key: `${r.id}__ci`,
                         label: `${r.label ?? ''} (CI)`,
                         data: upper,
-                        fillBetweenData: lower,
                         color: displayColor,
-                        fillArea: true,
-                        fillOpacity: 0.2,
-                        pointRadius: 0,
-                        hidden: hidden,
-                        hideFromTooltip: true,
-                        hideValueLabels: true,
                         yAxisId,
                         meta,
+                        fill: { opacity: 0.2, lowerData: lower },
+                        visibility: { excluded, fromTooltip: true, fromValueLabels: true },
                     })
                 }
 
@@ -147,27 +142,21 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
                         label: `${r.label ?? ''} (Moving avg)`,
                         data: maData,
                         color: displayColor,
-                        fillArea: false,
-                        dashPattern: [10, 3],
-                        pointRadius: 0,
-                        hideFromTooltip: true,
-                        excludeFromStack: true,
                         yAxisId,
                         meta,
+                        stroke: { pattern: [10, 3] },
+                        visibility: { fromTooltip: true, fromStack: true },
                     })
 
-                    if (showTrendLines && !hidden) {
+                    if (showTrendLines && !excluded) {
                         series.push({
                             key: `${r.id}-ma__trendline`,
                             label: `${r.label ?? ''} (Moving avg)`,
                             data: trendLine(maData),
                             color: hexToRGBA(baseColor, 0.5),
                             yAxisId,
-                            dashPattern: [1, 3],
-                            pointRadius: 0,
-                            hideFromTooltip: true,
-                            excludeFromStack: true,
-                            hideValueLabels: true,
+                            stroke: { pattern: [1, 3] },
+                            visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
                         })
                     }
                 }
@@ -176,18 +165,15 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
                 // partial bucket doesn't drag the slope down. Dimmed so the dashed
                 // overlay reads as subordinate to the series line — at full intensity
                 // the two colors visually compete, especially on a dark background.
-                if (showTrendLines && !hidden) {
+                if (showTrendLines && !excluded) {
                     series.push({
                         key: `${r.id}__trendline`,
                         label: r.label ?? '',
                         data: trendLine(r.data, dashedFromIndex),
                         color: hexToRGBA(baseColor, 0.5),
                         yAxisId,
-                        dashPattern: [1, 3],
-                        pointRadius: 0,
-                        hideFromTooltip: true,
-                        excludeFromStack: true,
-                        hideValueLabels: true,
+                        stroke: { pattern: [1, 3] },
+                        visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
                     })
                 }
 

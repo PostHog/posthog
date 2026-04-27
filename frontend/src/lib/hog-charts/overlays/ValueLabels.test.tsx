@@ -97,7 +97,7 @@ describe('ValueLabels', () => {
     it('skips series where hidden is true', () => {
         const series: Series[] = [
             { key: 'a', label: 'A', color: '#f00', data: [10, 20, 30, 40, 50] },
-            { key: 'b', label: 'B', color: '#0f0', data: [60, 70, 80, 90, 100], hidden: true },
+            { key: 'b', label: 'B', color: '#0f0', data: [60, 70, 80, 90, 100], visibility: { excluded: true } },
         ]
         const { container } = renderInChart(makeContext(series), <ValueLabels />)
         const divs = labelDivs(container)
