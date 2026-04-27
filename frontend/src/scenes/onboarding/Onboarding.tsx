@@ -25,7 +25,6 @@ import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
 import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingErrorTrackingAlertsStep'
 import { OnboardingErrorTrackingSourceMapsStep } from './error-tracking/OnboardingErrorTrackingSourceMapsStep'
-import { OnboardingExitModal } from './exit/OnboardingExitModal'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingLogicProps, OnboardingStepElement, onboardingLogic } from './onboardingLogic'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
@@ -122,15 +121,7 @@ const OnboardingWrapper = ({
         )
     }
 
-    // Single LemonModal for the whole onboarding tree — the exit CTA (OnboardingExitAction)
-    // renders in multiple places, but the modal should only exist once in the DOM so focus
-    // trap and ARIA ids don't clash.
-    return (
-        <>
-            {currentOnboardingStep}
-            <OnboardingExitModal />
-        </>
-    )
+    return currentOnboardingStep
 }
 
 const sessionReplayOnboardingToggle = (

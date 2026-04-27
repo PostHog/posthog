@@ -256,7 +256,7 @@ export function LegacyProductSelection(): JSX.Element {
             <div className="flex flex-col items-center justify-center flex-grow w-full">
                 {currentStep === 'choose_path' && <ChoosePathStep />}
                 {currentStep === 'product_selection' && <ProductSelectionStep />}
-                <OnboardingExitAction />
+                {currentStep === 'choose_path' && <OnboardingExitAction />}
             </div>
         </div>
     )
