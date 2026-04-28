@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1129_userintegration"),
+        ("posthog", "1130_filesystemshortcut_order"),
     ]
 
     operations = [
