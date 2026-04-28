@@ -23,7 +23,7 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
-from posthog.models.integration import GitHubRateLimitError  # noqa: F401 — re-exported for facade
+from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
 from .db import WRITER_DB
