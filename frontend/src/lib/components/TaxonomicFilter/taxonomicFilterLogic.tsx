@@ -3,6 +3,7 @@ import {
     BuiltLogic,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -29,7 +30,10 @@ import {
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import {
+    hasPinnedContext,
+    taxonomicFilterPinnedPropertiesLogic,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
     ExcludedProperties,
@@ -107,6 +111,10 @@ import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE))
+
+export interface SelectItemMeta {
+    position?: number
+}
 
 function indexAfterLastMetaGroup(
     filtered: TaxonomicFilterGroupType[],
@@ -343,11 +351,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         tabLeft: true,
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
+        recordPaste: (pastedLength: number) => ({ pastedLength }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => ({
+        selectItem: (
+            group: TaxonomicFilterGroup,
+            value: TaxonomicFilterValue | null,
+            item: any,
+            meta?: SelectItemMeta
+        ) => ({
             group,
             value,
             item,
+            meta,
         }),
         infiniteListResultsReceived: (groupType: TaxonomicFilterGroupType, results: ListStorage) => ({
             groupType,
@@ -1675,11 +1690,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
     }),
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, cache }) => {
+        cache.openedAt = Date.now()
+        cache.hadSelection = false
         // Initial fire — the model dedupes against taxonomy defaults and already-loaded names.
         if (props.eventNames?.length) {
             actions.ensureLoadedForEvents(props.eventNames)
         }
+    }),
+    beforeUnmount(({ values, cache }) => {
+        posthog.capture('taxonomic filter closed', {
+            dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
+            hadSelection: !!cache.hadSelection,
+            groupType: values.activeTab,
+        })
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // When the in-context events change (e.g. an insight series swaps event), ask the model
@@ -1688,34 +1712,38 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             actions.ensureLoadedForEvents(props.eventNames)
         }
     }),
-    listeners(({ actions, values, props }) => ({
-        selectItem: ({ group, value, item }) => {
+    listeners(({ actions, values, props, cache }) => ({
+        selectItem: ({ group, value, item, meta }) => {
             if (item) {
-                if (isQuickFilterItem(item)) {
-                    posthog.capture('taxonomic suggested filter selected', {
-                        query: values.searchQuery,
+                const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
+                const hadSearchInput = !!values.searchQuery
+                const wasQuickFilter = isQuickFilterItem(item)
+                const wasFromRecents = hasRecentContext(item)
+                const wasFromPinnedList = hasPinnedContext(item)
+
+                posthog.capture('taxonomic filter item selected', {
+                    groupType: values.activeTab,
+                    sourceGroupType,
+                    wasFromPinnedList,
+                    wasFromRecents,
+                    wasQuickFilter,
+                    hadSearchInput,
+                    position: meta?.position,
+                    query: values.searchQuery || undefined,
+                    ...(wasQuickFilter && {
                         filterName: item.name,
                         propertyKey: item.propertyKey,
                         operator: item.operator,
                         filterValue: item.filterValue,
                         propertyFilterType: item.propertyFilterType,
                         eventName: item.eventName,
-                        // Distinguish shortcuts picked from the dedicated SuggestedFilters tab
-                        // (where cross-group top matches aggregate) from those picked inline in
-                        // their origin group tab. Use activeTab, not group.type — `group` has
-                        // already been resolved to the shortcut's origin group by getItemGroup.
-                        source:
-                            values.activeTab === TaxonomicFilterGroupType.SuggestedFilters
-                                ? 'suggested_filters_tab'
-                                : 'keyword_shortcut',
-                    })
-                }
+                    }),
+                })
 
                 // Record to recents (deferred to avoid render loop).
                 // Skip property groups — these are just the key-picking step;
                 // the complete filter (with operator + value) is recorded by propertyFilterLogic.
                 // Skip QuickFilterItem shortcuts — they are synthetic, not real data definitions.
-                const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
                 const hasCompletePropertyFilter = hasRecentContext(item) && item._recentContext.propertyFilter
                 const isRecordedByPropertyFilterLogic =
                     !hasCompletePropertyFilter &&
@@ -1746,8 +1774,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     }, 0)
                 }
 
+                cache.hadSelection = true
                 props.onChange?.(group, value, item)
             } else if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
+                cache.hadSelection = true
                 props.onChange?.(group, value, item)
             } else if (props.onEnter) {
                 props.onEnter(values.searchQuery)
@@ -1811,14 +1841,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             }
         },
 
+        recordPaste: ({ pastedLength }) => {
+            cache.pastedCharsSinceLastCapture = (cache.pastedCharsSinceLastCapture ?? 0) + Math.max(0, pastedLength)
+        },
+
         setSearchQuery: async ({ searchQuery }, breakpoint) => {
             const { activeTaxonomicGroup } = values
 
             await breakpoint(500)
+            const pastedChars = cache.pastedCharsSinceLastCapture ?? 0
+            cache.pastedCharsSinceLastCapture = 0
             if (searchQuery) {
+                const totalLength = searchQuery.length
+                const inputMode: 'pasted' | 'mixed' | 'typed' =
+                    pastedChars >= totalLength && pastedChars > 0 ? 'pasted' : pastedChars > 0 ? 'mixed' : 'typed'
                 posthog.capture('taxonomic_filter_search_query', {
                     searchQuery,
                     groupType: activeTaxonomicGroup?.type,
+                    inputMode,
+                    pastedFraction: totalLength > 0 ? Math.min(1, pastedChars / totalLength) : 0,
                 })
             }
         },

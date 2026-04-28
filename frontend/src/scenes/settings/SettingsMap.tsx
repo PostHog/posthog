@@ -107,6 +107,7 @@ import {
     ReplayNetworkCapture,
     ReplayNetworkHeadersPayloads,
 } from './environment/SessionRecordingSettings'
+import { SessionSummariesSettings } from './environment/SessionSummariesSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
@@ -117,7 +118,6 @@ import {
     TeamDisplayName,
     TeamTimezone,
     TeamVariables,
-    WebSnippetV2,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
@@ -230,22 +230,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: ['JS_SNIPPET_VERSIONING'],
                 component: <JsSnippetVersionPin />,
                 keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js'],
-            },
-            {
-                id: 'snippet-v2',
-                title: (
-                    <>
-                        Web snippet V2{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Experimental
-                        </LemonTag>
-                    </>
-                ),
-                description:
-                    'The V2 snippet includes your project config automatically along with the PostHog JS code, leading to faster load times and fewer calls needed before the SDK is fully functional.',
-                flag: 'REMOTE_CONFIG',
-                component: <WebSnippetV2 />,
-                keywords: ['javascript', 'install', 'setup', 'v2', 'fast'],
             },
         ],
     },
@@ -1081,14 +1065,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'replay-retention',
-                title: (
-                    <>
-                        Data retention
-                        <LemonTag type="success" className="ml-1 uppercase">
-                            New
-                        </LemonTag>
-                    </>
-                ),
+                title: 'Data retention',
                 description:
                     'Control how long your recordings are stored. Changes only affect the retention period for future recordings.',
                 component: <ReplayDataRetentionSettings />,
@@ -1096,17 +1073,26 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'replay-integrations',
+                title: 'Integrations',
+                description: 'Configure integrations to create and link issues from session replays.',
+                component: <ReplayIntegrations />,
+                keywords: ['integration', 'connect', 'third-party'],
+            },
+            {
+                id: 'replay-ai-config',
                 title: (
                     <>
-                        Integrations
+                        AI product context
                         <LemonTag type="success" className="ml-1 uppercase">
                             New
                         </LemonTag>
                     </>
                 ),
-                description: 'Configure integrations to create and link issues from session replays.',
-                component: <ReplayIntegrations />,
-                keywords: ['integration', 'connect', 'third-party'],
+                description:
+                    'Team-wide context the AI uses when summarizing session replays (custom events, intentional behaviors, known friction, etc.)',
+                component: <SessionSummariesSettings />,
+                flag: 'REPLAY_VIDEO_BASED_SUMMARIZATION',
+                keywords: ['ai', 'summary', 'summaries', 'prompt', 'context', 'llm'],
             },
         ],
     },

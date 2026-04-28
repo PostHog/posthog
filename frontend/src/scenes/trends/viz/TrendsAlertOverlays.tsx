@@ -22,7 +22,7 @@ interface TrendsAlertOverlaysProps {
 
 /** Renders alert threshold lines and anomaly point markers on top of the trends chart.
  *
- *  Lifted into its own component (rather than inlined in TrendsLineChartD3) so that
+ *  Lifted into its own component (rather than inlined in TrendsLineChart) so that
  *  insightAlertsLogic only mounts for saved insights — mounting it with `insightId: undefined`
  *  causes a spurious unfiltered alerts API call. The parent renders this only when
  *  `insight.id` is truthy. */

@@ -12997,10 +12997,6 @@
             "enum": ["data_warehouse", "endpoint", "managed_viewset"],
             "type": "string"
         },
-        "DataWarehouseSyncInterval": {
-            "enum": ["1min", "5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
-            "type": "string"
-        },
         "DataWarehouseViewLink": {
             "additionalProperties": false,
             "properties": {
@@ -14071,8 +14067,9 @@
                     "description": "Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).",
                     "type": "object"
                 },
-                "cache_age_seconds": {
-                    "type": "number"
+                "data_freshness_seconds": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
                 },
                 "deleted": {
                     "description": "Set to true to soft-delete this endpoint",
@@ -14103,10 +14100,6 @@
                             "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
-                },
-                "sync_frequency": {
-                    "$ref": "#/definitions/DataWarehouseSyncInterval",
-                    "description": "How frequently should the underlying materialized view be updated"
                 },
                 "version": {
                     "$ref": "#/definitions/integer",
@@ -17652,6 +17645,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17663,9 +17659,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17704,6 +17697,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17715,9 +17711,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17922,6 +17915,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17941,9 +17937,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "method": {
                     "const": "bayesian",
@@ -18003,6 +17996,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -18014,9 +18010,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "method": {
                     "const": "frequentist",
@@ -18228,7 +18221,8 @@
                 "BuildBetter",
                 "Convex",
                 "ClickHouse",
-                "Plain"
+                "Plain",
+                "Resend"
             ],
             "type": "string"
         },
@@ -35305,11 +35299,15 @@
                 "required": {
                     "type": "boolean"
                 },
+                "secret": {
+                    "description": "Marks this field as containing sensitive data. The value is stripped from API responses regardless of the rendering `type` (so a multi-line PEM blob can use `textarea` and still be redacted). Required: source authors must explicitly classify every field.",
+                    "type": "boolean"
+                },
                 "type": {
                     "$ref": "#/definitions/SourceFieldInputConfigType"
                 }
             },
-            "required": ["type", "name", "label", "required", "placeholder"],
+            "required": ["type", "name", "label", "required", "placeholder", "secret"],
             "type": "object"
         },
         "SourceFieldInputConfigType": {

@@ -2362,7 +2362,7 @@ export interface EndpointType extends WithAccessControl {
     created_at: string
     updated_at: string
     created_by: UserBasicType | null
-    cache_age_seconds: number | null
+    data_freshness_seconds: number
     is_materialized: boolean
     current_version: number
     current_version_id: string
@@ -2391,7 +2391,6 @@ export interface EndpointVersionMaterializationType {
     status?: string
     error?: string
     last_materialized_at?: string
-    sync_frequency?: DataModelingSyncInterval
     saved_query_id?: string
 }
 
@@ -2618,7 +2617,6 @@ export interface PluginConfigType {
 
     config: Record<string, any>
     error?: PluginErrorType
-    delivery_rate_24h?: number | null
     created_at?: string
 }
 
@@ -2638,7 +2636,6 @@ export interface PluginConfigTypeNew {
     name: string
     description?: string
     updated_at: string
-    delivery_rate_24h?: number | null
     config: Record<string, any>
 }
 
@@ -6317,23 +6314,6 @@ export enum SDKTag {
 
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ComponentType>>
 export type SDKTagOverrides = Partial<Record<SDKKey, SDKTag[]>>
-
-export interface AppMetricsUrlParams {
-    tab?: AppMetricsTab
-    from?: string
-    error?: [string, string]
-}
-
-export enum AppMetricsTab {
-    Logs = 'logs',
-    ProcessEvent = 'processEvent',
-    OnEvent = 'onEvent',
-    ComposeWebhook = 'composeWebhook',
-    ExportEvents = 'exportEvents',
-    ScheduledTask = 'scheduledTask',
-    HistoricalExports = 'historical_exports',
-    History = 'history',
-}
 
 export enum SidePanelTab {
     Max = 'max',

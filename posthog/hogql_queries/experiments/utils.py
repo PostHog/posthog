@@ -131,7 +131,7 @@ _ALIAS_TO_STATS_FIELD: dict[str, str] = {
     "numerator_denominator_sum_product": "numerator_denominator_sum_product",
     "covariate_sum": "covariate_sum",
     "covariate_sum_squares": "covariate_sum_squares",
-    "main_covariate_sum_product": "main_covariate_sum_product",
+    "covariate_sum_product": "covariate_sum_product",
 }
 
 
@@ -259,8 +259,8 @@ def aggregate_variants_across_breakdowns(
                     "covariate_sum_squares": sum(
                         v.covariate_sum_squares for v in variant_list if v.covariate_sum_squares is not None
                     ),
-                    "main_covariate_sum_product": sum(
-                        v.main_covariate_sum_product for v in variant_list if v.main_covariate_sum_product is not None
+                    "covariate_sum_product": sum(
+                        v.covariate_sum_product for v in variant_list if v.covariate_sum_product is not None
                     ),
                 }
             )
@@ -310,7 +310,7 @@ def validate_variant_result(
     if hasattr(variant_result, "covariate_sum") and variant_result.covariate_sum is not None:
         validated_result.covariate_sum = variant_result.covariate_sum
         validated_result.covariate_sum_squares = variant_result.covariate_sum_squares
-        validated_result.main_covariate_sum_product = variant_result.main_covariate_sum_product
+        validated_result.covariate_sum_product = variant_result.covariate_sum_product
 
     return validated_result
 
@@ -380,7 +380,7 @@ def metric_variant_to_cuped_data(variant: ExperimentStatsBaseValidated) -> Cuped
             sum=variant.covariate_sum or 0.0,
             sum_squares=variant.covariate_sum_squares or 0.0,
         ),
-        sum_of_cross_products=variant.main_covariate_sum_product or 0.0,
+        sum_of_cross_products=variant.covariate_sum_product or 0.0,
     )
 
 
@@ -393,7 +393,7 @@ def _copy_cuped_fields(
 
     result.covariate_sum = variant.covariate_sum
     result.covariate_sum_squares = variant.covariate_sum_squares
-    result.main_covariate_sum_product = variant.main_covariate_sum_product
+    result.covariate_sum_product = variant.covariate_sum_product
 
 
 ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic

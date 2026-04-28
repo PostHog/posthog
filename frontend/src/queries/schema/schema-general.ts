@@ -16,7 +16,6 @@ import {
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
-    DataWarehouseSyncInterval,
     DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
@@ -1850,11 +1849,10 @@ export interface EndpointRequest {
     description?: string
     query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean
-    cache_age_seconds?: number
+    /** How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency. */
+    data_freshness_seconds?: integer
     /** Whether this endpoint's query results are materialized to S3 */
     is_materialized?: boolean
-    /** How frequently should the underlying materialized view be updated */
-    sync_frequency?: DataWarehouseSyncInterval
     derived_from_insight?: string
     /** Target a specific version for updates (optional, defaults to current version) */
     version?: integer
@@ -3609,7 +3607,7 @@ export interface ExperimentStatsBase {
     sum_squares: number
     covariate_sum?: number
     covariate_sum_squares?: number
-    main_covariate_sum_product?: number
+    covariate_sum_product?: number
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
@@ -5397,6 +5395,13 @@ export interface SourceFieldInputConfig {
     required: boolean
     placeholder: string
     caption?: string
+    /**
+     * Marks this field as containing sensitive data. The value is stripped from
+     * API responses regardless of the rendering `type` (so a multi-line PEM
+     * blob can use `textarea` and still be redacted). Required: source authors
+     * must explicitly classify every field.
+     */
+    secret: boolean
 }
 
 export type SourceFieldSelectConfigConverter = 'str_to_int' | 'str_to_bool' | 'str_to_optional_int'
@@ -5626,6 +5631,7 @@ export const externalDataSources = [
     'Convex',
     'ClickHouse',
     'Plain',
+    'Resend',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
