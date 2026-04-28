@@ -14,11 +14,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.admin.admins.data_deletion_request_admin import (
-    _build_event_filter,
-    _build_property_filter,
-    _event_count_query_template,
-)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client import sync_execute
@@ -26,7 +21,14 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.data_deletion_request import DataDeletionRequest, RequestStatus, RequestType
+from posthog.models.data_deletion_request import (
+    DataDeletionRequest,
+    RequestStatus,
+    RequestType,
+    build_event_filter,
+    build_property_filter,
+    event_count_query_template,
+)
 from posthog.models.user import User
 from posthog.permissions import TeamMemberStrictManagementPermission
 
@@ -37,18 +39,18 @@ FEATURE_FLAG_KEY = "data-deletion-self-serve"
 SELF_SERVE_REQUEST_TYPES = {RequestType.EVENT_REMOVAL, RequestType.PROPERTY_REMOVAL}
 
 
-def _user_can_self_serve(team) -> bool:
-    return posthoganalytics.feature_enabled(
-        FEATURE_FLAG_KEY,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={
-            "organization": {
-                "id": str(team.organization_id),
-                "created_at": team.organization.created_at,
-            }
-        },
-        send_feature_flag_events=False,
+def _user_can_self_serve(user: User, team) -> bool:
+    org_id = str(team.organization_id)
+    return bool(
+        posthoganalytics.feature_enabled(
+            FEATURE_FLAG_KEY,
+            str(user.distinct_id),
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+            person_properties={"email": user.email or ""},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
     )
 
 
@@ -171,9 +173,9 @@ def _run_preview(team_id: int, payload: dict) -> dict:
 
     try:
         if payload["request_type"] == RequestType.PROPERTY_REMOVAL:
-            extra_filter, params = _build_property_filter(ephemeral)
+            extra_filter, params = build_property_filter(ephemeral)
         else:
-            extra_filter, params = _build_event_filter(ephemeral)
+            extra_filter, params = build_event_filter(ephemeral)
     except DjangoValidationError as exc:
         raise ValidationError(exc.message_dict if hasattr(exc, "message_dict") else exc.messages)
 
@@ -185,7 +187,7 @@ def _run_preview(team_id: int, payload: dict) -> dict:
         query_type="self_serve_delete_preview_count",
     ):
         count_result = sync_execute(
-            _event_count_query_template(extra_filter),
+            event_count_query_template(extra_filter),
             params,
             team_id=team_id,
             readonly=True,
@@ -274,7 +276,8 @@ class DataDeletionRequestViewSet(
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        if not _user_can_self_serve(self.team):
+        user = cast(User, request.user)
+        if not user.is_authenticated or not _user_can_self_serve(user, self.team):
             # 404 (not 403) so teams without the flag can't infer the endpoint exists.
             raise NotFound()
 

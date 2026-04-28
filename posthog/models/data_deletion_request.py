@@ -88,6 +88,61 @@ def event_match_params(obj) -> dict:
     return params
 
 
+def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
+    """Append the compiled HogQL predicate (if any) to ``fragment`` and merge params."""
+    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    if not hogql_sql:
+        return fragment, params
+    combined = f"{fragment} AND ({hogql_sql})".strip() if fragment else f"AND ({hogql_sql})"
+    params.update(hogql_values)
+    return combined, params
+
+
+def build_event_filter(obj) -> tuple[str, dict]:
+    """WHERE clause + params matching events for an event_removal request."""
+    return _append_hogql_predicate(event_match_sql_fragment(obj), event_match_params(obj), obj)
+
+
+def build_property_filter(obj) -> tuple[str, dict]:
+    """WHERE clause + params matching events whose properties contain any of the named keys."""
+    event_clause = event_match_sql_fragment(obj)
+    params: dict = event_match_params(obj)
+    properties = obj.properties
+    if len(properties) == 1:
+        property_clause = f"AND {jsonhas_expr(properties[0], 'fp_0')}"
+    else:
+        exprs = [jsonhas_expr(prop, f"fp_{i}") for i, prop in enumerate(properties)]
+        property_clause = f"AND ({' OR '.join(exprs)})"
+
+    for i, prop in enumerate(properties):
+        for j, part in enumerate(prop.split(".")):
+            params[f"fp_{i}_{j}"] = part
+
+    filter_clause = f"{event_clause} {property_clause}".strip()
+    return _append_hogql_predicate(filter_clause, params, obj)
+
+
+def event_count_query_template(extra_filter: str) -> str:
+    """SQL template that counts events matching a deletion request.
+
+    Counts run against the distributed ``events`` table so operators get a
+    cluster-wide number; the actual deletions still target ``sharded_events``.
+    """
+    # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input)
+    return f"""
+            SELECT
+                count() AS events,
+                count(DISTINCT _part) AS parts,
+                min(timestamp) AS min_ts,
+                max(timestamp) AS max_ts
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND timestamp >= %(start_time)s
+              AND timestamp < %(end_time)s
+              {extra_filter}
+            """
+
+
 class RequestType(models.TextChoices):
     PROPERTY_REMOVAL = "property_removal"
     EVENT_REMOVAL = "event_removal"

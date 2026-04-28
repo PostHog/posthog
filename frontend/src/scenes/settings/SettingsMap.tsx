@@ -1360,7 +1360,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-data-deletion',
         title: 'Data deletion',
-        // flag: 'DATA_DELETION_SELF_SERVE',
+        flag: 'DATA_DELETION_SELF_SERVE',
         settings: [
             {
                 id: 'environment-data-deletion-manage',

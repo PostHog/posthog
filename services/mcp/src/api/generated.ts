@@ -9483,15 +9483,15 @@ export namespace Schemas {
     }
 
     /**
-     * * `event_removal` - event_removal
-    * `property_removal` - property_removal
+     * * `property_removal` - property_removal
+    * `event_removal` - event_removal
      */
     export type DataDeletionRequestPreviewInputRequestTypeEnum = typeof DataDeletionRequestPreviewInputRequestTypeEnum[keyof typeof DataDeletionRequestPreviewInputRequestTypeEnum];
 
 
     export const DataDeletionRequestPreviewInputRequestTypeEnum = {
-      EventRemoval: 'event_removal',
       PropertyRemoval: 'property_removal',
+      EventRemoval: 'event_removal',
     } as const;
 
     export interface DataDeletionRequestPreviewInput {

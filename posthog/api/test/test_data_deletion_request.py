@@ -89,7 +89,7 @@ class TestDataDeletionRequestAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "request_type" in response.json()
+        assert response.json()["attr"] == "request_type"
 
     def test_property_removal_requires_properties(self) -> None:
         response = self.client.post(

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -48,10 +49,20 @@ export function DataDeletionHistory(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
-            <LemonBanner type="info">
-                Approved requests are picked up by our deletion worker within 10 minutes. Completed deletions are
-                irreversible.
-            </LemonBanner>
+            <div className="flex items-start justify-between gap-2">
+                <LemonBanner type="info" className="grow">
+                    Approved requests are picked up by our deletion worker within 10 minutes. Completed deletions are
+                    irreversible.
+                </LemonBanner>
+                <LemonButton
+                    icon={<IconRefresh />}
+                    type="secondary"
+                    size="small"
+                    onClick={() => loadDeletionRequests()}
+                    loading={deletionRequestsLoading}
+                    tooltip="Refresh"
+                />
+            </div>
             <LemonTable<DataDeletionRequest>
                 dataSource={deletionRequests}
                 loading={deletionRequestsLoading}
@@ -139,11 +150,6 @@ export function DataDeletionHistory(): JSX.Element {
                     },
                 ]}
             />
-            <div>
-                <LemonButton type="tertiary" onClick={() => loadDeletionRequests()} loading={deletionRequestsLoading}>
-                    Refresh
-                </LemonButton>
-            </div>
         </div>
     )
 }

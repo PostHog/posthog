@@ -225,47 +225,46 @@ export function DataDeletionNewRequest(): JSX.Element {
                 </LemonField>
             </Form>
 
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-secondary text-sm">
                     Preview the matched events before submitting. Re-run the preview after any change.
                 </span>
-                <LemonButton
-                    type="secondary"
-                    onClick={() => runPreview()}
-                    loading={previewLoading}
-                    disabledReason={
-                        !previewScoped
-                            ? 'Fill in the scope first'
-                            : previewIsFresh
-                              ? 'Preview is up to date'
-                              : undefined
-                    }
-                >
-                    {preview ? 'Re-run preview' : 'Preview events'}
-                </LemonButton>
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => runPreview()}
+                        loading={previewLoading}
+                        disabledReason={
+                            !previewScoped
+                                ? 'Fill in the scope first'
+                                : previewIsFresh
+                                  ? 'Preview is up to date'
+                                  : undefined
+                        }
+                    >
+                        {preview ? 'Re-run preview' : 'Preview events'}
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        status="danger"
+                        disabledReason={
+                            newRequestHasErrors
+                                ? 'Fix the form errors first'
+                                : !previewIsFresh
+                                  ? 'Run a preview that matches the current settings before submitting'
+                                  : preview && preview.count === 0
+                                    ? 'Preview matches 0 events — nothing to delete'
+                                    : undefined
+                        }
+                        onClick={() => setConfirmOpen(true)}
+                        loading={isNewRequestSubmitting}
+                    >
+                        Submit deletion request
+                    </LemonButton>
+                </div>
             </div>
 
             <DataDeletionPreviewPanel />
-
-            <div className="flex justify-end">
-                <LemonButton
-                    type="primary"
-                    status="danger"
-                    disabledReason={
-                        newRequestHasErrors
-                            ? 'Fix the form errors first'
-                            : !previewIsFresh
-                              ? 'Run a preview that matches the current settings before submitting'
-                              : preview && preview.count === 0
-                                ? 'Preview matches 0 events — nothing to delete'
-                                : undefined
-                    }
-                    onClick={() => setConfirmOpen(true)}
-                    loading={isNewRequestSubmitting}
-                >
-                    Submit deletion request
-                </LemonButton>
-            </div>
 
             <LemonModal
                 title="Confirm deletion request"
