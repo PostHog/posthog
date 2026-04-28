@@ -710,6 +710,15 @@ export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
     })
     .describe('Request serializer for evaluation summary - accepts IDs only, fetches data server-side.')
 
+/**
+ * Fetch experiment items for a given experiment_id, with heavy input/output.
+ */
+export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PURE__ */ zod.object({
+    experiment_id: zod.string(),
+    date_from: zod.string().nullish(),
+    date_to: zod.string().nullish(),
+})
+
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20
@@ -1025,6 +1034,23 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
     date_from: zod.string().nullish(),
     date_to: zod.string().nullish(),
 })
+
+/**
+ * Fetch the recent $ai_generation events for the sentiment tab.
+
+Backed by `_SENTIMENT_GENERATIONS_SQL` reading `posthog.ai_events` through
+`execute_with_ai_events_fallback`, so heavy `input` values survive the
+post-cutover strip on `events.properties.$ai_input`. Frontend callers
+pass the same `HogQLFilters` payload they previously passed to
+`api.query({kind: HogQLQuery, filters: ...})`.
+ */
+export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        filters: zod.unknown().optional(),
+    })
+    .describe(
+        'Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.\n\n`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL\npath used (dateRange, filterTestAccounts, properties), so the migration is\nbehaviour-preserving for callers that pass a request unchanged.'
+    )
 
 /**
  * 

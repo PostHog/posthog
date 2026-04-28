@@ -785,6 +785,18 @@ export interface EvaluationSummaryResponseApi {
     statistics: EvaluationSummaryStatisticsApi
 }
 
+export interface OfflineExperimentItemsRequestApi {
+    experiment_id: string
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+}
+
+export interface OfflineExperimentItemsResponseApi {
+    results: unknown[][]
+}
+
 /**
  * * `unknown` - Unknown
  * `ok` - Ok
@@ -1165,6 +1177,21 @@ export type SentimentBatchResponseApiResults = { [key: string]: SentimentResultA
 
 export interface SentimentBatchResponseApi {
     results: SentimentBatchResponseApiResults
+}
+
+/**
+ * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
+
+`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
+path used (dateRange, filterTestAccounts, properties), so the migration is
+behaviour-preserving for callers that pass a request unchanged.
+ */
+export interface SentimentGenerationsRequestApi {
+    filters?: unknown
+}
+
+export interface SentimentGenerationsResponseApi {
+    results: unknown[][]
 }
 
 /**
@@ -2119,6 +2146,10 @@ export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsModelsRetrieve200 = { [key: string]: unknown }
 
+export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown }
+
 export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 
 export type LlmAnalyticsProviderKeysListParams = {
@@ -2213,6 +2244,10 @@ export type LlmAnalyticsScoreDefinitionsListParams = {
 export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown }
+
+export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown }
 
