@@ -495,3 +495,22 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this was last updated.",
     )
+
+    def is_expired(self) -> bool:
+        if self.expires_at is None:
+            raise ValueError("Cannot determine if object is expired: `expires_at` missing.")
+
+        return dt.datetime.now(dt.utc) > self.expires_at
+
+    def is_expired_or_close(self, threshold: dt.timedelta | int = dt.timedelta(hours=1)) -> bool:
+        if self.is_expired():
+            return True
+
+        delta = self.expires_at - dt.datetime.now(dt.utc)  # type: ignore
+
+        if isinstance(threshold, int):
+            threshold_delta = dt.timedelta(seconds=threshold)
+        else:
+            threshold_delta = threshold
+
+        return threshold_delta > delta
