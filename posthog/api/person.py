@@ -613,6 +613,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_recordings: bool = False,
         keep_person: bool = False,
     ) -> dict[str, Any]:
+        if distinct_ids and ids:
+            raise ValidationError("You must provide either distinct_ids or ids, not both")
         if distinct_ids and len(distinct_ids) > 1000:
             raise ValidationError("You can only pass 1000 distinct_ids in one call")
         if ids and len(ids) > 1000:
