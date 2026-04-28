@@ -146,7 +146,7 @@ export function GeneralSection(): JSX.Element {
                         <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
                             <p className="mb-2">
                                 Compute an HMAC-SHA256 of the user's <code>distinct_id</code> using the secret API key
-                                above (server-side) and pass both values to <code>posthog.init()</code>:
+                                below (server-side) and pass both values to <code>posthog.init()</code>:
                             </p>
                             <pre className="bg-surface-secondary rounded p-3 text-xs overflow-x-auto mb-2">
                                 {`posthog.init('<ph_project_api_key>', {
