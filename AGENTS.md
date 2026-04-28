@@ -31,7 +31,8 @@
 
 ## Commits and Pull Requests
 
-Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
+- Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
+- Check docs for any content that may need updating, you can find these at `docs/`
 
 ### Commit types
 

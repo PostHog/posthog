@@ -23,7 +23,6 @@ from posthog.models.user import User
 from posthog.plugins.access import can_configure_plugins, can_globally_manage_plugins, can_install_plugins
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
-from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
 
 
 def mocked_plugin_reload(*args, **kwargs):
@@ -1041,15 +1040,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         )
         PluginConfig.objects.create(plugin=plugin, team=self.team, order=3, deleted=True)
 
-        create_app_metric(
-            team_id=self.team.pk,
-            category="processEvent",
-            plugin_config_id=plugin_config1.pk,
-            timestamp="2021-12-05T00:10:00Z",
-            successes=5,
-            failures=5,
-        )
-
         response = self.client.get("/api/plugin_config/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -1064,7 +1054,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "error": None,
                     "team_id": self.team.pk,
                     "plugin_info": None,
-                    "delivery_rate_24h": 0.5,
                     "created_at": mock.ANY,
                     "updated_at": mock.ANY,
                     "name": None,
@@ -1080,7 +1069,6 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "error": None,
                     "team_id": self.team.pk,
                     "plugin_info": None,
-                    "delivery_rate_24h": None,
                     "created_at": mock.ANY,
                     "updated_at": mock.ANY,
                     "name": "ui name",
