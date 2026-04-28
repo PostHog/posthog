@@ -542,13 +542,16 @@ function AnchorTimeField({
         if (!schema.should_sync && !isSyncTimeSet) {
             return 'Enable syncing and anchor times to set anchor time'
         }
+
         if (!schema.should_sync) {
             return 'Enable syncing to set anchor time'
         }
+
         if (!isSyncTimeSet) {
             return 'Enable anchor times to set anchor time'
         }
-        if (draftFrequency === '5min' || draftFrequency === '30min' || draftFrequency === '1hour') {
+
+        if (['1min', '5min', '15min', '30min', '1hour'].indexOf(draftFrequency) !== -1) {
             return 'Anchor time does not apply to sync intervals one hour or less'
         }
         return undefined
