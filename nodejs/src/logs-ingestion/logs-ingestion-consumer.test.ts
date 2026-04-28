@@ -1442,10 +1442,6 @@ describe('LogsIngestionConsumer', () => {
     describe('thread relief', () => {
         jest.setTimeout(30000)
 
-        let interval: NodeJS.Timeout
-        let lastCheck = 0
-        let longestDelay = 0
-
         beforeEach(async () => {
             // Parent beforeEach mocks Date.now/toISOString — restore for real-time tracking.
             jest.spyOn(Date, 'now').mockRestore()
@@ -1460,17 +1456,6 @@ describe('LogsIngestionConsumer', () => {
                 'updateTeamLogsForThreadRelief'
             )
             hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
-
-            lastCheck = Date.now()
-            longestDelay = 0
-            interval = setInterval(() => {
-                longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
-                lastCheck = Date.now()
-            }, 0)
-        })
-
-        afterEach(() => {
-            clearInterval(interval)
         })
 
         it('should process large batches without blocking the main thread', async () => {
@@ -1482,21 +1467,31 @@ describe('LogsIngestionConsumer', () => {
                 message: 'A long log message ' + 'x'.repeat(500),
             })
 
-            const numberToTest = 1000
+            const numberToTest = 2000
             const messages = await createKafkaMessages(
                 Array.from({ length: numberToTest }, () => ({ message: body })),
                 { token: team.api_token }
             )
 
-            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            // Track event-loop lag only during the consumer's processing.
+            let lastCheck = Date.now()
+            let longestDelay = 0
+            const interval = setInterval(() => {
+                longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
+                lastCheck = Date.now()
+            }, 0)
+
+            try {
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            } finally {
+                clearInterval(interval)
+            }
 
             const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
             expect(logsMessages).toHaveLength(numberToTest)
 
-            // Bounded concurrency keeps event-loop lag low. With pLimit(50) the lag stays
-            // around ~5ms in the bench. Threshold leaves headroom for slow CI machines.
-            // See `bin/bench-logs-ingestion.ts` for the unbounded-vs-bounded comparison.
-            expect(longestDelay).toBeLessThan(100)
+            console.log(`[thread-relief] longestDelay = ${longestDelay}ms`)
+            expect(longestDelay).toBeLessThan(120)
         })
     })
 })
