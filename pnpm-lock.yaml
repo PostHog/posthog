@@ -1118,9 +1118,6 @@ importers:
       react-toastify:
         specifier: ^10.0.0
         version: 10.0.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      react-transition-group:
-        specifier: ^4.4.5
-        version: 4.4.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-virtualized-auto-sizer:
         specifier: ^2.0.2
         version: 2.0.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1281,9 +1278,6 @@ importers:
       '@types/react-simple-maps':
         specifier: ^3.0.6
         version: 3.0.6
-      '@types/react-transition-group':
-        specifier: ^4.4.5
-        version: 4.4.5
       '@types/testing-library__jest-dom':
         specifier: ^5.14.5
         version: 5.14.5
@@ -2418,9 +2412,6 @@ importers:
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
-      '@types/react-transition-group':
-        specifier: '*'
-        version: 4.4.5
       clsx:
         specifier: '*'
         version: 1.2.1
@@ -2457,9 +2448,6 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
-      react-transition-group:
-        specifier: '*'
-        version: 4.4.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       ts-pattern:
         specifier: '*'
         version: 4.3.0
@@ -12245,9 +12233,6 @@ packages:
   '@types/react-simple-maps@3.0.6':
     resolution: {integrity: sha512-hR01RXt6VvsE41FxDd+Bqm1PPGdKbYjCYVtCgh38YeBPt46z3SwmWPWu2L3EdCAP6bd6VYEgztucihRw1C0Klg==}
 
-  '@types/react-transition-group@4.4.5':
-    resolution: {integrity: sha512-juKD/eiSM3/xZYzjuzH6ZwpP+/lejltmiS3QEzV/vmb/Q8+HfDmxu+Baga8UEMGBqV88Nbg4l2hY/K2DkyaLLA==}
-
   '@types/react@18.3.27':
     resolution: {integrity: sha512-cisd7gxkzjBKU2GgdYrTdtQx1SORymWyaAFhaxQPK9bYO9ot3Y5OikQRvY0VYQtvwjeQnizCINJAenh/V7MK2w==}
 
@@ -14775,9 +14760,6 @@ packages:
 
   dom-converter@0.2.0:
     resolution: {integrity: sha512-gd3ypIPfOMr9h5jIKq8E3sHOTCjeirnl0WK5ZdS1AW0Odt0b1PaWaHdJ4Qk4klv+YB9aJBS7mESXjFoDQPu6DA==}
-
-  dom-helpers@5.2.1:
-    resolution: {integrity: sha512-nRCa7CK3VTrM2NmGkIy4cbK7IZlgBE/PYMn55rrXefr5xXDP0LdtfPnblFDoVdcAfslJ7or6iqAUnx0CCGIWQA==}
 
   dom-serializer@0.2.2:
     resolution: {integrity: sha512-2/xPb3ORsQ42nHYiSunXkDjPLBaEj/xTwUO4B7XCZQTRk7EBtTOPaygh10YAAh2OI1Qrp6NWfpAhzswj0ydt9g==}
@@ -20725,12 +20707,6 @@ packages:
 
   react-toastify@10.0.6:
     resolution: {integrity: sha512-yYjp+omCDf9lhZcrZHKbSq7YMuK0zcYkDFTzfRFgTXkTFHZ1ToxwAonzA4JI5CxA91JpjFLmwEsZEgfYfOqI1A==}
-    peerDependencies:
-      react: 18.3.1
-      react-dom: 18.3.1
-
-  react-transition-group@4.4.5:
-    resolution: {integrity: sha512-pZcd1MCJoiKiBR2NRxeCRg13uCXbydPnmB4EOeRrY7480qNWO8IIgQG6zlDkm6uRMsURXPuKq0GWtiM59a5Q6g==}
     peerDependencies:
       react: 18.3.1
       react-dom: 18.3.1
@@ -36012,10 +35988,6 @@ snapshots:
       '@types/geojson': 7946.0.12
       '@types/react': 18.3.27
 
-  '@types/react-transition-group@4.4.5':
-    dependencies:
-      '@types/react': 18.3.27
-
   '@types/react@18.3.27':
     dependencies:
       '@types/prop-types': 15.7.5
@@ -39054,11 +39026,6 @@ snapshots:
   dom-converter@0.2.0:
     dependencies:
       utila: 0.4.0
-
-  dom-helpers@5.2.1:
-    dependencies:
-      '@babel/runtime': 7.29.2
-      csstype: 3.2.3
 
   dom-serializer@0.2.2:
     dependencies:
@@ -47130,15 +47097,6 @@ snapshots:
   react-toastify@10.0.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
       clsx: 2.1.1
-      react: 18.3.1
-      react-dom: 18.3.1(react@18.3.1)
-
-  react-transition-group@4.4.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
-    dependencies:
-      '@babel/runtime': 7.24.0
-      dom-helpers: 5.2.1
-      loose-envify: 1.4.0
-      prop-types: 15.8.1
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
