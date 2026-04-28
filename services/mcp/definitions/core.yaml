@@ -362,23 +362,17 @@ tools:
     invites-create:
         operation: invites_create
         enabled: false
+    invites-delegate-create:
+        operation: invites_delegate_create
+        enabled: false
     invites-destroy:
         operation: invites_destroy
         enabled: false
     invites-list:
         operation: invites_list
         enabled: false
-    invites-delegate-create:
-        operation: invites_delegate_create
-        enabled: false
-    users-onboarding-skip-create:
-        operation: users_onboarding_skip_create
-        enabled: false
     is-generating-demo-data-retrieve:
         operation: organizations_projects_is_generating_demo_data_retrieve
-        enabled: false
-    members-list:
-        operation: members_list
         enabled: false
     legal-documents-create:
         operation: legal_documents_create
@@ -770,6 +764,9 @@ tools:
         enabled: false
     users-list:
         operation: users_list
+        enabled: false
+    users-onboarding-skip-create:
+        operation: users_onboarding_skip_create
         enabled: false
     users-request-email-verification-create:
         operation: users_request_email_verification_create
