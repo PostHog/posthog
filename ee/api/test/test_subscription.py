@@ -961,7 +961,16 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == 200, response.content
         assert response.json()["enabled"] is True
 
-    def test_patch_enabled_false_does_not_trigger_workflow(self):
+    @parameterized.expand(
+        [
+            ("disable_enabled", True, {"enabled": False}, False),
+            ("redundant_disable", False, {"enabled": False}, False),
+            ("enable_disabled", False, {"enabled": True}, True),
+        ]
+    )
+    def test_patch_workflow_trigger_for_enabled_field(
+        self, _label, initial_enabled, patch_payload, expect_workflow_called
+    ):
         subscription = Subscription.objects.create(
             team=self.team,
             target_type="email",
@@ -970,61 +979,20 @@ class TestSubscriptionTemporal(APILicensedTest):
             start_date=timezone.now(),
             insight=self.insight,
             title="t",
-            enabled=True,
+            enabled=initial_enabled,
         )
         with patch("ee.api.subscription.sync_connect") as temporal_mock:
             temporal_mock.return_value.start_workflow = AsyncMock()
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
-                {"enabled": False},
+                patch_payload,
                 format="json",
             )
             assert response.status_code == 200, response.content
-            temporal_mock.return_value.start_workflow.assert_not_called()
-
-    def test_patch_already_disabled_does_not_trigger_workflow(self):
-        """A PATCH that doesn't change anything material on an already-disabled subscription
-        should not trigger a workflow — the resulting state is still disabled."""
-        subscription = Subscription.objects.create(
-            team=self.team,
-            target_type="email",
-            target_value="vasco@posthog.com",
-            frequency="daily",
-            start_date=timezone.now(),
-            insight=self.insight,
-            title="t",
-            enabled=False,
-        )
-        with patch("ee.api.subscription.sync_connect") as temporal_mock:
-            temporal_mock.return_value.start_workflow = AsyncMock()
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
-                {"enabled": False},
-                format="json",
-            )
-            assert response.status_code == 200, response.content
-            temporal_mock.return_value.start_workflow.assert_not_called()
-
-    def test_patch_enabled_true_does_trigger_workflow(self):
-        subscription = Subscription.objects.create(
-            team=self.team,
-            target_type="email",
-            target_value="vasco@posthog.com",
-            frequency="daily",
-            start_date=timezone.now(),
-            insight=self.insight,
-            title="t",
-            enabled=False,
-        )
-        with patch("ee.api.subscription.sync_connect") as temporal_mock:
-            temporal_mock.return_value.start_workflow = AsyncMock()
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
-                {"enabled": True},
-                format="json",
-            )
-            assert response.status_code == 200, response.content
-            temporal_mock.return_value.start_workflow.assert_called_once()
+            if expect_workflow_called:
+                temporal_mock.return_value.start_workflow.assert_called_once()
+            else:
+                temporal_mock.return_value.start_workflow.assert_not_called()
 
 
 class TestSubscriptionDeliveryAPI(APILicensedTest):
