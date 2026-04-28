@@ -41,6 +41,80 @@ interface InitKeaProps {
     replaceInitialPathInWindow?: boolean
 }
 
+// Break kea logic graph cycles after unmount so unmounted BuiltLogic
+// instances don't transitively retain the rest of the graph if some external
+// closure still holds them.
+//
+// kea v4's `unmountLogic` removes a built logic from `mounted`, `counter`,
+// and `wrapperContexts.builtLogics`, but the `BuiltLogic` object's own
+// `connections`, `events`, and `listeners` fields stay populated. The
+// `connections` map points at every transitively connected logic, so once
+// any single unmounted `BuiltLogic` is rooted from outside (e.g. by a React
+// fiber alternate, a redux middleware closure, or a stale Monaco model ref),
+// the whole connected graph stays alive.
+//
+// Heap-snapshot diffs on /sql showed 5 BuiltLogic instances per visit for
+// every connected logic, including singletons. Nulling these three fields
+// on afterUnmount caps the leak at the empty BuiltLogic shell. We only clear
+// these three because heap diffs show they hold the bulk of the retention;
+// `selectors` and `cache` are intentionally left alone — `cache.disposables`
+// is managed by `disposablesPlugin.beforeUnmount`, and selector closures
+// haven't been observed as a primary retainer once `connections` is gone.
+//
+// All three fields are cleared on the next macrotask via `setTimeout(0)`,
+// not synchronously. Two reasons:
+//
+// 1. kea v4's `unmountLogic` reads `logic.connections[pathString]` and
+//    `connectedLogic.events.beforeUnmount?.()` / `events.afterUnmount?.()`
+//    per iteration. After `.reverse()` the outer logic is unmounted first,
+//    so clearing its `connections` synchronously makes subsequent iterations
+//    dereference `undefined.events` and crash.
+//
+// 2. Test patterns that `mount(); unmount(); mount();` on the same captured
+//    BuiltLogic reference (e.g. `saveToDatasetButtonLogic.test.ts:476-489`)
+//    rely on the logic still having its `connections`/`events`/`listeners`
+//    populated for the second mount to actually wire anything up.
+//    `mountLogic` walks `Object.keys(logic.connections)` — empty connections
+//    means nothing mounts.
+//
+// `setTimeout(0)` waits until the current task fully unwinds, so kea
+// finishes its sweep AND any synchronous remount completes against a
+// populated graph. Cleanup still runs once the JS engine is idle, freeing
+// the unmounted BuiltLogic's closure web.
+//
+// `isMounted()` lives in the BuiltLogic's closure (not in a data field) and
+// continues to work. Plugins that need `logic.cache` etc. read it in
+// `beforeUnmount`, which runs before this `afterUnmount`. `cache.disposables`
+// is managed by `disposablesPlugin.beforeUnmount`; selectors aren't cleared
+// because they haven't been observed as a primary retainer once
+// `connections` is gone.
+type MutableBuiltLogic = {
+    events: Record<string, unknown>
+    listeners: Record<string, unknown>
+    connections: Record<string, unknown>
+}
+
+const postUnmountCleanupPlugin: KeaPlugin = {
+    name: 'postUnmountCleanup',
+    events: {
+        afterUnmount(logic) {
+            const l = logic as unknown as MutableBuiltLogic
+
+            // No-op if `setTimeout` isn't available (e.g. SSR). The cleanup
+            // is purely a memory optimisation; missing it doesn't break
+            // correctness.
+            if (typeof setTimeout !== 'function') {
+                return
+            }
+            setTimeout(() => {
+                l.events = {}
+                l.listeners = {}
+                l.connections = {}
+            }, 0)
+        },
+    },
+}
+
 // Used in some tests to make life easier
 let errorsSilenced = false
 
@@ -131,6 +205,10 @@ export function initKea({
         }),
         subscriptionsPlugin,
         waitForPlugin,
+        // Must be appended LAST so its afterUnmount runs after every other
+        // plugin and the user-provided beforeUnmount/afterUnmount events have
+        // had a chance to read logic.cache, logic.events, etc.
+        postUnmountCleanupPlugin,
     ]
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {

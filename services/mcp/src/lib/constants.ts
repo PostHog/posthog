@@ -159,6 +159,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'survey:write',
     'ticket:read',
     'ticket:write',
+    'usage_metric:read',
+    'usage_metric:write',
     'user:read',
     'user:write',
     'warehouse_table:read',

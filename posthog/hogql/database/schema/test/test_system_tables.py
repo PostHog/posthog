@@ -17,6 +17,7 @@ from posthog.models import (
     FeatureFlag,
     Group,
     GroupTypeMapping,
+    GroupUsageMetric,
     Insight,
     InsightVariable,
     Organization,
@@ -456,6 +457,15 @@ def _create_team(team: Team, label: str) -> Team:
     return team
 
 
+def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
+    return GroupUsageMetric.objects.create(
+        team=team,
+        group_type_index=0,
+        name=f"metric_{label}",
+        filters={"events": []},
+    )
+
+
 SYSTEM_TABLE_FACTORIES = [
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
@@ -506,6 +516,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("teams", _create_team),
     ("trace_review_scores", _create_trace_review_score),
     ("trace_reviews", _create_trace_review),
+    ("usage_metrics", _create_usage_metric),
 ]
 
 

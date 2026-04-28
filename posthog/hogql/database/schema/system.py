@@ -917,6 +917,24 @@ early_access_features: PostgresTable = PostgresTable(
     },
 )
 
+usage_metrics: PostgresTable = PostgresTable(
+    name="usage_metrics",
+    postgres_table_name="posthog_groupusagemetric",
+    access_scope="usage_metric",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "group_type_index": IntegerDatabaseField(name="group_type_index"),
+        "name": StringDatabaseField(name="name"),
+        "format": StringDatabaseField(name="format"),
+        "interval": IntegerDatabaseField(name="interval"),
+        "display": StringDatabaseField(name="display"),
+        "filters": StringJSONDatabaseField(name="filters"),
+        "math": StringDatabaseField(name="math"),
+        "math_property": StringDatabaseField(name="math_property", nullable=True),
+    },
+)
+
 
 tasks: PostgresTable = PostgresTable(
     name="tasks",
@@ -1068,4 +1086,5 @@ class SystemTables(TableNode):
         "teams": TableNode(name="teams", table=teams),
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
         "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),
+        "usage_metrics": TableNode(name="usage_metrics", table=usage_metrics),
     }

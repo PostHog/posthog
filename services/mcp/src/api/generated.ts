@@ -7730,6 +7730,7 @@ export namespace Schemas {
      * * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max
      */
     export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
@@ -7739,6 +7740,7 @@ export namespace Schemas {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
+      Xhigh: 'xhigh',
       Max: 'max',
     } as const;
 
@@ -7806,6 +7808,7 @@ export namespace Schemas {
     * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -8120,6 +8123,7 @@ export namespace Schemas {
     * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -17839,6 +17843,11 @@ export namespace Schemas {
     }
 
     /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type GroupUsageMetricFilters = {[key: string]: unknown};
+
+    /**
      * * `numeric` - numeric
     * `currency` - currency
      */
@@ -17876,19 +17885,32 @@ export namespace Schemas {
 
     export interface GroupUsageMetric {
       readonly id: string;
-      /** @maxLength 255 */
-      name: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters: GroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -25195,6 +25217,51 @@ export namespace Schemas {
       results: TraceReview[];
     }
 
+    export interface UserGitHubAccount {
+      /**
+       * GitHub account type for the installation (e.g. User or Organization).
+       * @nullable
+       */
+      type?: string | null;
+      /**
+       * GitHub login or organization name tied to the installation.
+       * @nullable
+       */
+      name?: string | null;
+    }
+
+    export interface UserGitHubIntegrationItem {
+      /** Integration kind; always `github` for this API. */
+      kind: string;
+      /** GitHub App installation id. */
+      installation_id: string;
+      /**
+       * Repository selection mode from GitHub (e.g. selected or all).
+       * @nullable
+       */
+      repository_selection?: string | null;
+      /** Installation account metadata from GitHub. */
+      account?: UserGitHubAccount | null;
+      /** True when this installation id matches a team-level GitHub integration on the active project. */
+      uses_shared_installation: boolean;
+      /** When this integration row was created. */
+      created_at: string;
+    }
+
+    export interface UserGitHubIntegrationListResponse {
+      /** GitHub personal integrations for the authenticated user. */
+      results: UserGitHubIntegrationItem[];
+    }
+
+    export interface PaginatedUserGitHubIntegrationListResponseList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UserGitHubIntegrationListResponse[];
+    }
+
     export interface UserInterview {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -27143,21 +27210,39 @@ export namespace Schemas {
       created_at?: string | null;
     }
 
+    /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type PatchedGroupUsageMetricFilters = {[key: string]: unknown};
+
     export interface PatchedGroupUsageMetric {
       readonly id?: string;
-      /** @maxLength 255 */
-      name?: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name?: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters?: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters?: PatchedGroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -28049,24 +28134,43 @@ export namespace Schemas {
     }
 
     export interface PinnedSceneTab {
+      /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
       id?: string;
+      /** URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination. */
       pathname?: string;
+      /** Query string portion of the URL, including the leading `?`. Empty string when there is no query. */
       search?: string;
+      /** Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment. */
       hash?: string;
+      /** Default tab title derived from the destination scene. Used when `customTitle` is not set. */
       title?: string;
-      /** @nullable */
+      /**
+       * Optional user-provided title that overrides `title` in the navigation UI.
+       * @nullable
+       */
       customTitle?: string | null;
+      /** Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`. */
       iconType?: string;
-      /** @nullable */
+      /**
+       * Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.
+       * @nullable
+       */
       sceneId?: string | null;
-      /** @nullable */
+      /**
+       * Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.
+       * @nullable
+       */
       sceneKey?: string | null;
+      /** Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination. */
       sceneParams?: unknown;
+      /** Whether this entry is pinned. Always coerced to true on save — pass true or omit. */
       pinned?: boolean;
     }
 
     export interface PatchedPinnedSceneTabs {
+      /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
+      /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
 
@@ -30788,7 +30892,9 @@ export namespace Schemas {
     }
 
     export interface PinnedSceneTabs {
+      /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
+      /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
 
@@ -34971,15 +35077,27 @@ export namespace Schemas {
 
     export interface SentimentRequest {
       /**
+       * Trace IDs or generation IDs to classify, depending on analysis_level.
        * @minItems 1
        * @maxItems 5
        */
       ids: string[];
+      /** Whether the IDs are 'trace' IDs or 'generation' IDs.
+
+    * `trace` - trace
+    * `generation` - generation */
       analysis_level?: SentimentRequestAnalysisLevelEnum;
+      /** If true, bypass cache and reclassify. */
       force_refresh?: boolean;
-      /** @nullable */
+      /**
+       * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+       * @nullable
+       */
       date_from?: string | null;
-      /** @nullable */
+      /**
+       * End of date range for the lookup. Defaults to now.
+       * @nullable
+       */
       date_to?: string | null;
     }
 
@@ -35963,6 +36081,7 @@ export namespace Schemas {
     * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -36568,6 +36687,23 @@ export namespace Schemas {
       affected: number;
       /** Total number of entities of this type in the project */
       total: number;
+    }
+
+    export interface UserGitHubLinkStartRequest {
+      /**
+       * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+       * @nullable
+       */
+      team_id?: number | null;
+      /** Optional client hint (e.g. posthog_code) for return routing after OAuth. */
+      connect_from?: string;
+    }
+
+    export interface UserGitHubLinkStartResponse {
+      /** URL to open in the browser to install or authorize the GitHub App for this user. */
+      install_url: string;
+      /** oauth_authorize when using user OAuth against an existing team installation; app_install for the GitHub App installation UI. */
+      connect_flow: string;
     }
 
     export interface UtmEvent {
@@ -44223,6 +44359,35 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type UsersIntegrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string;
     };
 
 

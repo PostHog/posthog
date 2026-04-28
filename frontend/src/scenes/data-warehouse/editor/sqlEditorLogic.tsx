@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import isEqual from 'lodash.isequal'
-import { Uri, editor } from 'monaco-editor'
+import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
 import { LemonCheckbox, LemonDialog, LemonInput, LemonSelect, lemonToast, Tooltip } from '@posthog/lemon-ui'
@@ -98,6 +98,73 @@ export interface SqlEditorLogicProps {
     mode?: SQLEditorMode
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+}
+
+// Position the active-query outline overlay around `range` in viewport coords.
+// Monaco renders inline decorations per-line, so we can't get a single rectangular
+// border from a className. Instead, we maintain an absolutely-positioned `div`
+// inside the editor's overlay layer and recompute its bounding box from the pixel
+// positions of the range's start/end on each line.
+function renderQueryOutline(editorInstance: editor.IStandaloneCodeEditor, node: HTMLElement, range: IRange): void {
+    const model = editorInstance.getModel()
+    if (!model) {
+        node.style.display = 'none'
+        return
+    }
+
+    let minLeft = Infinity
+    let maxRight = -Infinity
+    let minTop = Infinity
+    let maxBottom = -Infinity
+
+    for (let line = range.startLineNumber; line <= range.endLineNumber; line++) {
+        const leftCol = line === range.startLineNumber ? range.startColumn : 1
+        const rightCol = line === range.endLineNumber ? range.endColumn : model.getLineMaxColumn(line)
+        if (leftCol >= rightCol) {
+            continue
+        }
+        const startVis = editorInstance.getScrolledVisiblePosition({ lineNumber: line, column: leftCol })
+        const endVis = editorInstance.getScrolledVisiblePosition({ lineNumber: line, column: rightCol })
+        if (!startVis || !endVis) {
+            continue
+        }
+        if (startVis.left < minLeft) {
+            minLeft = startVis.left
+        }
+        if (endVis.left > maxRight) {
+            maxRight = endVis.left
+        }
+        if (startVis.top < minTop) {
+            minTop = startVis.top
+        }
+        // With wordWrap on, a single model line can span multiple visual rows: `endVis`
+        // sits on a later row than `startVis`. Take the max bottom of both so the outline
+        // covers the wrapped tail. Width on wrapped lines is still approximate — the
+        // mid-rows could extend past either anchor — but the bottom must be correct or
+        // wrapped queries get clipped vertically.
+        const startBottom = startVis.top + startVis.height
+        const endBottom = endVis.top + endVis.height
+        if (startBottom > maxBottom) {
+            maxBottom = startBottom
+        }
+        if (endBottom > maxBottom) {
+            maxBottom = endBottom
+        }
+    }
+
+    if (minLeft === Infinity) {
+        node.style.display = 'none'
+        return
+    }
+
+    // Small padding so the border doesn't touch the glyphs / cursor caret.
+    const padX = 3
+    const padY = 1
+    node.style.display = 'block'
+    node.style.left = `${minLeft - padX}px`
+    node.style.top = `${minTop - padY}px`
+    node.style.width = `${maxRight - minLeft + padX * 2}px`
+    node.style.height = `${maxBottom - minTop + padY * 2}px`
 }
 
 export const NEW_QUERY = 'Untitled'
@@ -528,6 +595,48 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     cache.activeQueryDecorationDebounceTimeout = null
                     cache.updateActiveQueryDecoration?.()
                 }, 150)
+            })
+
+            // Set up the active-query outline overlay. We render a single `div` parented
+            // to Monaco's overlay layer (viewport-fixed) and reposition it on scroll/layout.
+            const editorInstance = props.editor
+            const outlineNode = document.createElement('div')
+            outlineNode.className = 'active-query-outline'
+            outlineNode.style.position = 'absolute'
+            outlineNode.style.display = 'none'
+            const outlineWidget: editor.IOverlayWidget = {
+                getId: () => 'sql-editor.active-query-outline',
+                getDomNode: () => outlineNode,
+                // Returning `null` keeps the widget unanchored — we drive its position
+                // manually via inline `top`/`left` styles set in `renderQueryOutline`.
+                getPosition: () => null,
+            }
+            editorInstance.addOverlayWidget(outlineWidget)
+            cache.queryOutlineWidget = outlineWidget
+            cache.queryOutlineNode = outlineNode
+
+            cache.updateQueryOutline = (range: IRange | null): void => {
+                cache.queryOutlineRange = range
+                if (!range) {
+                    outlineNode.style.display = 'none'
+                    return
+                }
+                renderQueryOutline(editorInstance, outlineNode, range)
+            }
+
+            // Reposition the overlay on scroll and layout/resize. These don't change the
+            // range, only its pixel coordinates, so we skip the SQL parsing path entirely.
+            cache.scrollDisposable?.dispose()
+            cache.scrollDisposable = editorInstance.onDidScrollChange(() => {
+                if (cache.queryOutlineRange) {
+                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+                }
+            })
+            cache.layoutDisposable?.dispose()
+            cache.layoutDisposable = editorInstance.onDidLayoutChange(() => {
+                if (cache.queryOutlineRange) {
+                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+                }
             })
         }
     }),
@@ -2630,14 +2739,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             // Helper to validate a subquery standalone. Results are cached by subquery text
             // to avoid re-hitting the metadata endpoint for the same subquery on every cursor
             // move; the cache is invalidated whenever queryInput changes (see subscription).
-            const validateSubquery = async (
-                subqueryText: string
-            ): Promise<{ className: string; errorMessage: string | null }> => {
+            const validateSubquery = async (subqueryText: string): Promise<{ errorMessage: string | null }> => {
                 if (!cache.subqueryValidationCache) {
-                    cache.subqueryValidationCache = new Map<
-                        string,
-                        { className: string; errorMessage: string | null }
-                    >()
+                    cache.subqueryValidationCache = new Map<string, { errorMessage: string | null }>()
                 }
                 const cached = cache.subqueryValidationCache.get(subqueryText)
                 if (cached) {
@@ -2653,54 +2757,48 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const result =
                         errors.length > 0
                             ? {
-                                  className: 'active-subquery-highlight-invalid',
                                   errorMessage: `This subquery may fail standalone:\n${errors.map((e) => e.message).join('\n')}`,
                               }
-                            : {
-                                  className: 'active-subquery-highlight',
-                                  errorMessage: null,
-                              }
+                            : { errorMessage: null }
                     cache.subqueryValidationCache.set(subqueryText, result)
                     return result
                 } catch {
-                    return {
-                        className: 'active-subquery-highlight-invalid',
-                        errorMessage: 'This subquery may fail standalone',
-                    }
+                    return { errorMessage: 'This subquery may fail standalone' }
                 }
             }
 
-            // Helper to find subquery and build its decorations. Returns the range-wide
-            // background highlight plus, when the subquery can't run standalone, a subtle
-            // gutter glyph on the starting line — avoids painting every line with wavy
-            // underlines that read as errors.
-            const buildSubqueryDecoration = async (
+            // Resolve the innermost subquery at the cursor and build:
+            //   - the range to draw the outline overlay around
+            //   - per-line gutter/glyph decorations when the subquery can't run standalone
+            // The outline itself is rendered via a DOM overlay (see renderQueryOutline) rather
+            // than an inline className, so it reads as a frame around the code instead of a
+            // text background that can be confused with selection.
+            const buildSubquery = async (
                 activeQuery: QueryRange,
                 offset: number
-            ): Promise<editor.IModelDeltaDecoration[]> => {
+            ): Promise<{ range: IRange | null; decorations: editor.IModelDeltaDecoration[] }> => {
                 const subquery = await findInnermostSelectAtOffset(activeQuery.query, offset, activeQuery.start)
                 if (!subquery) {
-                    return []
+                    return { range: null, decorations: [] }
                 }
                 const subStart = model.getPositionAt(subquery.start)
                 const subEnd = model.getPositionAt(subquery.end)
-                const { className, errorMessage } = await validateSubquery(subquery.query)
-                const decorations: editor.IModelDeltaDecoration[] = [
-                    {
-                        range: {
-                            startLineNumber: subStart.lineNumber,
-                            startColumn: subStart.column,
-                            endLineNumber: subEnd.lineNumber,
-                            endColumn: subEnd.column,
-                        },
-                        options: {
-                            className,
-                            linesDecorationsClassName: errorMessage ? 'active-subquery-border-invalid' : undefined,
-                            hoverMessage: errorMessage ? { value: errorMessage } : undefined,
-                        },
-                    },
-                ]
+                const range: IRange = {
+                    startLineNumber: subStart.lineNumber,
+                    startColumn: subStart.column,
+                    endLineNumber: subEnd.lineNumber,
+                    endColumn: subEnd.column,
+                }
+                const { errorMessage } = await validateSubquery(subquery.query)
+                const decorations: editor.IModelDeltaDecoration[] = []
                 if (errorMessage) {
+                    decorations.push({
+                        range,
+                        options: {
+                            linesDecorationsClassName: 'active-subquery-border-invalid',
+                            hoverMessage: { value: errorMessage },
+                        },
+                    })
                     decorations.push({
                         range: {
                             startLineNumber: subStart.lineNumber,
@@ -2714,79 +2812,74 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         },
                     })
                 }
-                return decorations
+                return { range, decorations }
             }
 
-            // Single query — check for subqueries only
+            const applyResult = (range: IRange | null, decorations: editor.IModelDeltaDecoration[]): void => {
+                cache.updateQueryOutline?.(range)
+                cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
+                    cache.activeQueryDecorationIds ?? [],
+                    decorations
+                )
+            }
+
+            // Single query — outline the innermost subquery at the cursor (which collapses
+            // to the whole SELECT when there is no nested subquery).
             if (queries.length <= 1) {
                 const singleQuery = queries.length === 1 ? queries[0] : null
                 actions.setActiveQueryText(singleQuery?.query ?? null, 0)
 
-                if (singleQuery) {
-                    const subDecos = await buildSubqueryDecoration(singleQuery, cursorOffset)
+                if (!singleQuery) {
                     if (isStale()) {
                         return
                     }
-                    if (subDecos.length > 0) {
-                        cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
-                            cache.activeQueryDecorationIds ?? [],
-                            subDecos
-                        )
-                        return
-                    }
+                    applyResult(null, [])
+                    return
                 }
 
+                const { range, decorations } = await buildSubquery(singleQuery, cursorOffset)
                 if (isStale()) {
                     return
                 }
-                cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
-                    cache.activeQueryDecorationIds ?? [],
-                    []
-                )
+                applyResult(range, decorations)
                 return
             }
 
-            // Multiple queries
+            // Multiple queries — outline only the innermost subquery within the active one.
             const match = findQueryAtCursor(queries, cursorOffset)
             if (!match) {
+                actions.setActiveQueryText(null, 0)
                 if (isStale()) {
                     return
                 }
-                cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
-                    cache.activeQueryDecorationIds ?? [],
-                    []
-                )
-                actions.setActiveQueryText(null, 0)
+                applyResult(null, [])
                 return
             }
 
             actions.setActiveQueryText(match.query, match.start)
 
-            const startPos = model.getPositionAt(match.start)
-            const endPos = model.getPositionAt(match.end)
-
-            const decorations: editor.IModelDeltaDecoration[] = [
-                {
-                    range: {
-                        startLineNumber: startPos.lineNumber,
-                        startColumn: startPos.column,
-                        endLineNumber: endPos.lineNumber,
-                        endColumn: endPos.column,
-                    },
-                    options: { className: 'active-query-highlight' },
-                },
-            ]
-
-            const subDecos = await buildSubqueryDecoration(match, cursorOffset)
+            const { range, decorations } = await buildSubquery(match, cursorOffset)
             if (isStale()) {
                 return
             }
-            decorations.push(...subDecos)
 
-            cache.activeQueryDecorationIds = editorInstance.deltaDecorations(
-                cache.activeQueryDecorationIds ?? [],
-                decorations
-            )
+            // With several semicolon-separated statements in the editor, the inner-subquery
+            // outline alone doesn't tell you which top-level statement Cmd+Enter will run.
+            // A soft blue gutter bar spanning the active statement keeps that visible without
+            // re-introducing a range-wide background that reads as text selection.
+            const matchStart = model.getPositionAt(match.start)
+            const matchEnd = model.getPositionAt(match.end)
+            decorations.push({
+                range: {
+                    startLineNumber: matchStart.lineNumber,
+                    startColumn: matchStart.column,
+                    endLineNumber: matchEnd.lineNumber,
+                    endColumn: matchEnd.column,
+                },
+                options: { linesDecorationsClassName: 'active-query-gutter' },
+            })
+
+            applyResult(range, decorations)
         }
 
         const expectedDatabaseConnectionId = values.selectedConnectionId ?? null
@@ -2806,9 +2899,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions.loadDatabase()
         }
     }),
-    beforeUnmount(({ cache }) => {
+    beforeUnmount(({ cache, props }) => {
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
+        cache.scrollDisposable?.dispose()
+        cache.scrollDisposable = null
+        cache.layoutDisposable?.dispose()
+        cache.layoutDisposable = null
+        if (cache.queryOutlineWidget && props.editor) {
+            try {
+                props.editor.removeOverlayWidget(cache.queryOutlineWidget)
+            } catch (e) {
+                console.warn('[sqlEditorLogic] failed to remove outline overlay widget', e)
+            }
+        }
+        cache.queryOutlineWidget = null
+        cache.queryOutlineNode = null
+        cache.queryOutlineRange = null
+        cache.updateQueryOutline = null
         cache.umountDataNode?.()
 
         // Drop any pending decoration work so late callbacks don't touch a disposed editor.
