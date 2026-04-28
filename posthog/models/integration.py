@@ -296,7 +296,7 @@ class OauthIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
+    def oauth_config_for_kind(cls, kind: str, is_sandbox: bool = False) -> OauthConfig:
         if kind == "slack":
             from_settings = get_instance_settings(
                 [
@@ -582,13 +582,22 @@ class OauthIntegration:
             if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
                 raise NotImplementedError("Stripe app not configured")
 
+            # Stripe issues separate client_ids for live vs sandbox installs of the
+            # same app. Same authorize endpoint and same client_secret for both.
+            if is_sandbox:
+                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID:
+                    raise NotImplementedError("Stripe sandbox client_id not configured")
+                client_id = settings.STRIPE_APP_SANDBOX_CLIENT_ID
+            else:
+                client_id = settings.STRIPE_APP_CLIENT_ID
+
             authorize_url = (
                 settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
             )
             return OauthConfig(
                 authorize_url=authorize_url,
                 token_url="https://api.stripe.com/v1/oauth/token",
-                client_id=settings.STRIPE_APP_CLIENT_ID,
+                client_id=client_id,
                 client_secret=settings.STRIPE_APP_SECRET_KEY,
                 scope="",
                 id_path="stripe_user_id",
@@ -609,8 +618,8 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{path_kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next="") -> str:
-        oauth_config = cls.oauth_config_for_kind(kind)
+    def authorize_url(cls, kind: str, token: str, next: str = "", is_sandbox: bool = False) -> str:
+        oauth_config = cls.oauth_config_for_kind(kind, is_sandbox=is_sandbox)
 
         state_payload: dict[str, str] = {"next": next, "token": token}
         if kind == "slack-posthog-code":

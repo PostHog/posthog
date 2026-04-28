@@ -581,6 +581,37 @@ class TestOauthIntegrationModel(BaseTest):
         assert call.kwargs["auth"].username == "sk_test_secret"
         assert call.kwargs["auth"].password == ""
 
+    def test_stripe_authorize_url_uses_live_client_id_by_default(self):
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SECRET_KEY="sk_test_secret",
+            STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
+        ):
+            url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test")
+            assert "client_id=ca_live_clientid" in url
+            assert "client_id=ca_sandbox_clientid" not in url
+
+    def test_stripe_authorize_url_uses_sandbox_client_id_when_is_sandbox(self):
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SECRET_KEY="sk_test_secret",
+            STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
+        ):
+            url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test", is_sandbox=True)
+            assert "client_id=ca_sandbox_clientid" in url
+            assert "client_id=ca_live_clientid" not in url
+
+    def test_stripe_authorize_url_raises_when_sandbox_requested_but_not_configured(self):
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="",
+            STRIPE_APP_SECRET_KEY="sk_test_secret",
+        ):
+            with pytest.raises(NotImplementedError, match="sandbox"):
+                OauthIntegration.authorize_url("stripe", token="state_token", is_sandbox=True)
+
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
     def test_stripe_refresh_access_token_uses_apps_endpoint_and_basic_auth(self, mock_post, mock_reload):
