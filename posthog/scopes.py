@@ -127,3 +127,22 @@ def get_scope_descriptions() -> dict[str, str]:
         if obj not in INTERNAL_API_SCOPE_OBJECTS
         for action in API_SCOPE_ACTIONS
     }
+
+
+# OIDC scopes published in OAuth server metadata alongside the resource scopes.
+# These match what django-oauth-toolkit's OIDC layer accepts at the /authorize
+# endpoint. Duplicating the list as plain tuple (rather than importing from
+# oauth_toolkit) keeps `posthog.scopes` importable without Django setup, which
+# the MCP codegen relies on (see `bin/build-mcp-oauth-scopes.py`).
+OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
+
+
+def get_oauth_scopes_supported() -> list[str]:
+    """Full `scopes_supported` list published in OAuth metadata.
+
+    Used by the authorization server's `/.well-known/oauth-authorization-server`
+    endpoint and by the MCP server's `/.well-known/oauth-protected-resource`
+    (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
+    the protected resource cannot drift out of subset of the AS).
+    """
+    return list(OIDC_SCOPES) + list(get_scope_descriptions().keys())

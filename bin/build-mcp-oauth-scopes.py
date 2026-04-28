@@ -5,13 +5,11 @@ The MCP server publishes RFC 9728 protected-resource metadata at
 `/.well-known/oauth-protected-resource`. Spec-compliant clients (e.g. Claude
 Code) read `scopes_supported` from there and pass every entry to the
 authorization server's `/oauth/authorize`. If the resource list contains a
-scope the AS does not recognize, sign-in fails with `invalid_scope`.
+scope the AS does not recognize, sign-in fails with `?error=invalid_scope`.
 
-The AS metadata is computed dynamically by Django from
-`posthog.scopes.get_scope_descriptions()`, plus the OIDC trio handled by
-django-oauth-toolkit. To keep the resource list in lockstep, this script
-generates `services/mcp/src/lib/oauth-scopes.generated.ts` from the same
-function, so both lists derive from one source of truth.
+Both lists derive from `posthog.scopes.get_oauth_scopes_supported()`. This
+script generates `services/mcp/src/lib/oauth-scopes.generated.ts` from that
+function so the protected resource cannot drift out of subset of the AS.
 
 Run via hogli: `hogli build:openapi-mcp-scopes` (also runs as part of
 `build:openapi`). See `common/hogli/manifest.yaml`.
@@ -20,6 +18,7 @@ Run via hogli: `hogli build:openapi-mcp-scopes` (also runs as part of
 
 from __future__ import annotations
 
+import ast
 import sys
 import importlib.util
 from pathlib import Path
@@ -28,50 +27,80 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCOPES_PY = REPO_ROOT / "posthog" / "scopes.py"
 OUTPUT_TS = REPO_ROOT / "services" / "mcp" / "src" / "lib" / "oauth-scopes.generated.ts"
 
-# OIDC scopes are added by django-oauth-toolkit's OIDC layer and appear in the
-# AS metadata alongside the resource scopes. They are not in
-# get_scope_descriptions(), so we add them here to match what the AS actually
-# advertises.
-OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
+# `posthog/scopes.py` must stay a leaf module so this script can load it via
+# importlib without triggering posthog/__init__.py (which imports Celery + Django
+# settings). If a maintainer adds a non-stdlib import, fail loudly here so they
+# either roll it back or update the codegen, instead of producing a stale file.
+ALLOWED_IMPORT_ROOTS: frozenset[str] = frozenset({"typing", "collections", "enum"})
+
+
+def _assert_scopes_module_is_leaf() -> None:
+    tree = ast.parse(SCOPES_PY.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules = [n.name for n in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            # Relative imports (level > 0) are forbidden; absolute imports of
+            # `posthog.*` would re-trigger __init__.py.
+            modules = [node.module or ""] if node.level == 0 else ["<relative>"]
+        else:
+            continue
+        for module in modules:
+            root = module.split(".", 1)[0]
+            if root not in ALLOWED_IMPORT_ROOTS:
+                raise RuntimeError(
+                    f"{SCOPES_PY} imports {module!r}, but this script loads "
+                    f"scopes.py via importlib without Django setup. Add "
+                    f"{root!r} to ALLOWED_IMPORT_ROOTS in {Path(__file__).name} "
+                    f"after confirming it is safe to import without "
+                    f"posthog/__init__.py side effects, or move scopes.py back "
+                    f"to leaf-only imports."
+                )
 
 
 def _load_scopes_module():
     """Import posthog/scopes.py without triggering posthog/__init__.py.
 
     posthog/__init__.py imports Celery and pulls in Django settings, which
-    requires a running database. scopes.py itself only depends on `typing`,
-    so we can load it directly via importlib.
+    requires a running database. scopes.py itself only depends on stdlib, so
+    we can load it directly via importlib.
     """
     spec = importlib.util.spec_from_file_location("_posthog_scopes", SCOPES_PY)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not load {SCOPES_PY}")
     module = importlib.util.module_from_spec(spec)
     sys.modules["_posthog_scopes"] = module
-    spec.loader.exec_module(module)
-    return module
+    try:
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        # Avoid leaking the side-channel module name if the script is ever
+        # imported (vs run as __main__).
+        sys.modules.pop("_posthog_scopes", None)
 
 
 def main() -> int:
+    _assert_scopes_module_is_leaf()
     scopes_module = _load_scopes_module()
-    resource_scopes = sorted(scopes_module.get_scope_descriptions().keys())
-    all_scopes = list(OIDC_SCOPES) + resource_scopes
+    all_scopes: list[str] = scopes_module.get_oauth_scopes_supported()
 
-    # oxfmt enforces single quotes in this repo. json.dumps emits double, so
-    # format manually. Scope names are simple snake_case identifiers + colons,
-    # never need escaping, but assert that to fail loudly if a scope ever does.
+    # oxfmt enforces single quotes; format manually rather than json.dumps so
+    # the generator output is byte-stable regardless of formatter rules. Scope
+    # names are simple snake_case identifiers + colons and never need escaping,
+    # but assert that to fail loudly if a scope ever does.
     for s in all_scopes:
-        assert "'" not in s and "\\" not in s, f"unexpected character in scope name: {s!r}"
+        if "'" in s or "\\" in s:
+            raise RuntimeError(f"unexpected character in scope name: {s!r}")
     body = ",\n".join(f"    '{s}'" for s in all_scopes)
     output = (
-        "// AUTO-GENERATED. Do not edit.\n"
-        "// Source: posthog/scopes.py via bin/build-mcp-oauth-scopes.py.\n"
-        "// Regenerate with `hogli build:openapi-mcp-scopes`.\n"
+        "// AUTO-GENERATED by bin/build-mcp-oauth-scopes.py from posthog/scopes.py.\n"
+        "// Regenerate with `hogli build:openapi`. Do not edit.\n"
         "//\n"
-        "// This list is published as `scopes_supported` in the MCP protected-resource\n"
-        "// metadata (RFC 9728). It MUST be a subset of the authorization server's\n"
-        "// `scopes_supported`, otherwise spec-compliant OAuth clients fail with\n"
-        "// `invalid_scope`. Both lists derive from `get_scope_descriptions()` to keep\n"
-        "// them in lockstep.\n"
+        "// Published as `scopes_supported` in MCP protected-resource metadata\n"
+        "// (RFC 9728). The OAuth authorization server publishes the same list\n"
+        "// from get_oauth_scopes_supported() at `/.well-known/oauth-authorization-server`.\n"
+        "// Keeping them aligned is what stops spec-compliant clients (e.g. Claude\n"
+        "// Code) from hitting `invalid_scope` at sign-in.\n"
         "\n"
         "export const OAUTH_SCOPES_SUPPORTED = [\n"
         f"{body},\n"
