@@ -103,7 +103,6 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
 3. Paste the manifest below into the editor, click **Next**, then **Create**
 4. On the app's page, click **Install to &lt;Workspace&gt;** and authorize
 5. Open **Basic information > App credentials**, copy the **Signing secret**, and paste it in the form below
-6. Invite the bot to any channels you want synced (e.g. `/invite @PostHog data warehouse`)
 
 ```json
 {
