@@ -13,7 +13,6 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
-    ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     FunnelConversionWindowTimeUnit,
     StepOrderValue,
@@ -382,12 +381,12 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("frequentist", "frequentist", ExperimentVariantResultFrequentist, "confidence_interval"),
-            ("bayesian", "bayesian", ExperimentVariantResultBayesian, "credible_interval"),
+            ("frequentist", "frequentist", "confidence_interval"),
+            ("bayesian", "bayesian", "credible_interval"),
         ]
     )
     @freeze_time("2020-01-15T12:00:00Z")
-    def test_cuped_adjusts_statistical_result(self, name, method, variant_cls, interval_attr):
+    def test_cuped_adjusts_statistical_result(self, name, method, interval_attr):
         metric = self._build_single_step_metric()
 
         no_cuped_feature_flag = self.create_feature_flag(f"no-cuped-{name}-funnel-experiment")
@@ -422,11 +421,8 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
 
         assert no_cuped_result.variant_results is not None
         assert cuped_result.variant_results is not None
-        no_cuped_variant = cast(variant_cls, no_cuped_result.variant_results[0])
-        cuped_variant = cast(variant_cls, cuped_result.variant_results[0])
-
-        no_cuped_interval = getattr(no_cuped_variant, interval_attr)
-        cuped_interval = getattr(cuped_variant, interval_attr)
+        no_cuped_interval = getattr(no_cuped_result.variant_results[0], interval_attr)
+        cuped_interval = getattr(cuped_result.variant_results[0], interval_attr)
         assert no_cuped_interval is not None
         assert cuped_interval is not None
         # Variance reduction shrinks the interval; equality only happens when θ = 0.
