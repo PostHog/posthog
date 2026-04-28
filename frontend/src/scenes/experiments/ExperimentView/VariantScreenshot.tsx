@@ -91,6 +91,8 @@ export function VariantScreenshot({
                             return
                         }
                         setFilesToUpload([file])
+                    } else {
+                        lemonToast.error('Could not read image from clipboard')
                     }
                     return
                 }
@@ -213,7 +215,7 @@ export function VariantScreenshot({
                 )}
                 {isFocused && mediaIds.length < 5 && (
                     <div className="flex items-center h-16">
-                        <span className="text-xs text-secondary whitespace-nowrap">Paste image</span>
+                        <span className="text-xs text-secondary whitespace-nowrap">⌘V to paste</span>
                     </div>
                 )}
             </div>
