@@ -1,3 +1,4 @@
+import uuid as uuid_lib
 from datetime import datetime, timedelta
 
 import pytest
@@ -174,3 +175,94 @@ def test_rendered_count_query_includes_hogql_predicate(team):
     assert "AND (" in rendered
     assert "'Chrome'" in rendered
     assert "%(" not in rendered
+
+
+def _person_kwargs(**overrides) -> dict:
+    kwargs = {
+        "team_id": TEAM_ID,
+        "request_type": RequestType.PERSON_REMOVAL,
+        "start_time": None,
+        "end_time": None,
+        "person_uuids": [str(uuid_lib.uuid4())],
+        "person_distinct_ids": [],
+        "person_drop_profiles": True,
+        "person_drop_events": False,
+        "person_drop_recordings": False,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_person_removal_clean_passes_minimal():
+    request = DataDeletionRequest(**_person_kwargs())
+    request.clean()
+
+
+def test_person_removal_requires_at_least_one_selector():
+    request = DataDeletionRequest(**_person_kwargs(person_uuids=[], person_distinct_ids=[]))
+    with pytest.raises(ValidationError, match="person_uuids"):
+        request.clean()
+
+
+def test_person_removal_requires_at_least_one_action():
+    request = DataDeletionRequest(
+        **_person_kwargs(person_drop_profiles=False, person_drop_events=False, person_drop_recordings=False)
+    )
+    with pytest.raises(ValidationError, match="At least one of person_drop"):
+        request.clean()
+
+
+def test_person_removal_caps_total_selectors_at_1000():
+    request = DataDeletionRequest(**_person_kwargs(person_uuids=[str(uuid_lib.uuid4()) for _ in range(1001)]))
+    with pytest.raises(ValidationError, match="1000"):
+        request.clean()
+
+
+@pytest.mark.parametrize(
+    "overrides, match",
+    [
+        ({"events": ["$pageview"]}, "events"),
+        ({"delete_all_events": True}, "events"),
+        ({"properties": ["$ip"]}, "properties"),
+        ({"hogql_predicate": "properties.$browser = 'Chrome'"}, "hogql_predicate"),
+    ],
+    ids=["events", "delete_all_events", "properties", "hogql_predicate"],
+)
+def test_person_removal_rejects_event_only_fields(overrides, match):
+    request = DataDeletionRequest(**_person_kwargs(**overrides))
+    with pytest.raises(ValidationError, match=match):
+        request.clean()
+
+
+def _property_kwargs(**overrides) -> dict:
+    kwargs = _base_kwargs(
+        request_type=RequestType.PROPERTY_REMOVAL,
+        properties=["$ip"],
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+@pytest.mark.parametrize(
+    "request_type, overrides, match",
+    [
+        (RequestType.EVENT_REMOVAL, {"person_uuids": [str(uuid_lib.uuid4())]}, "person_uuids"),
+        (RequestType.EVENT_REMOVAL, {"person_distinct_ids": ["did-1"]}, "person_uuids"),
+        (RequestType.EVENT_REMOVAL, {"person_drop_profiles": True}, "person_drop_profiles"),
+        (RequestType.EVENT_REMOVAL, {"person_drop_events": True}, "person_drop_profiles"),
+        (RequestType.EVENT_REMOVAL, {"person_drop_recordings": True}, "person_drop_profiles"),
+        (RequestType.PROPERTY_REMOVAL, {"person_uuids": [str(uuid_lib.uuid4())]}, "person_uuids"),
+        (RequestType.PROPERTY_REMOVAL, {"person_distinct_ids": ["did-1"]}, "person_uuids"),
+        (RequestType.PROPERTY_REMOVAL, {"person_drop_profiles": True}, "person_drop_profiles"),
+        (RequestType.PROPERTY_REMOVAL, {"person_drop_events": True}, "person_drop_profiles"),
+        (RequestType.PROPERTY_REMOVAL, {"person_drop_recordings": True}, "person_drop_profiles"),
+    ],
+)
+def test_event_and_property_removal_rejects_person_fields(request_type, overrides, match):
+    if request_type == RequestType.EVENT_REMOVAL:
+        kwargs = _base_kwargs(events=["$pageview"], **overrides)
+    else:
+        kwargs = _property_kwargs(**overrides)
+    request = DataDeletionRequest(**kwargs)
+    with pytest.raises(ValidationError, match=match):
+        request.clean()

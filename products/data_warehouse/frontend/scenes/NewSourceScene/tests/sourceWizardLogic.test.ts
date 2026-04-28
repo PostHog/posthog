@@ -81,6 +81,7 @@ describe('sourceWizardLogic', () => {
                             type: 'text',
                             required: true,
                             placeholder: 'Enter something',
+                            secret: false,
                         },
                     ],
                 },
@@ -136,6 +137,7 @@ describe('sourceWizardLogic', () => {
                                             type: 'text',
                                             required: true,
                                             placeholder: 'Enter something',
+                                            secret: false,
                                         },
                                     ],
                                 },
@@ -173,6 +175,7 @@ describe('sourceWizardLogic', () => {
                                     type: 'text',
                                     required: true,
                                     placeholder: 'Enter something',
+                                    secret: false,
                                 },
                             ],
                         },
@@ -207,6 +210,7 @@ describe('sourceWizardLogic', () => {
                                     type: 'text',
                                     required: true,
                                     placeholder: 'Enter something',
+                                    secret: false,
                                 },
                             ],
                         },
@@ -256,6 +260,7 @@ describe('sourceWizardLogic', () => {
                         type: 'text',
                         required: true,
                         placeholder: 'Enter something',
+                        secret: false,
                     },
                 ],
                 { prefix: '', payload: {} }
@@ -272,6 +277,7 @@ describe('sourceWizardLogic', () => {
                         type: 'text',
                         required: false,
                         placeholder: 'Enter something',
+                        secret: false,
                     },
                 ],
                 { prefix: '', payload: {} }
@@ -332,6 +338,7 @@ describe('sourceWizardLogic', () => {
                                         type: 'text',
                                         required: true,
                                         placeholder: 'Enter something',
+                                        secret: false,
                                     },
                                 ],
                             },
@@ -363,6 +370,7 @@ describe('sourceWizardLogic', () => {
                                         type: 'text',
                                         required: true,
                                         placeholder: 'Enter something',
+                                        secret: false,
                                     },
                                 ],
                             },
@@ -376,6 +384,7 @@ describe('sourceWizardLogic', () => {
                                         type: 'text',
                                         required: true,
                                         placeholder: 'Enter something',
+                                        secret: false,
                                     },
                                 ],
                             },
@@ -407,6 +416,7 @@ describe('sourceWizardLogic', () => {
                                 type: 'text',
                                 required: false,
                                 placeholder: 'Enter something',
+                                secret: false,
                             },
                         ],
                     },
@@ -431,6 +441,7 @@ describe('sourceWizardLogic', () => {
                                 type: 'text',
                                 required: true,
                                 placeholder: 'Enter something',
+                                secret: false,
                             },
                         ],
                     },
@@ -455,6 +466,7 @@ describe('sourceWizardLogic', () => {
                                 type: 'text',
                                 required: true,
                                 placeholder: 'Enter something',
+                                secret: false,
                             },
                         ],
                     },
@@ -479,6 +491,7 @@ describe('sourceWizardLogic', () => {
                                 type: 'text',
                                 required: true,
                                 placeholder: 'Enter something',
+                                secret: false,
                             },
                         ],
                     },
@@ -497,12 +510,54 @@ describe('sourceWizardLogic', () => {
                         type: 'password',
                         required: true,
                         placeholder: '',
+                        secret: true,
                     },
                 ],
                 { prefix: 'prod-db', payload: { password: '' }, access_method: 'direct' },
                 { allowBlankSensitiveFields: true }
             )
             expect(res.payload.password).toBeUndefined()
+        })
+
+        it('allows empty secret-marked textarea in edit mode validation', () => {
+            // Regression: a multi-line credential field uses type: 'textarea' for UX
+            // but is still a secret. The validator must allow blank values for any
+            // field with secret: true regardless of its rendering type.
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'client_private_key',
+                        label: 'Client private key',
+                        type: 'textarea',
+                        required: true,
+                        placeholder: '',
+                        secret: true,
+                    },
+                ],
+                { prefix: 'temporal-source', payload: { client_private_key: '' }, access_method: 'direct' },
+                { allowBlankSensitiveFields: true }
+            )
+            expect(res.payload.client_private_key).toBeUndefined()
+        })
+
+        it('still flags blank required non-secret fields in edit mode', () => {
+            // Sanity check: the secret blank-allow exception must not also let blank
+            // required non-secret fields through.
+            const res = getErrorsForFields(
+                [
+                    {
+                        name: 'host',
+                        label: 'Host',
+                        type: 'text',
+                        required: true,
+                        placeholder: '',
+                        secret: false,
+                    },
+                ],
+                { prefix: 'src', payload: { host: '' }, access_method: 'direct' },
+                { allowBlankSensitiveFields: true }
+            )
+            expect(res.payload.host).toBe('Please enter a host')
         })
     })
 })

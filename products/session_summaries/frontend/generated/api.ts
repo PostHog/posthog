@@ -8,7 +8,44 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { SessionSummariesApi } from './api.schemas'
+import type { PatchedSessionSummariesConfigApi, SessionSummariesApi, SessionSummariesConfigApi } from './api.schemas'
+
+/**
+ * Retrieve the team's session summaries configuration (product context used to tailor single-session replay summaries).
+ */
+export const getRetrieveSessionSummariesConfigUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/session_summaries/config/`
+}
+
+export const retrieveSessionSummariesConfig = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SessionSummariesConfigApi> => {
+    return apiMutator<SessionSummariesConfigApi>(getRetrieveSessionSummariesConfigUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Update the team's session summaries configuration (product context used to tailor single-session replay summaries).
+ */
+export const getUpdateSessionSummariesConfigUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/session_summaries/config/`
+}
+
+export const updateSessionSummariesConfig = async (
+    projectId: string,
+    patchedSessionSummariesConfigApi: PatchedSessionSummariesConfigApi,
+    options?: RequestInit
+): Promise<SessionSummariesConfigApi> => {
+    return apiMutator<SessionSummariesConfigApi>(getUpdateSessionSummariesConfigUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSessionSummariesConfigApi),
+    })
+}
 
 /**
  * Generate AI summary for a group of session recordings to find patterns and generate a notebook.

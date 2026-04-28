@@ -98,6 +98,8 @@ class Artifact(models.Model):
     height = models.PositiveIntegerField(null=True, blank=True)
     size_bytes = models.PositiveIntegerField(null=True, blank=True)
 
+    thumbnail = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

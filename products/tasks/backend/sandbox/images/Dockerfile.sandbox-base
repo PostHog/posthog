@@ -68,12 +68,18 @@ RUN set -eux; \
     rm /tmp/gh.deb
 
 # Install agentsh for runtime egress policy enforcement
-ARG AGENTSH_TAG=v0.16.7
+ARG AGENTSH_TAG=v0.18.3
 RUN set -eux; \
     version="${AGENTSH_TAG#v}"; \
     arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) agentsh_sha256="4ac486eea1e10600c29078a7a992d2067774edfb66be1318a2acf1fcf8b6d774" ;; \
+      arm64) agentsh_sha256="d1393a27943d207442ea077b1d36d9561a8af5613e7b67d9f7d4fafd00626c6b" ;; \
+      *) echo "Unsupported architecture for agentsh: $arch" >&2; exit 1 ;; \
+    esac; \
     curl -fsSL -o /tmp/agentsh.deb \
       "https://github.com/canyonroad/agentsh/releases/download/${AGENTSH_TAG}/agentsh_${version}_linux_${arch}.deb" && \
+    echo "${agentsh_sha256}  /tmp/agentsh.deb" | sha256sum -c - && \
     dpkg -i /tmp/agentsh.deb && \
     rm /tmp/agentsh.deb && \
     agentsh --version && \

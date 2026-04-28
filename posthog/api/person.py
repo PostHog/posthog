@@ -1,8 +1,7 @@
 import uuid
-import asyncio
 import builtins
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
 from django.conf import settings
@@ -31,7 +30,6 @@ from rest_framework.renderers import BaseRenderer
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from temporalio import common
 
 from posthog.schema import ProductKey
 
@@ -58,16 +56,16 @@ from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
+from posthog.models.person.bulk_delete import (
+    delete_persons_profile,
+    queue_person_event_deletion,
+    queue_person_recording_deletion,
+    resolve_persons_for_deletion,
+)
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import PersonDistinctId
-from posthog.models.person.util import (
-    delete_person,
-    delete_persons_from_postgres,
-    get_person_by_pk_or_uuid,
-    get_persons_by_distinct_ids,
-    get_persons_by_uuids,
-)
+from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_by_distinct_ids, get_persons_by_uuids
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
@@ -81,8 +79,6 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateTh
 from posthog.renderers import SafeJSONRenderer
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
-from posthog.temporal.common.client import sync_connect
-from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
 from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
 
 logger = structlog.get_logger(__name__)
@@ -617,62 +613,34 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_recordings: bool = False,
         keep_person: bool = False,
     ) -> dict[str, Any]:
-        """
-        This method is meant to be the canonical way to delete anything via the Persons API.
-        """
-
-        if distinct_ids:
-            if len(distinct_ids) > 1000:
-                raise ValidationError("You can only pass 1000 distinct_ids in one call")
-            # Optimize query by avoiding expensive JOIN - first get person_ids, then fetch persons
-            person_ids = PersonDistinctId.objects.filter(
-                team_id=self.team_id, distinct_id__in=distinct_ids
-            ).values_list("person_id", flat=True)
-            persons_queryset = self.get_queryset().filter(id__in=person_ids, team_id=self.team_id).defer("properties")
-        elif ids:
-            if len(ids) > 1000:
-                raise ValidationError("You can only pass 1000 ids in one call")
-            persons_queryset = self.get_queryset().filter(uuid__in=ids, team_id=self.team_id).defer("properties")
-        else:
+        if distinct_ids and ids:
+            raise ValidationError("You must provide either distinct_ids or ids, not both")
+        if distinct_ids and len(distinct_ids) > 1000:
+            raise ValidationError("You can only pass 1000 distinct_ids in one call")
+        if ids and len(ids) > 1000:
+            raise ValidationError("You can only pass 1000 ids in one call")
+        if not distinct_ids and not ids:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
-        # Materialize queryset once before any deletions to avoid re-evaluating
-        # after records are deleted (which would return empty results)
-        persons = list(persons_queryset)
+        persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
-        deleted_persons: builtins.list[Person] = []
         if not keep_person:
-            # Send ClickHouse deletion events and log activity per person
-            for person in persons:
-                try:
-                    delete_person(person=person)
-                    persons_deleted += 1
-                    deleted_persons.append(person)
-                except Exception:
-                    logger.exception("Failed to delete person", person_uuid=str(person.uuid))
-                    errors.append({"person_uuid": str(person.uuid)})
-                    continue
-                log_activity(
-                    organization_id=self.organization.id,
-                    team_id=self.team_id,
-                    user=cast(User, request.user),
-                    was_impersonated=is_impersonated_session(request),
-                    item_id=person.pk,
-                    scope="Person",
-                    activity="deleted",
-                    detail=Detail(name=str(person.uuid)),
-                )
-            # Postgres deletes happen after CH deletes. If the Postgres batch fails,
-            # persons may remain in Postgres that are already marked deleted in ClickHouse.
-            delete_persons_from_postgres(self.team_id, deleted_persons)
+            result = delete_persons_profile(
+                self.team_id,
+                persons,
+                actor=cast(User, request.user),
+                request=request,
+                organization_id=self.organization.id,
+            )
+            persons_deleted = result.deleted_count
+            errors = [{"person_uuid": str(u)} for u in result.errors]
 
         if delete_events:
-            self._queue_event_deletion(persons)
-
+            queue_person_event_deletion(self.team_id, persons, actor=cast(User, request.user))
         if delete_recordings:
-            self._queue_delete_recordings(persons)
+            queue_person_recording_deletion(self.team_id, persons, actor=cast(User, request.user))
 
         return {
             "persons_found": len(persons),
@@ -1220,7 +1188,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         try:
             person = self.get_object()
-            self._queue_delete_recordings([person])
+            queue_person_recording_deletion(self.team_id, [person], actor=cast(User, request.user))
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
@@ -1237,7 +1205,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         try:
             person = self.get_object()
-            self._queue_event_deletion([person])
+            queue_person_event_deletion(self.team_id, [person], actor=cast(User, request.user))
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
@@ -1300,52 +1268,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             results[str(person.uuid)] = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
 
         return response.Response({"results": results})
-
-    def _queue_event_deletion(self, persons: builtins.list[Person]) -> None:
-        """Helper to queue deletion of all events for a person."""
-        AsyncDeletion.objects.bulk_create(
-            [
-                AsyncDeletion(
-                    deletion_type=DeletionType.Person,
-                    team_id=self.team_id,
-                    key=str(person.uuid),
-                    created_by=cast(User, self.request.user),
-                )
-                for person in persons
-            ],
-            ignore_conflicts=True,
-        )
-
-    def _queue_delete_recordings(self, persons: builtins.list[Person]) -> None:
-        if not persons:
-            return
-
-        temporal = sync_connect()
-
-        async def start_all_workflows():
-            tasks = []
-            for person in persons:
-                workflow_input = RecordingsWithPersonInput(
-                    distinct_ids=person.distinct_ids,
-                    team_id=self.team_id,
-                    config=DeletionConfig(deleted_by=cast(User, self.request.user).email, reason="person deletion"),
-                )
-                workflow_id = f"delete-recordings-{self.team_id}-person-{person.uuid}-{uuid.uuid4()}"
-                tasks.append(
-                    temporal.start_workflow(
-                        "delete-recordings-with-person",
-                        workflow_input,
-                        id=workflow_id,
-                        task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
-                        retry_policy=common.RetryPolicy(
-                            maximum_attempts=2,
-                            initial_interval=timedelta(minutes=1),
-                        ),
-                    )
-                )
-            await asyncio.gather(*tasks)
-
-        asyncio.run(start_all_workflows())
 
     @extend_schema(
         parameters=[

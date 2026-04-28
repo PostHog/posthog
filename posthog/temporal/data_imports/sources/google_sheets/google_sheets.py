@@ -120,6 +120,16 @@ def google_sheets_source(
     if len(headers) > 0 and "id" in headers[0]:
         primary_keys = ["id"]
 
+    # Note: this source intentionally remains a SimpleSource rather than a ResumableSource.
+    # gspread's get_all_records() performs a single Sheets API call that returns every row at
+    # once, with no pagination cursor, continuation token, or range handle exposed to the
+    # caller. The loop below yields exactly one batch, so there is no intermediate checkpoint
+    # where some rows have been emitted and others are still pending — the two states are
+    # "nothing yielded yet" and "fully done". A ResumableSource would have no cursor to
+    # persist and would still have to re-download the entire sheet on restart, so it adds no
+    # value. Converting this to a ResumableSource would require first introducing client-side
+    # range-based batching (e.g. A2:Z1001, A1002:Z2001, ...), which is a behavior change to
+    # the sync itself and is out of scope for restart-safety alone.
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 

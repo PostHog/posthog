@@ -9,11 +9,8 @@ import {
     KAFKA_TRACES_INGESTION_DLQ,
     KAFKA_TRACES_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
-// Note: defaults below select MSK_PRODUCER for app_metrics — flip to
-// WARPSTREAM_INGESTION_PRODUCER via `LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER`
-// to migrate the route off MSK.
 import { isProdEnv } from '../utils/env-utils'
-import { LogsProducerName, MSK_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
+import { LogsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
 
 export type LogsIngestionOutputsConfig = {
     LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: string
@@ -25,7 +22,7 @@ export type LogsIngestionOutputsConfig = {
 export function getDefaultLogsIngestionOutputsConfig(): LogsIngestionOutputsConfig {
     return {
         LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
-        LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: MSK_PRODUCER,
+        LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         LOGS_INGESTION_OUTPUT_LOGS_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
         LOGS_INGESTION_OUTPUT_DLQ_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
     }
