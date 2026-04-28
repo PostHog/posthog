@@ -1438,4 +1438,68 @@ describe('LogsIngestionConsumer', () => {
             expect(droppedMetrics).toHaveLength(0)
         })
     })
+
+    describe('thread relief', () => {
+        jest.setTimeout(30000)
+
+        let interval: NodeJS.Timeout
+        let lastCheck = 0
+        let longestDelay = 0
+
+        beforeEach(async () => {
+            // Parent beforeEach mocks Date.now/toISOString — restore for real-time tracking.
+            jest.spyOn(Date, 'now').mockRestore()
+            jest.spyOn(Date.prototype, 'toISOString').mockRestore()
+
+            // Enable PII scrub + JSON parse so processLogMessageBuffer does real CPU work
+            // (without these settings it short-circuits and never decodes the buffer).
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET logs_settings = $1 WHERE id = $2`,
+                [JSON.stringify({ pii_scrub_logs: true, json_parse_logs: true }), team.id],
+                'updateTeamLogsForThreadRelief'
+            )
+            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
+
+            lastCheck = Date.now()
+            longestDelay = 0
+            interval = setInterval(() => {
+                longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
+                lastCheck = Date.now()
+            }, 0)
+        })
+
+        afterEach(() => {
+            clearInterval(interval)
+        })
+
+        it('should process large batches without blocking the main thread', async () => {
+            // Body large enough that JSON parse + PII scrub do meaningful sync work per message.
+            const body = JSON.stringify({
+                user_id: 'usr_abc123',
+                email: 'jane.doe@example.com',
+                nested: { a: 1, b: 'two', c: [1, 2, 3, 4, 5] },
+                message: 'A long log message ' + 'x'.repeat(500),
+            })
+
+            // 1000+ messages is where unbounded fan-out starves the loop in production.
+            // Locally the bench shows max event-loop lag ~800ms unbounded vs ~5ms with cap=50.
+            const numberToTest = 1000
+            const messages = await createKafkaMessages(
+                Array.from({ length: numberToTest }, () => ({ message: body })),
+                { token: team.api_token }
+            )
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            // All messages should have been produced.
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(numberToTest)
+
+            // Without the pLimit cap on per-message processing, longestDelay measured >500ms
+            // for batches of this size on the bench. With the cap (currently 50) it stays
+            // well under 200ms even on a loaded machine. Threshold below leaves CI headroom.
+            expect(longestDelay).toBeLessThan(500)
+        })
+    })
 })
