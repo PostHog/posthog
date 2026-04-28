@@ -62,11 +62,11 @@ export function buildTooltipContext<Meta = unknown>(
     const seriesData: TooltipContext<Meta>['seriesData'] = []
     const yPixels: number[] = []
     for (const s of series) {
-        if (s.hidden) {
+        if (s.visibility?.excluded) {
             continue
         }
         const value = resolveValue(s, dataIndex)
-        if (!s.hideFromTooltip) {
+        if (!s.visibility?.fromTooltip) {
             seriesData.push({ series: s, value, color: s.color })
         }
         const seriesYScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
@@ -98,7 +98,7 @@ export function buildPointClickData<Meta = unknown>(
         return null
     }
 
-    const visibleSeries = series.filter((s) => !s.hidden)
+    const visibleSeries = series.filter((s) => !s.visibility?.excluded)
     if (visibleSeries.length === 0) {
         return null
     }

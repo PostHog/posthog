@@ -51,6 +51,7 @@ class SnapchatAdsSource(ResumableSource[SnapchatAdsSourceConfig, SnapchatResumeC
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your Snapchat Ads ad account ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="snapchat_integration_id",

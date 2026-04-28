@@ -1,4 +1,4 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
@@ -53,7 +53,7 @@ describe('HogTransformer', () => {
 
         hogTransformer = createHogTransformerService(hub, {
             ...hub,
-            monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+            monitoringOutputs: createTestMonitoringOutputs(mockProducer),
         })
     })
 

@@ -1,10 +1,12 @@
-import React, { useMemo } from 'react'
+import * as d3 from 'd3'
+import React, { useCallback, useMemo, useRef } from 'react'
 
-import { AxisLabels } from '../overlays/AxisLabels'
+import { AxisLabels, measureLabelWidth } from '../overlays/AxisLabels'
 import { Crosshair } from '../overlays/Crosshair'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
-import { ChartContext } from './chart-context'
+import { ChartHoverContext, ChartLayoutContext } from './chart-context'
+import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { ChartErrorBoundary } from './ChartErrorBoundary'
 import { useChartCanvas } from './hooks/useChartCanvas'
 import { useChartDraw } from './hooks/useChartDraw'
@@ -72,15 +74,68 @@ export function Chart<Meta = unknown>({
         yTickFormatter,
         hideXAxis = false,
         hideYAxis = false,
-        showTooltip = true,
-        pinnableTooltip = false,
+        tooltip: tooltipConfig,
         showCrosshair = false,
     } = config ?? {}
+    const {
+        enabled: showTooltip = true,
+        pinnable: pinnableTooltip = false,
+        placement: tooltipPlacement = 'follow-data',
+    } = tooltipConfig ?? {}
 
     const hasMultipleAxes = useMemo(() => {
-        const axisIds = new Set(series.filter((s) => !s.hidden).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
+        const axisIds = new Set(
+            series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID)
+        )
         return axisIds.size > 1
     }, [series])
+
+    const yLabelWidth = useMemo<number>(() => {
+        if (hideYAxis) {
+            return 0
+        }
+        const allValues = series
+            .filter((s) => !s.visibility?.excluded)
+            .flatMap((s) => s.data)
+            .filter((v) => v != null && isFinite(v))
+        if (allValues.length === 0) {
+            return 0
+        }
+        let min = Math.min(...allValues)
+        let max = Math.max(...allValues)
+        if (min > 0) {
+            min = 0
+        }
+        if (max < 0) {
+            max = 0
+        }
+        const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
+        if (ticks.length === 0) {
+            return 0
+        }
+        const domainMax = Math.abs(Math.max(...ticks))
+        const formatter = yTickFormatter ?? ((v: number) => autoFormatYTick(v, domainMax))
+        let widest = 0
+        for (const t of ticks) {
+            widest = Math.max(widest, measureLabelWidth(formatter(t)))
+        }
+        return widest
+    }, [series, yTickFormatter, hideYAxis])
+
+    const xLabelHalfWidth = useMemo<number>(() => {
+        if (hideXAxis || labels.length === 0) {
+            return 0
+        }
+        let widest = 0
+        for (let i = 0; i < labels.length; i++) {
+            const text = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
+            if (text === null) {
+                continue
+            }
+            widest = Math.max(widest, measureLabelWidth(text))
+        }
+        return Math.ceil(widest / 2)
+    }, [labels, xTickFormatter, hideXAxis])
 
     const margins = useMemo<ChartMargins>(() => {
         const m = { ...DEFAULT_MARGINS }
@@ -89,12 +144,16 @@ export function Chart<Meta = unknown>({
         }
         if (hideYAxis) {
             m.left = 8
+        } else {
+            m.left = Math.max(20, Math.ceil(yLabelWidth) + 12, xLabelHalfWidth + 4)
         }
         if (hasMultipleAxes && !hideYAxis) {
-            m.right = 48
+            m.right = Math.max(48, xLabelHalfWidth + 4)
+        } else {
+            m.right = Math.max(DEFAULT_MARGINS.right, xLabelHalfWidth + 4)
         }
         return m
-    }, [hideXAxis, hideYAxis, hasMultipleAxes])
+    }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth])
 
     const { canvasRef, wrapperRef, dimensions, ctx } = useChartCanvas({ margins })
 
@@ -162,7 +221,26 @@ export function Chart<Meta = unknown>({
 
     const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
 
-    const contextValue = useMemo(() => {
+    const canvasBounds = useCallback(
+        (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
+        [canvasRef]
+    )
+
+    // Wrap resolveValue in a ref + stable callback so callers don't have to memoize it.
+    // An un-memoized arrow literal from a parent would otherwise invalidate the layout
+    // context on every render and defeat the layout/hover split.
+    const resolveValueRef = useRef<ResolveValueFn | undefined>(resolveValue)
+    resolveValueRef.current = resolveValue
+    const stableResolveValue = useCallback<ResolveValueFn>((s, i) => {
+        const fn = resolveValueRef.current
+        if (fn) {
+            return fn(s, i)
+        }
+        const v = s.data[i]
+        return typeof v === 'number' && Number.isFinite(v) ? v : 0
+    }, [])
+
+    const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
             return null
         }
@@ -171,55 +249,72 @@ export function Chart<Meta = unknown>({
             dimensions,
             labels,
             series: coloredSeries,
-            hoverIndex,
+            theme,
+            resolveValue: stableResolveValue,
+            canvasBounds,
         }
-    }, [scales, dimensions, labels, coloredSeries, hoverIndex])
+    }, [scales, dimensions, labels, coloredSeries, theme, stableResolveValue, canvasBounds])
+
+    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
 
     return (
         <ChartErrorBoundary>
-            <ChartContext.Provider value={contextValue}>
-                <div
-                    ref={wrapperRef}
-                    className={className}
-                    style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0, cursor: cursorStyle }}
-                    onMouseMove={handlers.onMouseMove}
-                    onMouseLeave={handlers.onMouseLeave}
-                    onClick={handlers.onClick}
-                >
-                    <canvas
-                        ref={canvasRef}
-                        role="img"
-                        aria-label={`Chart with ${coloredSeries.reduce((n, s) => n + (s.hidden ? 0 : 1), 0)} data series`}
+            <ChartLayoutContext.Provider value={layoutValue}>
+                <ChartHoverContext.Provider value={hoverValue}>
+                    <div
+                        ref={wrapperRef}
+                        className={className}
                         style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
+                            position: 'relative',
+                            width: '100%',
+                            flex: 1,
+                            minHeight: 0,
+                            overflow: 'hidden',
                             cursor: cursorStyle,
                         }}
-                    />
+                        onMouseMove={handlers.onMouseMove}
+                        onMouseLeave={handlers.onMouseLeave}
+                        onClick={handlers.onClick}
+                    >
+                        <canvas
+                            ref={canvasRef}
+                            role="img"
+                            aria-label={`Chart with ${coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)} data series`}
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                cursor: cursorStyle,
+                            }}
+                        />
 
-                    {dimensions && scales && (
-                        <OverlayLayer>
-                            <AxisLabels
-                                xTickFormatter={xTickFormatter}
-                                yTickFormatter={resolvedYFormatter}
-                                yRightTickFormatter={resolvedYRightFormatter}
-                                hideXAxis={hideXAxis}
-                                hideYAxis={hideYAxis}
-                                axisColor={theme.axisColor}
-                            />
+                        {dimensions && scales && (
+                            <OverlayLayer>
+                                <AxisLabels
+                                    xTickFormatter={xTickFormatter}
+                                    yTickFormatter={resolvedYFormatter}
+                                    yRightTickFormatter={resolvedYRightFormatter}
+                                    hideXAxis={hideXAxis}
+                                    hideYAxis={hideYAxis}
+                                    axisColor={theme.axisColor}
+                                />
 
-                            {showCrosshair && <Crosshair color={theme.crosshairColor} />}
+                                {showCrosshair && <Crosshair color={theme.crosshairColor} />}
 
-                            {children}
+                                {children}
 
-                            {tooltipCtx && showTooltip && (
-                                <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} />
-                            )}
-                        </OverlayLayer>
-                    )}
-                </div>
-            </ChartContext.Provider>
+                                {tooltipCtx && showTooltip && (
+                                    <Tooltip
+                                        context={tooltipCtx}
+                                        renderTooltip={renderTooltip}
+                                        placement={tooltipPlacement}
+                                    />
+                                )}
+                            </OverlayLayer>
+                        )}
+                    </div>
+                </ChartHoverContext.Provider>
+            </ChartLayoutContext.Provider>
         </ChartErrorBoundary>
     )
 }

@@ -211,6 +211,25 @@ export const visualReviewReposQuarantineExpireCreate = async (
 }
 
 /**
+ * Serve a snapshot thumbnail by identifier. Returns WebP with ETag caching.
+ */
+export const getVisualReviewReposThumbnailsRetrieveUrl = (projectId: string, id: string, identifier: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/`
+}
+
+export const visualReviewReposThumbnailsRetrieve = async (
+    projectId: string,
+    id: string,
+    identifier: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisualReviewReposThumbnailsRetrieveUrl(projectId, id, identifier), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * List runs for the team, optionally filtered by review state.
  */
 export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualReviewRunsListParams) => {
