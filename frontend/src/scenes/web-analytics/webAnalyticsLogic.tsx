@@ -80,6 +80,7 @@ import {
 
 import {
     ActiveHoursTab,
+    BOT_ANALYTICS_EVENTS,
     BotTrafficFilter,
     ConversionGoalWarning,
     DeviceTab,
@@ -668,6 +669,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 key: '$virt_is_bot',
                                 value: ['true'],
                                 operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                            {
+                                // Exclude events with no user agent — these are missing data, not confirmed bots
+                                key: '$virt_traffic_category',
+                                value: ['no_user_agent'],
+                                operator: PropertyOperator.IsNot,
                                 type: PropertyFilterType.Event,
                             },
                         ]
@@ -2295,15 +2303,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     const botTiles: (WebAnalyticsTile | null)[] = [
                         (() => {
-                            const botTrendsSeries = [
-                                {
-                                    event: '$pageview',
-                                    kind: NodeKind.EventsNode as const,
-                                    math: BaseMathType.TotalCount,
-                                    name: 'Pageview',
-                                    custom_name: 'Requests',
-                                },
-                            ]
+                            const botTrendsSeries = BOT_ANALYTICS_EVENTS.map((event) => ({
+                                event,
+                                kind: NodeKind.EventsNode as const,
+                                math: BaseMathType.TotalCount,
+                                name: event,
+                                custom_name: 'Requests',
+                            }))
                             const createBotTrendsTab = (
                                 id: string,
                                 title: string,
@@ -2373,7 +2379,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 FROM events
 WHERE \`$virt_is_bot\` = true
     AND \`$virt_bot_name\` != ''
-    AND event IN ('$pageview', '$screen')
+    AND event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})
     AND {filters}
 GROUP BY "Crawler", "Category"
 ORDER BY "Requests" DESC

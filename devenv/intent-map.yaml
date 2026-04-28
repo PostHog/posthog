@@ -150,6 +150,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    warehouse_webhook_sink:
+        description: 'Kafka → S3 parquet sink for data warehouse webhook sources'
+        requires: [event_ingestion]
+        docker_profiles: []
+
     personhog:
         description: 'PersonHog gRPC service (router + replica + leader) for person data access'
         requires: [core_infra, coordination]
@@ -256,7 +261,8 @@ intents:
 
     data_warehouse:
         description: 'Data warehouse queries and saved queries'
-        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows]
+        capabilities:
+            [event_ingestion, property_definitions, celery_workers, temporal_workflows, warehouse_webhook_sink]
 
     cohorts:
         description: 'User cohort management'

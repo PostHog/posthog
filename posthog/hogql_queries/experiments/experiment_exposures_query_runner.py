@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 from scipy.stats import chisquare
 
 from posthog.schema import (
+    BiasRisk,
     CachedExperimentExposureQueryResponse,
     DateRange,
     ExperimentExposureQuery,
@@ -39,6 +40,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
+from products.experiments.backend.analysis_health import evaluate_bias_risk
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -235,6 +237,16 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             p_value=float(p_value),
         )
 
+    def _evaluate_bias_risk(self, total_exposures: dict[str, int]) -> BiasRisk | None:
+        multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
+        flag_variants = multivariate_data.get("variants", [])
+        _, handling, _ = get_exposure_config_params_for_builder(self.exposure_criteria)
+        return evaluate_bias_risk(
+            flag_variants=flag_variants,
+            multiple_variant_handling=handling,
+            total_exposures=total_exposures,
+        )
+
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
         # Adding experiment specific tags to the tag collection
@@ -301,12 +313,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
 
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
+        bias_risk = self._evaluate_bias_risk(total_exposures)
 
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,
             total_exposures=total_exposures,
             date_range=self.date_range,
             sample_ratio_mismatch=sample_ratio_mismatch,
+            bias_risk=bias_risk,
         )
 
     def to_query(self) -> ast.SelectQuery:

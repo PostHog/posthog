@@ -15,7 +15,7 @@ use crate::{
     emit::Emitter,
     error::{
         extract_retry_after_from_error, get_user_message, is_rate_limited_error, is_timeout_error,
-        UserError,
+        is_transient_network_error, is_transient_server_error, UserError,
     },
     job::{backoff::format_backoff_messages, config::SinkConfig},
     parse::{format::ParserFn, Parsed},
@@ -62,6 +62,24 @@ fn decide_on_error(
         let delay = policy.next_delay(current_attempt);
         let (status_msg, display_msg) =
             format_backoff_messages(current_date_range, delay, "Request timed out");
+        ErrorHandlingDecision::Backoff {
+            delay,
+            status_msg,
+            display_msg,
+        }
+    } else if is_transient_network_error(err) {
+        let delay = policy.next_delay(current_attempt);
+        let (status_msg, display_msg) =
+            format_backoff_messages(current_date_range, delay, "Transient network error");
+        ErrorHandlingDecision::Backoff {
+            delay,
+            status_msg,
+            display_msg,
+        }
+    } else if is_transient_server_error(err) {
+        let delay = policy.next_delay(current_attempt);
+        let (status_msg, display_msg) =
+            format_backoff_messages(current_date_range, delay, "Upstream server error (5xx)");
         ErrorHandlingDecision::Backoff {
             delay,
             status_msg,
@@ -908,6 +926,101 @@ mod tests {
                 );
             }
             _ => panic!("expected backoff for timeout error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_decide_on_error_backoff_for_transient_network_error() {
+        // Bind then drop to close the port — connecting will be refused.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+
+        let client = Client::new();
+        let err = client
+            .get(format!("http://{addr}/export"))
+            .send()
+            .await
+            .unwrap_err();
+        let err = anyhow::Error::from(err);
+
+        let decision = decide_on_error(
+            &err,
+            Some("2026-01-01 10:00 UTC to 2026-01-01 11:00 UTC"),
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "Transient network error",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Backoff {
+                delay,
+                status_msg,
+                display_msg,
+            } => {
+                assert_eq!(delay.as_secs(), 60);
+                assert!(
+                    status_msg.contains("Transient network error"),
+                    "status_msg should mention transient network error: {status_msg}"
+                );
+                assert!(
+                    display_msg.contains("Date range"),
+                    "display_msg should include date range: {display_msg}"
+                );
+                assert!(
+                    display_msg.contains("Transient network error"),
+                    "display_msg should mention transient network error: {display_msg}"
+                );
+            }
+            _ => panic!("expected backoff for transient network error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_decide_on_error_backoff_for_502() {
+        let server = httpmock::MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(httpmock::Method::GET).path("/e");
+            then.status(502);
+        });
+        let client = Client::new();
+        let resp = client.get(server.url("/e")).send().await.unwrap();
+        let http_err = resp.error_for_status().unwrap_err();
+        let err = anyhow::Error::from(http_err);
+
+        let decision = decide_on_error(
+            &err,
+            Some("2026-01-01 10:00 UTC to 2026-01-01 11:00 UTC"),
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "Upstream server error (5xx)",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Backoff {
+                delay,
+                status_msg,
+                display_msg,
+            } => {
+                assert_eq!(delay.as_secs(), 60);
+                assert!(
+                    status_msg.contains("Upstream server error"),
+                    "status_msg should mention upstream server error: {status_msg}"
+                );
+                assert!(
+                    display_msg.contains("Date range"),
+                    "display_msg should include date range: {display_msg}"
+                );
+            }
+            _ => panic!("expected backoff for 502"),
         }
     }
 

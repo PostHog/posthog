@@ -1,7 +1,8 @@
 import os
 import json
 import socket
-from datetime import datetime
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import IntegrityError, OperationalError, transaction
@@ -112,18 +113,45 @@ def compute_next_run(current: datetime, interval: str) -> datetime:
     raise ValueError(f"Unknown recurrence interval: {interval}")
 
 
-def compute_next_run_cron(cron_expr: str, current: datetime) -> datetime:
+UTC_ZONE_INFO = ZoneInfo("UTC")
+
+
+def resolve_schedule_timezone(tz_name: str | None) -> ZoneInfo:
+    """
+    Resolve a stored timezone name to a ZoneInfo, falling back to UTC for NULL or invalid values.
+
+    Pre-resolving once per scheduled change keeps the catch-up loop off the exception path when
+    a row carries a malformed timezone string.
+    """
+    if not tz_name:
+        return UTC_ZONE_INFO
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return UTC_ZONE_INFO
+
+
+def compute_next_run_cron(cron_expr: str, current: datetime, tz: ZoneInfo = UTC_ZONE_INFO) -> datetime:
     """
     Compute the next scheduled run time from a cron expression.
 
+    croniter resolves cron fields in the tzinfo of the datetime argument. Wall-clock fields
+    like "0 9 * * 1-5" are meaningful in a local timezone, not UTC — so when a row records
+    the timezone it was authored in, we localize before evaluating and convert the result
+    back to UTC for storage. Rows predating the timezone column resolve to UTC and keep
+    their historical UTC interpretation unchanged.
+
     Args:
         cron_expr: A standard 5-field cron expression (e.g., "0 9 * * 1-5" for weekdays at 9am).
-        current: The reference datetime to compute the next run from.
+        current: The reference datetime to compute the next run from. Must be tz-aware.
+        tz: Timezone in which to interpret the cron's wall-clock fields. Defaults to UTC.
 
     Returns:
-        The next datetime matching the cron expression after `current`.
+        The next datetime matching the cron expression after `current`, in UTC.
     """
-    return croniter(cron_expr, current).get_next(datetime)
+    reference = current.astimezone(tz)
+    next_run = croniter(cron_expr, reference).get_next(datetime)
+    return next_run.astimezone(UTC)
 
 
 def process_scheduled_changes() -> None:
@@ -172,9 +200,10 @@ def process_scheduled_changes() -> None:
                         # Compute next run time, handling delayed execution
                         cron_expr = scheduled_change.cron_expression
                         interval = scheduled_change.recurrence_interval
+                        tz = resolve_schedule_timezone(scheduled_change.timezone)
 
                         if cron_expr:
-                            next_run = compute_next_run_cron(cron_expr, scheduled_change.scheduled_at)
+                            next_run = compute_next_run_cron(cron_expr, scheduled_change.scheduled_at, tz)
                             interval_label = "cron"
                         else:
                             assert interval is not None
@@ -187,7 +216,7 @@ def process_scheduled_changes() -> None:
                         skipped_count = 0
                         while next_run <= now and skipped_count < MAX_CATCHUP_ITERATIONS:
                             if cron_expr:
-                                next_run = compute_next_run_cron(cron_expr, next_run)
+                                next_run = compute_next_run_cron(cron_expr, next_run, tz)
                             else:
                                 assert interval is not None
                                 next_run = compute_next_run(next_run, interval)
@@ -203,7 +232,7 @@ def process_scheduled_changes() -> None:
                                 interval=interval_label,
                             )
                             if cron_expr:
-                                next_run = compute_next_run_cron(cron_expr, now)
+                                next_run = compute_next_run_cron(cron_expr, now, tz)
                             else:
                                 assert interval is not None
                                 next_run = compute_next_run(now, interval)

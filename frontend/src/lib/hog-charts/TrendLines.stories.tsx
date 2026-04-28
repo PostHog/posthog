@@ -26,9 +26,8 @@ function trendLineOverlay(parent: Series, fitUpTo?: number): Series {
         color: parent.color,
         yAxisId: parent.yAxisId,
         data: trendLine(parent.data, fitUpTo),
-        dashPattern: [1, 3],
-        pointRadius: 0,
-        hideFromTooltip: true,
+        stroke: { pattern: [1, 3] },
+        visibility: { fromTooltip: true },
     }
 }
 
@@ -48,7 +47,7 @@ export const WithTrendLine: Story = {
             label: 'Visits',
             color: 'var(--brand-blue)',
             data: [20, 35, 28, 60, 45, 70, 52],
-            pointRadius: 3,
+            points: { radius: 3 },
         }
         const series: Series[] = [base, trendLineOverlay(base)]
         return (
@@ -67,14 +66,14 @@ export const MultiSeriesWithTrendLines: Story = {
             label: 'Visits',
             color: 'var(--brand-blue)',
             data: [40, 42, 44, 43, 55, 57, 66],
-            pointRadius: 3,
+            points: { radius: 3 },
         }
         const signups: Series = {
             key: 'signups',
             label: 'Signups',
             color: 'var(--brand-red)',
             data: [38, 36, 30, 32, 28, 22, 18],
-            pointRadius: 3,
+            points: { radius: 3 },
         }
         const series: Series[] = [visits, signups, trendLineOverlay(visits), trendLineOverlay(signups)]
         return (
@@ -91,17 +90,17 @@ export const TrendLineWithIncompletePeriod: Story = {
         // First 5 buckets show a steady climb (fit target); last 2 are artificially low
         // because the period is still in progress — they'd pull the slope down if included.
         const data = [20, 25, 35, 40, 50, 15, 8]
-        const dashedFromIndex = 5
+        const fromIndex = 5
 
         const base: Series = {
             key: 'visits',
             label: 'Visits',
             color: 'var(--brand-blue)',
             data,
-            pointRadius: 3,
-            dashedFromIndex,
+            points: { radius: 3 },
+            stroke: { partial: { fromIndex } },
         }
-        const series: Series[] = [base, trendLineOverlay(base, dashedFromIndex)]
+        const series: Series[] = [base, trendLineOverlay(base, fromIndex)]
         return (
             <Stage>
                 <LineChart series={series} labels={LABELS} config={CONFIG} theme={theme} />
