@@ -76,14 +76,6 @@ export const MOCK_SUBSCRIPTION_DASHBOARD_MANY_DESTINATIONS: SubscriptionApi = {
     title: 'Multi-channel dashboard digest',
 }
 
-/** Disabled insight subscription — auto-paused after the delivery integration broke. */
-export const MOCK_SUBSCRIPTION_DISABLED: SubscriptionApi = {
-    ...MOCK_SUBSCRIPTION_INSIGHT,
-    id: 5,
-    title: 'Paused weekly rollup',
-    enabled: false,
-}
-
 export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
     {
         id: 'del-starting',
