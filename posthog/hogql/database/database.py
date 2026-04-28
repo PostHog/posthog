@@ -1559,14 +1559,14 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             events_table.fields[field_name] = factory_fn(name=field_name)
 
         logs_table = database.get_table("logs")
-        for field_name, factory_fn in [
+        for log_field_name, log_factory_fn in [
             ("$virt_is_bot", create_log_is_bot_field),
             ("$virt_traffic_type", create_log_traffic_type_field),
             ("$virt_traffic_category", create_log_traffic_category_field),
             ("$virt_bot_name", create_log_bot_name_field),
             ("$virt_bot_operator", create_log_bot_operator_field),
         ]:
-            logs_table.fields[field_name] = factory_fn(name=field_name)
+            logs_table.fields[log_field_name] = log_factory_fn(name=log_field_name)
 
     revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):
