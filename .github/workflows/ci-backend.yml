@@ -496,6 +496,9 @@ jobs:
             - name: Lint product structure
               run: ./bin/hogli product:lint --all
 
+            - name: Check version specifiers
+              run: python .github/scripts/check-version-specifiers.py
+
             - name: Check IDOR model coverage
               run: python .github/scripts/check-idor-model-coverage.py
 
