@@ -1,4 +1,5 @@
 import copy
+import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
@@ -6,7 +7,7 @@ from time import time
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.db.models import Q
 from django.utils import timezone
 
@@ -596,6 +597,116 @@ def set_org_usage_summary(
     return has_changed
 
 
+def _patch_todays_usage(organization: Organization, todays_report: "UsageCounters") -> bool:
+    """
+    Cron-only: patches `usage[resource].todays_usage` for each `QuotaResource` where the
+    org has a non-empty resource dict. Mutates `organization.usage` in-memory and emits a
+    single targeted UPDATE that uses `jsonb_set` so billing-owned fields
+    (`usage`, `limit`, `period`) are not clobbered by stale snapshots. Returns True if
+    any value changed.
+    """
+    if not organization.usage:
+        return False
+
+    sql_expr = "usage"
+    params: list[Any] = []
+    has_changes = False
+
+    for resource in QuotaResource:
+        field = resource.value
+        existing_resource = organization.usage.get(field)
+        if not existing_resource:
+            continue
+
+        new_todays_usage = todays_report[field]  # type: ignore[literal-required]
+        if existing_resource.get("todays_usage") == new_todays_usage:
+            continue
+
+        existing_resource["todays_usage"] = new_todays_usage
+        sql_expr = f"jsonb_set({sql_expr}, %s::text[], %s::jsonb)"
+        params.append([field, "todays_usage"])
+        params.append(json.dumps(new_todays_usage))
+        has_changes = True
+
+    if not has_changes:
+        return False
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"UPDATE posthog_organization SET usage = {sql_expr}, updated_at = clock_timestamp() WHERE id = %s",
+            [*params, str(organization.id)],
+        )
+    return True
+
+
+def _identify_refresh_candidates(
+    orgs_by_id: dict[str, Organization],
+    todays_usage_report: dict[str, "UsageCounters"],
+    teams_by_org: dict[str, list[str]],
+    previously_quota_limited_team_tokens: dict[str, list[str]],
+) -> set[str]:
+    """
+    Returns the set of org ids whose quota decision could change in this run, computed
+    from in-memory state only. Stale `usage` only matters for these orgs — for everyone
+    else `org_quota_limited_until` short-circuits before consulting any field that could
+    have moved since the queries phase, so they don't need a fresh DB read.
+
+    An org is a candidate if any of:
+      1. one of its teams is in the Redis quota-limiter set
+      2. its cached `usage[resource]` already carries a `quota_limited_until` or
+         `quota_limiting_suspended_until` marker;
+      3. it appears newly limitable from cached state — `usage + todays_usage >= limit + buffer`
+         for any resource.
+    """
+    previously_limited_lookup = {
+        resource: set(tokens) for resource, tokens in previously_quota_limited_team_tokens.items()
+    }
+
+    candidates: set[str] = set()
+    for org_id, todays_report in todays_usage_report.items():
+        org = orgs_by_id.get(org_id)
+        if org is None or not org.usage or not org.usage.get("period"):
+            continue
+
+        team_token_set: set[str] = set(teams_by_org.get(org_id, []))
+        is_candidate = False
+
+        for resource in QuotaResource:
+            field = resource.value
+
+            # Redis check first: an org with a stale entry in the limiter set must be
+            # refreshed and re-evaluated even when its `usage[resource]` is empty or
+            # missing — otherwise we'd never get the chance to clear that stale entry.
+            limited_for_resource = previously_limited_lookup.get(field)
+            if team_token_set and limited_for_resource and not team_token_set.isdisjoint(limited_for_resource):
+                is_candidate = True
+                break
+
+            usage_for_resource = org.usage.get(field)
+            if not usage_for_resource:
+                continue
+
+            if usage_for_resource.get("quota_limited_until") or usage_for_resource.get(
+                "quota_limiting_suspended_until"
+            ):
+                is_candidate = True
+                break
+
+            limit = usage_for_resource.get("limit")
+            if limit is None:
+                continue
+            usage_value = usage_for_resource.get("usage") or 0
+            todays_for_field = todays_report[field]  # type: ignore[literal-required]
+            if usage_value + todays_for_field >= limit + OVERAGE_BUFFER[resource]:
+                is_candidate = True
+                break
+
+        if is_candidate:
+            candidates.add(org_id)
+
+    return candidates
+
+
 def _timed_query(name, fn, *args, **kwargs):
     start = time()
     result = fn(*args, **kwargs)
@@ -721,6 +832,7 @@ def update_all_orgs_billing_quotas(
 
     todays_usage_report: dict[str, UsageCounters] = {}
     orgs_by_id: dict[str, Organization] = {}
+    teams_by_org: dict[str, list[str]] = {}
 
     # we iterate through all teams, and add their usage to the organization they belong to
     for team in teams:
@@ -755,6 +867,9 @@ def update_all_orgs_billing_quotas(
             for field in team_report:
                 org_report[field] += team_report[field]  # type: ignore
 
+        if team.api_token:
+            teams_by_org.setdefault(org_id, []).append(team.api_token)
+
     # Now we have the usage for all orgs for the current day
     # orgs_by_id is a dict of orgs by id (e.g. {"018e9acf-b488-0000-259c-534bcef40359": <Organization: 018e9acf-b488-0000-259c-534bcef40359>})
     # todays_usage_report is a dict of orgs by id with their usage for the current day (e.g. {"018e9acf-b488-0000-259c-534bcef40359": {"events": 100, "exceptions": 100, "recordings": 100, "rows_synced": 100, "feature_flag_requests": 100, "api_queries_read_bytes": 100, "survey_responses": 100}})
@@ -773,29 +888,18 @@ def update_all_orgs_billing_quotas(
     # We have the teams that are currently under quota limits
     # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "exceptions": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flag_requests": ["phc_123", "phc_456"], "api_queries_read_bytes": ["phc_123", "phc_456"], "survey_responses": ["phc_123", "phc_456"]})
 
-    # The org instances in `orgs_by_id` were loaded via the team query at the start of this job.
-    # Billing webhooks may have written fresh `usage` / `customer_trust_scores` / `never_drop_data`
-    # values since then, and the org loop below saves `usage` back per-org. Without a refresh the
-    # save would clobber any concurrent billing updates with stale snapshots.
-    refresh_start = time()
-    fresh_orgs = Organization.objects.filter(id__in=list(orgs_by_id.keys())).only(
-        "id", "usage", "customer_trust_scores", "never_drop_data"
+    # Identify the orgs whose quota decision could change in this run
+    candidates_start = time()
+    refresh_candidates = _identify_refresh_candidates(
+        orgs_by_id, todays_usage_report, teams_by_org, previously_quota_limited_team_tokens
     )
-    refreshed = 0
-    for fresh_org in fresh_orgs.iterator(chunk_size=2000):
-        cached = orgs_by_id.get(str(fresh_org.id))
-        if cached is None:
-            continue
-        cached.usage = fresh_org.usage
-        cached.customer_trust_scores = fresh_org.customer_trust_scores
-        cached.never_drop_data = fresh_org.never_drop_data
-        refreshed += 1
     logger.info(
         "quota_limiting_run",
-        phase="bulk_refresh",
+        phase="refresh_candidates",
         status="done",
-        duration_ms=round((time() - refresh_start) * 1000, 1),
-        refreshed=refreshed,
+        duration_ms=round((time() - candidates_start) * 1000, 1),
+        candidate_count=len(refresh_candidates),
+        org_count=len(todays_usage_report),
     )
 
     # Find all orgs that should be rate limited
@@ -805,6 +909,8 @@ def update_all_orgs_billing_quotas(
     orgs_processed = 0
     orgs_limited_count = 0
     orgs_suspended_count = 0
+    refresh_count = 0
+    refresh_total_seconds = 0.0
 
     for org_id, todays_report in todays_usage_report.items():
         # Check and refresh DB connections if needed on every iteration.
@@ -819,8 +925,15 @@ def update_all_orgs_billing_quotas(
             org = orgs_by_id[org_id]
 
             if org.usage and org.usage.get("period"):
-                if set_org_usage_summary(org, todays_usage=todays_report):
-                    org.save(update_fields=["usage"])
+                if org_id in refresh_candidates:
+                    # Refresh just before the decision so `org_quota_limited_until`
+                    # below reads fresh `usage` / `customer_trust_scores` /`never_drop_data`.
+                    refresh_call_start = time()
+                    org.refresh_from_db(fields=["usage", "customer_trust_scores", "never_drop_data"])
+                    refresh_total_seconds += time() - refresh_call_start
+                    refresh_count += 1
+
+                _patch_todays_usage(org, todays_report)
 
                 org_is_limited = False
                 org_is_suspended = False
@@ -870,6 +983,8 @@ def update_all_orgs_billing_quotas(
         orgs_processed=orgs_processed,
         orgs_limited=orgs_limited_count,
         orgs_suspended=orgs_suspended_count,
+        refresh_count=refresh_count,
+        refresh_total_ms=round(refresh_total_seconds * 1000, 1),
     )
     if progress_callback:
         progress_callback(
@@ -999,28 +1114,49 @@ def update_organization_usage_fields(
     organization: Organization, resource: QuotaResource, fields: dict[str, Any]
 ) -> None:
     """
-    Helper function to safely update multiple fields within organization.usage[resource]
-    If a value is None, the key will be deleted.
-    This is more efficient than calling update_organization_usage_field multiple times
-    as it only makes one database call.
+    Patches specific keys inside organization.usage[resource] using a partial-write
+    SQL UPDATE so concurrent billing-owned fields (`usage`, `limit`, `period`) are not
+    clobbered by stale snapshots loaded earlier in the cron run.
+
+    `None` deletes the key, anything else sets it. Mirrors the in-memory state on
+    `organization` so subsequent reads in the same cron iteration see the new values,
+    and sets `updated_at` to wall-clock time so the row's mtime tracks every quota
+    decision. Note that the raw-SQL UPDATE bypasses Django model signals, so this
+    intentionally does not emit an `Organization` activity-log entry.
     """
+    if not fields:
+        return
     if not organization.usage:
         capture_exception(
-            Exception(f"quota_limiting: No usage found for organization"), {"organization_id": organization.id}
+            Exception("quota_limiting: No usage found for organization"), {"organization_id": organization.id}
         )
         return
     if resource.value not in organization.usage:
         capture_exception(
-            Exception(f"quota_limiting: No usage found for resource for organization"),
+            Exception("quota_limiting: No usage found for resource for organization"),
             {"organization_id": organization.id, "resource": resource.value},
         )
         return
 
     for key, value in fields.items():
         if value is None:
-            if key in organization.usage[resource.value]:
-                del organization.usage[resource.value][key]
+            organization.usage[resource.value].pop(key, None)
         else:
             organization.usage[resource.value][key] = value
 
-    organization.save(update_fields=["usage"])
+    sql_expr = "usage"
+    params: list[Any] = []
+    for key, value in fields.items():
+        if value is None:
+            sql_expr = f"({sql_expr}) #- %s::text[]"
+            params.append([resource.value, key])
+        else:
+            sql_expr = f"jsonb_set({sql_expr}, %s::text[], %s::jsonb)"
+            params.append([resource.value, key])
+            params.append(json.dumps(value))
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"UPDATE posthog_organization SET usage = {sql_expr}, updated_at = clock_timestamp() WHERE id = %s",
+            [*params, str(organization.id)],
+        )
