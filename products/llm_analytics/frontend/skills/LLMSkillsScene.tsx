@@ -341,7 +341,10 @@ export function LLMSkillsScene(): JSX.Element {
                     <LemonTable
                         loading={skillsLoading}
                         columns={columns}
-                        dataSource={skills.results}
+                        // Drop the cached results while a reload is in flight if they exceed the
+                        // expected page size — otherwise toggling out of grouped mode flashes the
+                        // full 500-item payload through the controlled-paginated flat table.
+                        dataSource={skillsLoading && skills.results.length > SKILLS_PER_PAGE ? [] : skills.results}
                         pagination={pagination}
                         noSortingCancellation
                         sorting={sorting}
