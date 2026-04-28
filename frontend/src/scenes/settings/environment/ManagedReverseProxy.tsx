@@ -237,7 +237,7 @@ function CloudflareOptInBanner({
                 </p>
                 <p className="text-sm">By enabling this feature, you:</p>
                 <ul className="text-sm list-disc pl-5 space-y-1">
-                    <li>Explicitly instruct us to route applicable data through Cloudflare for this service.</li>
+                    <li>Explicitly instruct us to route applicable data through Cloudflare for this service;</li>
                     <li>
                         Acknowledge and agree that data processed as part of this feature will be transmitted to and
                         processed by Cloudflare, and that this processing may occur using Cloudflare infrastructure in
