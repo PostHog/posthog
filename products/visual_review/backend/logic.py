@@ -64,6 +64,12 @@ class PRSHAMismatchError(Exception):
     pass
 
 
+class HashIntegrityError(Exception):
+    """Uploaded image bytes do not match the claimed content hash."""
+
+    pass
+
+
 class StaleRunError(Exception):
     """Approval blocked because a newer run exists for this PR."""
 
@@ -296,10 +302,17 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
 
     keys = repo.signing_keys or {}
     if not keys:
-        # No signing keys configured yet — pass through as unsigned baselines.
-        # Once the repo's signing keys are generated (on first baseline fetch),
-        # all subsequent baselines must be signed.
-        return dict(raw_hashes)
+        # Legitimate baseline files only exist after the server's approval flow
+        # has written one (which populates signing_keys). Reaching here means a
+        # .snapshots.yml was committed before any approval — likely hand-crafted.
+        # Drop every entry rather than passing it through unsigned. Snapshots
+        # will classify NEW, surfacing the situation to a reviewer.
+        logger.warning(
+            "visual_review.baseline_no_signing_keys",
+            repo_id=str(repo.id),
+            entry_count=len(raw_hashes),
+        )
+        return {}
 
     repo_id = str(repo.id)
     verified: dict[str, str] = {}
@@ -740,14 +753,13 @@ def mark_run_processing(run_id: UUID) -> Run:
 
 def complete_run(run_id: UUID) -> Run:
     """
-    Complete a run: detect removals, verify uploads, trigger diff processing.
+    Complete a run: detect removals, classify snapshots, hand off to the diff task.
 
     1. Fetches baseline from GitHub, diffs against RunSnapshot rows to find removed
     2. Creates REMOVED RunSnapshot rows
-    3. Verifies all expected uploads exist in S3
-    4. Creates Artifact records for verified uploads
-    5. Links artifacts to snapshots
-    6. Triggers async diff processing (only if there are changes to diff)
+    3. Classifies snapshots and updates run counts
+    4. Either verifies uploads + finishes synchronously (no-change fast path) or
+       enqueues process_run_diffs which verifies + diffs + finishes
 
     Idempotent: returns immediately if already processing or completed.
     """
@@ -800,16 +812,26 @@ def complete_run(run_id: UUID) -> Run:
     run.save(using=WRITER_DB, update_fields=["total_snapshots"])
     _update_run_counts(run, using=WRITER_DB)
 
-    verify_uploads_and_create_artifacts(run_id)
-
     run = get_run(run_id)
 
-    # Optimization: if no changes, skip diff processing entirely
+    # No-changes fast path: verify any pending uploads synchronously, then
+    # finish. Skipping verify here would silently drop uploads whenever an
+    # Artifact row is missing for a hash that the baseline still points at
+    # (e.g. DB cleanup removed the row but the GitHub-side baseline file
+    # wasn't updated). The CLI re-uploads via find_missing_hashes, the
+    # snapshot classifies as UNCHANGED, and the bytes never get checked or
+    # recorded — leaving every future run requesting the same upload while
+    # CI posts green.
     if run.changed_count == 0 and run.new_count == 0:
+        try:
+            verify_uploads_and_create_artifacts(run_id)
+        except HashIntegrityError as e:
+            logger.warning("visual_review.hash_integrity_failed", run_id=str(run_id), error=str(e))
+            finish_processing(run_id, error_message=str(e))
+            return get_run(run_id)
         finish_processing(run_id)
         return get_run(run_id)
 
-    # Mark as processing and trigger diff task
     mark_run_processing(run_id)
     from .tasks.tasks import process_run_diffs
 
@@ -819,18 +841,32 @@ def complete_run(run_id: UUID) -> Run:
 
 def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     """
-    Verify S3 uploads exist and create Artifact records.
+    Verify S3 uploads, check hash integrity, and create Artifact records.
 
-    Called when run is completed. Checks S3 for each expected hash,
-    creates Artifact if present, and links to snapshots.
+    For each new upload (no existing Artifact), reads the PNG bytes from S3,
+    decodes to sRGB RGBA, and computes the BLAKE3 hash. The CLI-claimed hash
+    is used only as a lookup key into S3 — once verified, it's discarded and
+    the server-computed hash is used everywhere downstream. This ensures the
+    CLI cannot (accidentally or maliciously) associate wrong hashes with image
+    content.
+
+    Verification runs in two passes so a late failure can't leave a partial
+    set of Artifact rows behind: pass 1 reads + hashes all uploads, pass 2
+    creates Artifact rows from the verified results.
+
+    Raises HashIntegrityError if any upload fails verification.
 
     Returns number of artifacts created.
     """
+    from .hashing import ImageTooLargeError, hash_image
+
     run = get_run_with_snapshots(run_id)
     repo_id = run.repo_id
     storage = ArtifactStorage(str(repo_id))
 
-    # Collect all unique hashes we expect
+    # Collect all unique hashes we expect, keyed by the CLI-claimed value.
+    # The claim is treated as a lookup key only — verification below produces
+    # the server-computed hash that becomes authoritative.
     expected_hashes: dict[str, dict] = {}
     for snapshot in run.snapshots.all():
         if snapshot.current_hash and snapshot.current_hash not in expected_hashes:
@@ -844,30 +880,86 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
                 "height": None,
             }
 
+    # Pass 1: read + hash all new uploads. Skip existing artifacts. Fail loudly
+    # on any hash mismatch, decode error, or missing upload before any Artifact
+    # row is written.
+    verified: list[tuple[str, bytes, dict]] = []
+    for claimed_hash, metadata in expected_hashes.items():
+        if get_artifact(repo_id, claimed_hash):
+            continue
+
+        png_bytes = storage.read(claimed_hash)
+        if png_bytes is None:
+            # Race: complete_run fired before the CLI's S3 upload landed, or
+            # the upload was never made. Log loudly so we can spot it instead
+            # of silently dropping the artifact and forcing the next run to
+            # re-upload the same content.
+            logger.warning(
+                "visual_review.upload_missing_in_s3",
+                run_id=str(run_id),
+                claimed_hash=claimed_hash,
+            )
+            continue
+        if len(png_bytes) == 0:
+            raise HashIntegrityError(f"Upload rejected: empty file for hash {claimed_hash[:16]}…")
+
+        try:
+            actual_hash = hash_image(png_bytes)
+        except ImageTooLargeError as e:
+            logger.exception(
+                "visual_review.hash_image_too_large",
+                run_id=str(run_id),
+                claimed_hash=claimed_hash,
+                error=str(e),
+            )
+            raise HashIntegrityError(f"Upload rejected: {e}") from e
+        except Exception as e:
+            # Pillow can raise UnidentifiedImageError, DecompressionBombError,
+            # OSError, etc. Funnel everything into HashIntegrityError so the
+            # task handler routes it through the structured-failure path
+            # instead of celery's retry loop.
+            logger.exception(
+                "visual_review.hash_image_failed",
+                run_id=str(run_id),
+                claimed_hash=claimed_hash,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            raise HashIntegrityError(
+                f"Upload integrity check failed: could not decode image for hash {claimed_hash[:16]}…"
+            ) from e
+
+        if actual_hash != claimed_hash:
+            logger.error(
+                "visual_review.hash_integrity_failure",
+                run_id=str(run_id),
+                claimed_hash=claimed_hash,
+                actual_hash=actual_hash,
+            )
+            raise HashIntegrityError(
+                f"Upload integrity check failed: claimed {claimed_hash[:16]}… but image hashes to {actual_hash[:16]}…"
+            )
+
+        verified.append((actual_hash, png_bytes, metadata))
+
+    # Pass 2: create Artifact rows from verified server-computed hashes only.
+    # The claimed hash isn't used past this point.
     created_count = 0
-    for content_hash, metadata in expected_hashes.items():
-        # Check if artifact already exists
-        if get_artifact(repo_id, content_hash):
-            continue
-
-        # Check if file exists in S3
-        if not storage.exists(content_hash):
-            continue
-
-        # Create artifact record
-        storage_path = storage._key(content_hash)
+    for actual_hash, png_bytes, metadata in verified:
+        storage_path = storage._key(actual_hash)
         artifact, created = get_or_create_artifact(
             repo_id=repo_id,
-            content_hash=content_hash,
+            content_hash=actual_hash,
             storage_path=storage_path,
             width=metadata.get("width"),
             height=metadata.get("height"),
+            size_bytes=len(png_bytes),
             team_id=run.team_id,
         )
 
         if created:
             created_count += 1
-            link_artifact_to_snapshots(repo_id, content_hash)
+            link_artifact_to_snapshots(repo_id, actual_hash)
 
     return created_count
 

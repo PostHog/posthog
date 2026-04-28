@@ -1,13 +1,19 @@
+import re
+from collections import Counter
+
 import structlog
 from temporalio import activity
 
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     CH_QUERY_MAX_EXECUTION_SECONDS,
     SCHEDULE_ID_PREFIX,
     SCHEDULE_TYPE,
+    STUCK_RASTERIZE_THRESHOLD,
     WORKFLOW_NAME,
 )
 from posthog.temporal.session_replay.summarization_sweep.models import (
@@ -63,6 +69,43 @@ def _load_team_user_and_sessions(team_id: int, lookback_minutes: int) -> tuple[T
     return team, session_ids, _select_summarization_user(team)
 
 
+# Session ids land here from ClickHouse and originate at SDK clients. Rejecting anything
+# outside this shape keeps untrusted input out of the Temporal visibility query string.
+_SAFE_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,100}$")
+
+
+async def _stuck_session_ids(session_ids: list[str]) -> set[str]:
+    if not session_ids:
+        return set()
+    safe_ids = [sid for sid in session_ids if _SAFE_SESSION_ID_RE.match(sid)]
+    if len(safe_ids) < len(session_ids):
+        logger.warning(
+            "summarization_sweep.unsafe_session_id_dropped",
+            count=len(session_ids) - len(safe_ids),
+        )
+    if not safe_ids:
+        return set()
+    try:
+        client = await async_connect()
+        ids_clause = ",".join(f'"{sid}"' for sid in safe_ids)
+        query = (
+            f'WorkflowType = "rasterize-recording" '
+            f'AND ExecutionStatus IN ("Failed", "TimedOut") '
+            f"AND {POSTHOG_SESSION_RECORDING_ID_KEY.name} IN ({ids_clause})"
+        )
+        failures: Counter[str] = Counter()
+        async for wf in client.list_workflows(query=query):
+            for pair in wf.typed_search_attributes:
+                if pair.key.name == POSTHOG_SESSION_RECORDING_ID_KEY.name:
+                    failures[pair.value] += 1
+                    break
+        return {sid for sid, n in failures.items() if n >= STUCK_RASTERIZE_THRESHOLD}
+    except Exception as exc:
+        # Degrade to dispatching normally rather than blocking summarization.
+        logger.warning("summarization_sweep.stuck_query_failed", error=str(exc))
+        return set()
+
+
 @activity.defn
 async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSessionsResult:
     """Surfaces `team_disabled=True` so the workflow can tear down its own schedule."""
@@ -85,6 +128,8 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
         extra_summary_context=None,
     )
     sessions_to_summarize = [sid for sid in session_ids if not existing_summaries.get(sid)][: inputs.max_sessions]
+    stuck = await _stuck_session_ids(sessions_to_summarize)
+    sessions_to_summarize = [sid for sid in sessions_to_summarize if sid not in stuck]
 
     return FindSessionsResult(
         team_id=inputs.team_id,

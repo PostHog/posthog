@@ -116,7 +116,7 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
-    describe('drawLine — partial dashing (dashedFromIndex / dashedToIndex)', () => {
+    describe('drawLine — partial dashing (stroke.partial)', () => {
         it.each([
             // Fast path — neither index set
             {
@@ -126,76 +126,76 @@ describe('hog-charts canvas-renderer', () => {
                 expectedDashCalls: [[], []],
             },
             {
-                name: 'neither index set, with dashPattern → whole line uses dashPattern',
+                name: 'neither index set, with stroke.pattern → whole line uses pattern',
                 length: 3,
-                dashPattern: [4, 4],
+                strokePattern: [4, 4],
                 expectedBeginPath: 1,
                 expectedDashCalls: [[4, 4], []],
             },
 
-            // dashedFromIndex
+            // partial.fromIndex
             {
-                name: 'dashedFromIndex mid-series → solid + dashed',
+                name: 'partial.fromIndex mid-series → solid + dashed',
                 length: 5,
-                dashedFromIndex: 3,
+                fromIndex: 3,
                 expectedBeginPath: 2,
                 expectedDashCalls: [[], [10, 10], []],
             },
             {
-                name: 'dashedFromIndex === length-1 (projection tail)',
+                name: 'partial.fromIndex === length-1 (projection tail)',
                 length: 5,
-                dashedFromIndex: 4,
+                fromIndex: 4,
                 expectedBeginPath: 2,
                 expectedDashCalls: [[], [10, 10], []],
             },
             {
-                name: 'dashedFromIndex === 0 → whole line dashed',
+                name: 'partial.fromIndex === 0 → whole line dashed',
                 length: 3,
-                dashedFromIndex: 0,
+                fromIndex: 0,
                 expectedBeginPath: 1,
                 expectedDashCalls: [[10, 10], []],
             },
             {
-                name: 'dashedFromIndex >= length → clamped to last index (solid + trailing dashed)',
+                name: 'partial.fromIndex >= length → clamped to last index (solid + trailing dashed)',
                 length: 3,
-                dashedFromIndex: 99,
+                fromIndex: 99,
                 expectedBeginPath: 2,
                 expectedDashCalls: [[], [10, 10], []],
             },
             {
-                name: 'negative dashedFromIndex → clamped to 0 (whole line dashed)',
+                name: 'negative partial.fromIndex → clamped to 0 (whole line dashed)',
                 length: 3,
-                dashedFromIndex: -5,
+                fromIndex: -5,
                 expectedBeginPath: 1,
                 expectedDashCalls: [[10, 10], []],
             },
 
-            // dashedToIndex
+            // partial.toIndex
             {
-                name: 'dashedToIndex mid-series → dashed + solid',
+                name: 'partial.toIndex mid-series → dashed + solid',
                 length: 5,
-                dashedToIndex: 1,
+                toIndex: 1,
                 expectedBeginPath: 2,
                 expectedDashCalls: [[10, 10], [], []],
             },
             {
-                name: 'dashedToIndex === length-1 → whole line dashed',
+                name: 'partial.toIndex === length-1 → whole line dashed',
                 length: 3,
-                dashedToIndex: 2,
+                toIndex: 2,
                 expectedBeginPath: 1,
                 expectedDashCalls: [[10, 10], []],
             },
             {
-                name: 'dashedToIndex < 0 → clamped to 0 (single-index leading dash + solid rest)',
+                name: 'partial.toIndex < 0 → clamped to 0 (single-index leading dash + solid rest)',
                 length: 3,
-                dashedToIndex: -5,
+                toIndex: -5,
                 expectedBeginPath: 2,
                 expectedDashCalls: [[10, 10], [], []],
             },
             {
-                name: 'dashedToIndex beyond length → clamped to last index (whole line dashed)',
+                name: 'partial.toIndex beyond length → clamped to last index (whole line dashed)',
                 length: 3,
-                dashedToIndex: 99,
+                toIndex: 99,
                 expectedBeginPath: 1,
                 expectedDashCalls: [[10, 10], []],
             },
@@ -204,24 +204,24 @@ describe('hog-charts canvas-renderer', () => {
             {
                 name: 'both ends with a solid middle → dashed + solid + dashed',
                 length: 7,
-                dashedToIndex: 1,
-                dashedFromIndex: 5,
+                toIndex: 1,
+                fromIndex: 5,
                 expectedBeginPath: 3,
                 expectedDashCalls: [[10, 10], [], [10, 10], []],
             },
             {
                 name: 'both ends meet (to === from - 1) → whole line dashed',
                 length: 5,
-                dashedToIndex: 2,
-                dashedFromIndex: 3,
+                toIndex: 2,
+                fromIndex: 3,
                 expectedBeginPath: 1,
                 expectedDashCalls: [[10, 10], []],
             },
             {
                 name: 'both ends overlap (to > from - 1) → whole line dashed',
                 length: 5,
-                dashedToIndex: 3,
-                dashedFromIndex: 2,
+                toIndex: 3,
+                fromIndex: 2,
                 expectedBeginPath: 1,
                 expectedDashCalls: [[10, 10], []],
             },
@@ -230,47 +230,42 @@ describe('hog-charts canvas-renderer', () => {
             {
                 name: 'non-integer indices rounded (3.6 → 4)',
                 length: 5,
-                dashedFromIndex: 3.6,
+                fromIndex: 3.6,
                 expectedBeginPath: 2,
                 expectedDashCalls: [[], [10, 10], []],
             },
             {
-                name: 'dashedPattern override applies to the dashed portion',
+                name: 'partial.pattern override applies to the dashed portion',
                 length: 4,
-                dashedFromIndex: 2,
-                dashedPattern: [2, 8],
+                fromIndex: 2,
+                partialPattern: [2, 8],
                 expectedBeginPath: 2,
                 expectedDashCalls: [[], [2, 8], []],
             },
             {
-                name: 'dashPattern applies to the solid portion alongside dashedPattern on the dashed portion',
+                name: 'stroke.pattern applies to the solid portion alongside partial.pattern on the dashed portion',
                 length: 4,
-                dashedFromIndex: 2,
-                dashPattern: [2, 2],
+                fromIndex: 2,
+                strokePattern: [2, 2],
                 expectedBeginPath: 2,
                 expectedDashCalls: [[2, 2], [10, 10], []],
             },
         ])(
             '$name',
-            ({
-                length,
-                dashedFromIndex,
-                dashedToIndex,
-                dashPattern,
-                dashedPattern,
-                expectedBeginPath,
-                expectedDashCalls,
-            }) => {
+            ({ length, fromIndex, toIndex, strokePattern, partialPattern, expectedBeginPath, expectedDashCalls }) => {
                 const ctx = mockCanvasContext()
                 const labels = Array.from({ length }, (_, i) => String.fromCharCode(97 + i))
                 const data = Array.from({ length }, (_, i) => (i + 1) * 10)
                 const series = makeSeries({
                     key: 's1',
                     data,
-                    dashedFromIndex,
-                    dashedToIndex,
-                    dashPattern,
-                    dashedPattern,
+                    stroke: {
+                        pattern: strokePattern,
+                        partial:
+                            fromIndex !== undefined || toIndex !== undefined || partialPattern !== undefined
+                                ? { fromIndex, toIndex, pattern: partialPattern }
+                                : undefined,
+                    },
                 })
                 drawLine(makeDrawContext(ctx, labels), series)
                 expect(ctx.beginPath).toHaveBeenCalledTimes(expectedBeginPath)
@@ -281,7 +276,11 @@ describe('hog-charts canvas-renderer', () => {
         // Kept out of the parameterized table — asserts boundary-point sharing via moveTo/lineTo counts.
         it('shares the boundary point across adjacent subpaths', () => {
             const ctx = mockCanvasContext()
-            const series = makeSeries({ key: 's1', data: [10, 20, 30, 40, 50], dashedFromIndex: 3 })
+            const series = makeSeries({
+                key: 's1',
+                data: [10, 20, 30, 40, 50],
+                stroke: { partial: { fromIndex: 3 } },
+            })
             drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
             // Solid [0..2]: moveTo + 2 lineTos. Dashed [2..4]: moveTo + 2 lineTos.
             expect(ctx.moveTo).toHaveBeenCalledTimes(2)
@@ -293,17 +292,17 @@ describe('hog-charts canvas-renderer', () => {
             const series = makeSeries({
                 key: 's1',
                 data: [0, 0, 0, 0], // longer than the yValues override
-                dashedFromIndex: 1,
+                stroke: { partial: { fromIndex: 1 } },
             })
             drawLine(makeDrawContext(ctx, ['a', 'b']), series, [10, 90])
-            // yValues length 2, dashedFromIndex 1 → zero-length solid middle skipped; one dashed subpath.
+            // yValues length 2, fromIndex 1 → zero-length solid middle skipped; one dashed subpath.
             expect(ctx.beginPath).toHaveBeenCalledTimes(1)
             expect(dashCalls(ctx)).toEqual([[10, 10], []])
         })
 
         it('does not crash on a length-1 data array', () => {
             const ctx = mockCanvasContext()
-            const series = makeSeries({ key: 's1', data: [42], dashedFromIndex: 0 })
+            const series = makeSeries({ key: 's1', data: [42], stroke: { partial: { fromIndex: 0 } } })
             drawLine(makeDrawContext(ctx, ['a']), series)
             // Single point: moveTo once, no lineTo, stroke draws nothing visible.
             expect(ctx.beginPath).toHaveBeenCalledTimes(1)
@@ -359,38 +358,38 @@ describe('hog-charts canvas-renderer', () => {
     describe('drawArea — partial dashing', () => {
         it.each([
             {
-                name: 'dashedFromIndex only → solid leading + hatched trailing',
+                name: 'partial.fromIndex only → solid leading + hatched trailing',
                 labels: ['a', 'b', 'c', 'd', 'e'],
                 data: [10, 20, 30, 40, 50],
-                dashedFromIndex: 3 as number | undefined,
-                dashedToIndex: undefined as number | undefined,
+                fromIndex: 3 as number | undefined,
+                toIndex: undefined as number | undefined,
                 expectedFills: 2,
             },
             {
-                name: 'dashedToIndex only → hatched leading + solid trailing',
+                name: 'partial.toIndex only → hatched leading + solid trailing',
                 labels: ['a', 'b', 'c', 'd', 'e'],
                 data: [10, 20, 30, 40, 50],
-                dashedFromIndex: undefined as number | undefined,
-                dashedToIndex: 1 as number | undefined,
+                fromIndex: undefined as number | undefined,
+                toIndex: 1 as number | undefined,
                 expectedFills: 2,
             },
             {
                 name: 'both indices → hatched + solid + hatched',
                 labels: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
                 data: [10, 20, 30, 40, 50, 60, 70],
-                dashedFromIndex: 5 as number | undefined,
-                dashedToIndex: 1 as number | undefined,
+                fromIndex: 5 as number | undefined,
+                toIndex: 1 as number | undefined,
                 expectedFills: 3,
             },
-        ])('$name', ({ labels, data, dashedFromIndex, dashedToIndex, expectedFills }) => {
+        ])('$name', ({ labels, data, fromIndex, toIndex, expectedFills }) => {
             const ctx = mockCanvasContext()
-            const series = makeSeries({ key: 's', data, dashedFromIndex, dashedToIndex })
+            const series = makeSeries({ key: 's', data, stroke: { partial: { fromIndex, toIndex } } })
             drawArea(makeDrawContext(ctx, labels), series)
             expect(ctx.fill).toHaveBeenCalledTimes(expectedFills)
         })
     })
 
-    describe('drawArea — fillBetweenData edge cases', () => {
+    describe('drawArea — fill.lowerData edge cases', () => {
         it.each([
             {
                 name: 'shorter than data → segment breaks instead of silently baseline-filling',

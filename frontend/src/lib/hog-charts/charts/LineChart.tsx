@@ -42,7 +42,7 @@ export function LineChart<Meta = unknown>({
 }: LineChartProps<Meta>): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
 
-    const hasAreaFill = useMemo(() => series.some((s) => s.fillArea && !s.fillBetweenData), [series])
+    const hasAreaFill = useMemo(() => series.some((s) => s.fill !== undefined && !s.fill.lowerData), [series])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (percentStackView) {
@@ -137,7 +137,7 @@ export function LineChart<Meta = unknown>({
             }
 
             for (const s of coloredSeries) {
-                if (s.hidden) {
+                if (s.visibility?.excluded) {
                     continue
                 }
 
@@ -145,10 +145,10 @@ export function LineChart<Meta = unknown>({
                 const band = stackedData?.get(s.key)
                 const yValues = band?.top
 
-                if (s.fillArea) {
-                    drawArea(drawCtx, s, yValues, s.fillBetweenData ?? band?.bottom)
+                if (s.fill) {
+                    drawArea(drawCtx, s, yValues, s.fill.lowerData ?? band?.bottom)
                 }
-                if (!s.fillBetweenData) {
+                if (!s.fill?.lowerData) {
                     drawLine(drawCtx, s, yValues)
                     drawPoints(drawCtx, s, yValues)
                 }
@@ -156,7 +156,7 @@ export function LineChart<Meta = unknown>({
 
             if (hoverIndex >= 0) {
                 for (const s of coloredSeries) {
-                    if (s.hidden || s.fillBetweenData) {
+                    if (s.visibility?.excluded || s.fill?.lowerData) {
                         continue
                     }
                     const data = stackedData?.get(s.key)?.top ?? s.data

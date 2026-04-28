@@ -117,160 +117,72 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
+# Maps SQL aliases produced by experiment_query_builder.py SELECT clauses to
+# ExperimentStatsBase field names. Aliases not registered here are ignored —
+# adding a new SELECT column without updating this map is a silent no-op.
+_ALIAS_TO_STATS_FIELD: dict[str, str] = {
+    "variant": "key",
+    "num_users": "number_of_samples",
+    "total_sum": "sum",
+    "total_sum_of_squares": "sum_squares",
+    "step_counts": "step_counts",
+    "denominator_sum": "denominator_sum",
+    "denominator_sum_squares": "denominator_sum_squares",
+    "numerator_denominator_sum_product": "numerator_denominator_sum_product",
+    "covariate_sum": "covariate_sum",
+    "covariate_sum_squares": "covariate_sum_squares",
+    "main_covariate_sum_product": "main_covariate_sum_product",
+}
+
+
 def get_variant_result(
-    result: tuple,
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
-    cuped_enabled: bool = False,
+    row: tuple,
+    columns: list[str],
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
     """
-    Parse a single result row from the experiment query into a structured variant result.
+    Parse a single result row into (breakdown_tuple, ExperimentStatsBase).
 
-    Supports multiple breakdowns - breakdown values are returned as a tuple of strings,
-    even for single breakdowns (for consistency).
+    The contract between the SQL builder and this parser is the column aliases
+    declared in each SELECT (`count(...) AS num_users`, `sum(...) AS covariate_sum`,
+    `breakdown_value_1`, …). Field presence is driven by which aliases appear in
+    `columns`, so adding or reordering SELECT columns propagates here automatically
+    without any positional offsets to maintain.
 
-    Args:
-        result: Query result tuple with structure depending on metric type and breakdown count
-        metric: The metric definition that determines expected fields and breakdown count
-
-    Returns:
-        Tuple of (breakdown_tuple, ExperimentStatsBase)
-        - breakdown_tuple is None for non-breakdown queries
-        - breakdown_tuple is a tuple of strings for breakdown queries
-          Examples: ("Chrome",) for single, ("MacOS", "Chrome") for multiple
-
-    Expected result structures:
-
-    Without breakdown (num_breakdowns=0):
-        (variant, num_samples, sum, sum_squares, [metric_specific_fields...])
-
-    With single breakdown (num_breakdowns=1):
-        (variant, breakdown_value_1, num_samples, sum, sum_squares, [metric_specific_fields...])
-
-    With multiple breakdowns (num_breakdowns=2):
-        (variant, breakdown_value_1, breakdown_value_2, num_samples, sum, sum_squares, [metric_specific_fields...])
-
-    Metric-specific fields:
-        - FunnelMetric: step_counts, [optional: step_sessions]
-        - RatioMetric: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
-        - MeanMetric with CUPED: covariate_sum, covariate_sum_squares, main_covariate_sum_product
-        - MeanMetric without CUPED: (no additional fields)
-        - RetentionMetric: (no additional fields)
+    Breakdown columns (`breakdown_value_1`, `breakdown_value_2`, …) are collected
+    in numeric order into the returned tuple. If none are present, the breakdown
+    tuple is None.
     """
-    # Determine number of breakdowns from metric definition
-    num_breakdowns = 0
-    if metric.breakdownFilter and metric.breakdownFilter.breakdowns:
-        num_breakdowns = len(metric.breakdownFilter.breakdowns)
+    row_dict = dict(zip(columns, row))
 
-    # Extract variant key (always at position 0)
-    variant_key = result[0]
+    breakdown_keys = sorted(
+        (k for k in columns if k.startswith("breakdown_value_")),
+        key=lambda k: int(k.removeprefix("breakdown_value_")),
+    )
+    breakdown_tuple = tuple(str(row_dict[k]) for k in breakdown_keys) or None
 
-    breakdown_tuple = tuple(str(result[i + 1]) for i in range(num_breakdowns)) if num_breakdowns > 0 else None
-    stats_start_idx = 1 + num_breakdowns
-
-    # Extract base statistical fields
-    num_samples = result[stats_start_idx]
-    sum_value = result[stats_start_idx + 1]
-    sum_squares = result[stats_start_idx + 2]
-    metric_fields_start_idx = stats_start_idx + 3
-
-    # Build base stats
-    base_stats = {
-        "key": variant_key,
-        "number_of_samples": num_samples,
-        "sum": sum_value,
-        "sum_squares": sum_squares,
+    base_stats: dict[str, Any] = {
+        field: row_dict[alias] for alias, field in _ALIAS_TO_STATS_FIELD.items() if alias in row_dict
     }
 
-    # Add metric-specific fields based on metric type
-    match metric:
-        case ExperimentFunnelMetric():
-            base_stats["step_counts"] = result[metric_fields_start_idx]
-            if len(result) > metric_fields_start_idx + 1:
-                base_stats["step_sessions"] = [
-                    [
-                        SessionData(
-                            person_id=person_id, session_id=session_id, event_uuid=event_uuid, timestamp=timestamp
-                        )
-                        for person_id, session_id, event_uuid, timestamp in step_sessions
-                    ]
-                    for step_sessions in result[metric_fields_start_idx + 1]
-                ]
-        case ExperimentRatioMetric():
-            base_stats["denominator_sum"] = result[metric_fields_start_idx]
-            base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
-            base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
-        case ExperimentRetentionMetric():
-            # Retention metrics are treated as ratio metrics for correct significance calculations
-            # Numerator: binary completion (0 or 1), Denominator: always 1 per user who started
-            base_stats["denominator_sum"] = result[metric_fields_start_idx]
-            base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
-            base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
-        case ExperimentMeanMetric():
-            if cuped_enabled:
-                base_stats["covariate_sum"] = result[metric_fields_start_idx]
-                base_stats["covariate_sum_squares"] = result[metric_fields_start_idx + 1]
-                base_stats["main_covariate_sum_product"] = result[metric_fields_start_idx + 2]
+    # steps_event_data is the only column needing structural conversion
+    # (raw tuples → SessionData); all other aliases map directly via _ALIAS_TO_STATS_FIELD.
+    if "steps_event_data" in row_dict and row_dict["steps_event_data"] is not None:
+        base_stats["step_sessions"] = [
+            [
+                SessionData(person_id=person_id, session_id=session_id, event_uuid=event_uuid, timestamp=timestamp)
+                for person_id, session_id, event_uuid, timestamp in step_sessions
+            ]
+            for step_sessions in row_dict["steps_event_data"]
+        ]
 
-    return (breakdown_tuple, ExperimentStatsBase(**base_stats))
+    return breakdown_tuple, ExperimentStatsBase(**base_stats)
 
 
 def get_variant_results(
-    sorted_results: list[tuple],
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
-    cuped_enabled: bool = False,
+    rows: list[tuple],
+    columns: list[str],
 ) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
-    """
-    Parse multiple result rows from experiment query into structured variant results.
-
-    This is the main entry point for parsing query results with breakdown support.
-    Delegates to get_variant_result for each row.
-
-    Args:
-        sorted_results: List of query result tuples
-        metric: The metric definition that determines expected fields and breakdown count
-
-    Returns:
-        List of (breakdown_tuple, ExperimentStatsBase) tuples
-    """
-    return [get_variant_result(result, metric, cuped_enabled=cuped_enabled) for result in sorted_results]
-
-
-def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStatsBase]:
-    # Handle both mean metrics (4 values), funnel metrics (5 values) and ratio metrics (7 values)
-    variant_results = []
-    for result in sorted_results:
-        # All metrics have this
-        base_stats = {
-            "key": result[0],
-            "number_of_samples": result[1],
-            "sum": result[2],
-            "sum_squares": result[3],
-        }
-
-        # Funnel metrics
-        if len(result) == 5:
-            base_stats["step_counts"] = result[4]
-        elif len(result) == 6:
-            # Funnel metrics with sampled session IDs
-            base_stats["step_counts"] = result[4]
-            base_stats["step_sessions"] = [
-                [
-                    SessionData(person_id=person_id, session_id=session_id, event_uuid=event_uuid, timestamp=timestamp)
-                    for person_id, session_id, event_uuid, timestamp in step_sessions
-                ]
-                for step_sessions in result[5]
-            ]
-
-        # Ratio metrics
-        elif len(result) == 7:
-            # Ratio metric
-            base_stats["denominator_sum"] = result[4]
-            base_stats["denominator_sum_squares"] = result[5]
-            base_stats["numerator_denominator_sum_product"] = result[6]
-
-        variant_results.append(ExperimentStatsBase(**base_stats))
-
-    return variant_results
+    return [get_variant_result(row, columns) for row in rows]
 
 
 def aggregate_variants_across_breakdowns(

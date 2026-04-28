@@ -59,7 +59,7 @@
         "@marsidev/react-turnstile": "^1.4.2",
         "@medv/finder": "^4.0.2",
         "@memlab/lens": "2.0.0",
-        "@microlink/react-json-view": "^1.26.2",
+        "@microlink/react-json-view": "^1.31.18",
         "@microsoft/fetch-event-source": "^2.0.1",
         "@monaco-editor/react": "4.7.0",
         "@posthog/docs-onboarding": "workspace:*",

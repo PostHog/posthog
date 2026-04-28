@@ -25,6 +25,8 @@ import type { IndexedTrendResult } from '../types'
 import { AnnotationsLayer } from './AnnotationsLayer'
 import { goalLinesToReferenceLines } from './goalLinesAdapter'
 import { handleTrendsLineChartClick } from './handleTrendsLineChartClick'
+import { TrendsAlertOverlays } from './TrendsAlertOverlays'
+import { buildTrendsYTickFormatter } from './trendsAxisFormat'
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 import { TrendsTooltip } from './TrendsTooltip'
 
@@ -105,17 +107,17 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
                 }
                 const baseColor = getTrendsColor(r)
                 const displayColor = r.compare_label === 'previous' ? hexToRGBA(baseColor, 0.5) : baseColor
-                const hidden = getTrendsHidden(r)
+                const excluded = getTrendsHidden(r)
                 const mainSeries: Series<TrendsSeriesMeta> = {
                     key: `${r.id}`,
                     label: r.label ?? '',
                     data: r.data,
                     color: displayColor,
-                    fillArea: display === ChartDisplayType.ActionsAreaGraph,
-                    dashedFromIndex,
-                    hidden,
                     yAxisId,
                     meta,
+                    fill: display === ChartDisplayType.ActionsAreaGraph ? {} : undefined,
+                    stroke: dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined,
+                    visibility: excluded ? { excluded: true } : undefined,
                 }
                 const series: Series<TrendsSeriesMeta>[] = [mainSeries]
 
@@ -125,16 +127,11 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
                         key: `${r.id}__ci`,
                         label: `${r.label ?? ''} (CI)`,
                         data: upper,
-                        fillBetweenData: lower,
                         color: displayColor,
-                        fillArea: true,
-                        fillOpacity: 0.2,
-                        pointRadius: 0,
-                        hidden: hidden,
-                        hideFromTooltip: true,
-                        hideValueLabels: true,
                         yAxisId,
                         meta,
+                        fill: { opacity: 0.2, lowerData: lower },
+                        visibility: { excluded, fromTooltip: true, fromValueLabels: true },
                     })
                 }
 
@@ -145,27 +142,21 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
                         label: `${r.label ?? ''} (Moving avg)`,
                         data: maData,
                         color: displayColor,
-                        fillArea: false,
-                        dashPattern: [10, 3],
-                        pointRadius: 0,
-                        hideFromTooltip: true,
-                        excludeFromStack: true,
                         yAxisId,
                         meta,
+                        stroke: { pattern: [10, 3] },
+                        visibility: { fromTooltip: true, fromStack: true },
                     })
 
-                    if (showTrendLines && !hidden) {
+                    if (showTrendLines && !excluded) {
                         series.push({
                             key: `${r.id}-ma__trendline`,
                             label: `${r.label ?? ''} (Moving avg)`,
                             data: trendLine(maData),
                             color: hexToRGBA(baseColor, 0.5),
                             yAxisId,
-                            dashPattern: [1, 3],
-                            pointRadius: 0,
-                            hideFromTooltip: true,
-                            excludeFromStack: true,
-                            hideValueLabels: true,
+                            stroke: { pattern: [1, 3] },
+                            visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
                         })
                     }
                 }
@@ -174,18 +165,15 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
                 // partial bucket doesn't drag the slope down. Dimmed so the dashed
                 // overlay reads as subordinate to the series line — at full intensity
                 // the two colors visually compete, especially on a dark background.
-                if (showTrendLines && !hidden) {
+                if (showTrendLines && !excluded) {
                     series.push({
                         key: `${r.id}__trendline`,
                         label: r.label ?? '',
                         data: trendLine(r.data, dashedFromIndex),
                         color: hexToRGBA(baseColor, 0.5),
                         yAxisId,
-                        dashPattern: [1, 3],
-                        pointRadius: 0,
-                        hideFromTooltip: true,
-                        excludeFromStack: true,
-                        hideValueLabels: true,
+                        stroke: { pattern: [1, 3] },
+                        visibility: { fromTooltip: true, fromValueLabels: true, fromStack: true },
                     })
                 }
 
@@ -217,6 +205,11 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
         [interval, currentPeriodResult?.days, timezone]
     )
 
+    const yTickFormatter = useMemo(
+        () => buildTrendsYTickFormatter(trendsFilter, isPercentStackView, baseCurrency),
+        [trendsFilter, isPercentStackView, baseCurrency]
+    )
+
     const chartConfig: LineChartConfig = useMemo(
         () => ({
             showGrid: true,
@@ -225,11 +218,20 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             percentStackView: isPercentStackView,
             xTickFormatter,
+            yTickFormatter,
         }),
-        [yAxisScaleType, isPercentStackView, xTickFormatter]
+        [yAxisScaleType, isPercentStackView, xTickFormatter, yTickFormatter]
     )
 
     const referenceLines = useMemo(() => goalLinesToReferenceLines(goalLines, hogSeries), [goalLines, hogSeries])
+
+    const getYAxisId = useCallback(
+        (r: IndexedTrendResult) => {
+            const idx = (indexedResults ?? []).indexOf(r)
+            return showMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
+        },
+        [indexedResults, showMultipleYAxes]
+    )
 
     const valueLabelFormatter = useCallback(
         (value: number) => formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency),
@@ -331,6 +333,16 @@ export function TrendsLineChartD3({ context, inSharedMode = false }: TrendsLineC
             className="LineGraph"
         >
             <ReferenceLines lines={referenceLines} />
+            {insight.id ? (
+                <TrendsAlertOverlays
+                    insightId={insight.id}
+                    insightProps={insightProps}
+                    indexedResults={indexedResults}
+                    getColor={getTrendsColor}
+                    getYAxisId={getYAxisId}
+                    isHidden={getTrendsHidden}
+                />
+            ) : null}
             {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
             {showAnnotations && (
                 <AnnotationsLayer
