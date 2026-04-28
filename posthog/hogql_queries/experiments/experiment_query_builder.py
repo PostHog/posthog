@@ -37,6 +37,7 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     validate_session_property,
 )
 from posthog.hogql_queries.experiments.breakdown_injector import BreakdownInjector
+from posthog.hogql_queries.experiments.cuped_config import CupedQueryConfig
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.funnel_step_builder import FunnelStepBuilder
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
@@ -88,6 +89,7 @@ class ExperimentQueryBuilder:
         breakdowns: list[Breakdown] | None = None,
         only_count_matured_users: bool = False,
         funnel_steps_data_disabled: bool = False,
+        cuped_config: CupedQueryConfig | None = None,
     ):
         self.team = team
         self.metric = metric
@@ -103,6 +105,8 @@ class ExperimentQueryBuilder:
         self.breakdowns = breakdowns or []
         self.breakdown_injector = BreakdownInjector(self.breakdowns, metric) if metric else None
         self.preaggregation_job_ids: list[str] | None = None
+        self.metric_events_preaggregation_job_ids: list[str] | None = None
+        self.cuped_config = cuped_config or CupedQueryConfig()
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
     # bounded by num_variants × num_breakdown_values.  The HogQL executor injects
@@ -303,8 +307,10 @@ class ExperimentQueryBuilder:
 
     def _build_funnel_query_legacy(self) -> ast.SelectQuery:
         """
-        Legacy funnel query: 3 CTEs (exposures, metric_events, entity_metrics).
-        Used when precomputed exposures are available.
+        3-CTE funnel query: exposures, metric_events, entity_metrics.
+        Called "legacy" because it predates the single-scan optimized path,
+        but this is the primary path for precomputed queries — both exposures
+        and metric_events CTEs can read from precomputed tables here.
 
         Supports two patterns:
         1. Events-only: Single query with boolean step columns
@@ -317,7 +323,43 @@ class ExperimentQueryBuilder:
         # Determine which query pattern to use
         has_dw_steps = self._has_datawarehouse_steps()
 
-        if has_dw_steps:
+        # Track whether step columns need to be injected after parsing.
+        # Precomputed metric events already have steps extracted from the array.
+        inject_step_columns = True
+
+        if self.metric_events_preaggregation_job_ids and not has_dw_steps:
+            # Read from precomputed table instead of scanning events
+            inject_step_columns = False
+            step_extracts = ", ".join(f"arrayElement(t.steps, {i + 1}) AS step_{i}" for i in range(num_steps))
+            entity_id_cast = "toUUID(t.entity_id)" if self.entity_key == "person_id" else "t.entity_id"
+            session_id_col = "t.session_id AS session_id," if not self.funnel_steps_data_disabled else ""
+
+            # Filter by experiment date range: jobs can cover broader time ranges
+            # than the experiment for cache reusability, so we must filter on read.
+            # Upper bound includes conversion window since funnel step events can
+            # occur after experiment end.
+            conversion_window_seconds = self._get_conversion_window_seconds()
+            if conversion_window_seconds > 0:
+                upper_bound = f"{{metric_events_date_to}} + toIntervalSecond({conversion_window_seconds})"
+            else:
+                upper_bound = "{metric_events_date_to}"
+
+            metric_events_cte_str = f"""
+                    metric_events AS (
+                        SELECT
+                            {entity_id_cast} AS entity_id,
+                            t.timestamp AS timestamp,
+                            t.event_uuid AS uuid,
+                            {session_id_col}
+                            {step_extracts}
+                        FROM experiment_metric_events_preaggregated AS t
+                        WHERE t.job_id IN {{metric_events_job_ids}}
+                            AND t.team_id = {{metric_events_team_id}}
+                            AND t.timestamp >= {{metric_events_date_from}}
+                            AND t.timestamp <= {upper_bound}
+                    )
+            """
+        elif has_dw_steps:
             # UNION ALL pattern for heterogeneous sources
             metric_events_cte_str = self._build_funnel_metric_events_cte_with_union()
         else:
@@ -409,6 +451,12 @@ class ExperimentQueryBuilder:
             placeholders["uuid_to_session_map"] = self._build_uuid_to_session_map()
             placeholders["uuid_to_timestamp_map"] = self._build_uuid_to_timestamp_map()
 
+        if self.metric_events_preaggregation_job_ids:
+            placeholders["metric_events_job_ids"] = ast.Constant(value=self.metric_events_preaggregation_job_ids)
+            placeholders["metric_events_team_id"] = ast.Constant(value=self.team.id)
+            placeholders["metric_events_date_from"] = self.date_range_query.date_from_as_hogql()
+            placeholders["metric_events_date_to"] = self.date_range_query.date_to_as_hogql()
+
         query = parse_select(
             f"""
             WITH
@@ -439,12 +487,10 @@ class ExperimentQueryBuilder:
         if self.breakdown_injector:
             self.breakdown_injector.inject_funnel_breakdown_columns(query)
 
-        # Inject step columns into the metric_events CTE
-        # Find the metric_events CTE in the query
-        if query.ctes and "metric_events" in query.ctes:
+        # Inject step columns into the metric_events CTE (skip when precomputed — already extracted)
+        if inject_step_columns and query.ctes and "metric_events" in query.ctes:
             metric_events_cte = query.ctes["metric_events"]
             if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
-                # Add step columns to the SELECT
                 step_columns = self._build_funnel_step_columns()
                 metric_events_cte.expr.select.extend(step_columns)
 
@@ -744,6 +790,16 @@ class ExperimentQueryBuilder:
         else:
             join_condition = "exposures.entity_id = metric_events.entity_id"
 
+        if self.cuped_config.enabled:
+            join_window_predicate = "({conversion_window_predicate} OR {cuped_pre_window_predicate})"
+            entity_metric_selects = """
+                    {value_agg} AS value,
+                    {covariate_value_agg} AS covariate_value"""
+        else:
+            join_window_predicate = "{conversion_window_predicate}"
+            entity_metric_selects = """
+                    {value_agg} AS value"""
+
         return f"""
             exposures AS (
                 {{exposure_select_query}}
@@ -763,11 +819,11 @@ class ExperimentQueryBuilder:
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    {{value_agg}} AS value
+{entity_metric_selects}
                     -- breakdown columns added programmatically below
                 FROM exposures
                 LEFT JOIN metric_events ON {join_condition}
-                    AND {{conversion_window_predicate}}
+                    AND {join_window_predicate}
                 GROUP BY exposures.entity_id, exposures.variant
                 -- breakdown columns added programmatically below
             )
@@ -805,16 +861,33 @@ class ExperimentQueryBuilder:
             if exposure_query.group_by:
                 exposure_query.group_by.append(ast.Field(chain=events_join_key_parts))
 
+        metric_predicate = self._build_metric_predicate(
+            table_alias=source_info.table_name,
+            cuped_lookback_days=self.cuped_config.lookback_days if self.cuped_config.enabled else None,
+        )
+        conversion_window_predicate = self._build_conversion_window_predicate()
+
         placeholders: dict = {
             "exposure_select_query": exposure_query,
             "entity_key": source_info.entity_key,
             "metric_timestamp_field": ast.Field(chain=[source_info.timestamp_field]),
             "metric_table": ast.Field(chain=[source_info.table_name]),
-            "metric_predicate": self._build_metric_predicate(table_alias=source_info.table_name),
+            "metric_predicate": metric_predicate,
             "value_expr": self._build_value_expr(),
-            "value_agg": self._build_value_aggregation_expr(),
-            "conversion_window_predicate": self._build_conversion_window_predicate(),
+            "value_agg": self._build_value_aggregation_expr(
+                value_expr=self._build_windowed_metric_value_expr(conversion_window_predicate)
+                if self.cuped_config.enabled
+                else None
+            ),
+            "conversion_window_predicate": conversion_window_predicate,
         }
+
+        if self.cuped_config.enabled:
+            cuped_pre_window_predicate = self._build_cuped_pre_window_predicate()
+            placeholders["cuped_pre_window_predicate"] = cuped_pre_window_predicate
+            placeholders["covariate_value_agg"] = self._build_value_aggregation_expr(
+                value_expr=self._build_windowed_metric_value_expr(cuped_pre_window_predicate)
+            )
 
         # Add join condition for data warehouse
         if source_info.kind == "datawarehouse":
@@ -856,6 +929,14 @@ class ExperimentQueryBuilder:
             return self._build_mean_query_with_winsorization()
 
         common_ctes = self._get_mean_query_common_ctes()
+        cuped_selects = (
+            """,
+                sum(entity_metrics.covariate_value) AS covariate_sum,
+                sum(power(entity_metrics.covariate_value, 2)) AS covariate_sum_squares,
+                sum(entity_metrics.value * entity_metrics.covariate_value) AS covariate_sum_product"""
+            if self.cuped_config.enabled
+            else ""
+        )
 
         query = parse_select(
             f"""
@@ -865,7 +946,7 @@ class ExperimentQueryBuilder:
                 entity_metrics.variant AS variant,
                 count(entity_metrics.entity_id) AS num_users,
                 sum(entity_metrics.value) AS total_sum,
-                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares{cuped_selects}
                 -- breakdown columns added programmatically below
             FROM entity_metrics
             GROUP BY entity_metrics.variant
@@ -892,7 +973,7 @@ class ExperimentQueryBuilder:
         # Build lower bound expression
         if self.metric.lower_bound_percentile is not None:
             lower_bound_expr = parse_expr(
-                "quantile({level})(entity_metrics.value)",
+                "quantileExact({level})(entity_metrics.value)",
                 placeholders={"level": ast.Constant(value=self.metric.lower_bound_percentile)},
             )
         else:
@@ -903,12 +984,12 @@ class ExperimentQueryBuilder:
             # Handle ignore_zeros flag for upper bound calculation
             if getattr(self.metric, "ignore_zeros", False):
                 upper_bound_expr = parse_expr(
-                    "quantile({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
+                    "quantileExact({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
                     placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
                 )
             else:
                 upper_bound_expr = parse_expr(
-                    "quantile({level})(entity_metrics.value)",
+                    "quantileExact({level})(entity_metrics.value)",
                     placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
                 )
         else:
@@ -916,6 +997,20 @@ class ExperimentQueryBuilder:
 
         common_ctes = self._get_mean_query_common_ctes()
         placeholders = self._get_mean_query_common_placeholders()
+        winsorized_cuped_select = (
+            """,
+                    entity_metrics.covariate_value AS covariate_value"""
+            if self.cuped_config.enabled
+            else ""
+        )
+        cuped_selects = (
+            """,
+                sum(winsorized_entity_metrics.covariate_value) AS covariate_sum,
+                sum(power(winsorized_entity_metrics.covariate_value, 2)) AS covariate_sum_squares,
+                sum(winsorized_entity_metrics.value * winsorized_entity_metrics.covariate_value) AS covariate_sum_product"""
+            if self.cuped_config.enabled
+            else ""
+        )
 
         # Add winsorization-specific placeholders
         placeholders["lower_bound"] = lower_bound_expr
@@ -938,7 +1033,7 @@ class ExperimentQueryBuilder:
                 SELECT
                     entity_metrics.entity_id AS entity_id,
                     entity_metrics.variant AS variant,
-                    least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
+                    least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value{winsorized_cuped_select}
                     -- breakdown columns added programmatically below
                 FROM entity_metrics
                 CROSS JOIN percentiles
@@ -949,7 +1044,7 @@ class ExperimentQueryBuilder:
                 winsorized_entity_metrics.variant AS variant,
                 count(winsorized_entity_metrics.entity_id) AS num_users,
                 sum(winsorized_entity_metrics.value) AS total_sum,
-                sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
+                sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares{cuped_selects}
                 -- breakdown columns added programmatically below
             FROM winsorized_entity_metrics
             GROUP BY winsorized_entity_metrics.variant
@@ -1200,7 +1295,32 @@ class ExperimentQueryBuilder:
         else:
             return parse_expr(f"{events_alias}.timestamp >= exposures.first_exposure_time")
 
-    def _build_metric_predicate(self, source=None, table_alias: str = "events") -> ast.Expr:
+    def _build_cuped_pre_window_predicate(self, events_alias: str = "metric_events") -> ast.Expr:
+        return parse_expr(
+            f"""
+            {events_alias}.timestamp >= exposures.first_exposure_time - toIntervalDay({{lookback_days}})
+            AND {events_alias}.timestamp < exposures.first_exposure_time
+            """,
+            placeholders={"lookback_days": ast.Constant(value=self.cuped_config.lookback_days)},
+        )
+
+    def _build_windowed_metric_value_expr(
+        self, window_predicate: ast.Expr, events_alias: str = "metric_events"
+    ) -> ast.Expr:
+        return parse_expr(
+            "if({window_predicate}, {metric_value}, NULL)",
+            placeholders={
+                "window_predicate": window_predicate,
+                "metric_value": ast.Field(chain=[events_alias, "value"]),
+            },
+        )
+
+    def _build_metric_predicate(
+        self,
+        source=None,
+        table_alias: str = "events",
+        cuped_lookback_days: int | None = None,
+    ) -> ast.Expr:
         """
         Builds the metric predicate as an AST expression.
         For ratio metrics, pass the specific source (numerator or denominator) and table_alias.
@@ -1224,6 +1344,15 @@ class ExperimentQueryBuilder:
             metric_event_filter = event_or_action_to_filter(self.team, source)
 
         conversion_window_seconds = self._get_conversion_window_seconds()
+        date_from = self.date_range_query.date_from_as_hogql()
+        if cuped_lookback_days is not None:
+            date_from = parse_expr(
+                "{date_from} - toIntervalDay({lookback_days})",
+                placeholders={
+                    "date_from": date_from,
+                    "lookback_days": ast.Constant(value=cuped_lookback_days),
+                },
+            )
 
         return parse_expr(
             """
@@ -1233,7 +1362,7 @@ class ExperimentQueryBuilder:
             """,
             placeholders={
                 "timestamp_field": ast.Field(chain=timestamp_field_chain),
-                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_from": date_from,
                 "date_to": self.date_range_query.date_to_as_hogql(),
                 "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
                 "metric_event_filter": metric_event_filter,
@@ -1287,7 +1416,11 @@ class ExperimentQueryBuilder:
         return ast.Call(name="coalesce", args=[float_expr, ast.Constant(value=0)])
 
     def _build_value_aggregation_expr(
-        self, source=None, events_alias: str = "metric_events", column_name: str = "value"
+        self,
+        source=None,
+        events_alias: str = "metric_events",
+        column_name: str = "value",
+        value_expr: ast.Expr | None = None,
     ) -> ast.Expr:
         """
         Returns the value aggregation expression based on math type.
@@ -1316,6 +1449,22 @@ class ExperimentQueryBuilder:
             ExperimentMetricMathType.DAU,
             ExperimentMetricMathType.UNIQUE_GROUP,
         ]:
+            if value_expr is not None:
+                # Count distinct values, filtering out null UUIDs and empty strings.
+                # Conditional CUPED expressions can be Nullable, so handle NULL before
+                # applying the same empty-value filtering as the base path.
+                return parse_expr(
+                    """toFloat(count(distinct
+                        multiIf(
+                            isNull({value_expr}), NULL,
+                            toTypeName({value_expr}) IN ('UUID', 'Nullable(UUID)') AND reinterpretAsUInt128(assumeNotNull({value_expr})) = 0, NULL,
+                            toString({value_expr}) = '', NULL,
+                            {value_expr}
+                        )
+                    ))""",
+                    placeholders={"value_expr": value_expr},
+                )
+
             # Count distinct values, filtering out null UUIDs and empty strings
             return parse_expr(
                 f"""toFloat(count(distinct
@@ -1328,17 +1477,23 @@ class ExperimentQueryBuilder:
             )
         elif math_type == ExperimentMetricMathType.MIN:
             # Outer coalesce ensures 0 (not NULL) when entity has no events of this type
+            if value_expr is not None:
+                return parse_expr("coalesce(min(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
             return parse_expr(f"coalesce(min(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.MAX:
+            if value_expr is not None:
+                return parse_expr("coalesce(max(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
             return parse_expr(f"coalesce(max(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.AVG:
+            if value_expr is not None:
+                return parse_expr("coalesce(avg(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
             return parse_expr(f"coalesce(avg(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
                 aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    inner_value_expr = parse_expr(column_ref)
+                    inner_value_expr = value_expr or parse_expr(column_ref)
                     if aggregation_needs_numeric_input(aggregation_function):
                         inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
                     agg_call = build_aggregation_call(
@@ -1351,11 +1506,15 @@ class ExperimentQueryBuilder:
                         agg_call = ast.Call(name="toFloat", args=[agg_call])
                     return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
             # Fallback to SUM
+            if value_expr is not None:
+                return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
         else:
             # SUM (default) - coalesce is needed here because sum(NULL) returns NULL.
             # For ratio metrics with combined_events, when there are no events of one type,
             # all values for that type are NULL (from UNION ALL structure), and we want 0 not NULL.
+            if value_expr is not None:
+                return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
 
     def _build_test_accounts_filter(self) -> ast.Expr:
@@ -1620,6 +1779,65 @@ class ExperimentQueryBuilder:
             "variants": ast.Constant(value=self.variants),
             "experiment_date_from": self.date_range_query.date_from_as_hogql(),
             "experiment_date_to": self.date_range_query.date_to_as_hogql(),
+        }
+
+        return query_string, placeholders
+
+    def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+        """
+        Returns the SELECT query that the lazy computation system wraps in an
+        INSERT INTO experiment_metric_events_preaggregated. This is the write
+        path — it scans the events table and stores one row per matching event
+        with step indicators packed into an Array(UInt8).
+
+        The query uses {time_window_min} and {time_window_max} placeholders filled
+        by the lazy computation system for each daily bucket.
+
+        Returns:
+            Tuple of (query_string, placeholders_dict)
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+
+        # Build step indicator expressions for the steps array.
+        # step_0 = exposure predicate, step_1..N = funnel step filters.
+        # These are the same expressions used in build_boolean_columns().
+        exposure_filter = self._build_exposure_predicate()
+        step_exprs: list[ast.Expr] = [exposure_filter]
+
+        step_builder = FunnelStepBuilder(self.metric.series, self.team)
+        for _step_index, step_source in enumerate(self.metric.series, start=1):
+            step_filter = step_builder._build_step_filter(step_source)
+            step_exprs.append(step_filter)
+
+        # Pack into Array(UInt8): [toUInt8(if(step_0, 1, 0)), toUInt8(if(step_1, 1, 0)), ...]
+        steps_array = ast.Array(
+            exprs=[
+                ast.Call(
+                    name="toUInt8",
+                    args=[ast.Call(name="if", args=[expr, ast.Constant(value=1), ast.Constant(value=0)])],
+                )
+                for expr in step_exprs
+            ]
+        )
+
+        query_string = """
+            SELECT
+                {entity_key} AS entity_id,
+                timestamp AS timestamp,
+                uuid AS event_uuid,
+                `$session_id` AS session_id,
+                {steps_array} AS steps
+            FROM events
+            WHERE timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+                AND ({exposure_predicate} OR {funnel_steps_filter})
+        """
+
+        placeholders: dict[str, ast.Expr] = {
+            "entity_key": parse_expr(self.entity_key),
+            "steps_array": steps_array,
+            "exposure_predicate": exposure_filter,
+            "funnel_steps_filter": self._build_funnel_steps_filter(),
         }
 
         return query_string, placeholders

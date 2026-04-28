@@ -747,7 +747,7 @@ export function ReactSnippet({ flagKey, multivariant, payload }: FeatureFlagSnip
     return (
         <CodeSnippet language={Language.JSX} wrap>
             {`
-import { ${flagFunction} } from 'posthog-js/react'
+import { ${flagFunction} } from '@posthog/react'
 
 function App() {
     const ${variable} = ${flagFunction}('${flagKey}')

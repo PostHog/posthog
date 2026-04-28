@@ -27,6 +27,7 @@ from pydantic import (
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
+from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -1103,6 +1104,76 @@ Background calculation can be tracked using the `query_status` response field.""
                 type=OpenApiTypes.BOOL,
                 description="Return basic insight metadata only (no results, faster).",
             ),
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                description="Case-insensitive substring match across name, derived_name, description, and tag names.",
+            ),
+            OpenApiParameter(
+                name="created_by",
+                type=OpenApiTypes.STR,
+                description="JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.",
+            ),
+            OpenApiParameter(
+                name="user",
+                type=OpenApiTypes.BOOL,
+                description="Include this parameter (any value) to restrict results to insights created by the authenticated user.",
+            ),
+            OpenApiParameter(
+                name="favorited",
+                type=OpenApiTypes.BOOL,
+                description="Include this parameter (any value) to restrict results to insights marked as favorited.",
+            ),
+            OpenApiParameter(
+                name="saved",
+                type=OpenApiTypes.BOOL,
+                description="When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.",
+            ),
+            OpenApiParameter(
+                name="insight",
+                enum=["TRENDS", "FUNNELS", "RETENTION", "PATHS", "STICKINESS", "LIFECYCLE", "JSON", "SQL"],
+                description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.",
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                description="Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).",
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=OpenApiTypes.STR,
+                description="Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.",
+            ),
+            OpenApiParameter(
+                name="created_date_from",
+                type=OpenApiTypes.STR,
+                description="Filter by `created_at > created_date_from`. Accepts absolute or relative dates.",
+            ),
+            OpenApiParameter(
+                name="created_date_to",
+                type=OpenApiTypes.STR,
+                description="Filter by `created_at < created_date_to`. Accepts absolute or relative dates.",
+            ),
+            OpenApiParameter(
+                name="last_viewed_date_from",
+                type=OpenApiTypes.STR,
+                description="Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.",
+            ),
+            OpenApiParameter(
+                name="last_viewed_date_to",
+                type=OpenApiTypes.STR,
+                description="Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.",
+            ),
+            OpenApiParameter(
+                name="dashboards",
+                type=OpenApiTypes.STR,
+                description="JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).",
+            ),
+            OpenApiParameter(
+                name="tags",
+                type=OpenApiTypes.STR,
+                description="JSON-encoded array of tag names. Returns insights with any of the listed tags.",
+            ),
         ]
     ),
     update=extend_schema(parameters=[INSIGHT_ID_PATH_PARAMETER]),
@@ -1123,7 +1194,10 @@ class InsightViewSet(
         ClickHouseBurstRateThrottle,
         ClickHouseSustainedRateThrottle,
     ]
-    renderer_classes = (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.CSVRenderer)
+    renderer_classes = cast(
+        tuple[type[BaseRenderer], ...],
+        (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.CSVRenderer),
+    )
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id"]
     sharing_enabled_actions = ["retrieve", "list"]
@@ -1148,7 +1222,7 @@ class InsightViewSet(
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
-        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+        return request.headers.get("x-posthog-client") == "mcp"
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -1809,6 +1883,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return Response(status=status.HTTP_201_CREATED)
 
+    @extend_schema(operation_id="insights_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -1844,7 +1919,7 @@ When set, the specified dashboard's filters and date range override will be appl
     @extend_schema(exclude=True)  # internal endpoint, not for public use
     @action(methods=["POST"], detail=False)
     def timing(self, request: request.Request, **kwargs):
-        from posthog.kafka_client.client import KafkaProducer
+        from posthog.kafka_client.routing import get_producer
         from posthog.models.event.util import format_clickhouse_timestamp
         from posthog.utils import cast_timestamp_or_now
 
@@ -1859,7 +1934,9 @@ When set, the specified dashboard's filters and date range override will be appl
                 payload["min_last_refresh"] = format_clickhouse_timestamp(payload["min_last_refresh"])
             if "max_last_refresh" in payload:
                 payload["max_last_refresh"] = format_clickhouse_timestamp(payload["max_last_refresh"])
-            KafkaProducer().produce(topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload)
+            get_producer(topic=KAFKA_METRICS_TIME_TO_SEE_DATA).produce(
+                topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload
+            )
 
         return Response(status=status.HTTP_201_CREATED)
 

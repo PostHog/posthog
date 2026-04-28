@@ -2,6 +2,7 @@ from datetime import datetime
 
 from posthog.schema import DateRange, NativeMarketingSource
 
+from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -142,29 +143,52 @@ def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[Ca
     if not valid_adapters:
         return []
 
-    union_query = factory.build_union_query(valid_adapters)
-    if not union_query:
-        return []
+    union_subquery = factory.build_union_query_ast(valid_adapters)
 
-    # The union query is built from trusted internal adapters (no user input),
-    # so f-string composition is safe here. The subquery produces columns:
-    # match_key, campaign, id, source, impressions, clicks, cost, reported_conversion, reported_conversion_value
-    hogql = f"""
-        SELECT
-            campaign,
-            id,
-            source,
-            sum(toFloat(ifNull(cost, 0))) as total_cost,
-            sum(toFloat(ifNull(clicks, 0))) as total_clicks,
-            sum(toFloat(ifNull(impressions, 0))) as total_impressions
-        FROM ({union_query})
-        GROUP BY campaign, id, source
-        HAVING total_cost > 0
-        ORDER BY total_cost DESC
-        LIMIT 500
-    """
+    def _sum_to_float(column: str) -> ast.Call:
+        return ast.Call(
+            name="sum",
+            args=[
+                ast.Call(
+                    name="toFloat",
+                    args=[
+                        ast.Call(
+                            name="ifNull",
+                            args=[ast.Field(chain=[column]), ast.Constant(value=0)],
+                        )
+                    ],
+                )
+            ],
+        )
 
-    result = execute_hogql_query(hogql, team)
+    campaign_field = ast.Field(chain=["campaign"])
+    id_field = ast.Field(chain=["id"])
+    source_field = ast.Field(chain=["source"])
+    total_cost_field = ast.Field(chain=["total_cost"])
+
+    # The subquery produces columns: match_key, campaign, id, source, impressions, clicks,
+    # cost, reported_conversion, reported_conversion_value.
+    query = ast.SelectQuery(
+        select=[
+            campaign_field,
+            id_field,
+            source_field,
+            ast.Alias(alias="total_cost", expr=_sum_to_float("cost")),
+            ast.Alias(alias="total_clicks", expr=_sum_to_float("clicks")),
+            ast.Alias(alias="total_impressions", expr=_sum_to_float("impressions")),
+        ],
+        select_from=ast.JoinExpr(table=union_subquery),
+        group_by=[campaign_field, id_field, source_field],
+        having=ast.CompareOperation(
+            left=total_cost_field,
+            op=ast.CompareOperationOp.Gt,
+            right=ast.Constant(value=0),
+        ),
+        order_by=[ast.OrderExpr(expr=total_cost_field, order="DESC")],
+        limit=ast.Constant(value=500),
+    )
+
+    result = execute_hogql_query(query, team)
     campaigns = []
     for row in result.results or []:
         campaigns.append(

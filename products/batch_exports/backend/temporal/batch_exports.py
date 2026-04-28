@@ -641,12 +641,14 @@ async def try_produce_app_metrics(
 
     The metric name and kind will depend on the reported status.
     """
+    default_profile = settings.KAFKA_PROFILES["default"]
+    security_protocol = default_profile.security_protocol
     producer = aiokafka.AIOKafkaProducer(
-        bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        bootstrap_servers=default_profile.hosts,
+        security_protocol=security_protocol or "PLAINTEXT",
         acks="all",
         api_version="2.5.0",
-        ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
+        ssl_context=configure_default_ssl_context() if security_protocol == "SSL" else None,
     )
 
     match status:

@@ -405,8 +405,9 @@ def get_context_for_template(
             source_path = "src/render-query/index.tsx"
         # Add vite dev scripts for development
         js_url = get_js_url(request)
+        csp_nonce = getattr(request, "csp_nonce", "")
         context["vite_dev_scripts"] = f"""
-        <script nonce="{request.csp_nonce}" type="module">
+        <script nonce="{csp_nonce}" type="module">
             import RefreshRuntime from '{js_url}/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
             window.$RefreshReg$ = () => {{}}
@@ -741,10 +742,11 @@ def _is_valid_ip_address(ip: str) -> bool:
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.headers.get("x-forwarded-for")
+    ip: str | None
     if x_forwarded_for:
-        ip: str | None = x_forwarded_for.split(",")[0].strip()
+        ip = x_forwarded_for.split(",")[0].strip()
     else:
-        ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
+        ip = request.META.get("REMOTE_ADDR")
 
     if not ip:
         return ""
@@ -1494,7 +1496,7 @@ def encode_get_request_params(data: dict[str, Any]) -> dict[str, str]:
 
 class DataclassJSONEncoder(json.JSONEncoder):
     def default(self, o):
-        if dataclasses.is_dataclass(o):
+        if dataclasses.is_dataclass(o) and not isinstance(o, type):
             return dataclasses.asdict(o)
         return super().default(o)
 

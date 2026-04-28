@@ -57,6 +57,12 @@ We merge data into deltalake one partition at a time, deltalake doesn't support 
 
 We have a handful of tables that require a parent object to cursor, for example, Stripe invoice line items requires a Stripe invoice object, and so we have to list the invoices, and then iterate each line item for each invoice. It'd be good if we were able to utilize existing tables for these nested dependent tables
 
+##### 7 - PipelineNonDLT duplicate-data race on resume
+
+`posthog/temporal/data_imports/pipelines/pipeline/pipeline.py` (PipelineNonDLT) can produce duplicate rows in the destination when a pod dies between a successful `write_to_deltalake` commit and the source's subsequent `ResumableSourceManager.save_state` Redis write.
+On resume, the stale Redis cursor causes the source to re-fetch rows that already landed in delta, and the re-fetched batch is appended without dedup.
+This was not fixed because PipelineNonDLT is being retired in favor of `pipeline_v3`; the equivalent writer-side idempotency gap in v3 _was_ fixed by tagging delta commits with `(run_uuid, batch_index)` in their `custom_metadata` so the idempotency check can fall back to delta history when the Redis dedup flag is missing.
+
 ### Proposed pipeline
 
 - Generally a more producer/consumer approach

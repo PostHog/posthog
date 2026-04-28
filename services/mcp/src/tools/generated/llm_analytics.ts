@@ -23,11 +23,29 @@ const llmAnalyticsClusteringJobsList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedClusteringJobList>({
             method: 'GET',
-            path: `/api/environments/${projectId}/llm_analytics/clustering_jobs/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const LlmAnalyticsClusteringJobsRetrieveSchema = LlmAnalyticsClusteringJobsRetrieveParams.omit({ project_id: true })
+
+const llmAnalyticsClusteringJobsRetrieve = (): ToolBase<
+    typeof LlmAnalyticsClusteringJobsRetrieveSchema,
+    Schemas.ClusteringJob
+> => ({
+    name: 'llm-analytics-clustering-jobs-retrieve',
+    schema: LlmAnalyticsClusteringJobsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsClusteringJobsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ClusteringJob>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -58,7 +76,7 @@ const llmAnalyticsEvaluationSummaryCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.EvaluationSummaryResponse>({
             method: 'POST',
-            path: `/api/environments/${projectId}/llm_analytics/evaluation_summary/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_summary/`,
             body,
         })
         return result
@@ -93,7 +111,7 @@ const llmAnalyticsSentimentCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.SentimentBatchResponse>({
             method: 'POST',
-            path: `/api/environments/${projectId}/llm_analytics/sentiment/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/sentiment/`,
             body,
         })
         return result
@@ -140,26 +158,8 @@ const llmAnalyticsSummarizationCreate = (): ToolBase<
         }
         const result = await context.api.request<Schemas.SummarizeResponse>({
             method: 'POST',
-            path: `/api/environments/${projectId}/llm_analytics/summarization/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/summarization/`,
             body,
-        })
-        return result
-    },
-})
-
-const LlmAnalyticsClusteringJobsRetrieveSchema = LlmAnalyticsClusteringJobsRetrieveParams.omit({ project_id: true })
-
-const llmAnalyticsClusteringJobsRetrieve = (): ToolBase<
-    typeof LlmAnalyticsClusteringJobsRetrieveSchema,
-    Schemas.ClusteringJob
-> => ({
-    name: 'llm-analytics-clustering-jobs-retrieve',
-    schema: LlmAnalyticsClusteringJobsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsClusteringJobsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ClusteringJob>({
-            method: 'GET',
-            path: `/api/environments/${projectId}/llm_analytics/clustering_jobs/${params.id}/`,
         })
         return result
     },
@@ -167,8 +167,8 @@ const llmAnalyticsClusteringJobsRetrieve = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llm-analytics-clustering-jobs-list': llmAnalyticsClusteringJobsList,
+    'llm-analytics-clustering-jobs-retrieve': llmAnalyticsClusteringJobsRetrieve,
     'llm-analytics-evaluation-summary-create': llmAnalyticsEvaluationSummaryCreate,
     'llm-analytics-sentiment-create': llmAnalyticsSentimentCreate,
     'llm-analytics-summarization-create': llmAnalyticsSummarizationCreate,
-    'llm-analytics-clustering-jobs-retrieve': llmAnalyticsClusteringJobsRetrieve,
 }

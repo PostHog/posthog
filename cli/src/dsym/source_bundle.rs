@@ -227,6 +227,13 @@ fn cu_main_files_from_dwarf<'d>(obj: &impl DwarfObject<'d>) -> Vec<String> {
             .and_then(&resolve_str);
 
         let path = match (comp_dir, name) {
+            // Swift emits synthetic CUs with `DW_AT_name = "<swift-imported-modules>"`
+            // alongside a real `DW_AT_comp_dir`. Without this guard the join below
+            // produces e.g. `/…/Project.xcodeproj/<swift-imported-modules>`, which
+            // escapes the `EXCLUDED_SYNTHETIC_NAMES` `starts_with` check further down
+            // and ends up dominating the project-root prefix computation — causing
+            // every real source file to be rejected as "outside project prefix".
+            (_, Some(name)) if name.starts_with('<') => continue,
             (Some(dir), Some(name)) if !name.starts_with('/') => {
                 format!("{}/{}", dir.trim_end_matches('/'), name)
             }

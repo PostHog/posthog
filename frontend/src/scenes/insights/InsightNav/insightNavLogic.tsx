@@ -19,6 +19,7 @@ import {
     AnyEntityNode,
     BreakdownFilter,
     CalendarHeatmapFilter,
+    DataTableNode,
     DataWarehouseNode,
     EntityNode,
     EventsNode,
@@ -51,6 +52,7 @@ import {
     isDataVisualizationNode,
     isDataWarehouseNode,
     isEndpointsUsageQuery,
+    isEventsQuery,
     isFunnelsQuery,
     isFunnelsDataWarehouseNode,
     isHogQuery,
@@ -65,6 +67,8 @@ import {
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { BaseMathType, InsightLogicProps, InsightType, IntervalType } from '~/types'
+
+import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import type { insightNavLogicType } from './insightNavLogicType'
@@ -94,7 +98,7 @@ export interface QueryPropertyCache
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response' | 'series'> {
-    series?: (AnyEntityNode | GroupNode)[]
+    series?: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
     commonFilter: CommonInsightFilter
     commonFilterTrendsStickiness?: {
         resultCustomizations?: Record<string, any>
@@ -116,17 +120,17 @@ const cleanSeriesEntityMath = (
         )
     }
 
-    // TODO: This should be improved to keep a math that differs from the default.
-    // For this we need to know wether the math was actively changed e.g.
-    // On which insight type the math properties have been set.
     if (mathAvailability === MathAvailability.All) {
-        // return entity with default all availability math set
+        if (math != null) {
+            return { ...baseEntity, math, math_property, math_group_type_index, math_hogql }
+        }
         return { ...baseEntity, math: BaseMathType.TotalCount }
     } else if (mathAvailability === MathAvailability.ActorsOnly) {
-        // return entity with default actors only availability math set
+        if (math != null) {
+            return { ...baseEntity, math, math_property, math_group_type_index, math_hogql }
+        }
         return { ...baseEntity, math: BaseMathType.UniqueUsers }
     }
-    // return entity without math properties for insights that don't support it
     return baseEntity
 }
 
@@ -231,10 +235,12 @@ type SeriesArray = (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[]
 
 interface InsightTypeCapabilities {
     series?: ((series: SeriesArray) => SeriesArray) | true
+    seriesMath?: true
     interval?: ((interval: IntervalType) => IntervalType) | true
     breakdownFilter?: ((bf: BreakdownFilter) => BreakdownFilter) | true
     compareFilter?: true
     funnelPathsFilter?: true
+    aggregationGroupTypeIndex?: true
 }
 
 const downgradeMinuteInterval = (interval: IntervalType): IntervalType => (interval === 'minute' ? 'hour' : interval)
@@ -262,17 +268,41 @@ const filterRetentionBreakdowns = (bf: BreakdownFilter): BreakdownFilter => {
     return { ...bf, breakdowns: bf.breakdowns.filter((b) => b.type === 'person' || b.type === 'event') }
 }
 
+const carryForwardSeriesMath = (newSeries: SeriesArray, cachedSeries: SeriesArray | undefined): SeriesArray => {
+    if (!cachedSeries) {
+        return newSeries
+    }
+    return newSeries.map((entity, index) => {
+        const cachedEntity = cachedSeries[index]
+        if (cachedEntity && cachedEntity.math !== undefined && entity.math === undefined) {
+            return {
+                ...entity,
+                math: cachedEntity.math,
+                ...(cachedEntity.math_property != null ? { math_property: cachedEntity.math_property } : {}),
+                ...(cachedEntity.math_group_type_index != null
+                    ? { math_group_type_index: cachedEntity.math_group_type_index }
+                    : {}),
+                ...(cachedEntity.math_hogql != null ? { math_hogql: cachedEntity.math_hogql } : {}),
+            }
+        }
+        return entity
+    })
+}
+
 const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
     [NodeKind.TrendsQuery]: {
         series: (s) => cleanSeries(s, MathAvailability.All, NodeKind.DataWarehouseNode),
+        seriesMath: true,
         interval: true,
         breakdownFilter: true,
         compareFilter: true,
+        aggregationGroupTypeIndex: true,
     },
     [NodeKind.FunnelsQuery]: {
         series: (s) => cleanSeries(s, MathAvailability.FunnelsOnly, NodeKind.FunnelsDataWarehouseNode),
         interval: downgradeMinuteInterval,
         breakdownFilter: truncateToSingleBreakdown,
+        aggregationGroupTypeIndex: true,
     },
     [NodeKind.RetentionQuery]: {
         // TODO: map series to/from retentionFilter.targetEntity/returningEntity so switching
@@ -289,6 +319,7 @@ const FIELD_CAPABILITIES: Partial<Record<NodeKind, InsightTypeCapabilities>> = {
                 MathAvailability.ActorsOnly,
                 NodeKind.DataWarehouseNode
             ),
+        seriesMath: true,
         interval: downgradeMinuteInterval,
         compareFilter: true,
     },
@@ -516,11 +547,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
             if (isDataVisualizationNode(query)) {
                 router.actions.push(urls.sqlEditor({ query: query.source.query }))
             } else if (isInsightVizNode(query)) {
+                const source = values.queryPropertyCache
+                    ? mergeCachedProperties(query.source, values.queryPropertyCache)
+                    : query.source
                 actions.setQuery({
                     ...query,
-                    source: values.queryPropertyCache
-                        ? mergeCachedProperties(query.source, values.queryPropertyCache)
-                        : query.source,
+                    source: { ...source, tags: { ...source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
                 } as InsightVizNode)
             } else {
                 actions.setQuery(query)
@@ -529,15 +561,54 @@ export const insightNavLogic = kea<insightNavLogicType>([
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
                 actions.updateQueryPropertyCache(cachePropertiesFromQuery(query.source, values.queryPropertyCache))
+            } else if (isDataTableNode(query)) {
+                const seeded = cachePropertiesFromDataTable(query)
+                if (seeded) {
+                    actions.updateQueryPropertyCache(seeded)
+                }
             }
         },
     })),
     afterMount(({ values, actions }) => {
         if (values.query && isInsightVizNode(values.query)) {
             actions.updateQueryPropertyCache(cachePropertiesFromQuery(values.query.source, values.queryPropertyCache))
+        } else if (values.query && isDataTableNode(values.query)) {
+            const seeded = cachePropertiesFromDataTable(values.query)
+            if (seeded) {
+                actions.updateQueryPropertyCache(seeded)
+            }
         }
     }),
 ])
+
+const cachePropertiesFromDataTable = (query: DataTableNode): QueryPropertyCache | null => {
+    if (!isEventsQuery(query.source)) {
+        return null
+    }
+    const source = query.source
+    const cache: Partial<QueryPropertyCache> = {}
+
+    if (source.properties?.length) {
+        cache.properties = JSON.parse(JSON.stringify(source.properties))
+    }
+    if (source.after || source.before) {
+        cache.dateRange = {
+            ...(source.after ? { date_from: source.after } : {}),
+            ...(source.before ? { date_to: source.before } : {}),
+        }
+    }
+
+    const seriesEvents = source.events?.length ? source.events : source.event ? [source.event] : []
+    if (seriesEvents.length) {
+        cache.series = seriesEvents.map((event) => ({
+            kind: NodeKind.EventsNode,
+            event,
+            name: event,
+        }))
+    }
+
+    return Object.keys(cache).length > 0 ? (cache as QueryPropertyCache) : null
+}
 
 const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyCache | null): QueryPropertyCache => {
     const newCache = JSON.parse(JSON.stringify(query)) as QueryPropertyCache
@@ -567,6 +638,9 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     if (cache?.funnelPathsFilter && !caps?.funnelPathsFilter) {
         newCache.funnelPathsFilter = cache.funnelPathsFilter
     }
+    if (cache?.aggregation_group_type_index !== undefined && !caps?.aggregationGroupTypeIndex) {
+        newCache.aggregation_group_type_index = cache.aggregation_group_type_index
+    }
     // Only Trends supports multiple breakdowns — preserve the full set through
     // types that truncate to single breakdown (Funnels, Retention)
     if (cache?.breakdownFilter?.breakdowns?.length && !isTrendsQuery(query) && isInsightQueryWithBreakdown(query)) {
@@ -575,6 +649,9 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
     // Preserve minute interval through types that downgrade it to hour
     if (cache?.interval === 'minute' && !isTrendsQuery(query)) {
         newCache.interval = cache.interval
+    }
+    if (caps?.series && !caps?.seriesMath && cache?.series && newCache.series) {
+        newCache.series = carryForwardSeriesMath(newCache.series, cache.series)
     }
 
     /** store the insight specific filter in commonFilter */
@@ -652,6 +729,9 @@ const buildCachedFields = (query: InsightQueryNode, cache: QueryPropertyCache): 
     }
     if (caps.funnelPathsFilter && cache.funnelPathsFilter) {
         result.funnelPathsFilter = cache.funnelPathsFilter
+    }
+    if (caps.aggregationGroupTypeIndex && cache.aggregation_group_type_index !== undefined) {
+        result.aggregation_group_type_index = cache.aggregation_group_type_index
     }
     return result
 }

@@ -30,13 +30,16 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Notebooks](./references/models-notebooks.md)
 - [Session Recording Playlists](./references/models-session-recording-playlists.md)
 - [Session Recordings](./references/models-session-recordings.md)
+- [Support Tickets](./references/models-support-tickets.md)
 - [Surveys](./references/models-surveys.md)
+- [Usage Metrics](./references/models-usage-metrics.md)
 - [SQL Variables](./references/models-variables.md)
 - [Skipped events in the read-data-schema tool](./references/taxonomy-skipped-events.md)
 - [Dynamic person and event properties](./references/taxonomy-dynamic-properties.md) — patterns like `$survey_dismissed/{id}`, `$feature/{key}` that don't appear in tool results
 
 ## HogQL References
 
+- [Person property modes (event-time vs query-time)](./references/person-property-modes.md). Read when working with `person.properties.*` to understand if values are historical or current.
 - [Sparkline, SemVer, Session replays, Actions, Translation, HTML tags and links, Text effects, and more](./references/hogql-extensions.md)
 - [SQL variables](./references/models-variables.md).
 - [Available functions in HogQL](./references/available-functions.md). IMPORTANT: the list is long, so read data using bash commands like grep.

@@ -25,7 +25,6 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isKeyOf } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { getCoreFilterDefinition, getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
 import {
@@ -35,6 +34,8 @@ import {
     PropertyDefinition,
     PropertyDefinitionVerificationStatus,
 } from '~/types'
+
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'

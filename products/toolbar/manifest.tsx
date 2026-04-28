@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductManifest } from '../../frontend/src/types'
 
@@ -23,7 +23,7 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.TOOLBAR],
             href: urls.toolbarLaunch(),
             type: 'toolbar',
-            category: 'Tools',
+            category: ProductItemCategory.TOOLS,
             iconType: 'toolbar',
             sceneKey: 'Toolbar',
         },

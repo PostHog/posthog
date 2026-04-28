@@ -36,7 +36,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
     lease_id = models.TextField(null=True, blank=True)
     leased_until = models.DateTimeField(null=True, blank=True)
-    status = models.TextField(choices=Status.choices, default=Status.RUNNING)
+    status = models.TextField(choices=Status, default=Status.RUNNING)
     # Status message to save to the job, so that a developer can debug why a commit might have failed
     # Not displayed to the user
     status_message = models.TextField(null=True, blank=True)
@@ -166,7 +166,9 @@ class BatchImportConfigBuilder:
                     "date_format": "%Y%m%dT%H",
                     # The smallest duration we can request from amplitude is 1 hour at a time
                     "interval_duration": 3600,
-                    "timeout_seconds": 180,
+                    # Amplitude exports can be large and slow for high-volume hours;
+                    # 10 minutes gives enough headroom for big exports without masking real failures.
+                    "timeout_seconds": 600,
                 }
             case DateRangeExportSource.MIXPANEL:
                 if is_eu_region:

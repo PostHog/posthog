@@ -12,7 +12,8 @@ import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { DataWarehouseViewLink } from '~/types'
 
-import { dataWarehouseJoinsLogic } from './external/dataWarehouseJoinsLogic'
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+
 import type { viewLinkLogicType } from './viewLinkLogicType'
 import { ViewLinkKeyLabel } from './ViewLinkModal'
 
@@ -47,7 +48,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
     connect(() => ({
         values: [databaseTableListLogic, ['allTables']],
-        actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseJoinsLogic, ['loadJoins']],
+        actions: [databaseTableListLogic, ['loadDatabase'], joinsLogic, ['loadJoins']],
     })),
     actions(({ values }) => ({
         selectJoiningTable: (selectedTableName: string) => ({ selectedTableName }),
