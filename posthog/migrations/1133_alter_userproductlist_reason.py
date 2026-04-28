@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1131_onboarding_delegated_to_invite_index"),
+        ("posthog", "1132_onboarding_delegated_to_invite_index"),
     ]
 
     operations = [

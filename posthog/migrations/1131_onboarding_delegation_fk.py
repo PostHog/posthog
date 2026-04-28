@@ -5,12 +5,12 @@ class Migration(migrations.Migration):
     """
     Add User.onboarding_delegated_to_invite (FK) with NOT VALID in separate migration.
 
-    Split from 1129 so 1129 stays atomic with rollback; NOT VALID is safe in a transaction
-    in PostgreSQL. Index is 1131_onboarding_delegated_to_invite_index (CONCURRENTLY).
+    Split from 1130 so 1130 stays atomic with rollback; NOT VALID is safe in a transaction
+    in PostgreSQL. Index is 1132_onboarding_delegated_to_invite_index (CONCURRENTLY).
     """
 
     dependencies = [
-        ("posthog", "1129_onboarding_delegation_fields"),
+        ("posthog", "1130_onboarding_delegation_fields"),
     ]
 
     operations = [

@@ -371,6 +371,15 @@ function hasUsage(usage: UsageSummary | undefined): boolean {
 
 function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     const isStreaming = !!item && item.latencyMs == null && !item.error
+    const { addResultToConversation } = useActions(llmPlaygroundPromptsLogic)
+    const canAddToConversation = !!item?.response && !item.error && !isStreaming
+
+    const handleAddToConversation = (): void => {
+        if (!item?.response) {
+            return
+        }
+        addResultToConversation(item.response, item.promptId)
+    }
 
     return (
         <div className="mb-4 border rounded p-4 bg-transparent h-[30vh] min-w-0 flex flex-col">
@@ -378,6 +387,27 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
                 <LemonTag type="default" size="small">
                     Result
                 </LemonTag>
+                {item ? (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={handleAddToConversation}
+                        disabledReason={
+                            canAddToConversation
+                                ? undefined
+                                : isStreaming
+                                  ? 'Wait for the response to finish'
+                                  : item.error
+                                    ? 'Only successful responses can be added'
+                                    : 'No response to add'
+                        }
+                        tooltip="Adds this result as an assistant message and starts a blank user message for the next turn."
+                        data-attr="llma-playground-add-result-to-conversation"
+                    >
+                        Add to conversation
+                    </LemonButton>
+                ) : null}
             </div>
 
             {!item ? (
