@@ -74,16 +74,29 @@ def create_bot_operator_field(name: str, properties_path: Optional[list[str]] = 
 
 
 def log_user_agent_expr() -> ast.Expr:
-    """Resolve user agent from log attributes, checking OTEL and PostHog conventions."""
+    """Resolve user agent from log attributes, checking OTEL and PostHog conventions.
+
+    Goes through `attributes_map_str` (raw stored Map column with `__str`-suffixed keys)
+    rather than the `attributes` alias. The alias strips the `__str` suffix and is exposed
+    as a JSON-typed HogQL field for the legacy query-runner path; for our purposes we want
+    direct Map subscript access against the underlying column.
+    """
     return ast.Call(
         name="coalesce",
         args=[
-            ast.Call(name="nullIf", args=[ast.Field(chain=["attributes", "http.user_agent"]), ast.Constant(value="")]),
             ast.Call(
-                name="nullIf", args=[ast.Field(chain=["attributes", "user_agent.original"]), ast.Constant(value="")]
+                name="nullIf",
+                args=[ast.Field(chain=["attributes_map_str", "http.user_agent__str"]), ast.Constant(value="")],
             ),
-            ast.Call(name="nullIf", args=[ast.Field(chain=["attributes", "$raw_user_agent"]), ast.Constant(value="")]),
-            ast.Field(chain=["attributes", "$user_agent"]),
+            ast.Call(
+                name="nullIf",
+                args=[ast.Field(chain=["attributes_map_str", "user_agent.original__str"]), ast.Constant(value="")],
+            ),
+            ast.Call(
+                name="nullIf",
+                args=[ast.Field(chain=["attributes_map_str", "$raw_user_agent__str"]), ast.Constant(value="")],
+            ),
+            ast.Field(chain=["attributes_map_str", "$user_agent__str"]),
         ],
     )
 

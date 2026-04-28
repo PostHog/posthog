@@ -40,7 +40,7 @@ class TestLogUserAgentExpr:
         first_null_if = expr.args[0]
         assert isinstance(first_null_if, ast.Call)
         assert first_null_if.name == "nullIf"
-        assert first_null_if.args[0] == ast.Field(chain=["attributes", "http.user_agent"])
+        assert first_null_if.args[0] == ast.Field(chain=["attributes_map_str", "http.user_agent__str"])
 
     def test_checks_user_agent_original_second(self):
         expr = log_user_agent_expr()
@@ -48,7 +48,7 @@ class TestLogUserAgentExpr:
         second_null_if = expr.args[1]
         assert isinstance(second_null_if, ast.Call)
         assert second_null_if.name == "nullIf"
-        assert second_null_if.args[0] == ast.Field(chain=["attributes", "user_agent.original"])
+        assert second_null_if.args[0] == ast.Field(chain=["attributes_map_str", "user_agent.original__str"])
 
     def test_checks_posthog_raw_user_agent_third(self):
         expr = log_user_agent_expr()
@@ -56,12 +56,12 @@ class TestLogUserAgentExpr:
         third_null_if = expr.args[2]
         assert isinstance(third_null_if, ast.Call)
         assert third_null_if.name == "nullIf"
-        assert third_null_if.args[0] == ast.Field(chain=["attributes", "$raw_user_agent"])
+        assert third_null_if.args[0] == ast.Field(chain=["attributes_map_str", "$raw_user_agent__str"])
 
     def test_falls_back_to_posthog_user_agent(self):
         expr = log_user_agent_expr()
         assert isinstance(expr, ast.Call)
-        assert expr.args[3] == ast.Field(chain=["attributes", "$user_agent"])
+        assert expr.args[3] == ast.Field(chain=["attributes_map_str", "$user_agent__str"])
 
 
 class TestLogExpressionFieldFactories:
