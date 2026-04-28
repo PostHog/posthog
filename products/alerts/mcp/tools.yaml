@@ -34,6 +34,19 @@ tools:
             - last_checked_at
             - next_check_at
             - last_value
+    alert-delete:
+        operation: alerts_destroy
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete alert
+        description: >
+            Delete an alert by ID. This permanently removes the alert and all its check history. Subscribed users will
+            no longer receive notifications.
     alert-destinations-create:
         operation: alerts_destinations_create
         enabled: true
@@ -49,8 +62,8 @@ tools:
             pass type=slack with slack_workspace_id (the connected Slack integration's ID — list integrations to find
             it) and slack_channel_id (e.g. 'C1234567890'); slack_channel_name is optional and only used for the
             destination's display name. For webhooks, pass type=webhook with webhook_url. Returns hog_function_ids —
-            keep these to remove the destination later via alert-destinations-delete-create. Email recipients are
-            still managed via the alert's subscribed_users field.
+            keep these to remove the destination later via alert-destinations-delete-create. Email recipients are still
+            managed via the alert's subscribed_users field.
     alert-destinations-delete-create:
         operation: alerts_destinations_delete_create
         enabled: true
@@ -65,19 +78,6 @@ tools:
             Remove one or more Slack/webhook destinations from an alert by passing the hog_function_ids returned from
             alert-destinations-create. The IDs must all belong to the same alert; otherwise the whole call is rejected
             and nothing is removed.
-    alert-delete:
-        operation: alerts_destroy
-        enabled: true
-        scopes:
-            - alert:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete alert
-        description: >
-            Delete an alert by ID. This permanently removes the alert and all its check history. Subscribed users will
-            no longer receive notifications.
     alert-get:
         operation: alerts_retrieve
         enabled: true

@@ -4,6 +4,10 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     AlertsCreateBody,
+    AlertsDestinationsCreateBody,
+    AlertsDestinationsCreateParams,
+    AlertsDestinationsDeleteCreateBody,
+    AlertsDestinationsDeleteCreateParams,
     AlertsDestroyParams,
     AlertsListQueryParams,
     AlertsPartialUpdateBody,
@@ -71,6 +75,65 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
         const result = await context.api.request<Schemas.Alert>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AlertDestinationsCreateSchema = AlertsDestinationsCreateParams.omit({ project_id: true }).extend(
+    AlertsDestinationsCreateBody.shape
+)
+
+const alertDestinationsCreate = (): ToolBase<
+    typeof AlertDestinationsCreateSchema,
+    Schemas.AlertDestinationResponse
+> => ({
+    name: 'alert-destinations-create',
+    schema: AlertDestinationsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AlertDestinationsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.slack_workspace_id !== undefined) {
+            body['slack_workspace_id'] = params.slack_workspace_id
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_channel_name !== undefined) {
+            body['slack_channel_name'] = params.slack_channel_name
+        }
+        if (params.webhook_url !== undefined) {
+            body['webhook_url'] = params.webhook_url
+        }
+        const result = await context.api.request<Schemas.AlertDestinationResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/destinations/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AlertDestinationsDeleteCreateSchema = AlertsDestinationsDeleteCreateParams.omit({ project_id: true }).extend(
+    AlertsDestinationsDeleteCreateBody.shape
+)
+
+const alertDestinationsDeleteCreate = (): ToolBase<typeof AlertDestinationsDeleteCreateSchema, unknown> => ({
+    name: 'alert-destinations-delete-create',
+    schema: AlertDestinationsDeleteCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AlertDestinationsDeleteCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.hog_function_ids !== undefined) {
+            body['hog_function_ids'] = params.hog_function_ids
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/destinations/delete/`,
             body,
         })
         return result
@@ -225,6 +288,8 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'alert-create': alertCreate,
+    'alert-destinations-create': alertDestinationsCreate,
+    'alert-destinations-delete-create': alertDestinationsDeleteCreate,
     'alert-delete': alertDelete,
     'alert-get': alertGet,
     'alert-simulate': alertSimulate,

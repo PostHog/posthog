@@ -120,7 +120,7 @@
         }
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user. To deliver firings to a Slack channel or HTTPS webhook, follow up with the alert-destinations-create tool — subscribed_users only controls email recipients.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -140,6 +140,36 @@
         "feature": "alerts",
         "summary": "Delete alert",
         "title": "Delete alert",
+        "required_scopes": ["alert:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "alert-destinations-create": {
+        "description": "Wire a Slack channel or HTTPS webhook to an existing alert so its firings are delivered there. For Slack, pass type=slack with slack_workspace_id (the connected Slack integration's ID — list integrations to find it) and slack_channel_id (e.g. 'C1234567890'); slack_channel_name is optional and only used for the destination's display name. For webhooks, pass type=webhook with webhook_url. Returns hog_function_ids — keep these to remove the destination later via alert-destinations-delete-create. Email recipients are still managed via the alert's subscribed_users field.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Add Slack/webhook destination to alert",
+        "title": "Add Slack/webhook destination to alert",
+        "required_scopes": ["alert:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "alert-destinations-delete-create": {
+        "description": "Remove one or more Slack/webhook destinations from an alert by passing the hog_function_ids returned from alert-destinations-create. The IDs must all belong to the same alert; otherwise the whole call is rejected and nothing is removed.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Remove destinations from alert",
+        "title": "Remove destinations from alert",
         "required_scopes": ["alert:write"],
         "new_mcp": true,
         "annotations": {

@@ -10,6 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AlertApi,
+    AlertCreateDestinationApi,
+    AlertDeleteDestinationApi,
+    AlertDestinationResponseApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
     AlertsListParams,
@@ -151,6 +154,48 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     return apiMutator<void>(getAlertsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Create a Slack or webhook notification destination for this alert. Creates a HogFunction wired to the alert's `$insight_alert_firing` event. Slack destinations require an existing Slack integration (look up `integration_id` via the integrations API). Channel delivery for the alert UI is also stored as a HogFunction, so destinations created here show up in the alert's destination list alongside any added through the UI.
+ */
+export const getAlertsDestinationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/`
+}
+
+export const alertsDestinationsCreate = async (
+    projectId: string,
+    id: string,
+    alertCreateDestinationApi: AlertCreateDestinationApi,
+    options?: RequestInit
+): Promise<AlertDestinationResponseApi> => {
+    return apiMutator<AlertDestinationResponseApi>(getAlertsDestinationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertCreateDestinationApi),
+    })
+}
+
+/**
+ * Delete one or more notification destinations for this alert. Soft-deletes the underlying HogFunctions. All IDs must belong to this alert — if any do not, the whole call is rejected and nothing is deleted.
+ */
+export const getAlertsDestinationsDeleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/delete/`
+}
+
+export const alertsDestinationsDeleteCreate = async (
+    projectId: string,
+    id: string,
+    alertDeleteDestinationApi: AlertDeleteDestinationApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAlertsDestinationsDeleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertDeleteDestinationApi),
     })
 }
 

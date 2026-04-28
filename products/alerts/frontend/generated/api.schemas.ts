@@ -765,6 +765,46 @@ export interface PatchedAlertApi {
     investigation_inconclusive_action?: InvestigationInconclusiveActionEnumApi
 }
 
+/**
+ * * `slack` - slack
+ * `webhook` - webhook
+ */
+export type NotificationDestinationTypeEnumApi =
+    (typeof NotificationDestinationTypeEnumApi)[keyof typeof NotificationDestinationTypeEnumApi]
+
+export const NotificationDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+} as const
+
+export interface AlertCreateDestinationApi {
+    /** Destination type — either 'slack' (post to a Slack channel) or 'webhook' (POST to an HTTPS endpoint).
+
+* `slack` - slack
+* `webhook` - webhook */
+    type: NotificationDestinationTypeEnumApi
+    /** ID of the connected Slack integration. Required when type=slack. Look this up via the integrations API. */
+    slack_workspace_id?: number
+    /** Slack channel ID (e.g. 'C1234567890'). Required when type=slack. The PostHog Slack app must be a member of private channels. */
+    slack_channel_id?: string
+    /** Optional human-readable channel name (e.g. 'analytics-platform') used only for the destination's display name. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to POST to when the alert fires. Required when type=webhook. */
+    webhook_url?: string
+}
+
+export interface AlertDestinationResponseApi {
+    hog_function_ids: string[]
+}
+
+export interface AlertDeleteDestinationApi {
+    /**
+     * HogFunction IDs to delete. Each ID must belong to this alert (i.e. its filter properties include alert_id={alert_id}).
+     * @minItems 1
+     */
+    hog_function_ids: string[]
+}
+
 export interface AlertSimulateApi {
     /** Insight ID to simulate the detector on. */
     insight: number

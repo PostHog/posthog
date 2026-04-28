@@ -5593,6 +5593,46 @@ export namespace Schemas {
       investigation_inconclusive_action?: InvestigationInconclusiveActionEnum;
     }
 
+    /**
+     * * `slack` - slack
+    * `webhook` - webhook
+     */
+    export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
+
+
+    export const NotificationDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+    } as const;
+
+    export interface AlertCreateDestination {
+      /** Destination type — either 'slack' (post to a Slack channel) or 'webhook' (POST to an HTTPS endpoint).
+
+    * `slack` - slack
+    * `webhook` - webhook */
+      type: NotificationDestinationTypeEnum;
+      /** ID of the connected Slack integration. Required when type=slack. Look this up via the integrations API. */
+      slack_workspace_id?: number;
+      /** Slack channel ID (e.g. 'C1234567890'). Required when type=slack. The PostHog Slack app must be a member of private channels. */
+      slack_channel_id?: string;
+      /** Optional human-readable channel name (e.g. 'analytics-platform') used only for the destination's display name. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to POST to when the alert fires. Required when type=webhook. */
+      webhook_url?: string;
+    }
+
+    export interface AlertDeleteDestination {
+      /**
+       * HogFunction IDs to delete. Each ID must belong to this alert (i.e. its filter properties include alert_id={alert_id}).
+       * @minItems 1
+       */
+      hog_function_ids: string[];
+    }
+
+    export interface AlertDestinationResponse {
+      hog_function_ids: string[];
+    }
+
     export interface AlertSimulate {
       /** Insight ID to simulate the detector on. */
       insight: number;
@@ -21013,18 +21053,6 @@ export namespace Schemas {
       /** Whether the alert was enabled during this interval. Disabled alerts keep their state but are inactive. */
       enabled: boolean;
     }
-
-    /**
-     * * `slack` - slack
-    * `webhook` - webhook
-     */
-    export type NotificationDestinationTypeEnum = typeof NotificationDestinationTypeEnum[keyof typeof NotificationDestinationTypeEnum];
-
-
-    export const NotificationDestinationTypeEnum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-    } as const;
 
     export interface LogsAlertConfiguration {
       /** Unique identifier for this alert. */

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1995,6 +1995,70 @@ export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Create a Slack or webhook notification destination for this alert. Creates a HogFunction wired to the alert's `$insight_alert_firing` event. Slack destinations require an existing Slack integration (look up `integration_id` via the integrations API). Channel delivery for the alert UI is also stored as a HogFunction, so destinations created here show up in the alert's destination list alongside any added through the UI.
+ */
+export const AlertsDestinationsCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['slack', 'webhook'])
+        .describe('* `slack` - slack\n* `webhook` - webhook')
+        .describe(
+            "Destination type — either 'slack' (post to a Slack channel) or 'webhook' (POST to an HTTPS endpoint).\n\n* `slack` - slack\n* `webhook` - webhook"
+        ),
+    slack_workspace_id: zod
+        .number()
+        .optional()
+        .describe(
+            'ID of the connected Slack integration. Required when type=slack. Look this up via the integrations API.'
+        ),
+    slack_channel_id: zod
+        .string()
+        .optional()
+        .describe(
+            "Slack channel ID (e.g. 'C1234567890'). Required when type=slack. The PostHog Slack app must be a member of private channels."
+        ),
+    slack_channel_name: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional human-readable channel name (e.g. 'analytics-platform') used only for the destination's display name."
+        ),
+    webhook_url: zod
+        .url()
+        .optional()
+        .describe('HTTPS endpoint to POST to when the alert fires. Required when type=webhook.'),
+})
+
+/**
+ * Delete one or more notification destinations for this alert. Soft-deletes the underlying HogFunctions. All IDs must belong to this alert — if any do not, the whole call is rejected and nothing is deleted.
+ */
+export const AlertsDestinationsDeleteCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this alert configuration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    hog_function_ids: zod
+        .array(zod.string())
+        .min(1)
+        .describe(
+            'HogFunction IDs to delete. Each ID must belong to this alert (i.e. its filter properties include alert_id={alert_id}).'
         ),
 })
 
