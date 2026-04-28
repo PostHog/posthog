@@ -88,7 +88,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
     connect((props: CreateExperimentLogicProps) => ({
         values: [
             variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId }),
-            ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
+            ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading', 'mode'],
             projectLogic,
             ['currentProjectId'],
         ],
@@ -187,7 +187,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             },
         ],
     })),
-    selectors(({ props }) => ({
+    selectors(() => ({
         canSubmitExperiment: [
             (s) => [s.experiment, s.featureFlagKeyValidation, s.mode, s.experimentErrors],
             (
@@ -220,13 +220,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     experimentErrors,
                 })
                 return validation.errors.length > 0 ? validation.errors.join(', ') : undefined
-            },
-        ],
-        mode: [
-            (s) => [s.experiment],
-            (): 'create' | 'link' => {
-                return variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId })
-                    .values.mode
             },
         ],
     })),

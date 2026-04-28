@@ -12,6 +12,7 @@ import type { Experiment } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from './createExperimentLogic'
+import { variantsPanelLogic } from './variantsPanelLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -589,6 +590,26 @@ describe('createExperimentLogic', () => {
                         feature_flag_key: '',
                     }),
                 })
+        })
+    })
+
+    describe('mode reactivity', () => {
+        it('mode value reflects variantsPanelLogic.setMode toggles', async () => {
+            const variantsLogic = variantsPanelLogic({
+                experiment: { ...NEW_EXPERIMENT },
+                disabled: false,
+            })
+            variantsLogic.mount()
+
+            expect(logic.values.mode).toBe('create')
+
+            variantsLogic.actions.setMode('link')
+            expect(logic.values.mode).toBe('link')
+
+            variantsLogic.actions.setMode('create')
+            expect(logic.values.mode).toBe('create')
+
+            variantsLogic.unmount()
         })
     })
 
