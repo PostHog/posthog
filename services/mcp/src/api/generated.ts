@@ -23581,6 +23581,8 @@ export namespace Schemas {
       readonly id: string;
       /** Trace ID for the review. */
       readonly trace_id: string;
+      /** Absolute URL to the trace this review is attached to. */
+      readonly trace_url: string;
       /**
          * Optional comment or reasoning for the review.
          * @nullable

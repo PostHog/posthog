@@ -12,6 +12,7 @@ export type ReviewClipboardFormat = 'csv' | 'json' | 'tsv'
 
 export const REVIEW_CLIPBOARD_COLUMNS = [
     'trace_id',
+    'trace_url',
     'comment',
     'scores',
     'reviewed_by',
