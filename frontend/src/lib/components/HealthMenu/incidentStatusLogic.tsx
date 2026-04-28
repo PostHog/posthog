@@ -149,14 +149,25 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
         setPageVisibility: (visible: boolean) => ({ visible }),
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         summary: [
             null as IncidentIoSummary | null,
             {
                 loadSummary: async () => {
-                    const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
-                    const data: IncidentIoSummary = await response.json()
-                    return data
+                    // Network failures and non-2xx responses are expected here: ad blockers,
+                    // corporate proxies, brief CDN/statuspage outages, and offline transitions
+                    // all surface as a rejected fetch. Swallow them so they don't pollute error
+                    // tracking — the rawStatus selector treats null as 'operational'.
+                    try {
+                        const response = await fetch(`${INCIDENT_IO_STATUS_PAGE_BASE}/api/v1/summary`)
+                        if (!response.ok) {
+                            return values.summary
+                        }
+                        const data: IncidentIoSummary = await response.json()
+                        return data
+                    } catch {
+                        return values.summary
+                    }
                 },
             },
         ],
