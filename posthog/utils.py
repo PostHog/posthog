@@ -742,10 +742,11 @@ def _is_valid_ip_address(ip: str) -> bool:
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.headers.get("x-forwarded-for")
+    ip: str | None
     if x_forwarded_for:
-        ip: str | None = x_forwarded_for.split(",")[0].strip()
+        ip = x_forwarded_for.split(",")[0].strip()
     else:
-        ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
+        ip = request.META.get("REMOTE_ADDR")
 
     if not ip:
         return ""

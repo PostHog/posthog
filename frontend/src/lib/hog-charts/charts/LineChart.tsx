@@ -42,7 +42,7 @@ export function LineChart<Meta = unknown>({
 }: LineChartProps<Meta>): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
 
-    const hasAreaFill = useMemo(() => series.some((s) => s.fillArea), [series])
+    const hasAreaFill = useMemo(() => series.some((s) => s.fill !== undefined && !s.fill.lowerData), [series])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (percentStackView) {
@@ -137,7 +137,7 @@ export function LineChart<Meta = unknown>({
             }
 
             for (const s of coloredSeries) {
-                if (s.hidden) {
+                if (s.visibility?.excluded) {
                     continue
                 }
 
@@ -145,16 +145,18 @@ export function LineChart<Meta = unknown>({
                 const band = stackedData?.get(s.key)
                 const yValues = band?.top
 
-                if (s.fillArea) {
-                    drawArea(drawCtx, s, yValues, band?.bottom)
+                if (s.fill) {
+                    drawArea(drawCtx, s, yValues, s.fill.lowerData ?? band?.bottom)
                 }
-                drawLine(drawCtx, s, yValues)
-                drawPoints(drawCtx, s, yValues)
+                if (!s.fill?.lowerData) {
+                    drawLine(drawCtx, s, yValues)
+                    drawPoints(drawCtx, s, yValues)
+                }
             }
 
             if (hoverIndex >= 0) {
                 for (const s of coloredSeries) {
-                    if (s.hidden) {
+                    if (s.visibility?.excluded || s.fill?.lowerData) {
                         continue
                     }
                     const data = stackedData?.get(s.key)?.top ?? s.data
@@ -174,8 +176,14 @@ export function LineChart<Meta = unknown>({
         if (!stackedData) {
             return undefined
         }
-        return (s: Series, dataIndex: number): number =>
-            stackedData.get(s.key)?.top[dataIndex] ?? s.data[dataIndex] ?? 0
+        return (s: Series, dataIndex: number): number => {
+            const stacked = stackedData.get(s.key)?.top[dataIndex]
+            if (stacked != null && Number.isFinite(stacked)) {
+                return stacked
+            }
+            const raw = s.data[dataIndex]
+            return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+        }
     }, [stackedData])
 
     return (

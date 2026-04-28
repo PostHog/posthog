@@ -72,6 +72,7 @@ from .serializers import (
     TaskRunCreateRequestSchemaSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
+    TaskRunErrorResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
@@ -507,6 +508,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunCreateRequestSerializer,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Task with updated latest run"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
             404: OpenApiResponse(description="Task not found"),
         },
         summary="Run task",
@@ -521,6 +523,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         pending_user_message = request.validated_data.get("pending_user_message")
         pending_user_artifact_ids = request.validated_data.get("pending_user_artifact_ids") or []
         sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
+        sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
         pr_authorship_mode = request.validated_data.get("pr_authorship_mode")
         run_source = request.validated_data.get("run_source")
         signal_report_id = request.validated_data.get("signal_report_id")
@@ -615,22 +618,27 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "github_user_token is required for user-authored cloud runs"}, status=400)
 
         if sandbox_environment_id is not None:
-            sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
-            if not sandbox_environment:
-                return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
-
-            extra_state = extra_state or {}
-            extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
-
-            logger.info(
-                "Applying sandbox environment to task run",
-                extra={
-                    "task_id": str(task.id),
-                    "sandbox_environment_id": str(sandbox_environment.id),
-                    "sandbox_environment_name": sandbox_environment.name,
-                    "network_access_level": sandbox_environment.network_access_level,
-                },
+            sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+                environment_id=sandbox_environment_id,
+                team_id=task.team_id,
+                task_created_by_id=task.created_by_id,
             )
+            if sandbox_environment is None:
+                if sandbox_environment_id_supplied_by_user:
+                    return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
+            else:
+                extra_state = extra_state or {}
+                extra_state["sandbox_environment_id"] = str(sandbox_environment.id)
+
+                logger.info(
+                    "Applying sandbox environment to task run",
+                    extra={
+                        "task_id": str(task.id),
+                        "sandbox_environment_id": str(sandbox_environment.id),
+                        "sandbox_environment_name": sandbox_environment.name,
+                        "network_access_level": sandbox_environment.network_access_level,
+                    },
+                )
 
         staged_artifacts: list[dict[str, Any]] = []
         if pending_user_artifact_ids:
@@ -757,7 +765,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request_serializer=TaskRunBootstrapCreateRequestSerializer,
         responses={
             201: OpenApiResponse(response=TaskRunDetailSerializer, description="Created task run"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid task run payload"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid task run payload"),
         },
         summary="Create task run",
         description="Create a new run for a specific task without starting execution.",
@@ -823,8 +831,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if sandbox_environment_id is not None:
-            sandbox_environment = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
-            if not sandbox_environment:
+            sandbox_environment = SandboxEnvironment.get_accessible_for_task(
+                environment_id=sandbox_environment_id,
+                team_id=task.team_id,
+                task_created_by_id=task.created_by_id,
+            )
+            if sandbox_environment is None:
                 return Response({"detail": "Invalid sandbox_environment_id"}, status=status.HTTP_400_BAD_REQUEST)
 
             extra_state = extra_state or {}

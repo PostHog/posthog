@@ -11,6 +11,10 @@ on:
             - 'pnpm-lock.yaml'
             - 'package.json'
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
 

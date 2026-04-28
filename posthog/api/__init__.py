@@ -1,11 +1,15 @@
 from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
+# Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
+import posthog.temporal.ai  # noqa: F401
 from posthog.api import data_color_theme, hog_flow, hog_flow_template, metalytics, my_notifications, project
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
+from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus
+from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
@@ -112,7 +116,6 @@ from . import (
     advanced_activity_logs,
     alert,
     annotation,
-    app_metrics,
     async_migration,
     authentication,
     cli_auth,
@@ -261,6 +264,7 @@ register_grandfathered_environment_nested_viewset(
 )
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
+projects_router.register(r"sdk_doctor", SdkDoctorViewSet, "project_sdk_doctor", ["project_id"])
 projects_router.register(
     r"activity_log",
     advanced_activity_logs.ActivityLogViewSet,
@@ -427,22 +431,6 @@ register_grandfathered_environment_nested_viewset(
     user_product_list.UserProductListViewSet,
     "environment_user_product_list",
     ["team_id"],
-)
-
-environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
-    r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]
-)
-environment_app_metrics_router.register(
-    r"historical_exports",
-    app_metrics.HistoricalExportsAppMetricsViewSet,
-    "environment_app_metrics_historical_exports",
-    ["team_id", "plugin_config_id"],
-)
-legacy_project_app_metrics_router.register(
-    r"historical_exports",
-    app_metrics.HistoricalExportsAppMetricsViewSet,
-    "project_app_metrics_historical_exports",
-    ["team_id", "plugin_config_id"],
 )
 
 environment_batch_exports_router, legacy_project_batch_exports_router = (
@@ -737,6 +725,7 @@ router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, 
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
+router.register(r"query_performance_proxy", QueryPerformanceProxyViewSet, "query_performance_proxy")
 
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402

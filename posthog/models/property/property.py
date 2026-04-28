@@ -123,6 +123,8 @@ VALIDATE_PROP_TYPES = {
 VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
         {"time_value", "time_interval"},
+        # explicit_datetime_to is always optional — the existing `{explicit_datetime}` entry
+        # already accepts the both-set case since the validator uses "all required keys present".
         {"explicit_datetime"},
     ],
     BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
@@ -214,6 +216,8 @@ class Property:
     time_interval: Optional[OperatorInterval]
     # Alternative to time_value & time_interval, for explicit date bound rather than relative
     explicit_datetime: Optional[str]
+    # End date for date range filtering when using explicit datetime
+    explicit_datetime_to: Optional[str]
     # Query people who did event '$pageview' in last week, but not in the previous 30 days
     # translates into:
     # key = '$pageview', value = 'restarted_performing_event'
@@ -251,6 +255,7 @@ class Property:
         time_value: Optional[int] = None,
         time_interval: Optional[OperatorInterval] = None,
         explicit_datetime: Optional[str] = None,
+        explicit_datetime_to: Optional[str] = None,
         total_periods: Optional[int] = None,
         min_periods: Optional[int] = None,
         seq_event_type: Optional[str] = None,
@@ -273,6 +278,7 @@ class Property:
         self.time_value = time_value
         self.time_interval = time_interval
         self.explicit_datetime = explicit_datetime
+        self.explicit_datetime_to = explicit_datetime_to
         self.total_periods = total_periods
         self.min_periods = min_periods
         self.seq_event_type = seq_event_type
