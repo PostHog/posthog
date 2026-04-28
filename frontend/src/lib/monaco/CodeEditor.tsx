@@ -196,6 +196,11 @@ export function CodeEditor({
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
     const mutationObserver = useRef<MutationObserver | null>(null)
+    // Track every model this editor instance has been attached to, so we can
+    // dispose them on unmount. Monaco models live in a global registry until
+    // explicitly disposed; without this, models accumulate forever and retain
+    // their attached `codeEditorLogic` BuiltLogic via `(model as any).codeEditorLogic`.
+    const editorModelsRef = useRef<Set<editor.ITextModel>>(new Set())
 
     const disposeMonacoDisposables = (): void => {
         monacoDisposables.current.forEach((d) => d?.dispose())
@@ -208,10 +213,51 @@ export function CodeEditor({
     }
 
     const clearLogicReferenceFromModel = (): void => {
-        const model = editorRef.current?.getModel()
-        if (model) {
+        for (const model of editorModelsRef.current) {
             ;(model as any).codeEditorLogic = undefined
         }
+    }
+
+    const disposeTrackedModels = (monacoApi: Monaco | null): void => {
+        const models = editorModelsRef.current
+        if (models.size === 0) {
+            return
+        }
+        // Skip a model if any OTHER live editor still holds it as its current
+        // model — disposing would break that editor.
+        const otherEditors = (monacoApi?.editor.getEditors?.() ?? []).filter((e) => e !== editorRef.current)
+        for (const model of models) {
+            if (model.isDisposed()) {
+                continue
+            }
+            const stillInUse = otherEditors.some((e) => e.getModel() === model)
+            if (stillInUse) {
+                continue
+            }
+            try {
+                model.dispose()
+            } catch {
+                // already disposed or in invalid state
+            }
+        }
+        models.clear()
+    }
+
+    const trackEditorModels = (editorInstance: importedEditor.IStandaloneCodeEditor, monacoApi: Monaco): void => {
+        const initial = editorInstance.getModel()
+        if (initial) {
+            editorModelsRef.current.add(initial)
+        }
+        const disposable = editorInstance.onDidChangeModel((e) => {
+            if (!e.newModelUrl) {
+                return
+            }
+            const next = monacoApi.editor.getModel(e.newModelUrl)
+            if (next) {
+                editorModelsRef.current.add(next)
+            }
+        })
+        monacoDisposables.current.push(disposable)
     }
 
     const disposeEditor = (): void => {
@@ -234,6 +280,10 @@ export function CodeEditor({
             disconnectMutationObserver()
             clearLogicReferenceFromModel()
 
+            // Capture the monaco api before we null out the editor — needed
+            // by disposeTrackedModels to ask Monaco for its other editors.
+            const monacoApi = monaco
+
             // Dispose the editor BEFORE @monaco-editor/react's own cleanup
             // runs: Monaco's services (HoverService, ContextView,
             // DomListener) keep refs to the editor's container DOM that
@@ -241,6 +291,10 @@ export function CodeEditor({
             // a strong reference lets Monaco tear down its services in an
             // order that releases those DOM refs.
             disposeEditor()
+
+            // Now that our editor is disposed, dispose every model this
+            // editor used. Skip models another live editor still holds.
+            disposeTrackedModels(monacoApi)
 
             setMonacoAndEditor(null)
 
@@ -339,6 +393,7 @@ export function CodeEditor({
 
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
         editorRef.current = editor
+        trackEditorModels(editor, monaco)
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
 
@@ -449,6 +504,11 @@ export function CodeEditor({
             const modifiedEditor = diff.getModifiedEditor()
             editorRef.current = modifiedEditor
             diffEditorRef.current = diff
+            trackEditorModels(modifiedEditor, monaco)
+            const original = diff.getOriginalEditor().getModel()
+            if (original) {
+                editorModelsRef.current.add(original)
+            }
             setMonacoAndEditor([monaco, modifiedEditor])
 
             if (editorProps.onChange) {
