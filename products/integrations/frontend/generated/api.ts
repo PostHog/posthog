@@ -569,7 +569,11 @@ export const integrationsDomainConnectCheckRetrieve = async (
 }
 
 /**
- * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
+ * ``/api/users/{uuid}/integrations/`` (use ``@me``) — personal GitHub integrations.
+
+Nested under :class:`posthog.api.user.UserViewSet`. Session or OAuth access token
+(e.g. PostHog Code). Personal API keys are not accepted. OAuth tokens must
+include ``user:read`` / ``user:write`` like other ``@me`` user APIs.
  * @summary List personal GitHub integrations
  */
 export const getUsersIntegrationsListUrl = (uuid: string, params?: UsersIntegrationsListParams) => {
