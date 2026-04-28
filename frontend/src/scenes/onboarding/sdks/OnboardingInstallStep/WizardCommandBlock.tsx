@@ -94,7 +94,18 @@ export function WizardCommandBlock(): JSX.Element {
                 }
             `}</style>
 
-            <div className="flex gap-6">
+            {/*
+              The whole card is a single click target: helper text and framework chips
+              previously looked tappable but had no handler, producing dead clicks.
+              Inner elements are <span>s rather than nested <button>/<p>/<div>s so the
+              outer <button> stays HTML-valid.
+            */}
+            <button
+                type="button"
+                onClick={handleCopy}
+                aria-label={`Copy install command: ${wizardCommand}`}
+                className="group flex gap-6 text-left cursor-pointer bg-transparent border-0 p-0 w-full"
+            >
                 <img
                     key={`hog-${copyKey}`}
                     src={WIZARD_HOG_URL}
@@ -102,11 +113,10 @@ export function WizardCommandBlock(): JSX.Element {
                     className="w-28 h-28 hidden sm:block shrink-0 self-center"
                     style={copyKey > 0 ? { animation: 'wizard-hog-cast 500ms ease-out' } : undefined}
                 />
-                <div className="flex-1 flex flex-col gap-3">
-                    <button
-                        onClick={handleCopy}
+                <span className="flex-1 flex flex-col gap-3 items-start">
+                    <span
                         key={`btn-${copyKey}`}
-                        className="group inline-flex items-center gap-2 bg-bg-light border border-border font-mono text-sm px-4 py-3 rounded-lg cursor-pointer hover:border-primary transition-colors w-fit"
+                        className="inline-flex items-center gap-2 bg-bg-light border border-border group-hover:border-primary font-mono text-sm px-4 py-3 rounded-lg transition-colors w-fit"
                         style={copyKey > 0 ? { animation: 'wizard-copy-bounce 400ms ease-out' } : undefined}
                     >
                         <IconTerminal className="size-4 text-muted" />
@@ -126,13 +136,13 @@ export function WizardCommandBlock(): JSX.Element {
                             )}
                         </span>
                         <IconCopy className="size-4 text-muted group-hover:text-primary" />
-                    </button>
+                    </span>
 
-                    <p className="text-xs text-muted mb-0">
+                    <span className="text-xs text-muted">
                         Auto-detects your framework, installs the SDK, and sets up event capture.
-                    </p>
+                    </span>
 
-                    <div className="flex flex-wrap gap-1.5">
+                    <span className="flex flex-wrap gap-1.5">
                         <span className="text-xs text-muted">Supports:</span>
                         {WIZARD_FRAMEWORKS.map((fw) => (
                             <span
@@ -142,9 +152,9 @@ export function WizardCommandBlock(): JSX.Element {
                                 {fw}
                             </span>
                         ))}
-                    </div>
-                </div>
-            </div>
+                    </span>
+                </span>
+            </button>
         </div>
     )
 }
