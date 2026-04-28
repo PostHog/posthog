@@ -29,6 +29,30 @@ class TestResolveScopes(SimpleTestCase):
             assert scope in resolve_scopes("full")
             assert scope in resolve_scopes(["feature_flag:read"])
 
+    def test_include_internal_scopes_false_drops_internal_scopes(self) -> None:
+        custom = ["clickhouse_test_cluster_perf:read"]
+        result = resolve_scopes(custom, include_internal_scopes=False)
+        assert result == custom
+        for scope in INTERNAL_SCOPES:
+            assert scope not in result
+
+    def test_include_internal_scopes_false_for_read_only_preset(self) -> None:
+        result = resolve_scopes("read_only", include_internal_scopes=False)
+        assert set(result) == set(MCP_READ_SCOPES)
+        for scope in INTERNAL_SCOPES:
+            assert scope not in result
+
+    def test_internal_scope_objects_disjoint_from_mcp_scope_lists(self) -> None:
+        from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS
+
+        mcp_scope_objects: set[str] = {scope.split(":", 1)[0] for scope in [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES]}
+        internal: set[str] = set(INTERNAL_API_SCOPE_OBJECTS)
+        overlap = internal & mcp_scope_objects
+        assert overlap == set(), (
+            f"{overlap} are in INTERNAL_API_SCOPE_OBJECTS and also in MCP_READ_SCOPES / MCP_WRITE_SCOPES; "
+            "a `read_only` MCP token would silently grant them."
+        )
+
 
 class TestHasWriteScopes(SimpleTestCase):
     @parameterized.expand(

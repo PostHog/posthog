@@ -318,6 +318,9 @@ build:
     build:taxonomy-json:
         bin_script: build-taxonomy-json.py
         description: Generate core filter definitions taxonomy JSON for frontend
+    build:bot-definitions:
+        cmd: python livestream/bot/generate_definitions.py
+        description: Generate livestream bot definitions JSON from bot_definitions.py
     build:schema:
         steps:
             - build:schema-json
@@ -595,6 +598,10 @@ quality:
         description: Format MCP files
 tools:
     doctor: null # Click-defined, placed here for categorization
+    tool:temporal-codec-server:
+        bin_script: temporal-codec-server
+        description: Run a local Temporal codec server to decode Fernet payloads for debugging
+        hidden: true
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
@@ -789,9 +796,9 @@ environment:
         hidden: true
     warm:flags:cache:
         bin_script: warm-flags-cache
-        description: 'Warm the feature-flags hypercache by batch-building flag caches for every team (Rust port of the Python warmer)'
+        description: 'Warm the feature-flags hypercache against the local dev environment (requires ./bin/start running)'
         hidden: true
-    warm:flags:cache:local:
-        bin_script: warm-flags-cache-local
-        description: 'Warm the feature-flags hypercache against the local dev environment'
+    flags:jumphost:
+        bin_script: rust-jumphost
+        description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true

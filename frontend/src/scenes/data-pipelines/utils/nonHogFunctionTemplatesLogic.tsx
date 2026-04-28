@@ -73,8 +73,16 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
         hogFunctionTemplatesDataWarehouseSources: [
             (s) => [s.connectors, s.manualConnectors, s.featureFlags],
             (connectors, manualConnectors, featureFlags): HogFunctionTemplateType[] => {
-                const managed = connectors.map((connector: SourceConfig): HogFunctionTemplateType => {
-                    const featureFlagDefined = connector.featureFlag !== undefined
+                // A source gated behind a feature flag should be hidden entirely when the flag
+                // isn't enabled for the user — regardless of its releaseStatus.
+                const visibleConnectors = connectors.filter((connector: SourceConfig) => {
+                    if (!connector.featureFlag) {
+                        return true
+                    }
+                    return !!featureFlags[connector.featureFlag as FeatureFlagKey]
+                })
+                const managed = visibleConnectors.map((connector: SourceConfig): HogFunctionTemplateType => {
+                    const featureFlagDefined = !!connector.featureFlag
                     const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
                     let featureFlagValue: boolean | undefined = undefined
                     if (featureFlagDefined && featureFlagRaw !== undefined) {

@@ -4,19 +4,23 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconKeyboard } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import {
+    CategoryDropdownVariant,
+    resolveCategoryDropdownVariant,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Icon123 } from 'lib/lemon-ui/icons'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
 
@@ -65,6 +69,13 @@ export function TaxonomicFilter({
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const focusInput = (): void => searchInputRef.current?.focus()
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const categoryDropdownVariant = resolveCategoryDropdownVariant(
+        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+    )
+    const resolvedSuggestedFiltersLabel =
+        suggestedFiltersLabel ?? (categoryDropdownVariant === 'control' ? 'Suggestions' : 'All')
+
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey,
         groupType,
@@ -91,7 +102,7 @@ export function TaxonomicFilter({
         hogQLGlobals,
         hogQLExpressionShowBreakdownLabelHint,
         minSearchQueryLength,
-        suggestedFiltersLabel,
+        suggestedFiltersLabel: resolvedSuggestedFiltersLabel,
         enableKeywordShortcuts,
     }
 
@@ -140,7 +151,13 @@ export function TaxonomicFilter({
                 {!hideSearchInput &&
                 (activeTab !== TaxonomicFilterGroupType.HogQLExpression || taxonomicGroupTypes.length > 1) ? (
                     <div className="relative">
-                        <TaxonomicFilterSearchInput searchInputRef={searchInputRef} onClose={onClose} />
+                        <TaxonomicFilterSearchInput
+                            searchInputRef={searchInputRef}
+                            onClose={onClose}
+                            categoryDropdownVariant={categoryDropdownVariant}
+                            eventName={eventNames?.[0]}
+                            focusInput={focusInput}
+                        />
                     </div>
                 ) : null}
                 {refReady && (
@@ -149,6 +166,7 @@ export function TaxonomicFilter({
                         taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                         popupAnchorElement={taxonomicFilterRef.current}
                         definitionPopoverRenderer={definitionPopoverRenderer}
+                        categoryDropdownVariant={categoryDropdownVariant}
                     />
                 )}
             </div>
@@ -161,18 +179,32 @@ export const TaxonomicFilterSearchInput = forwardRef<
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
+        categoryDropdownVariant?: CategoryDropdownVariant
+        eventName?: string
+        focusInput?: () => void
     } & Pick<
         LemonInputPropsText,
         'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange' | 'autoFocus' | 'placeholder'
-    > &
-        Pick<TooltipProps, 'docLink'>
+    >
 >(function UniversalSearchInput(
-    { searchInputRef, onClose, onChange, docLink, autoFocus = true, placeholder, ...props },
+    {
+        searchInputRef,
+        onClose,
+        onChange,
+        autoFocus = true,
+        placeholder,
+        categoryDropdownVariant = 'control',
+        eventName,
+        focusInput,
+        prefix,
+        ...props
+    },
     ref
 ): JSX.Element {
     const { searchQuery, searchPlaceholder, showNumericalPropsOnly } = useValues(taxonomicFilterLogic)
     const {
         setSearchQuery: setTaxonomicSearchQuery,
+        recordPaste,
         moveUp,
         moveDown,
         tabLeft,
@@ -185,6 +217,11 @@ export const TaxonomicFilterSearchInput = forwardRef<
         onChange?.(query)
     }
 
+    const categoriesAreInDropdown = categoryDropdownVariant !== 'control'
+    const categoryDropdown = categoriesAreInDropdown ? (
+        <CategoryDropdown variant={categoryDropdownVariant} eventName={eventName} onAfterChange={focusInput} />
+    ) : null
+
     return (
         <LemonInput
             {...props}
@@ -194,8 +231,16 @@ export const TaxonomicFilterSearchInput = forwardRef<
             fullWidth
             placeholder={placeholder ?? `Search ${searchPlaceholder}`}
             value={searchQuery}
+            prefix={prefix}
+            onPaste={(e) => {
+                const pasted = e.clipboardData?.getData('text') ?? ''
+                if (pasted.length > 0) {
+                    recordPaste(pasted.length)
+                }
+            }}
             suffix={
                 <>
+                    {categoryDropdown}
                     {showNumericalPropsOnly && (
                         <Tooltip
                             title={
@@ -214,15 +259,6 @@ export const TaxonomicFilterSearchInput = forwardRef<
                             </span>
                         </Tooltip>
                     )}
-                    <Tooltip
-                        title={
-                            'Fuzzy text search, or filter by specific properties and values.' +
-                            (docLink ? ' Check the documentation for more information.' : '')
-                        }
-                        docLink={docLink}
-                    >
-                        <IconKeyboard style={{ fontSize: '1.2rem' }} className="text-secondary" />
-                    </Tooltip>
                 </>
             }
             onKeyDown={(e) => {
@@ -235,6 +271,10 @@ export const TaxonomicFilterSearchInput = forwardRef<
                         moveDown()
                         break
                     case 'Tab':
+                        if (categoriesAreInDropdown) {
+                            shouldPreventDefault = false
+                            break
+                        }
                         e.shiftKey ? tabLeft() : tabRight()
                         break
                     case 'Enter':

@@ -16,7 +16,6 @@ Two lifecycle shapes:
   AIOProducer — caching would leave later callers with a closed instance.
 """
 
-import asyncio
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from threading import Lock
@@ -62,10 +61,10 @@ from posthog.settings.kafka import KafkaProfileSettings
 # set `KAFKA_TOPIC_ROUTING_OVERRIDES=topic_name=profile_name` in the chart env.
 _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # --- DEFAULT (MSK events cluster) ---
-    KAFKA_EVENTS_JSON: KafkaClusterProfile.DEFAULT,
-    KAFKA_PERSON: KafkaClusterProfile.DEFAULT,
-    KAFKA_PERSON_DISTINCT_ID: KafkaClusterProfile.DEFAULT,
-    KAFKA_GROUPS: KafkaClusterProfile.DEFAULT,
+    KAFKA_EVENTS_JSON: KafkaClusterProfile.INGESTION,
+    KAFKA_PERSON: KafkaClusterProfile.INGESTION,
+    KAFKA_PERSON_DISTINCT_ID: KafkaClusterProfile.INGESTION,
+    KAFKA_GROUPS: KafkaClusterProfile.INGESTION,
     KAFKA_METRICS_TIME_TO_SEE_DATA: KafkaClusterProfile.DEFAULT,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT: KafkaClusterProfile.DEFAULT,
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: KafkaClusterProfile.DEFAULT,
@@ -80,15 +79,15 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     # --- CYCLOTRON (Warpstream cyclotron) ---
-    KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CYCLOTRON
+    KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.CYCLOTRON,
     KAFKA_DWH_CDP_RAW_TABLE: KafkaClusterProfile.CYCLOTRON,
     # --- AUX metrics ---
-    KAFKA_LOG_ENTRIES: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.INGESTION
-    KAFKA_APP_METRICS2: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.INGESTION
+    KAFKA_LOG_ENTRIES: KafkaClusterProfile.INGESTION,
+    KAFKA_APP_METRICS2: KafkaClusterProfile.INGESTION,
     # --- CALCULATED_EVENTS (Warpstream calculated-events) ---
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CALCULATED_EVENTS
-    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CALCULATED_EVENTS
-    KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CALCULATED_EVENTS
+    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES: KafkaClusterProfile.CALCULATED_EVENTS,
+    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS: KafkaClusterProfile.CALCULATED_EVENTS,
+    KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.CALCULATED_EVENTS,
 }
 
 
@@ -180,7 +179,7 @@ def _build_sync_producer(profile: KafkaClusterProfile) -> _KafkaProducer:
 
 
 def _build_async_producer(
-    profile: KafkaClusterProfile, /, loop: asyncio.AbstractEventLoop | None = None
+    profile: KafkaClusterProfile,
 ) -> _AsyncKafkaProducer:
     p = settings.KAFKA_PROFILES[profile.value]
     producer_settings = p.producer_settings
@@ -193,7 +192,6 @@ def _build_async_producer(
         max_request_size=producer_settings.get("max_request_size"),
         compression_type=producer_settings.get("compression_type"),
         producer_settings=producer_settings,
-        loop=loop,
     )
 
 
@@ -257,20 +255,22 @@ async def async_producer_scope(
         await producer.close()
 
 
-def new_async_producer(
+async def new_async_producer(
     *,
     profile: Optional[KafkaClusterProfile] = None,
     topic: Optional[str] = None,
-    loop: Optional[asyncio.AbstractEventLoop] = None,
 ) -> _AsyncKafkaProducer:
     """Construct a fresh async producer the caller fully owns.
 
     For long-lived consumers (e.g. the Temporal logger daemon) where the
     producer outlives any single scope. The caller is responsible for closing
     it. For per-call work prefer `async_producer_scope`.
+
+    This function is async as the underlying producer requires a running
+    event loop.
     """
     resolved = resolve_profile_name(topic=topic, profile=profile)
-    return _build_async_producer(resolved, loop=loop)
+    return _build_async_producer(resolved)
 
 
 def flush_all_producers(timeout: Optional[float] = None) -> None:

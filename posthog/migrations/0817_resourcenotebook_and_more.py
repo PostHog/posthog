@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="resourcenotebook",
             constraint=models.CheckConstraint(
-                check=models.Q(models.Q(("group__isnull", False)), _connector="OR"),
+                condition=models.Q(models.Q(("group__isnull", False)), _connector="OR"),
                 name="exactly_one_notebook_related_resource",
             ),
         ),
