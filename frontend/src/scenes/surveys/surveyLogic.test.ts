@@ -262,6 +262,41 @@ describe('translation validation', () => {
             )
         ).toBe(false)
     })
+
+    it('deep merges generated translation drafts without dropping manual fields', async () => {
+        jest.spyOn(api.surveys, 'generateTranslations').mockResolvedValue({
+            translations: { es: { thankYouMessageHeader: 'Gracias' } },
+            questions: [{ id: 'question-1', translations: { es: { buttonText: 'Enviar' } } }],
+            generated_field_paths: ['translations.es.thankYouMessageHeader'],
+            trace_id: 'trace-1',
+        })
+        const survey = {
+            ...createPersistedSurvey(),
+            translations: { es: { name: 'Manual name', thankYouMessageHeader: 'Thanks' } },
+            questions: [
+                {
+                    ...createPersistedSurvey().questions[0],
+                    id: 'question-1',
+                    translations: { es: { question: 'Manual question' } },
+                },
+            ],
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+            logic.actions.generateTranslationDrafts('es')
+        }).toFinishAllListeners()
+
+        expect(logic.values.survey.translations?.es).toEqual({
+            name: 'Manual name',
+            thankYouMessageHeader: 'Gracias',
+        })
+        expect(logic.values.survey.questions[0].translations?.es).toEqual({
+            question: 'Manual question',
+            buttonText: 'Enviar',
+        })
+        expect(logic.values.aiGeneratedTranslationFields).toEqual(['translations.es.thankYouMessageHeader'])
+    })
 })
 
 describe('set response-based survey branching', () => {

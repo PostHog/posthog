@@ -593,6 +593,10 @@ export const surveyLogic = kea<surveyLogicType>([
             enabled,
         }),
         setPersonNames: (personNames: Record<string, string>) => ({ personNames }),
+        generateTranslationDrafts: (language: string, overwrite: boolean = false) => ({ language, overwrite }),
+        setGeneratingTranslationDrafts: (generating: boolean) => ({ generating }),
+        setAiGeneratedTranslationFields: (paths: string[]) => ({ paths }),
+        clearAiGeneratedTranslationField: (path: string) => ({ path }),
     }),
     loaders(({ props, actions, values }) => ({
         surveyHeadline: [
@@ -1155,6 +1159,58 @@ export const surveyLogic = kea<surveyLogicType>([
                     response_sampling_daily_limits: null,
                 })
             },
+            generateTranslationDrafts: async ({ language, overwrite }) => {
+                if (values.survey.id === NEW_SURVEY.id) {
+                    lemonToast.error('Save the survey before generating translations')
+                    return
+                }
+
+                actions.setGeneratingTranslationDrafts(true)
+                try {
+                    const result = await api.surveys.generateTranslations(values.survey.id, {
+                        target_language: language,
+                        overwrite,
+                        survey: values.survey,
+                    })
+                    const translations = { ...(values.survey.translations ?? {}) }
+                    for (const [language, translationPatch] of Object.entries(result.translations)) {
+                        translations[language] = {
+                            ...(translations[language] ?? {}),
+                            ...translationPatch,
+                        }
+                    }
+                    const patchesById = new Map(result.questions.map((question) => [question.id, question]))
+                    const questions = values.survey.questions.map((question) => {
+                        const patch = patchesById.get(question.id || '')
+                        if (!patch) {
+                            return question
+                        }
+                        const questionTranslations = { ...(question.translations ?? {}) }
+                        for (const [language, translationPatch] of Object.entries(patch.translations)) {
+                            questionTranslations[language] = {
+                                ...(questionTranslations[language] ?? {}),
+                                ...translationPatch,
+                            }
+                        }
+                        return {
+                            ...question,
+                            translations: questionTranslations,
+                        }
+                    })
+
+                    actions.setSurveyValues({ translations, questions })
+                    actions.setAiGeneratedTranslationFields(result.generated_field_paths)
+                    lemonToast.success('Generated translation drafts')
+                } catch (error) {
+                    lemonToast.error('Failed to generate translations')
+                    posthog.captureException(error, {
+                        action: 'generate-survey-translations',
+                        survey: values.survey.id,
+                    })
+                } finally {
+                    actions.setGeneratingTranslationDrafts(false)
+                }
+            },
             resetTargeting: () => {
                 actions.setSurveyValue('linked_flag_id', NEW_SURVEY.linked_flag_id)
                 actions.setSurveyValue('targeting_flag_filters', NEW_SURVEY.targeting_flag_filters)
@@ -1318,6 +1374,20 @@ export const surveyLogic = kea<surveyLogicType>([
                 setEditingLanguage: (_, { language }) => language,
                 resetSurvey: () => null,
                 loadSurveySuccess: () => null,
+            },
+        ],
+        aiGeneratedTranslationFields: [
+            [] as string[],
+            {
+                setAiGeneratedTranslationFields: (_, { paths }) => paths,
+                clearAiGeneratedTranslationField: (state, { path }) => state.filter((fieldPath) => fieldPath !== path),
+                loadSurveySuccess: () => [],
+            },
+        ],
+        generatingTranslationDrafts: [
+            false,
+            {
+                setGeneratingTranslationDrafts: (_, { generating }) => generating,
             },
         ],
         showArchivedResponses: [

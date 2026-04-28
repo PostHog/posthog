@@ -278,6 +278,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         hasTranslationValidationErrors,
         translationErrorsByQuestion,
         translationErrorsForField,
+        aiGeneratedTranslationFields,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -290,6 +291,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         setSurveyManualErrors,
         editingSurvey,
         loadSurvey,
+        clearAiGeneratedTranslationField,
     } = useActions(surveyLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -363,7 +365,15 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
 
     const getFieldErrorClass = (fieldKey: string): string => {
         const fieldError = getFieldError(fieldKey)
-        return fieldError ? 'border border-warning hover:border-primary' : ''
+        const aiGenerated =
+            activeEditingLanguage &&
+            aiGeneratedTranslationFields.includes(`translations.${activeEditingLanguage}.${fieldKey}`)
+        return [
+            fieldError ? 'border border-warning hover:border-primary' : '',
+            aiGenerated ? 'border border-accent bg-accent-highlight-secondary' : '',
+        ]
+            .filter(Boolean)
+            .join(' ')
     }
 
     const getConfirmationMessageErrors = (): number => {
@@ -398,6 +408,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                     canEdit
                     onNameChange={(name) => {
                         if (activeEditingLanguage) {
+                            clearAiGeneratedTranslationField(`translations.${activeEditingLanguage}.name`)
                             setSurveyValue('translations', {
                                 ...surveyTranslations,
                                 [activeEditingLanguage]: {
@@ -918,6 +929,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           if (
                                                                                                               activeEditingLanguage
                                                                                                           ) {
+                                                                                                              clearAiGeneratedTranslationField(
+                                                                                                                  `translations.${activeEditingLanguage}.thankYouMessageHeader`
+                                                                                                              )
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
@@ -996,6 +1010,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           if (
                                                                                                               activeEditingLanguage
                                                                                                           ) {
+                                                                                                              clearAiGeneratedTranslationField(
+                                                                                                                  `translations.${activeEditingLanguage}.thankYouMessageDescription`
+                                                                                                              )
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {
@@ -1104,6 +1121,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                                           if (
                                                                                                               activeEditingLanguage
                                                                                                           ) {
+                                                                                                              clearAiGeneratedTranslationField(
+                                                                                                                  `translations.${activeEditingLanguage}.thankYouMessageCloseButtonText`
+                                                                                                              )
                                                                                                               setSurveyValue(
                                                                                                                   'translations',
                                                                                                                   {

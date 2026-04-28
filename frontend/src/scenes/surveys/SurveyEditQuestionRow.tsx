@@ -156,9 +156,15 @@ function canQuestionSkipSubmitButton(
 }
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
-    const { survey, descriptionContentType, editingLanguage, translationErrorsForField } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
-        useActions(surveyLogic)
+    const { survey, descriptionContentType, editingLanguage, translationErrorsForField, aiGeneratedTranslationFields } =
+        useValues(surveyLogic)
+    const {
+        setDefaultForQuestionType,
+        setSurveyValue,
+        resetBranchingForQuestion,
+        setMultipleSurveyQuestion,
+        clearAiGeneratedTranslationField,
+    } = useActions(surveyLogic)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
@@ -187,6 +193,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                 return q
             })
             setSurveyValue('questions', updatedQuestion)
+            clearAiGeneratedTranslationField(`questions.${index}.translations.${editingLanguage}.${key}`)
         } else {
             const updatedQuestion = survey.questions.map((question, idx) => {
                 if (index === idx) {
@@ -222,12 +229,30 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
 
     const getFieldErrorClass = (fieldKey: string): string => {
         const fieldError = getFieldError(fieldKey)
-        return fieldError ? 'border border-warning hover:border-primary' : ''
+        const aiGenerated =
+            editingLanguage &&
+            aiGeneratedTranslationFields.includes(`questions.${index}.translations.${editingLanguage}.${fieldKey}`)
+        return [
+            fieldError ? 'border border-warning hover:border-primary' : '',
+            aiGenerated ? 'border border-accent bg-accent-highlight-secondary' : '',
+        ]
+            .filter(Boolean)
+            .join(' ')
     }
 
     const getChoiceErrorClass = (choiceIndex: number): string => {
         const choiceError = getChoiceError(choiceIndex)
-        return choiceError ? 'border border-warning hover:border-primary' : ''
+        const aiGenerated =
+            editingLanguage &&
+            aiGeneratedTranslationFields.includes(
+                `questions.${index}.translations.${editingLanguage}.choices.${choiceIndex}`
+            )
+        return [
+            choiceError ? 'border border-warning hover:border-primary' : '',
+            aiGenerated ? 'border border-accent bg-accent-highlight-secondary' : '',
+        ]
+            .filter(Boolean)
+            .join(' ')
     }
 
     const displayQuestion = editingLanguage
@@ -647,6 +672,13 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                     {({ value, onChange }) => {
                                         const handleChoicesChange = (newChoices: string[]): void => {
                                             onChange(newChoices)
+                                            if (editingLanguage) {
+                                                newChoices.forEach((_, choiceIndex) =>
+                                                    clearAiGeneratedTranslationField(
+                                                        `questions.${index}.translations.${editingLanguage}.choices.${choiceIndex}`
+                                                    )
+                                                )
+                                            }
                                             if (!editingLanguage) {
                                                 syncChoicesInTranslations(newChoices)
                                             }

@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import type { KeyboardEvent } from 'react'
 
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInputSelect } from '@posthog/lemon-ui'
+import { IconSparkles, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonInputSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { MultipleSurveyQuestion, SurveyQuestion, SurveyQuestionType } from '~/types'
 
@@ -41,8 +41,14 @@ const isChoiceQuestion = (question: SurveyQuestion): question is MultipleSurveyQ
     question.type === SurveyQuestionType.SingleChoice || question.type === SurveyQuestionType.MultipleChoice
 
 export function SurveyTranslations(): JSX.Element {
-    const { survey, editingLanguage } = useValues(surveyLogic)
-    const { setSurveyValue, setEditingLanguage } = useActions(surveyLogic)
+    const {
+        survey,
+        editingLanguage,
+        aiGeneratedTranslationFields,
+        generatingTranslationDrafts,
+        dataProcessingAccepted,
+    } = useValues(surveyLogic)
+    const { setSurveyValue, setEditingLanguage, generateTranslationDrafts } = useActions(surveyLogic)
 
     const surveyTranslations = survey.translations ?? {}
     const addedLanguages = Object.keys(surveyTranslations)
@@ -159,6 +165,23 @@ export function SurveyTranslations(): JSX.Element {
                     autoFocus={addedLanguages.length === 0}
                     value={[]}
                 />
+                {editingLanguage && (
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconSparkles />}
+                        loading={generatingTranslationDrafts}
+                        disabledReason={
+                            survey.id === 'new'
+                                ? 'Save the survey before generating translations'
+                                : !dataProcessingAccepted
+                                  ? 'AI data processing must be approved to generate translations'
+                                  : undefined
+                        }
+                        onClick={() => generateTranslationDrafts(editingLanguage, false)}
+                    >
+                        Fill missing with AI
+                    </LemonButton>
+                )}
             </div>
 
             <div className="space-y-2">
@@ -185,6 +208,9 @@ export function SurveyTranslations(): JSX.Element {
                     >
                         <div className="flex items-center gap-2">
                             <span>{getLanguageLabel(lang)}</span>
+                            {aiGeneratedTranslationFields.some((path) => path.includes(`.${lang}.`)) && (
+                                <LemonTag type="highlight">AI draft</LemonTag>
+                            )}
                         </div>
                         <LemonButton
                             icon={<IconTrash />}
