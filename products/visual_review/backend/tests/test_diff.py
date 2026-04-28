@@ -89,6 +89,7 @@ class TestCompareImages:
 
         result = compare_images(img1, img2)
 
+        assert result.diff_image is not None
         diff_img = Image.open(io.BytesIO(result.diff_image))
         assert diff_img.size == (10, 10)
         assert diff_img.mode in ("RGB", "RGBA")
