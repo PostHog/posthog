@@ -23,10 +23,11 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
+from posthog.models.integration import GitHubRateLimitError
+
 from .classifier import SnapshotClassifier
 from .db import WRITER_DB
 from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
-from .github import GitHubRateLimitError  # noqa: F401 — re-exported for facade
 from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
@@ -360,7 +361,7 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
     from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
     try:
         response = github_request(
             "GET",
@@ -399,7 +400,7 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
 
     from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
     try:
         response = github_request(
             "GET",
@@ -1148,7 +1149,7 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     """
     from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
     response = github_request(
         "GET",
         f"https://api.github.com/repositories/{repo_external_id}",
@@ -1181,10 +1182,7 @@ def _github_api_request(
     safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
 
     github = get_github_integration_for_repo(repo)
-    if github.access_token_expired():
-        github.refresh_access_token()
-
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
 
     url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
     response = github_request(method, url, access_token=access_token, **kwargs)
@@ -1215,7 +1213,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
     """
     from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
 
     response = github_request(
         "GET",
@@ -1250,7 +1248,7 @@ def _fetch_baseline_file(
 
     from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
 
     response = github_request(
         "GET",
@@ -1355,7 +1353,7 @@ def _post_commit_status(
         logger.debug("visual_review.status_check_skipped", run_id=str(run.id), reason="no_github_integration")
         return
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
     target_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
 
     try:
@@ -1744,6 +1742,38 @@ def _validate_approval(run: Run, approvals: dict[str, str]) -> None:
 
 
 # --- Snapshot Operations ---
+
+
+def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | None:
+    """Look up the thumbnail content hash for a snapshot identifier.
+
+    Finds the most recent artifact with a thumbnail for this identifier
+    across all runs. Returns the thumbnail's content_hash or None.
+    """
+    snapshot = (
+        RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            identifier=identifier,
+            current_artifact__thumbnail__isnull=False,
+        )
+        .select_related("current_artifact__thumbnail")
+        .order_by("-run__created_at")
+        .first()
+    )
+
+    if snapshot is None:
+        return None
+
+    artifact = snapshot.current_artifact
+    if artifact is None or artifact.thumbnail is None:
+        return None
+
+    return artifact.thumbnail.content_hash
+
+
+def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
+    storage = ArtifactStorage(str(repo_id))
+    return storage.read(content_hash)
 
 
 def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnapshot]:

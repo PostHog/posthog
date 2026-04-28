@@ -21,6 +21,7 @@ from posthog.schema import (
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
     CachedRetentionQueryResponse,
+    CohortPropertyFilter,
     EventPropertyFilter,
     EventsQuery,
     HogLanguage,
@@ -1392,15 +1393,32 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestInferQueryTags(APIBaseTest):
-    # Each row mirrors a query payload fired from the named frontend scene. The scene tag is
-    # auto-attached by `addTags` in `dataNodeLogic.ts`. _infer_query_tags maps that to the
-    # product/feature labels used in ClickHouse query log comments.
+    def test_cohort_scene_infers_cohorts_product_and_cohort_feature(self) -> None:
+        # Mirrors the payload fired by the Cohort scene when listing members: the frontend's
+        # addTags attaches `tags.scene = "Cohort"` to every query issued from that scene.
+        query = ActorsQuery(
+            fixedProperties=[CohortPropertyFilter(value=1)],
+            select=["person_display_name -- Person", "id", "created_at"],
+            tags=QueryLogTags(scene="Cohort"),
+        )
+        assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": Feature.COHORT}
+
     @parameterized.expand(
         [
-            ("Cohort", ProductKey.COHORTS, Feature.COHORT),
-            ("DebugQuery", Product.INTERNAL, Feature.DEBUG_QUERY),
+            ("EndpointScene", ProductKey.ENDPOINTS),
+            ("EndpointsScene", ProductKey.ENDPOINTS),
+            ("Notebook", ProductKey.NOTEBOOKS),
+            ("SQLEditor", ProductKey.DATA_WAREHOUSE),
         ]
     )
-    def test_scene_to_tags_mapping(self, scene, expected_product, expected_feature):
+    def test_query_scenes_infer_product_and_query_feature(self, scene: str, product: ProductKey) -> None:
+        query = HogQLQuery(query="SELECT count() FROM events", tags=QueryLogTags(scene=scene))
+
+        assert _infer_query_tags(query) == {"product": product, "feature": Feature.QUERY}
+
+    def test_debug_query_scene_infers_internal_product_and_debug_feature(self) -> None:
+        # Mirrors a query payload fired from the DebugQuery scene. The scene tag is auto-attached
+        # by `addTags` in `dataNodeLogic.ts`.
+        scene = "DebugQuery"
         query = ActorsQuery(select=["id"], tags=QueryLogTags(scene=scene))
-        assert _infer_query_tags(query) == {"product": expected_product, "feature": expected_feature}
+        assert _infer_query_tags(query) == {"product": Product.INTERNAL, "feature": Feature.DEBUG_QUERY}
