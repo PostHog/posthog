@@ -9,15 +9,20 @@ feature: notebooks
 url_prefix: /notebooks
 ui_apps: {}
 tools:
-    
     notebooks-activity-retrieve:
         operation: notebooks_activity_retrieve
         enabled: false
     notebooks-activity-retrieve-2:
         operation: notebooks_activity_retrieve
         enabled: false
+    notebooks-all-activity-retrieve:
+        operation: notebooks_all_activity_retrieve
+        enabled: false
     notebooks-collab-save-create:
         operation: notebooks_collab_save_create
+        enabled: false
+    notebooks-collab-stream-retrieve:
+        operation: notebooks_collab_stream_retrieve
         enabled: false
     notebooks-create:
         operation: notebooks_create
@@ -125,10 +130,4 @@ tools:
             creation/modification metadata.
     notebooks-update:
         operation: notebooks_update
-        enabled: false
-    notebooks-all-activity-retrieve:
-        operation: notebooks_all_activity_retrieve
-        enabled: false
-    notebooks-collab-stream-retrieve:
-        operation: notebooks_collab_stream_retrieve
         enabled: false

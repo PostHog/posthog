@@ -19,7 +19,6 @@ ui_apps:
         detail_tool: error-tracking-issues-retrieve
         click_prop: onIssueClick
 tools:
-    
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: true
@@ -131,6 +130,9 @@ tools:
         enabled: false
     error-tracking-issues-activity-retrieve:
         operation: error_tracking_issues_activity_retrieve
+        enabled: false
+    error-tracking-issues-all-activity-retrieve:
+        operation: error_tracking_issues_all_activity_retrieve
         enabled: false
     error-tracking-issues-assign-partial-update:
         operation: error_tracking_issues_assign_partial_update
@@ -270,6 +272,9 @@ tools:
     error-tracking-releases-update:
         operation: error_tracking_releases_update
         enabled: false
+    error-tracking-spike-detection-config-list:
+        operation: error_tracking_spike_detection_config_list
+        enabled: false
     error-tracking-spike-detection-config-update-config-partial-update:
         operation: error_tracking_spike_detection_config_update_config_partial_update
         enabled: false
@@ -344,6 +349,9 @@ tools:
     error-tracking-symbol-sets-destroy:
         operation: error_tracking_symbol_sets_destroy
         enabled: false
+    error-tracking-symbol-sets-download-retrieve:
+        operation: error_tracking_symbol_sets_download_retrieve
+        enabled: false
     error-tracking-symbol-sets-finish-upload-update:
         operation: error_tracking_symbol_sets_finish_upload_update
         enabled: false
@@ -361,15 +369,6 @@ tools:
         enabled: false
     error-tracking-symbol-sets-update:
         operation: error_tracking_symbol_sets_update
-        enabled: false
-    error-tracking-issues-all-activity-retrieve:
-        operation: error_tracking_issues_all_activity_retrieve
-        enabled: false
-    error-tracking-spike-detection-config-list:
-        operation: error_tracking_spike_detection_config_list
-        enabled: false
-    error-tracking-symbol-sets-download-retrieve:
-        operation: error_tracking_symbol_sets_download_retrieve
         enabled: false
 wrappers:
     query-error-tracking-issues:

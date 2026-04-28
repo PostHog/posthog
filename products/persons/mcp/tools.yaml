@@ -9,12 +9,14 @@ feature: persons
 url_prefix: /persons
 ui_apps: {}
 tools:
-    
     cohorts-persons-retrieve:
         operation: cohorts_persons_retrieve
         enabled: false
     persons-activity-retrieve:
         operation: persons_activity_retrieve
+        enabled: false
+    persons-all-activity-retrieve:
+        operation: persons_all_activity_retrieve
         enabled: false
     persons-batch-by-distinct-ids-create:
         operation: persons_batch_by_distinct_ids_create
@@ -193,6 +195,3 @@ tools:
         exclude_params:
             - format
             - force_refresh
-    persons-all-activity-retrieve:
-        operation: persons_all_activity_retrieve
-        enabled: false

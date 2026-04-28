@@ -9,7 +9,6 @@ feature: data_warehouse
 url_prefix: /data-warehouse
 ui_apps: {}
 tools:
-    
     data-modeling-jobs-list:
         operation: data_modeling_jobs_list
         enabled: false
@@ -154,6 +153,9 @@ tools:
     fix-hogql-create:
         operation: fix_hogql_create
         enabled: false
+    fix-hogql-list:
+        operation: fix_hogql_list
+        enabled: false
     insight-variables-create:
         operation: insight_variables_create
         enabled: false
@@ -201,6 +203,9 @@ tools:
         enabled: false
     query-tab-state-user-retrieve:
         operation: query_tab_state_user_retrieve
+        enabled: false
+    warehouse-dag-list:
+        operation: warehouse_dag_list
         enabled: false
     warehouse-model-paths-list:
         operation: warehouse_model_paths_list
@@ -312,10 +317,4 @@ tools:
         enabled: false
     warehouse-view-links-validate-create:
         operation: warehouse_view_links_validate_create
-        enabled: false
-    fix-hogql-list:
-        operation: fix_hogql_list
-        enabled: false
-    warehouse-dag-list:
-        operation: warehouse_dag_list
         enabled: false

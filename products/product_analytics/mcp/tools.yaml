@@ -13,7 +13,6 @@ ui_apps:
         view_prop: data
         link_prop: openLink
 tools:
-    
     column-configurations-create:
         operation: column_configurations_create
         enabled: false
@@ -182,6 +181,9 @@ tools:
     insights-activity-retrieve-2:
         operation: insights_activity_retrieve
         enabled: false
+    insights-all-activity-retrieve:
+        operation: insights_all_activity_retrieve
+        enabled: false
     insights-analyze-retrieve:
         operation: insights_analyze_retrieve
         enabled: false
@@ -247,7 +249,4 @@ tools:
         enabled: false
     insights-viewed-create:
         operation: insights_viewed_create
-        enabled: false
-    insights-all-activity-retrieve:
-        operation: insights_all_activity_retrieve
         enabled: false

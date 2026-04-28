@@ -17,23 +17,197 @@ ui_apps:
         app_name: Query Results
         description: Interactive visualization for PostHog query results
 tools:
-    domains-list:
-        operation: domains_list
+    activity-retrieve:
+        operation: organizations_projects_activity_retrieve
+        enabled: false
+    add-product-intent-partial-update:
+        operation: organizations_projects_add_product_intent_partial_update
+        enabled: false
+    annotations-create:
+        operation: annotations_create
+        enabled: false
+    annotations-destroy:
+        operation: annotations_destroy
+        enabled: false
+    annotations-list:
+        operation: annotations_list
+        enabled: false
+    annotations-partial-update:
+        operation: annotations_partial_update
+        enabled: false
+    annotations-retrieve:
+        operation: annotations_retrieve
+        enabled: false
+    annotations-update:
+        operation: annotations_update
+        enabled: false
+    change-organization-create:
+        operation: organizations_projects_change_organization_create
+        enabled: false
+    cohorts-activity-retrieve:
+        operation: cohorts_activity_retrieve
+        enabled: false
+    cohorts-add-persons-to-static-cohort-partial-update:
+        operation: cohorts_add_persons_to_static_cohort_partial_update
+        enabled: false
+    cohorts-all-activity-retrieve:
+        operation: cohorts_all_activity_retrieve
+        enabled: false
+    cohorts-calculation-history-retrieve:
+        operation: cohorts_calculation_history_retrieve
+        enabled: false
+    cohorts-create:
+        operation: cohorts_create
+        enabled: false
+    cohorts-destroy:
+        operation: cohorts_destroy
+        enabled: false
+    cohorts-list:
+        operation: cohorts_list
+        enabled: false
+    cohorts-partial-update:
+        operation: cohorts_partial_update
+        enabled: false
+    cohorts-persons-retrieve:
+        operation: cohorts_persons_retrieve
+        enabled: false
+    cohorts-remove-person-from-static-cohort-partial-update:
+        operation: cohorts_remove_person_from_static_cohort_partial_update
+        enabled: false
+    cohorts-retrieve:
+        operation: cohorts_retrieve
+        enabled: false
+    cohorts-update:
+        operation: cohorts_update
+        enabled: false
+    comments-count-retrieve:
+        operation: comments_count_retrieve
+        enabled: false
+    comments-create:
+        operation: comments_create
+        enabled: false
+    comments-destroy:
+        operation: comments_destroy
+        enabled: false
+    comments-list:
+        operation: comments_list
+        enabled: false
+    comments-partial-update:
+        operation: comments_partial_update
+        enabled: false
+    comments-retrieve:
+        operation: comments_retrieve
+        enabled: false
+    comments-thread-retrieve:
+        operation: comments_thread_retrieve
+        enabled: false
+    comments-update:
+        operation: comments_update
+        enabled: false
+    complete-product-onboarding-partial-update:
+        operation: organizations_projects_complete_product_onboarding_partial_update
+        enabled: false
+    dashboard-templates-copy-between-projects-create:
+        operation: dashboard_templates_copy_between_projects_create
+        enabled: false
+    dashboard-templates-create:
+        operation: dashboard_templates_create
+        enabled: false
+    dashboard-templates-destroy:
+        operation: dashboard_templates_destroy
+        enabled: false
+    dashboard-templates-json-schema-retrieve:
+        operation: dashboard_templates_json_schema_retrieve
+        enabled: false
+    dashboard-templates-list:
+        operation: dashboard_templates_list
+        enabled: false
+    dashboard-templates-partial-update:
+        operation: dashboard_templates_partial_update
+        enabled: false
+    dashboard-templates-retrieve:
+        operation: dashboard_templates_retrieve
+        enabled: false
+    dashboard-templates-update:
+        operation: dashboard_templates_update
+        enabled: false
+    dashboards-analyze-refresh-result-create:
+        operation: dashboards_analyze_refresh_result_create
+        enabled: false
+    dashboards-bulk-update-tags-create:
+        operation: dashboards_bulk_update_tags_create
+        enabled: false
+    dashboards-copy-tile-create:
+        operation: dashboards_copy_tile_create
+        enabled: false
+    dashboards-create:
+        operation: dashboards_create
+        enabled: false
+    dashboards-create-from-template-json-create:
+        operation: dashboards_create_from_template_json_create
+        enabled: false
+    dashboards-create-unlisted-dashboard-create:
+        operation: dashboards_create_unlisted_dashboard_create
+        enabled: false
+    dashboards-destroy:
+        operation: dashboards_destroy
+        enabled: false
+    dashboards-list:
+        operation: dashboards_list
+        enabled: false
+    dashboards-move-tile-partial-update:
+        operation: dashboards_move_tile_partial_update
+        enabled: false
+    dashboards-partial-update:
+        operation: dashboards_partial_update
+        enabled: false
+    dashboards-reorder-tiles-create:
+        operation: dashboards_reorder_tiles_create
+        enabled: false
+    dashboards-retrieve:
+        operation: dashboards_retrieve
+        enabled: false
+    dashboards-run-insights-retrieve:
+        operation: dashboards_run_insights_retrieve
+        enabled: false
+    dashboards-sharing-list:
+        operation: dashboards_sharing_list
+        enabled: false
+    dashboards-sharing-passwords-create:
+        operation: dashboards_sharing_passwords_create
+        enabled: false
+    dashboards-sharing-passwords-destroy:
+        operation: dashboards_sharing_passwords_destroy
+        enabled: false
+    dashboards-sharing-refresh-create:
+        operation: dashboards_sharing_refresh_create
+        enabled: false
+    dashboards-snapshot-create:
+        operation: dashboards_snapshot_create
+        enabled: false
+    dashboards-stream-tiles-retrieve:
+        operation: dashboards_stream_tiles_retrieve
+        enabled: false
+    dashboards-update:
+        operation: dashboards_update
+        enabled: false
+    delete-secret-token-backup-partial-update:
+        operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
     domains-create:
         operation: domains_create
         enabled: false
-    domains-retrieve:
-        operation: domains_retrieve
+    domains-destroy:
+        operation: domains_destroy
         enabled: false
-    domains-update:
-        operation: domains_update
+    domains-list:
+        operation: domains_list
         enabled: false
     domains-partial-update:
         operation: domains_partial_update
         enabled: false
-    domains-destroy:
-        operation: domains_destroy
+    domains-retrieve:
+        operation: domains_retrieve
         enabled: false
     domains-scim-logs-retrieve:
         operation: domains_scim_logs_retrieve
@@ -41,11 +215,146 @@ tools:
     domains-scim-token-create:
         operation: domains_scim_token_create
         enabled: false
+    domains-update:
+        operation: domains_update
+        enabled: false
     domains-verify-create:
         operation: domains_verify_create
         enabled: false
-    invites-list:
-        operation: invites_list
+    event-definitions-bulk-update-tags-create:
+        operation: event_definitions_bulk_update_tags_create
+        enabled: false
+    event-definitions-by-name-retrieve:
+        operation: event_definitions_by_name_retrieve
+        enabled: false
+    event-definitions-create:
+        operation: event_definitions_create
+        enabled: false
+    event-definitions-destroy:
+        operation: event_definitions_destroy
+        enabled: false
+    event-definitions-golang-retrieve:
+        operation: event_definitions_golang_retrieve
+        enabled: false
+    event-definitions-list:
+        operation: event_definitions_list
+        enabled: false
+    event-definitions-metrics-retrieve:
+        operation: event_definitions_metrics_retrieve
+        enabled: false
+    event-definitions-partial-update:
+        operation: event_definitions_partial_update
+        enabled: false
+    event-definitions-python-retrieve:
+        operation: event_definitions_python_retrieve
+        enabled: false
+    event-definitions-retrieve:
+        operation: event_definitions_retrieve
+        enabled: false
+    event-definitions-typescript-retrieve:
+        operation: event_definitions_typescript_retrieve
+        enabled: false
+    event-definitions-update:
+        operation: event_definitions_update
+        enabled: false
+    exports-content-retrieve:
+        operation: exports_content_retrieve
+        enabled: false
+    exports-create:
+        operation: exports_create
+        enabled: false
+    exports-list:
+        operation: exports_list
+        enabled: false
+    exports-retrieve:
+        operation: exports_retrieve
+        enabled: false
+    file-system-count-by-path-create:
+        operation: file_system_count_by_path_create
+        enabled: false
+    file-system-count-create:
+        operation: file_system_count_create
+        enabled: false
+    file-system-create:
+        operation: file_system_create
+        enabled: false
+    file-system-destroy:
+        operation: file_system_destroy
+        enabled: false
+    file-system-link-create:
+        operation: file_system_link_create
+        enabled: false
+    file-system-list:
+        operation: file_system_list
+        enabled: false
+    file-system-log-view-create:
+        operation: file_system_log_view_create
+        enabled: false
+    file-system-log-view-retrieve:
+        operation: file_system_log_view_retrieve
+        enabled: false
+    file-system-move-create:
+        operation: file_system_move_create
+        enabled: false
+    file-system-partial-update:
+        operation: file_system_partial_update
+        enabled: false
+    file-system-retrieve:
+        operation: file_system_retrieve
+        enabled: false
+    file-system-undo-delete-create:
+        operation: file_system_undo_delete_create
+        enabled: false
+    file-system-unfiled-retrieve:
+        operation: file_system_unfiled_retrieve
+        enabled: false
+    file-system-update:
+        operation: file_system_update
+        enabled: false
+    generate-conversations-public-token-create:
+        operation: organizations_projects_generate_conversations_public_token_create
+        enabled: false
+    groups-activity-retrieve:
+        operation: groups_activity_retrieve
+        enabled: false
+    groups-create:
+        operation: groups_create
+        enabled: false
+    groups-delete-property-create:
+        operation: groups_delete_property_create
+        enabled: false
+    groups-find-retrieve:
+        operation: groups_find_retrieve
+        enabled: false
+    groups-list:
+        operation: groups_list
+        enabled: false
+    groups-property-definitions-retrieve:
+        operation: groups_property_definitions_retrieve
+        enabled: false
+    groups-property-values-retrieve:
+        operation: groups_property_values_retrieve
+        enabled: false
+    groups-related-retrieve:
+        operation: groups_related_retrieve
+        enabled: false
+    groups-update-property-create:
+        operation: groups_update_property_create
+        enabled: false
+    insights-sharing-list:
+        operation: insights_sharing_list
+        enabled: false
+    insights-sharing-passwords-create:
+        operation: insights_sharing_passwords_create
+        enabled: false
+    insights-sharing-passwords-destroy:
+        operation: insights_sharing_passwords_destroy
+        enabled: false
+    insights-sharing-refresh-create:
+        operation: insights_sharing_refresh_create
+        enabled: false
+    invites-bulk-create:
+        operation: invites_bulk_create
         enabled: false
     invites-create:
         operation: invites_create
@@ -53,32 +362,41 @@ tools:
     invites-destroy:
         operation: invites_destroy
         enabled: false
-    invites-bulk-create:
-        operation: invites_bulk_create
+    invites-list:
+        operation: invites_list
         enabled: false
-    members-list:
-        operation: members_list
+    is-generating-demo-data-retrieve:
+        operation: organizations_projects_is_generating_demo_data_retrieve
         enabled: false
-    members-update:
-        operation: members_update
+    legal-documents-create:
+        operation: legal_documents_create
         enabled: false
-    members-partial-update:
-        operation: members_partial_update
+    legal-documents-download-retrieve:
+        operation: legal_documents_download_retrieve
+        enabled: false
+    legal-documents-list:
+        operation: legal_documents_list
+        enabled: false
+    legal-documents-retrieve:
+        operation: legal_documents_retrieve
         enabled: false
     members-destroy:
         operation: members_destroy
         enabled: false
+    members-list:
+        operation: members_list
+        enabled: false
+    members-partial-update:
+        operation: members_partial_update
+        enabled: false
     members-scoped-api-keys-retrieve:
         operation: members_scoped_api_keys_retrieve
         enabled: false
+    members-update:
+        operation: members_update
+        enabled: false
     oauth-applications-list:
         operation: oauth_applications_list
-        enabled: false
-    projects-list:
-        operation: organizations_projects_list
-        enabled: false
-    projects-create:
-        operation: organizations_projects_create
         enabled: false
     project-get:
         operation: organizations_projects_retrieve
@@ -101,8 +419,26 @@ tools:
                 - secret_api_token_backup
                 - live_events_token
                 - default_modifiers
-    projects-update:
-        operation: organizations_projects_update
+    project-secret-api-keys-create:
+        operation: project_secret_api_keys_create
+        enabled: false
+    project-secret-api-keys-destroy:
+        operation: project_secret_api_keys_destroy
+        enabled: false
+    project-secret-api-keys-list:
+        operation: project_secret_api_keys_list
+        enabled: false
+    project-secret-api-keys-partial-update:
+        operation: project_secret_api_keys_partial_update
+        enabled: false
+    project-secret-api-keys-retrieve:
+        operation: project_secret_api_keys_retrieve
+        enabled: false
+    project-secret-api-keys-roll-create:
+        operation: project_secret_api_keys_roll_create
+        enabled: false
+    project-secret-api-keys-update:
+        operation: project_secret_api_keys_update
         enabled: false
     project-settings-update:
         operation: organizations_projects_partial_update
@@ -138,41 +474,53 @@ tools:
         param_overrides:
             id:
                 description: Project ID, or `@current` to target the caller's active project.
+    projects-create:
+        operation: organizations_projects_create
+        enabled: false
     projects-destroy:
         operation: organizations_projects_destroy
         enabled: false
-    activity-retrieve:
-        operation: organizations_projects_activity_retrieve
+    projects-list:
+        operation: organizations_projects_list
         enabled: false
-    add-product-intent-partial-update:
-        operation: organizations_projects_add_product_intent_partial_update
+    projects-update:
+        operation: organizations_projects_update
         enabled: false
-    change-organization-create:
-        operation: organizations_projects_change_organization_create
+    property-definitions-bulk-update-tags-create:
+        operation: property_definitions_bulk_update_tags_create
         enabled: false
-    complete-product-onboarding-partial-update:
-        operation: organizations_projects_complete_product_onboarding_partial_update
+    property-definitions-destroy:
+        operation: property_definitions_destroy
         enabled: false
-    delete-secret-token-backup-partial-update:
-        operation: organizations_projects_delete_secret_token_backup_partial_update
+    property-definitions-list:
+        operation: property_definitions_list
         enabled: false
-    generate-conversations-public-token-create:
-        operation: organizations_projects_generate_conversations_public_token_create
+    property-definitions-partial-update:
+        operation: property_definitions_partial_update
         enabled: false
-    is-generating-demo-data-retrieve:
-        operation: organizations_projects_is_generating_demo_data_retrieve
+    property-definitions-retrieve:
+        operation: property_definitions_retrieve
+        enabled: false
+    property-definitions-seen-together-retrieve:
+        operation: property_definitions_seen_together_retrieve
+        enabled: false
+    property-definitions-update:
+        operation: property_definitions_update
         enabled: false
     reset-token-partial-update:
         operation: organizations_projects_reset_token_partial_update
         enabled: false
-    rotate-secret-token-partial-update:
-        operation: organizations_projects_rotate_secret_token_partial_update
+    roles-create:
+        operation: roles_create
+        enabled: false
+    roles-destroy:
+        operation: roles_destroy
         enabled: false
     roles-list:
         operation: roles_list
         enabled: false
-    roles-create:
-        operation: roles_create
+    roles-partial-update:
+        operation: roles_partial_update
         enabled: false
     roles-retrieve:
         operation: roles_retrieve
@@ -180,302 +528,8 @@ tools:
     roles-update:
         operation: roles_update
         enabled: false
-    roles-partial-update:
-        operation: roles_partial_update
-        enabled: false
-    roles-destroy:
-        operation: roles_destroy
-        enabled: false
-    annotations-list:
-        operation: annotations_list
-        enabled: false
-    annotations-create:
-        operation: annotations_create
-        enabled: false
-    annotations-retrieve:
-        operation: annotations_retrieve
-        enabled: false
-    annotations-update:
-        operation: annotations_update
-        enabled: false
-    annotations-partial-update:
-        operation: annotations_partial_update
-        enabled: false
-    annotations-destroy:
-        operation: annotations_destroy
-        enabled: false
-    cohorts-list:
-        operation: cohorts_list
-        enabled: false
-    cohorts-create:
-        operation: cohorts_create
-        enabled: false
-    cohorts-retrieve:
-        operation: cohorts_retrieve
-        enabled: false
-    cohorts-update:
-        operation: cohorts_update
-        enabled: false
-    cohorts-partial-update:
-        operation: cohorts_partial_update
-        enabled: false
-    cohorts-destroy:
-        operation: cohorts_destroy
-        enabled: false
-    cohorts-activity-retrieve:
-        operation: cohorts_activity_retrieve
-        enabled: false
-    cohorts-add-persons-to-static-cohort-partial-update:
-        operation: cohorts_add_persons_to_static_cohort_partial_update
-        enabled: false
-    cohorts-calculation-history-retrieve:
-        operation: cohorts_calculation_history_retrieve
-        enabled: false
-    cohorts-persons-retrieve:
-        operation: cohorts_persons_retrieve
-        enabled: false
-    cohorts-remove-person-from-static-cohort-partial-update:
-        operation: cohorts_remove_person_from_static_cohort_partial_update
-        enabled: false
-    comments-list:
-        operation: comments_list
-        enabled: false
-    comments-create:
-        operation: comments_create
-        enabled: false
-    comments-retrieve:
-        operation: comments_retrieve
-        enabled: false
-    comments-update:
-        operation: comments_update
-        enabled: false
-    comments-partial-update:
-        operation: comments_partial_update
-        enabled: false
-    comments-destroy:
-        operation: comments_destroy
-        enabled: false
-    comments-thread-retrieve:
-        operation: comments_thread_retrieve
-        enabled: false
-    comments-count-retrieve:
-        operation: comments_count_retrieve
-        enabled: false
-    dashboard-templates-list:
-        operation: dashboard_templates_list
-        enabled: false
-    dashboard-templates-create:
-        operation: dashboard_templates_create
-        enabled: false
-    dashboard-templates-retrieve:
-        operation: dashboard_templates_retrieve
-        enabled: false
-    dashboard-templates-update:
-        operation: dashboard_templates_update
-        enabled: false
-    dashboard-templates-partial-update:
-        operation: dashboard_templates_partial_update
-        enabled: false
-    dashboard-templates-destroy:
-        operation: dashboard_templates_destroy
-        enabled: false
-    dashboard-templates-json-schema-retrieve:
-        operation: dashboard_templates_json_schema_retrieve
-        enabled: false
-    dashboards-list:
-        operation: dashboards_list
-        enabled: false
-    dashboards-create:
-        operation: dashboards_create
-        enabled: false
-    dashboards-sharing-list:
-        operation: dashboards_sharing_list
-        enabled: false
-    dashboards-sharing-passwords-create:
-        operation: dashboards_sharing_passwords_create
-        enabled: false
-    dashboards-sharing-passwords-destroy:
-        operation: dashboards_sharing_passwords_destroy
-        enabled: false
-    dashboards-sharing-refresh-create:
-        operation: dashboards_sharing_refresh_create
-        enabled: false
-    dashboards-retrieve:
-        operation: dashboards_retrieve
-        enabled: false
-    dashboards-update:
-        operation: dashboards_update
-        enabled: false
-    dashboards-partial-update:
-        operation: dashboards_partial_update
-        enabled: false
-    dashboards-destroy:
-        operation: dashboards_destroy
-        enabled: false
-    dashboards-analyze-refresh-result-create:
-        operation: dashboards_analyze_refresh_result_create
-        enabled: false
-    dashboards-move-tile-partial-update:
-        operation: dashboards_move_tile_partial_update
-        enabled: false
-    dashboards-reorder-tiles-create:
-        operation: dashboards_reorder_tiles_create
-        enabled: false
-    dashboards-snapshot-create:
-        operation: dashboards_snapshot_create
-        enabled: false
-    dashboards-stream-tiles-retrieve:
-        operation: dashboards_stream_tiles_retrieve
-        enabled: false
-    dashboards-create-from-template-json-create:
-        operation: dashboards_create_from_template_json_create
-        enabled: false
-    dashboards-create-unlisted-dashboard-create:
-        operation: dashboards_create_unlisted_dashboard_create
-        enabled: false
-    event-definitions-list:
-        operation: event_definitions_list
-        enabled: false
-    event-definitions-create:
-        operation: event_definitions_create
-        enabled: false
-    event-definitions-retrieve:
-        operation: event_definitions_retrieve
-        enabled: false
-    event-definitions-update:
-        operation: event_definitions_update
-        enabled: false
-    event-definitions-partial-update:
-        operation: event_definitions_partial_update
-        enabled: false
-    event-definitions-destroy:
-        operation: event_definitions_destroy
-        enabled: false
-    event-definitions-metrics-retrieve:
-        operation: event_definitions_metrics_retrieve
-        enabled: false
-    event-definitions-by-name-retrieve:
-        operation: event_definitions_by_name_retrieve
-        enabled: false
-    event-definitions-golang-retrieve:
-        operation: event_definitions_golang_retrieve
-        enabled: false
-    event-definitions-python-retrieve:
-        operation: event_definitions_python_retrieve
-        enabled: false
-    event-definitions-typescript-retrieve:
-        operation: event_definitions_typescript_retrieve
-        enabled: false
-    exports-list:
-        operation: exports_list
-        enabled: false
-    exports-create:
-        operation: exports_create
-        enabled: false
-    exports-retrieve:
-        operation: exports_retrieve
-        enabled: false
-    exports-content-retrieve:
-        operation: exports_content_retrieve
-        enabled: false
-    file-system-list:
-        operation: file_system_list
-        enabled: false
-    file-system-create:
-        operation: file_system_create
-        enabled: false
-    file-system-retrieve:
-        operation: file_system_retrieve
-        enabled: false
-    file-system-update:
-        operation: file_system_update
-        enabled: false
-    file-system-partial-update:
-        operation: file_system_partial_update
-        enabled: false
-    file-system-destroy:
-        operation: file_system_destroy
-        enabled: false
-    file-system-count-create:
-        operation: file_system_count_create
-        enabled: false
-    file-system-link-create:
-        operation: file_system_link_create
-        enabled: false
-    file-system-move-create:
-        operation: file_system_move_create
-        enabled: false
-    file-system-count-by-path-create:
-        operation: file_system_count_by_path_create
-        enabled: false
-    file-system-log-view-retrieve:
-        operation: file_system_log_view_retrieve
-        enabled: false
-    file-system-log-view-create:
-        operation: file_system_log_view_create
-        enabled: false
-    file-system-undo-delete-create:
-        operation: file_system_undo_delete_create
-        enabled: false
-    file-system-unfiled-retrieve:
-        operation: file_system_unfiled_retrieve
-        enabled: false
-    groups-list:
-        operation: groups_list
-        enabled: false
-    groups-create:
-        operation: groups_create
-        enabled: false
-    groups-activity-retrieve:
-        operation: groups_activity_retrieve
-        enabled: false
-    groups-delete-property-create:
-        operation: groups_delete_property_create
-        enabled: false
-    groups-find-retrieve:
-        operation: groups_find_retrieve
-        enabled: false
-    groups-property-definitions-retrieve:
-        operation: groups_property_definitions_retrieve
-        enabled: false
-    groups-property-values-retrieve:
-        operation: groups_property_values_retrieve
-        enabled: false
-    groups-related-retrieve:
-        operation: groups_related_retrieve
-        enabled: false
-    groups-update-property-create:
-        operation: groups_update_property_create
-        enabled: false
-    insights-sharing-list:
-        operation: insights_sharing_list
-        enabled: false
-    insights-sharing-passwords-create:
-        operation: insights_sharing_passwords_create
-        enabled: false
-    insights-sharing-passwords-destroy:
-        operation: insights_sharing_passwords_destroy
-        enabled: false
-    insights-sharing-refresh-create:
-        operation: insights_sharing_refresh_create
-        enabled: false
-    property-definitions-list:
-        operation: property_definitions_list
-        enabled: false
-    property-definitions-retrieve:
-        operation: property_definitions_retrieve
-        enabled: false
-    property-definitions-update:
-        operation: property_definitions_update
-        enabled: false
-    property-definitions-partial-update:
-        operation: property_definitions_partial_update
-        enabled: false
-    property-definitions-destroy:
-        operation: property_definitions_destroy
-        enabled: false
-    property-definitions-seen-together-retrieve:
-        operation: property_definitions_seen_together_retrieve
+    rotate-secret-token-partial-update:
+        operation: organizations_projects_rotate_secret_token_partial_update
         enabled: false
     session-recordings-sharing-list:
         operation: session_recordings_sharing_list
@@ -489,21 +543,6 @@ tools:
     session-recordings-sharing-refresh-create:
         operation: session_recordings_sharing_refresh_create
         enabled: false
-    subscriptions-list:
-        operation: subscriptions_list
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List subscriptions
-        description: >
-            List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or
-            dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday),
-            next_delivery_date, and a human-readable summary.
     subscriptions-create:
         operation: subscriptions_create
         enabled: true
@@ -527,210 +566,6 @@ tools:
             - summary
             - insight_short_id
             - resource_name
-    subscriptions-retrieve:
-        operation: subscriptions_retrieve
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get subscription
-        description: >
-            Get a specific subscription by ID. Returns the full subscription configuration including target type and
-            value, schedule details, next delivery date, and associated insight or dashboard.
-    subscriptions-update:
-        operation: subscriptions_update
-        enabled: false
-    subscriptions-partial-update:
-        operation: subscriptions_partial_update
-        enabled: true
-        scopes:
-            - subscription:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Update subscription
-        description: >
-            Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday,
-            start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription
-            (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.
-        exclude_params:
-            - created_by
-            - next_delivery_date
-            - summary
-            - insight_short_id
-            - resource_name
-    subscriptions-destroy:
-        operation: subscriptions_destroy
-        enabled: false
-    users-list:
-        operation: users_list
-        enabled: false
-    user-get:
-        operation: users_retrieve
-        enabled: true
-        scopes:
-            - user:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get user
-        description: >
-            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff
-            callers may only access their own account.
-        param_overrides:
-            uuid:
-                description: User UUID, or `@me` to target the authenticated user.
-        response:
-            exclude:
-                - is_impersonated
-                - is_impersonated_until
-                - is_impersonated_read_only
-                - sensitive_session_expires_at
-    users-update:
-        operation: users_update
-        enabled: false
-    user-settings-update:
-        operation: users_partial_update
-        enabled: true
-        scopes:
-            - user:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Update user settings
-        description: >
-            Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the
-            request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account. Use
-            `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email`
-            triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes
-            with the user before applying.
-        exclude_params:
-            - date_joined
-            - uuid
-            - distinct_id
-            - pending_email
-            - is_email_verified
-            - has_password
-            - id
-            - is_staff
-            - is_impersonated
-            - is_impersonated_until
-            - is_impersonated_read_only
-            - sensitive_session_expires_at
-            - team
-            - organization
-            - organizations
-            - has_social_auth
-            - has_sso_enforcement
-            - is_2fa_enabled
-            - scene_personalisation
-        param_overrides:
-            uuid:
-                description: User UUID, or `@me` to target the authenticated user.
-    users-destroy:
-        operation: users_destroy
-        enabled: false
-    users-hedgehog-config-retrieve:
-        operation: users_hedgehog_config_retrieve
-        enabled: false
-    users-hedgehog-config-partial-update:
-        operation: users_hedgehog_config_partial_update
-        enabled: false
-    users-scene-personalisation-create:
-        operation: users_scene_personalisation_create
-        enabled: false
-    users-start-2fa-setup-retrieve:
-        operation: users_start_2fa_setup_retrieve
-        enabled: false
-    users-two-factor-backup-codes-create:
-        operation: users_two_factor_backup_codes_create
-        enabled: false
-    users-two-factor-disable-create:
-        operation: users_two_factor_disable_create
-        enabled: false
-    users-two-factor-start-setup-retrieve:
-        operation: users_two_factor_start_setup_retrieve
-        enabled: false
-    users-two-factor-status-retrieve:
-        operation: users_two_factor_status_retrieve
-        enabled: false
-    users-two-factor-validate-create:
-        operation: users_two_factor_validate_create
-        enabled: false
-    users-validate-2fa-create:
-        operation: users_validate_2fa_create
-        enabled: false
-    users-cancel-email-change-request-partial-update:
-        operation: users_cancel_email_change_request_partial_update
-        enabled: false
-    users-request-email-verification-create:
-        operation: users_request_email_verification_create
-        enabled: false
-    users-verify-email-create:
-        operation: users_verify_email_create
-        enabled: false
-    dashboards-copy-tile-create:
-        operation: dashboards_copy_tile_create
-        enabled: false
-    project-secret-api-keys-list:
-        operation: project_secret_api_keys_list
-        enabled: false
-    project-secret-api-keys-create:
-        operation: project_secret_api_keys_create
-        enabled: false
-    project-secret-api-keys-retrieve:
-        operation: project_secret_api_keys_retrieve
-        enabled: false
-    project-secret-api-keys-update:
-        operation: project_secret_api_keys_update
-        enabled: false
-    project-secret-api-keys-partial-update:
-        operation: project_secret_api_keys_partial_update
-        enabled: false
-    project-secret-api-keys-destroy:
-        operation: project_secret_api_keys_destroy
-        enabled: false
-    project-secret-api-keys-roll-create:
-        operation: project_secret_api_keys_roll_create
-        enabled: false
-    dashboards-bulk-update-tags-create:
-        operation: dashboards_bulk_update_tags_create
-        enabled: false
-    event-definitions-bulk-update-tags-create:
-        operation: event_definitions_bulk_update_tags_create
-        enabled: false
-    property-definitions-bulk-update-tags-create:
-        operation: property_definitions_bulk_update_tags_create
-        enabled: false
-    subscriptions-test-delivery-create:
-        operation: subscriptions_test_delivery_create
-        enabled: true
-        scopes:
-            - subscription:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Send test delivery
-        description: >
-            Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook).
-            Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery
-            record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202
-            Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or
-            subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription
-            is already in flight.
-    users-github-login-retrieve:
-        operation: users_github_login_retrieve
-        enabled: false
-    dashboards-run-insights-retrieve:
-        operation: dashboards_run_insights_retrieve
-        enabled: false
     subscriptions-deliveries-list:
         operation: subscriptions_deliveries_list
         enabled: true
@@ -774,21 +609,186 @@ tools:
                 - content_snapshot
                 - recipient_results
                 - error
-    legal-documents-list:
-        operation: legal_documents_list
+    subscriptions-destroy:
+        operation: subscriptions_destroy
         enabled: false
-    legal-documents-create:
-        operation: legal_documents_create
+    subscriptions-list:
+        operation: subscriptions_list
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List subscriptions
+        description: >
+            List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or
+            dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday),
+            next_delivery_date, and a human-readable summary.
+    subscriptions-partial-update:
+        operation: subscriptions_partial_update
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update subscription
+        description: >
+            Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday,
+            start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription
+            (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.
+        exclude_params:
+            - created_by
+            - next_delivery_date
+            - summary
+            - insight_short_id
+            - resource_name
+    subscriptions-retrieve:
+        operation: subscriptions_retrieve
+        enabled: true
+        scopes:
+            - subscription:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get subscription
+        description: >
+            Get a specific subscription by ID. Returns the full subscription configuration including target type and
+            value, schedule details, next delivery date, and associated insight or dashboard.
+    subscriptions-test-delivery-create:
+        operation: subscriptions_test_delivery_create
+        enabled: true
+        scopes:
+            - subscription:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Send test delivery
+        description: >
+            Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook).
+            Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery
+            record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202
+            Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or
+            subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription
+            is already in flight.
+    subscriptions-update:
+        operation: subscriptions_update
         enabled: false
-    legal-documents-retrieve:
-        operation: legal_documents_retrieve
+    user-get:
+        operation: users_retrieve
+        enabled: true
+        scopes:
+            - user:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get user
+        description: >
+            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff
+            callers may only access their own account.
+        param_overrides:
+            uuid:
+                description: User UUID, or `@me` to target the authenticated user.
+        response:
+            exclude:
+                - is_impersonated
+                - is_impersonated_until
+                - is_impersonated_read_only
+                - sensitive_session_expires_at
+    user-settings-update:
+        operation: users_partial_update
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update user settings
+        description: >
+            Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the
+            request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account. Use
+            `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email`
+            triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes
+            with the user before applying.
+        exclude_params:
+            - date_joined
+            - uuid
+            - distinct_id
+            - pending_email
+            - is_email_verified
+            - has_password
+            - id
+            - is_staff
+            - is_impersonated
+            - is_impersonated_until
+            - is_impersonated_read_only
+            - sensitive_session_expires_at
+            - team
+            - organization
+            - organizations
+            - has_social_auth
+            - has_sso_enforcement
+            - is_2fa_enabled
+            - scene_personalisation
+        param_overrides:
+            uuid:
+                description: User UUID, or `@me` to target the authenticated user.
+    users-cancel-email-change-request-partial-update:
+        operation: users_cancel_email_change_request_partial_update
         enabled: false
-    dashboard-templates-copy-between-projects-create:
-        operation: dashboard_templates_copy_between_projects_create
+    users-destroy:
+        operation: users_destroy
         enabled: false
-    legal-documents-download-retrieve:
-        operation: legal_documents_download_retrieve
+    users-github-login-retrieve:
+        operation: users_github_login_retrieve
         enabled: false
-    cohorts-all-activity-retrieve:
-        operation: cohorts_all_activity_retrieve
+    users-hedgehog-config-partial-update:
+        operation: users_hedgehog_config_partial_update
+        enabled: false
+    users-hedgehog-config-retrieve:
+        operation: users_hedgehog_config_retrieve
+        enabled: false
+    users-list:
+        operation: users_list
+        enabled: false
+    users-request-email-verification-create:
+        operation: users_request_email_verification_create
+        enabled: false
+    users-scene-personalisation-create:
+        operation: users_scene_personalisation_create
+        enabled: false
+    users-start-2fa-setup-retrieve:
+        operation: users_start_2fa_setup_retrieve
+        enabled: false
+    users-two-factor-backup-codes-create:
+        operation: users_two_factor_backup_codes_create
+        enabled: false
+    users-two-factor-disable-create:
+        operation: users_two_factor_disable_create
+        enabled: false
+    users-two-factor-start-setup-retrieve:
+        operation: users_two_factor_start_setup_retrieve
+        enabled: false
+    users-two-factor-status-retrieve:
+        operation: users_two_factor_status_retrieve
+        enabled: false
+    users-two-factor-validate-create:
+        operation: users_two_factor_validate_create
+        enabled: false
+    users-update:
+        operation: users_update
+        enabled: false
+    users-validate-2fa-create:
+        operation: users_validate_2fa_create
+        enabled: false
+    users-verify-email-create:
+        operation: users_verify_email_create
         enabled: false

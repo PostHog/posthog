@@ -28,7 +28,10 @@ tools:
             destructive: false
             idempotent: false
         title: Add persons to static cohort
-        description: |
+        description: ''
+    cohorts-all-activity-retrieve:
+        operation: cohorts_all_activity_retrieve
+        enabled: false
     cohorts-calculation-history-retrieve:
         operation: cohorts_calculation_history_retrieve
         enabled: false
@@ -156,7 +159,4 @@ tools:
         enabled: false
     persons-cohorts-retrieve:
         operation: persons_cohorts_retrieve
-        enabled: false
-    cohorts-all-activity-retrieve:
-        operation: cohorts_all_activity_retrieve
         enabled: false

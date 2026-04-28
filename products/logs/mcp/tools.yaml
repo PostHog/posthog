@@ -9,7 +9,6 @@ feature: logs
 url_prefix: /logs
 ui_apps: {}
 tools:
-    
     batch-exports-logs-retrieve:
         operation: batch_exports_logs_retrieve
         enabled: false
@@ -252,6 +251,20 @@ tools:
             include:
                 - results
                 - count
+    logs-count:
+        operation: logs_count_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Count logs
+        description_file: ./prompts/logs-count.md
+        response:
+            include:
+                - count
     logs-explain-log-with-ai-create:
         operation: logs_explainLogWithAI_create
         enabled: false
@@ -317,17 +330,3 @@ tools:
     tasks-runs-logs-retrieve:
         operation: tasks_runs_logs_retrieve
         enabled: false
-    logs-count:
-        operation: logs_count_create
-        enabled: true
-        scopes:
-            - logs:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Count logs
-        description_file: ./prompts/logs-count.md
-        response:
-            include:
-                - count
