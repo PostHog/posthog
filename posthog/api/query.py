@@ -83,12 +83,16 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
 # which is the signal to register them.
 _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
     "Cohort": {"product": ProductKey.COHORTS, "feature": Feature.COHORT},
+    "EndpointScene": {"product": ProductKey.ENDPOINTS, "feature": Feature.QUERY},
+    "EndpointsScene": {"product": ProductKey.ENDPOINTS, "feature": Feature.QUERY},
     # Data management surfaces fan out into ad-hoc queries (e.g. the promoted-property picker
     # introspecting which keys exist on an event). Tagged with scene-specific features so query
     # usage analysis can attribute load to the originating product surface.
     "EventDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "Notebook": {"product": ProductKey.NOTEBOOKS, "feature": Feature.QUERY},
+    "SQLEditor": {"product": ProductKey.DATA_WAREHOUSE, "feature": Feature.QUERY},
     "PropertyDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
     "PropertyDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
     "PropertyDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},

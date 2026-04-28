@@ -4,6 +4,7 @@ import time
 import hashlib
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from posthog.models.integration import Integration
 
@@ -170,6 +171,15 @@ class TestCustomerIOWebhook(APIBaseTest):
         self.assertTrue(
             MessageRecipientPreference.objects.filter(team=self.team, identifier="unauthed@example.com").exists()
         )
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_throttle_does_not_500_when_session_absent(self, _mock):
+        # Regression: webhook auth used to return (None, ...) which crashed the
+        # default DRF throttles when they read request.user.is_authenticated.
+        self.client.logout()
+        body = {"metric": "unsubscribed", "data": {"email_address": "throttled@example.com"}}
+        response = self._post_webhook(body)
+        self.assertEqual(response.status_code, 200)
 
     # ── customer_unsubscribed ──
 

@@ -145,10 +145,6 @@ posthog/temporal/weekly-digest @PostHog/team-growth
 .github/dependabot.yml @PostHog/team-devex
 Dockerfile @PostHog/team-devex
 docker-compose\*.yml @PostHog/team-devex
-pyproject.toml @PostHog/team-devex
-uv.lock @PostHog/team-devex
-package.json @PostHog/team-devex
-package-lock.json @PostHog/team-devex
 .prettierrc @PostHog/team-devex
 mypy.ini @PostHog/team-devex
 posthog/management/migration_analysis/ @PostHog/team-devex
@@ -160,7 +156,7 @@ CODEOWNERS @PostHog/team-devex
 CLAUDE.md @PostHog/team-devex
 AGENTS.md @PostHog/team-devex
 .claude/ @PostHog/team-devex
-.agents/ @PostHog/team-devex
+.agents/* @PostHog/team-devex
 .claude/agents/ingestion/ @PostHog/team-ingestion
 .agents/skills/ingestion-*/ @PostHog/team-ingestion
 .claude/skills/ingestion-*/ @PostHog/team-ingestion
