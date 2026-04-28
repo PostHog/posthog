@@ -493,9 +493,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         ):
             obj.person_uuids = []
             obj.person_distinct_ids = []
-            obj.person_drop_profiles = False
-            obj.person_drop_events = False
-            obj.person_drop_recordings = False
+            obj.person_drop_profiles = None
+            obj.person_drop_events = None
+            obj.person_drop_recordings = None
             messages.info(request, "Person targets cleared — only person_removal requests use them.")
         super().save_model(request, obj, form, change)
 

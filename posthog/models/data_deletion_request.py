@@ -159,11 +159,22 @@ class DataDeletionRequest(UUIDModel):
         help_text="Person distinct IDs to target. Combined with person_uuids; total ≤ 1000.",
     )
     person_drop_profiles = models.BooleanField(
-        default=False, help_text="Drop person profiles (Postgres + ClickHouse tombstone)."
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Drop person profiles (Postgres + ClickHouse tombstone). NULL when not a person_removal request.",
     )
-    person_drop_events = models.BooleanField(default=False, help_text="Drop event records linked to these persons.")
+    person_drop_events = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Drop event records linked to these persons. NULL when not a person_removal request.",
+    )
     person_drop_recordings = models.BooleanField(
-        default=False, help_text="Drop session recordings linked to these persons."
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Drop session recordings linked to these persons. NULL when not a person_removal request.",
     )
 
     status = models.CharField(max_length=40, choices=RequestStatus.choices, default=RequestStatus.DRAFT)
