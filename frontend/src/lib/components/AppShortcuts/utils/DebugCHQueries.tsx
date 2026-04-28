@@ -85,7 +85,7 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
     path(['lib', 'components', 'CommandPalette', 'DebugCHQueries']),
     actions({
         setPathFilter: (path: string | null) => ({ path }),
-        runProfile: (query: string) => ({ query }),
+        runProfile: (queryId: string, query: string) => ({ queryId, query }),
     }),
     reducers({
         pathFilter: [
@@ -121,9 +121,9 @@ const debugCHQueriesLogic = kea<debugCHQueriesLogicType>([
         profilingResult: [
             null as ProfilingResult | null,
             {
-                runProfile: async ({ query }: { query: string }) => {
+                runProfile: async ({ queryId, query }: { queryId: string; query: string }) => {
                     const { profile_query_id, execution_time_ms } = await api.create('api/debug_ch_queries/profile/', {
-                        query,
+                        query_id: queryId,
                     })
 
                     const maxAttempts = 10
@@ -535,7 +535,7 @@ export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps)
                                             center
                                             icon={<IconSearch />}
                                             loading={profilingResultLoading && profilingQuerySql === item.query}
-                                            onClick={() => runProfile(item.query)}
+                                            onClick={() => runProfile(item.query_id, item.query)}
                                             className="my-0"
                                         >
                                             Profile this query

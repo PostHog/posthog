@@ -420,14 +420,45 @@ class DebugCHQueries(viewsets.ViewSet):
             ]
         )
 
+    def _lookup_query_by_id(self, query_id: str) -> Optional[str]:
+        # Profiling re-executes the original SQL. Looking it up from system.query_log
+        # rather than accepting raw SQL keeps client.execute off arbitrary input —
+        # readonly=2 still permits url()/file()/s3()/remote() table functions, which
+        # would otherwise allow ClickHouse-initiated egress.
+        response = sync_execute(
+            """
+            SELECT argMax(query, type) AS query
+            FROM clusterAllReplicas(%(cluster)s, system, query_log)
+            WHERE
+                query_id = %(query_id)s
+                AND is_initial_query
+                AND query NOT LIKE %(not_query)s
+                AND event_time > now() - INTERVAL 14 DAY
+            GROUP BY query_id
+            SETTINGS skip_unavailable_shards=1
+            """,
+            {
+                "cluster": CLICKHOUSE_CLUSTER,
+                "query_id": query_id,
+                "not_query": "%request:_api_debug_ch_queries_%",
+            },
+        )
+        if not response:
+            return None
+        return response[0][0]
+
     @action(detail=False, methods=["POST"])
     def profile(self, request):
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can profile queries.")
 
-        query = request.data.get("query", "").strip()
+        query_id = request.data.get("query_id", "").strip()
+        if not query_id:
+            raise exceptions.ValidationError("No query_id provided.")
+
+        query = self._lookup_query_by_id(query_id)
         if not query:
-            raise exceptions.ValidationError("No query provided.")
+            raise exceptions.ValidationError("Query not found in system.query_log.")
 
         profile_query_id = f"profile_{generate_short_id()}"
 
