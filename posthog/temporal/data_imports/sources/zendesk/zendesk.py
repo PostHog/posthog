@@ -19,8 +19,6 @@ def normalize_subdomain(subdomain: str) -> str:
     saved before subdomain validation existed can otherwise produce URLs like
     ``https://acme.zendesk.com.zendesk.com/`` that fail TLS on every sync.
     """
-    if subdomain is None:
-        return subdomain
     value = subdomain.strip()
     for scheme in ("https://", "http://"):
         if value.lower().startswith(scheme):

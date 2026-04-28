@@ -75,8 +75,7 @@ class TestZendeskSourceValidateCredentials:
         assert (ok, err) == (True, None)
         mock_validate.assert_called_once_with("nibbles", "key", "user@example.com")
 
-    @patch("posthog.temporal.data_imports.sources.source.validate_credentials", create=True)
-    def test_invalid_subdomain_still_rejected(self, _mock_validate: Mock) -> None:
+    def test_invalid_subdomain_still_rejected(self) -> None:
         source = ZendeskSource()
         config = ZendeskSourceConfig(
             subdomain="bad subdomain!",
