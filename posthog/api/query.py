@@ -83,17 +83,27 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
 # which is the signal to register them.
 _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
     "Cohort": {"product": ProductKey.COHORTS, "feature": Feature.COHORT},
+    "Dashboard": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.DASHBOARD},
+    "DebugQuery": {"product": Product.INTERNAL, "feature": Feature.DEBUG_QUERY},
+    "ErrorTracking": {"product": Product.ERROR_TRACKING},
     # Data management surfaces fan out into ad-hoc queries (e.g. the promoted-property picker
     # introspecting which keys exist on an event). Tagged with scene-specific features so query
     # usage analysis can attribute load to the originating product surface.
     "EventDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "Experiment": {"product": Product.EXPERIMENTS},
+    "ExploreEvents": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EXPLORE_EVENTS_SCENE},
+    "Insight": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.INSIGHT},
+    "LLMAnalytics": {"product": Product.LLM_ANALYTICS},
+    "Logs": {"product": Product.LOGS},
+    "Person": {"product": Product.PRODUCT_ANALYTICS},
     "PropertyDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
     "PropertyDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
     "PropertyDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
-    "ExploreEvents": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EXPLORE_EVENTS_SCENE},
-    "DebugQuery": {"product": Product.INTERNAL, "feature": Feature.DEBUG_QUERY},
+    "Replay": {"product": Product.REPLAY},
+    "Survey": {"product": Product.SURVEYS},
+    "WebAnalytics": {"product": Product.WEB_ANALYTICS},
 }
 
 
