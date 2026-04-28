@@ -225,8 +225,7 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
-    const prUrl =
-        run.pr_number && repoFullName ? `https://github.com/${repoFullName}/pull/${run.pr_number}` : null
+    const prUrl = run.pr_number && repoFullName ? `https://github.com/${repoFullName}/pull/${run.pr_number}` : null
     const openPrButton = prUrl ? (
         <LemonButton
             type="secondary"
@@ -306,6 +305,9 @@ export function VisualReviewRunScene(): JSX.Element {
 
     const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
+    const showApproveButton =
+        !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0)
+
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
     const currentIndex = selectedSnapshot
@@ -338,18 +340,18 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    <div className="flex gap-2">
-                        {openPrButton}
-                        {!run.approved &&
-                        !run.is_stale &&
-                        (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
-                            <LemonButton type="primary" onClick={approveChanges} loading={isApproving}>
-                                {reviewPending > 0
-                                    ? `Approve ${reviewPending} pending and commit`
-                                    : 'Commit to baseline'}
-                            </LemonButton>
-                        ) : null}
-                    </div>
+                    openPrButton || showApproveButton ? (
+                        <div className="flex gap-2">
+                            {openPrButton}
+                            {showApproveButton && (
+                                <LemonButton type="primary" onClick={approveChanges} loading={isApproving}>
+                                    {reviewPending > 0
+                                        ? `Approve ${reviewPending} pending and commit`
+                                        : 'Commit to baseline'}
+                                </LemonButton>
+                            )}
+                        </div>
+                    ) : undefined
                 }
             />
 
