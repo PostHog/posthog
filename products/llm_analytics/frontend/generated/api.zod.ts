@@ -87,9 +87,9 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                 ),
             model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.uuid().nullish(),
@@ -157,9 +157,9 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                 ),
             model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.uuid().nullish(),
@@ -229,9 +229,9 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                 ),
             model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.uuid().nullish(),
@@ -718,9 +718,9 @@ export const llmAnalyticsProviderKeysCreateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -741,9 +741,9 @@ export const llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
@@ -764,10 +764,10 @@ export const llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
         .optional()
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
@@ -791,9 +791,9 @@ export const llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysAssignCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysAssignCreateBodyNameMax),
     api_key: zod.string().optional(),
@@ -814,9 +814,9 @@ export const llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault = fals
 
 export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),

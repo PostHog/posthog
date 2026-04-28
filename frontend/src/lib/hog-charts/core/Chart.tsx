@@ -1,6 +1,7 @@
+import * as d3 from 'd3'
 import React, { useCallback, useMemo, useRef } from 'react'
 
-import { AxisLabels } from '../overlays/AxisLabels'
+import { AxisLabels, measureLabelWidth } from '../overlays/AxisLabels'
 import { Crosshair } from '../overlays/Crosshair'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
@@ -73,10 +74,14 @@ export function Chart<Meta = unknown>({
         yTickFormatter,
         hideXAxis = false,
         hideYAxis = false,
-        showTooltip = true,
-        pinnableTooltip = false,
+        tooltip: tooltipConfig,
         showCrosshair = false,
     } = config ?? {}
+    const {
+        enabled: showTooltip = true,
+        pinnable: pinnableTooltip = false,
+        placement: tooltipPlacement = 'follow-data',
+    } = tooltipConfig ?? {}
 
     const hasMultipleAxes = useMemo(() => {
         const axisIds = new Set(
@@ -85,6 +90,53 @@ export function Chart<Meta = unknown>({
         return axisIds.size > 1
     }, [series])
 
+    const yLabelWidth = useMemo<number>(() => {
+        if (hideYAxis) {
+            return 0
+        }
+        const allValues = series
+            .filter((s) => !s.visibility?.excluded)
+            .flatMap((s) => s.data)
+            .filter((v) => v != null && isFinite(v))
+        if (allValues.length === 0) {
+            return 0
+        }
+        let min = Math.min(...allValues)
+        let max = Math.max(...allValues)
+        if (min > 0) {
+            min = 0
+        }
+        if (max < 0) {
+            max = 0
+        }
+        const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
+        if (ticks.length === 0) {
+            return 0
+        }
+        const domainMax = Math.abs(Math.max(...ticks))
+        const formatter = yTickFormatter ?? ((v: number) => autoFormatYTick(v, domainMax))
+        let widest = 0
+        for (const t of ticks) {
+            widest = Math.max(widest, measureLabelWidth(formatter(t)))
+        }
+        return widest
+    }, [series, yTickFormatter, hideYAxis])
+
+    const xLabelHalfWidth = useMemo<number>(() => {
+        if (hideXAxis || labels.length === 0) {
+            return 0
+        }
+        let widest = 0
+        for (let i = 0; i < labels.length; i++) {
+            const text = xTickFormatter ? xTickFormatter(labels[i], i) : labels[i]
+            if (text === null) {
+                continue
+            }
+            widest = Math.max(widest, measureLabelWidth(text))
+        }
+        return Math.ceil(widest / 2)
+    }, [labels, xTickFormatter, hideXAxis])
+
     const margins = useMemo<ChartMargins>(() => {
         const m = { ...DEFAULT_MARGINS }
         if (hideXAxis) {
@@ -92,12 +144,16 @@ export function Chart<Meta = unknown>({
         }
         if (hideYAxis) {
             m.left = 8
+        } else {
+            m.left = Math.max(20, Math.ceil(yLabelWidth) + 12, xLabelHalfWidth + 4)
         }
         if (hasMultipleAxes && !hideYAxis) {
-            m.right = 48
+            m.right = Math.max(48, xLabelHalfWidth + 4)
+        } else {
+            m.right = Math.max(DEFAULT_MARGINS.right, xLabelHalfWidth + 4)
         }
         return m
-    }, [hideXAxis, hideYAxis, hasMultipleAxes])
+    }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth])
 
     const { canvasRef, wrapperRef, dimensions, ctx } = useChartCanvas({ margins })
 
@@ -208,7 +264,14 @@ export function Chart<Meta = unknown>({
                     <div
                         ref={wrapperRef}
                         className={className}
-                        style={{ position: 'relative', width: '100%', flex: 1, minHeight: 0, cursor: cursorStyle }}
+                        style={{
+                            position: 'relative',
+                            width: '100%',
+                            flex: 1,
+                            minHeight: 0,
+                            overflow: 'hidden',
+                            cursor: cursorStyle,
+                        }}
                         onMouseMove={handlers.onMouseMove}
                         onMouseLeave={handlers.onMouseLeave}
                         onClick={handlers.onClick}
@@ -241,7 +304,11 @@ export function Chart<Meta = unknown>({
                                 {children}
 
                                 {tooltipCtx && showTooltip && (
-                                    <Tooltip context={tooltipCtx} renderTooltip={renderTooltip} />
+                                    <Tooltip
+                                        context={tooltipCtx}
+                                        renderTooltip={renderTooltip}
+                                        placement={tooltipPlacement}
+                                    />
                                 )}
                             </OverlayLayer>
                         )}

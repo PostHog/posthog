@@ -33,6 +33,7 @@ import {
 } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
     LemonCollapse,
     LemonDivider,
     LemonInput,
@@ -160,6 +161,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         openVariants,
         payloadExpanded,
         expandAdvancedOnEdit,
+        hasEncryptedPayloadBeenSaved,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -177,6 +179,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setOpenVariants,
         setPayloadExpanded,
         setBucketingIdentifier,
+        resetEncryptedPayload,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
     const { featureFlags } = useValues(enabledFeaturesLogic)
@@ -194,6 +197,24 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 block: 'start',
             })
         }, 150)
+    }
+
+    const confirmEncryptedPayloadReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset payload?',
+            description: 'The existing payload will not be reset until the feature flag is saved.',
+            primaryButton: {
+                children: 'Reset',
+                onClick: resetEncryptedPayload,
+                size: 'small',
+                status: 'danger',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
     }
 
     const updateVariant = (
@@ -935,13 +956,56 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         </LemonLabel>
                                         <div className="text-secondary text-xs mb-1">
                                             Remote config flags always return the payload. Access it via{' '}
-                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                            <code className="text-xs">
+                                                {featureFlag.has_encrypted_payloads
+                                                    ? 'getRemoteConfigPayload'
+                                                    : 'getFeatureFlagPayload'}
+                                            </code>
+                                            . Using standard SDK methods such as{' '}
+                                            <code className="text-xs">getFeatureFlag</code> or{' '}
+                                            <code className="text-xs">isFeatureEnabled</code> will always return{' '}
+                                            <code className="text-xs">true</code>.
                                         </div>
-                                        <Group name={['filters', 'payloads']}>
-                                            <LemonField name="true">
-                                                <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
-                                            </LemonField>
-                                        </Group>
+                                        <LemonField name="has_encrypted_payloads">
+                                            {({ value, onChange }) => (
+                                                <LemonCheckbox
+                                                    id="flag-payload-encrypted-checkbox"
+                                                    label="Encrypt remote configuration payload"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    data-attr="feature-flag-payload-encrypted-checkbox"
+                                                    disabledReason={
+                                                        hasEncryptedPayloadBeenSaved &&
+                                                        'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
+                                                    }
+                                                />
+                                            )}
+                                        </LemonField>
+                                        <div className="flex gap-2 min-w-0">
+                                            <Group name={['filters', 'payloads']}>
+                                                <LemonField name="true" className="grow min-w-0">
+                                                    <JSONEditorInput
+                                                        readOnly={
+                                                            featureFlag.has_encrypted_payloads &&
+                                                            Boolean(featureFlag.filters?.payloads?.['true'])
+                                                        }
+                                                        placeholder='Examples: "A string", 2500, {"key": "value"}'
+                                                    />
+                                                </LemonField>
+                                            </Group>
+                                            {featureFlag.has_encrypted_payloads && (
+                                                <LemonButton
+                                                    className="shrink-0"
+                                                    icon={<IconTrash />}
+                                                    type="secondary"
+                                                    size="small"
+                                                    status="danger"
+                                                    onClick={confirmEncryptedPayloadReset}
+                                                >
+                                                    Reset
+                                                </LemonButton>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                                 {!multivariateEnabled && !featureFlag.is_remote_configuration && (
