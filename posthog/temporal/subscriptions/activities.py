@@ -38,6 +38,8 @@ from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, SUPPORTED_TARGET_TY
 from ee.tasks.subscriptions.auto_disable import (
     NO_ASSETS_REASON,
     SLACK_INTEGRATION_DISCONNECTED_REASON,
+    SLACK_PERMISSION_REVOKED_REASON,
+    TERMINAL_SLACK_ERROR_CODES,
     UNSUPPORTED_TARGET_TYPE_REASON,
     disable_invalid_subscription,
 )
@@ -523,7 +525,9 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         except ApplicationError:
             raise
         except Exception as e:
-            is_user_config_error = isinstance(e, SlackApiError) and e.response.get("error") in SLACK_USER_CONFIG_ERRORS
+            slack_error_code = e.response.get("error") if isinstance(e, SlackApiError) else None
+            is_user_config_error = slack_error_code in SLACK_USER_CONFIG_ERRORS
+            is_terminal_slack_error = slack_error_code in TERMINAL_SLACK_ERROR_CODES
             _capture_delivery_failed_event(subscription, e)
             LOGGER.error(
                 "deliver_subscription.slack_failed",
@@ -540,6 +544,14 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                     error={"message": str(e), "type": type(e).__name__},
                 )
             )
+            # Terminal user-config error (revoked auth, archived/deleted channel,
+            # etc.) — won't self-heal, so auto-disable to stop the subscription
+            # re-firing every cycle. Mirrors the missing-integration branch above.
+            if is_terminal_slack_error:
+                await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
+                    subscription, SLACK_PERMISSION_REVOKED_REASON
+                )
+                return DeliverSubscriptionResult(recipient_results=recipient_results)
             if not is_user_config_error:
                 raise  # Transient Slack errors — let Temporal retry
 

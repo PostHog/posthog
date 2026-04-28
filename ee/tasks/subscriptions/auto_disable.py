@@ -8,6 +8,16 @@ from posthog.models.subscription import Subscription
 SLACK_INTEGRATION_DISCONNECTED_REASON = "Slack integration disconnected"
 UNSUPPORTED_TARGET_TYPE_REASON = "Unsupported delivery channel"
 NO_ASSETS_REASON = "All insights or dashboard tiles for this subscription have been deleted"
+SLACK_PERMISSION_REVOKED_REASON = "PostHog can no longer post to this Slack channel"
+
+# SlackApiError codes that indicate a permanent user-config problem and will not
+# self-heal on retry. When we hit one of these, auto-disable instead of letting
+# the subscription re-fire every cycle and rack up SLO failure events.
+# Excludes `not_in_channel` (admin can re-add the bot), `internal_error`/5xx
+# (transient), and `rate_limited` (transient).
+TERMINAL_SLACK_ERROR_CODES = frozenset(
+    {"invalid_auth", "account_inactive", "token_revoked", "is_archived", "channel_not_found"}
+)
 
 logger = structlog.get_logger(__name__)
 
