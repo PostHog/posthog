@@ -110,6 +110,13 @@ def _is_clean_merge_from_base(sha: str, foreign_parents: list[str], cwd: Path, b
     return all(_is_ancestor(p, base_ref, cwd) for p in foreign_parents)
 
 
+def _first_parent_commits_between(from_sha: str, to_sha: str, cwd: Path) -> list[str]:
+    """Return commits in `(from_sha, to_sha]`, oldest first."""
+    commit_range = f"{from_sha}..{to_sha}"
+    output = _run("git", "rev-list", "--reverse", "--first-parent", commit_range, cwd=cwd)
+    return output.splitlines()
+
+
 def _classify_commit(sha: str, cwd: Path, base_ref: str) -> CommitClass:
     parents = _run("git", "rev-list", "--parents", "-n", "1", sha, cwd=cwd).split()[1:]
     if len(parents) >= 2:
@@ -130,13 +137,7 @@ def evaluate_delta(last_approved_sha: str, head_sha: str, cwd: Path, base_ref: s
     if not _is_ancestor(last_approved_sha, head_sha, cwd):
         return {"action": Action.DISMISS, "reason": Reason.NON_LINEAR_HISTORY}
 
-    commits = [
-        c
-        for c in _run(
-            "git", "rev-list", "--reverse", "--first-parent", f"{last_approved_sha}..{head_sha}", cwd=cwd
-        ).splitlines()
-        if c
-    ]
+    commits = _first_parent_commits_between(last_approved_sha, head_sha, cwd)
     if not commits:
         return {"action": Action.RETAIN, "reason": Reason.EMPTY_DELTA}
 
