@@ -2,10 +2,8 @@ import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import {
     KafkaIngestionProducerEnvConfig,
-    KafkaProducerEnvConfig,
     KafkaWarpstreamProducerEnvConfig,
     getDefaultKafkaIngestionProducerEnvConfig,
-    getDefaultKafkaProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
 import { KafkaBrokerConfig, RedisConnectionsConfig } from '../ingestion/config'
@@ -18,6 +16,10 @@ import {
 import { SessionRecordingIngester, SessionRecordingIngesterConfig } from '../session-recording/consumer'
 import { createProducerRegistry } from '../session-recording/outputs/producer-registry'
 import { createOutputsRegistry } from '../session-recording/outputs/registry'
+import {
+    KafkaDefaultProducerEnvConfig,
+    getDefaultKafkaDefaultProducerEnvConfig,
+} from '../session-replay/shared/outputs/producer-config'
 import { RedisPool } from '../types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
@@ -40,7 +42,7 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type IngestionSessionReplayServerConfig = BaseServerConfig &
     SessionRecordingIngesterConfig &
     KafkaBrokerConfig &
-    KafkaProducerEnvConfig &
+    KafkaDefaultProducerEnvConfig &
     KafkaWarpstreamProducerEnvConfig &
     KafkaIngestionProducerEnvConfig &
     SessionReplayOutputsConfig &
@@ -63,7 +65,7 @@ export class IngestionSessionReplayServer implements NodeServer {
     constructor(config: Partial<IngestionSessionReplayServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDefaultProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),

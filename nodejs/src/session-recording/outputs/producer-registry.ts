@@ -1,10 +1,7 @@
-import {
-    DEFAULT_PRODUCER_CONFIG_MAP,
-    INGESTION_PRODUCER_CONFIG_MAP,
-    WARPSTREAM_PRODUCER_CONFIG_MAP,
-} from '../../ingestion/common/config'
+import { INGESTION_PRODUCER_CONFIG_MAP, WARPSTREAM_PRODUCER_CONFIG_MAP } from '../../ingestion/common/config'
 import { DEFAULT_PRODUCER, INGESTION_PRODUCER, WARPSTREAM_PRODUCER } from '../../ingestion/common/outputs'
 import { KafkaProducerRegistryBuilder } from '../../ingestion/outputs/kafka-producer-registry-builder'
+import { DEFAULT_PRODUCER_CONFIG_MAP } from '../../session-replay/shared/outputs/producer-config'
 
 /**
  * Session replay needs DEFAULT, WARPSTREAM, and INGESTION producers.
