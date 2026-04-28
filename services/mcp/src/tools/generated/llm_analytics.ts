@@ -35,6 +35,24 @@ const llmAnalyticsClusteringJobsList = (): ToolBase<
     },
 })
 
+const LlmAnalyticsClusteringJobsRetrieveSchema = LlmAnalyticsClusteringJobsRetrieveParams.omit({ project_id: true })
+
+const llmAnalyticsClusteringJobsRetrieve = (): ToolBase<
+    typeof LlmAnalyticsClusteringJobsRetrieveSchema,
+    Schemas.ClusteringJob
+> => ({
+    name: 'llm-analytics-clustering-jobs-retrieve',
+    schema: LlmAnalyticsClusteringJobsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsClusteringJobsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ClusteringJob>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const LlmAnalyticsEvalConfigRetrieveSchema = z.object({})
 
 const llmAnalyticsEvalConfigRetrieve = (): ToolBase<
@@ -72,24 +90,6 @@ const llmAnalyticsEvalConfigSetActiveKeyCreate = (): ToolBase<
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_config/set_active_key/`,
             body,
-        })
-        return result
-    },
-})
-
-const LlmAnalyticsClusteringJobsRetrieveSchema = LlmAnalyticsClusteringJobsRetrieveParams.omit({ project_id: true })
-
-const llmAnalyticsClusteringJobsRetrieve = (): ToolBase<
-    typeof LlmAnalyticsClusteringJobsRetrieveSchema,
-    Schemas.ClusteringJob
-> => ({
-    name: 'llm-analytics-clustering-jobs-retrieve',
-    schema: LlmAnalyticsClusteringJobsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsClusteringJobsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ClusteringJob>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
