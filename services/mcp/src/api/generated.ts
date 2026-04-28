@@ -19241,6 +19241,7 @@ export namespace Schemas {
     export const LogsSparklineBreakdownBy = {
       Severity: 'severity',
       Service: 'service',
+      TrafficType: 'traffic_type',
     } as const;
 
     export interface LogsQuery {
