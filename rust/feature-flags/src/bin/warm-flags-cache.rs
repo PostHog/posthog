@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use aws_config::BehaviorVersion;
 use clap::Parser;
 use common_database::{get_pool, PostgresReader};
 use common_hypercache::writer::HyperCacheWriter;
 use common_hypercache::{HyperCacheConfig, KeyType};
-use common_redis::{CompressionConfig, RedisClient, RedisValueFormat};
+use common_redis::CompressionConfig;
 use common_s3::{S3Client, S3Impl};
 use common_types::TeamId;
 use envconfig::Envconfig;
@@ -17,6 +17,7 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use feature_flags::flags::cache_builder::build_flags_cache;
+use feature_flags::server::create_redis_client;
 
 common_alloc::used!();
 
@@ -24,6 +25,18 @@ common_alloc::used!();
 /// in lockstep lets the existing refresh/verification workflows pick up entries this
 /// binary warms.
 const FLAGS_CACHE_EXPIRY_SORTED_SET: &str = "flags_cache_expiry";
+
+/// HyperCache namespace and object-name used by Python's flags warmer. Must match the
+/// feature-flags service's reader so entries written here are discoverable at request time.
+const HYPERCACHE_NAMESPACE: &str = "feature_flags";
+const HYPERCACHE_OBJECT_NAME: &str = "flags.json";
+
+/// Logging tag passed to `create_redis_client`; appears in connection-retry and failure logs.
+const REDIS_CLIENT_TYPE: &str = "flags-cache-warmer";
+
+/// Retry count for the shared Redis client helper. Small but non-zero — a transient blip
+/// during connect shouldn't sink a multi-minute warm run.
+const REDIS_CONNECT_RETRIES: u32 = 3;
 
 /// Page size for cursor-paged team-ID streaming. Bounds peak in-memory ID buffer to
 /// `TEAM_ID_PAGE_SIZE * sizeof(i32)` regardless of total team count.
@@ -146,24 +159,26 @@ async fn main() {
     let pg_reader: PostgresReader = Arc::new(pg_pool);
 
     tracing::info!("Connecting to Redis");
-    let response_timeout = optional_duration_ms(infra.redis_response_timeout_ms);
-    let connection_timeout = optional_duration_ms(infra.redis_connection_timeout_ms);
-    let redis_client = RedisClient::with_config(
-        redis_url.to_string(),
+    let Some(redis_client) = create_redis_client(
+        redis_url,
+        REDIS_CLIENT_TYPE,
         CompressionConfig::default(),
-        RedisValueFormat::default(),
-        response_timeout,
-        connection_timeout,
+        infra.redis_response_timeout_ms,
+        infra.redis_connection_timeout_ms,
+        REDIS_CONNECT_RETRIES,
     )
     .await
-    .expect("Failed to connect to Redis");
-    let redis_client: Arc<dyn common_redis::Client + Send + Sync> = Arc::new(redis_client);
+    else {
+        // create_redis_client logs the underlying error before returning None.
+        std::process::exit(1);
+    };
+    let redis_client: Arc<dyn common_redis::Client + Send + Sync> = redis_client;
 
     let s3_client = create_s3_client(&infra).await;
 
     let mut cache_config = HyperCacheConfig::new(
-        "feature_flags".to_string(),
-        "flags.json".to_string(),
+        HYPERCACHE_NAMESPACE.to_string(),
+        HYPERCACHE_OBJECT_NAME.to_string(),
         infra.object_storage_region.clone(),
         infra.object_storage_bucket.clone(),
     );
@@ -333,14 +348,6 @@ fn compute_ttl(cli: &Cli) -> u64 {
         max_secs
     } else {
         rand::thread_rng().gen_range(min_secs..=max_secs)
-    }
-}
-
-fn optional_duration_ms(ms: u64) -> Option<Duration> {
-    if ms == 0 {
-        None
-    } else {
-        Some(Duration::from_millis(ms))
     }
 }
 
@@ -720,16 +727,6 @@ mod tests {
     fn test_resolve_redis_url_prefers_flags_even_with_opt_in() {
         let infra = infra("redis://flags:6379/", "redis://default:6379/");
         assert_eq!(resolve_redis_url(&infra, true), Some("redis://flags:6379/"));
-    }
-
-    #[test]
-    fn test_optional_duration_ms_zero_returns_none() {
-        assert_eq!(optional_duration_ms(0), None);
-    }
-
-    #[test]
-    fn test_optional_duration_ms_nonzero_returns_some() {
-        assert_eq!(optional_duration_ms(250), Some(Duration::from_millis(250)));
     }
 
     #[test]

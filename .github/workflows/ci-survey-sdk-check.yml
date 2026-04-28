@@ -7,6 +7,10 @@ on:
             - 'docs/published/surveys/**'
             - 'frontend/bin/build-survey-sdk-docs.ts'
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
     contents: read
     pull-requests: write
