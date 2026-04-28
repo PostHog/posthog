@@ -8,13 +8,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ApiSection } from './ApiSection'
 import { EmailSection } from './EmailSection'
 import { SlackSection } from './SlackSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 import { TeamsSection } from './TeamsSection'
 import { WidgetSection } from './WidgetSection'
 
-type ChannelTabKey = 'widget' | 'email' | 'slack' | 'teams'
+type ChannelTabKey = 'widget' | 'email' | 'slack' | 'teams' | 'api'
 
 const DEFAULT_CHANNEL_TAB: ChannelTabKey = 'widget'
 
@@ -83,6 +84,16 @@ export function ChannelsSection(): JSX.Element {
                         </span>
                     ),
                     content: <TeamsSection />,
+                },
+                {
+                    key: 'api' as const,
+                    label: (
+                        <span className="flex items-center gap-1.5">
+                            Direct API
+                            {channelTag(true)}
+                        </span>
+                    ),
+                    content: <ApiSection />,
                 },
             ]}
         />
