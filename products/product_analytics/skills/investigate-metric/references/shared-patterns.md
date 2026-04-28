@@ -63,6 +63,10 @@ interaction effects (e.g. one browser × one country).
 
 If event volume per interval < ~100, percentages are unreliable — report absolutes too.
 
+When a segment looks guilty, check its **pre-anomaly baseline** before concluding:
+the segment may have always behaved that way, with its share of volume just growing
+at the anomaly start (cohort composition change, not a real regression).
+
 ## Interval zoom
 
 When a daily point looks anomalous, rerun the query at `interval: "hour"` scoped to that

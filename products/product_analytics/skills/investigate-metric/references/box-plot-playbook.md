@@ -55,6 +55,21 @@ posthog:query-trends
 **HogQL** — see [shared-patterns.md](./shared-patterns.md#hogql-quantile-template).
 Better when the segment has many values. Watch for noisy quartiles on small `n`.
 
+Once a candidate segment looks elevated, **don't conclude yet**. A segment can look
+guilty for two very different reasons:
+
+- The segment's measurement changed at the anomaly start (real cause).
+- The segment was always elevated, and its share of total volume grew at the
+  anomaly start (cohort composition change — same numbers, different fix).
+
+Two cheap checks before concluding:
+
+- **Pre-anomaly baseline.** Run the same per-segment quantiles on a window
+  _before_ the anomaly. If the elevated segment was already elevated, it's
+  composition not measurement.
+- **Cross-tab.** If two dimensions both look elevated (e.g. host + lib_version),
+  `GROUP BY` both in HogQL to see whether one is causal or they're correlated.
+
 ## 4. Tail actor drilldown
 
 `posthog:query-trends-actors` can't select by percentile. Use HogQL with a quantile
