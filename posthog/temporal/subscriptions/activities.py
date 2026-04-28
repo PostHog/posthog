@@ -425,22 +425,16 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                         error=missing_integration_error,
                     )
                 )
-                # Same shape as ProcessSubscriptionWorkflow success-path serialization so
-                # update_delivery_record gets per-recipient rows from ActivityError.details.
-                raise ApplicationError(
-                    "No Slack integration configured for this team",
-                    {
-                        "recipient_results": [
-                            {
-                                "recipient": r.recipient,
-                                "status": r.status,
-                                **({"error": r.error} if r.error else {}),
-                            }
-                            for r in recipient_results
-                        ]
-                    },
-                    non_retryable=True,
+                # The Slack integration this subscription depends on has been
+                # disconnected. This won't self-resolve, so auto-disable the
+                # subscription and notify the owner — same pattern as alert
+                # auto-disable for permanently-broken alert config.
+                from ee.tasks.subscriptions.auto_disable import disable_invalid_subscription
+
+                await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
+                    subscription, "Slack integration disconnected"
                 )
+                return DeliverSubscriptionResult(recipient_results=recipient_results)
 
             LOGGER.info("deliver_subscription.sending_slack_message", subscription_id=subscription.id)
             delivery_result = await send_slack_message_with_integration_async(

@@ -388,6 +388,7 @@ async def test_deliver_subscription_report_slack(
     assert mock_send_slack_async.await_count == 1
 
 
+@patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
 @patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -395,6 +396,7 @@ async def test_deliver_subscription_report_slack(
 async def test_process_subscription_records_missing_slack_integration_failure(
     mock_get_slack: MagicMock,
     mock_build_snapshot: MagicMock,
+    mock_send_notification: MagicMock,
     temporal_client: Client,
     team,
     user,
@@ -423,31 +425,32 @@ async def test_process_subscription_records_missing_slack_integration_failure(
         content_location="s3://bucket/slack-fail.png",
     )
 
-    with pytest.raises(Exception):
-        async with await WorkflowEnvironment.start_time_skipping() as env:
-            async with Worker(
-                env.client,
+    # Missing Slack integration auto-disables the subscription cleanly — the
+    # workflow completes (no ApplicationError, no SLO failure) but the
+    # per-recipient delivery row records the missing-integration failure.
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=10),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ProcessSubscriptionWorkflow.run,
+                TrackedSubscriptionInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                ),
+                id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
-                workflows=[ProcessSubscriptionWorkflow],
-                activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
-                interceptors=[SloInterceptor()],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-                activity_executor=ThreadPoolExecutor(max_workers=10),
-                debug_mode=True,
-            ):
-                await env.client.execute_workflow(
-                    ProcessSubscriptionWorkflow.run,
-                    TrackedSubscriptionInputs(
-                        subscription_id=subscription.id,
-                        team_id=subscription.team_id,
-                        distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
-                    ),
-                    id=str(uuid.uuid4()),
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
-                )
+            )
 
     row = await sync_to_async(SubscriptionDelivery.objects.filter(subscription_id=subscription.id).latest)("created_at")
-    assert row.status == SubscriptionDelivery.Status.FAILED
     assert row.recipient_results == [
         {
             "recipient": "C12345|#test-channel",
@@ -459,6 +462,66 @@ async def test_process_subscription_records_missing_slack_integration_failure(
         }
     ]
     mock_get_slack.assert_called_once_with(subscription.team_id)
+
+    # Subscription is auto-disabled and owner is notified.
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
+    mock_send_notification.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_deliver_subscription_disables_on_missing_slack_integration(team, user):
+    """A subscription whose Slack integration was disconnected should be auto-disabled
+    cleanly — no ApplicationError, SLO outcome stays success, owner notified by email.
+
+    This is the production fix for the SLO failure observed at:
+      area=analytic-platform, operation=subscription_delivery,
+      error_type=ApplicationError, sample='No Slack integration configured for this team'
+    """
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis01", name="Disable Test")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location="s3://bucket/disable.png",
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+        enabled=True,
+    )
+
+    env = ActivityEnvironment()
+
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch(
+            "posthog.temporal.subscriptions.activities.get_slack_integration_for_team",
+            return_value=None,
+        ),
+    ):
+        result = await env.run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id,
+                exported_asset_ids=[asset.id],
+                total_insight_count=1,
+            ),
+        )
+
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
+    send_mock.assert_called_once()
+    # Must return cleanly — NOT raise
+    assert result is not None
+    assert result.recipient_results[0].status == "failed"
+    assert result.recipient_results[0].error == {
+        "message": "No Slack integration configured",
+        "type": "missing_integration",
+    }
 
 
 @patch("posthog.slo.events.posthoganalytics")
