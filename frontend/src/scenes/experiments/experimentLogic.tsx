@@ -1617,7 +1617,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
-                lemonToast.success('Experiment unarchived')
+                lemonToast.info('Experiment unarchived')
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to unarchive experiment')
             }
