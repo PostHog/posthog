@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-20T23:18:39.268157Z"
+exclude-newer = "2026-04-21T09:53:21.595219455Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -5445,7 +5445,7 @@ requires-dist = [
     { name = "retry", specifier = "==0.9.2" },
     { name = "s3fs", specifier = "==2025.9.0" },
     { name = "scikit-learn", specifier = "~=1.5.0" },
-    { name = "scrubadub", specifier = ">=2.0.1" },
+    { name = "scrubadub", specifier = "~=2.0.1" },
     { name = "selenium", specifier = "==4.28.1" },
     { name = "semantic-version", specifier = "==2.8.5" },
     { name = "simple-salesforce", specifier = "~=1.12.9" },
