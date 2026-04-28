@@ -201,6 +201,12 @@ export function CodeEditor({
     // explicitly disposed; without this, models accumulate forever and retain
     // their attached `codeEditorLogic` BuiltLogic via `(model as any).codeEditorLogic`.
     const editorModelsRef = useRef<Set<editor.ITextModel>>(new Set())
+    // Live ref to the Monaco API so the cleanup closure (captured by
+    // `useOnMountEffect`'s [] dep) can read the *current* value rather than
+    // the `null` it had at mount time. Without this the `stillInUse` guard
+    // in `disposeTrackedModels` is dead code: `monaco.editor.getEditors()`
+    // returns `[]` and every tracked model is unconditionally disposed.
+    const monacoApiRef = useRef<Monaco | null>(null)
 
     const disposeMonacoDisposables = (): void => {
         monacoDisposables.current.forEach((d) => d?.dispose())
@@ -212,19 +218,16 @@ export function CodeEditor({
         mutationObserver.current = null
     }
 
-    const clearLogicReferenceFromModel = (): void => {
-        for (const model of editorModelsRef.current) {
-            ;(model as any).codeEditorLogic = undefined
-        }
-    }
-
-    const disposeTrackedModels = (monacoApi: Monaco | null): void => {
+    const disposeTrackedModels = (): void => {
         const models = editorModelsRef.current
         if (models.size === 0) {
             return
         }
+        const monacoApi = monacoApiRef.current
         // Skip a model if any OTHER live editor still holds it as its current
-        // model — disposing would break that editor.
+        // model — disposing would break that editor, and nulling its
+        // `codeEditorLogic` would silently break HogQL autocomplete /
+        // metadata providers in the surviving editor.
         const otherEditors = (monacoApi?.editor.getEditors?.() ?? []).filter((e) => e !== editorRef.current)
         for (const model of models) {
             if (model.isDisposed()) {
@@ -234,6 +237,11 @@ export function CodeEditor({
             if (stillInUse) {
                 continue
             }
+            // Null the back-reference only on models we're actually about to
+            // dispose. Doing it for shared models would break consumers
+            // (e.g. hogQLAutocompleteProvider, hogQLMetadataProvider) that
+            // read `model.codeEditorLogic` to look up logic state.
+            ;(model as any).codeEditorLogic = undefined
             try {
                 model.dispose()
             } catch {
@@ -244,6 +252,7 @@ export function CodeEditor({
     }
 
     const trackEditorModels = (editorInstance: importedEditor.IStandaloneCodeEditor, monacoApi: Monaco): void => {
+        monacoApiRef.current = monacoApi
         const initial = editorInstance.getModel()
         if (initial) {
             editorModelsRef.current.add(initial)
@@ -278,11 +287,6 @@ export function CodeEditor({
         return () => {
             disposeMonacoDisposables()
             disconnectMutationObserver()
-            clearLogicReferenceFromModel()
-
-            // Capture the monaco api before we null out the editor — needed
-            // by disposeTrackedModels to ask Monaco for its other editors.
-            const monacoApi = monaco
 
             // Dispose the editor BEFORE @monaco-editor/react's own cleanup
             // runs: Monaco's services (HoverService, ContextView,
@@ -293,8 +297,13 @@ export function CodeEditor({
             disposeEditor()
 
             // Now that our editor is disposed, dispose every model this
-            // editor used. Skip models another live editor still holds.
-            disposeTrackedModels(monacoApi)
+            // editor used and was uniquely owned by us. `disposeTrackedModels`
+            // also nulls the `codeEditorLogic` back-reference on each
+            // disposed model. Models still held by another live editor are
+            // skipped on both counts, so HogQL autocomplete/metadata
+            // providers (which read `model.codeEditorLogic`) keep working
+            // for the surviving editor.
+            disposeTrackedModels()
 
             setMonacoAndEditor(null)
 
