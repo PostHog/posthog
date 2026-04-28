@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
@@ -2406,3 +2407,67 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
 
         assert response.status_code == 200
         assert not any(name.startswith("ph_device_") for name in response.cookies)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_known_device_cookie_async_chain_with_project_secret_api_key():
+    """Reproduces the production crash on the original (pre-fix) middleware: against the
+    initial known-device cookie code (commit 177ab2ded11), this test fails with the exact
+    prod stack trace —
+
+        File "posthog/middleware.py", in __call__
+            set_known_device_cookie(response, request.user)
+        File "posthog/helpers/user_devices.py", in set_known_device_cookie
+            KNOWN_DEVICE_COOKIE.format(user_id=user.id),
+        AttributeError: 'ProjectSecretAPIKeyUser' object has no attribute 'id'
+
+    Drives the real ASGI middleware chain via httpx + ASGITransport (patterned after
+    posthog-python's integration_tests/django5). Sync `Client` skips the ASGI app and so
+    cannot reproduce the failure — the chain depends on PosthogContextMiddleware.__acall__
+    awaiting request.auser(), which goes through Django's separate `_acached_user` cache
+    and re-reads the session that PostHogTokenCookieMiddleware reset mid-chain, flipping
+    `accessed=True` and opening the gate against the non-User principal.
+    """
+    from django.core.asgi import get_asgi_application
+
+    from asgiref.sync import sync_to_async
+    from httpx import ASGITransport, AsyncClient
+
+    from posthog.models import FeatureFlag, Organization, Team, User
+
+    @sync_to_async
+    def setup_team_and_flag():
+        org = Organization.objects.create(name="Test Org")
+        user = User.objects.create_user(
+            email=f"test-{uuid.uuid4()}@example.com",
+            first_name="Test",
+            password=VALID_TEST_PASSWORD,
+        )
+        org.members.add(user)
+        team = Team.objects.create(organization=org, name="Test Team")
+        team.rotate_secret_token_and_save(user=user, is_impersonated_session=False)
+        FeatureFlag.objects.create(
+            team=team,
+            key="rc-async-test",
+            name="RC",
+            active=True,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "payloads": {"true": '{"x": 1}'},
+            },
+            is_remote_configuration=True,
+        )
+        return team
+
+    team = await setup_team_and_flag()
+
+    asgi_app = get_asgi_application()
+    async with AsyncClient(transport=ASGITransport(app=asgi_app), base_url="http://testserver") as ac:
+        response = await ac.get(
+            f"/api/projects/{team.id}/feature_flags/rc-async-test/remote_config",
+            headers={"authorization": f"Bearer {team.secret_api_token}"},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert not any(name.startswith("ph_device_") for name in response.cookies)
