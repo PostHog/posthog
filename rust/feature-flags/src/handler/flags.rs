@@ -183,17 +183,16 @@ pub async fn fetch_and_filter(
         );
     }
 
-    // `prepared.flags.clone()` is an `Arc<[FeatureFlag]>` refcount bump —
-    // no deep copy, no regex re-compilation. `evaluation_metadata` still
-    // clones (a HashMap + Vec), but it's far cheaper than the old flag-vec
-    // clone that copied every FeatureFlag and all its filter properties.
-    // `cohorts.clone()` is unchanged — it's an `Option<Vec<Cohort>>`,
-    // not Arc-shared.
+    // Every shared field of `prepared` is Arc-backed, so this is a handful
+    // of refcount bumps rather than a deep copy of the flag slice, the
+    // `EvaluationMetadata` map, or the cohort vec.
     let flag_list = FeatureFlagList {
-        flags: Arc::clone(&prepared.flags),
+        flags: crate::flags::feature_flag_list::PreparedFlags::from_arc(Arc::clone(
+            prepared.flags.as_arc(),
+        )),
         filtered_out_flag_ids,
-        evaluation_metadata: prepared.evaluation_metadata.clone(),
-        cohorts: prepared.cohorts.clone(),
+        evaluation_metadata: Arc::clone(&prepared.evaluation_metadata),
+        cohorts: prepared.cohorts.as_ref().map(Arc::clone),
     };
     Ok(flag_list)
 }

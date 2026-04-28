@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::cohorts::cohort_models::Cohort;
+use crate::flags::feature_flag_list::PreparedFlags;
 use crate::properties::property_models::PropertyFilter;
 
 // NOTE: The `evaluation_tags` field was renamed to `evaluation_contexts` in the Python
@@ -275,40 +276,33 @@ pub struct FeatureFlagRow {
 }
 
 /// Request-scoped view of flag definitions plus the per-request filter set.
-///
-/// `flags` is an `Arc<[FeatureFlag]>` so each request shares the same compiled
-/// flag list from `PreparedFlagDefinitions` without a deep clone — `clone()` is
-/// just a refcount bump. `filtered_out_flag_ids` is recomputed per request from
-/// runtime/tag/survey filters, which is why it isn't part of the cached value.
+/// All shared fields are `Arc`-backed so `clone()` is a refcount bump rather
+/// than a deep copy.
 #[derive(Clone, Debug, Default)]
 pub struct FeatureFlagList {
-    pub flags: Arc<[FeatureFlag]>,
-    /// Runtime-only set of flag IDs that should be skipped during evaluation.
-    /// Includes inactive, deleted, survey-excluded, runtime-mismatched, and tag-filtered flags.
-    /// Not a cache concern — this is request-scoped.
+    pub flags: PreparedFlags,
+    /// Flag IDs to skip during evaluation: inactive, deleted, survey-excluded,
+    /// runtime-mismatched, or tag-filtered. Recomputed per request, so it
+    /// isn't part of the cached value.
     pub filtered_out_flag_ids: HashSet<i32>,
     /// Pre-computed dependency metadata from Django's hypercache.
-    pub evaluation_metadata: EvaluationMetadata,
+    pub evaluation_metadata: Arc<EvaluationMetadata>,
     /// Cohort definitions referenced by flags (including transitive deps),
-    /// precomputed by Django at cache-write time.
-    /// When present, the matcher uses these instead of querying CohortCacheManager.
-    pub cohorts: Option<Vec<Cohort>>,
+    /// precomputed by Django. When present, the matcher uses these instead of
+    /// querying `CohortCacheManager`. `None` for PG-fallback or pre-cohort-bake
+    /// teams.
+    pub cohorts: Option<Arc<[Cohort]>>,
 }
 
-/// Immutable, pre-compiled flag definitions cached across requests.
-///
-/// Contains deserialized flags with compiled regexes, evaluation metadata,
-/// and optional cohort definitions. Wrapped in `Arc` for zero-copy sharing
-/// across concurrent requests for the same team. `flags` itself is also
-/// `Arc<[FeatureFlag]>` so the per-request `FeatureFlagList` view can share
-/// the flag slice without copying.
-///
-/// Excludes `filtered_out_flag_ids` since those are per-request.
+/// Immutable, pre-compiled flag definitions cached across requests. The
+/// outer `Arc<PreparedFlagDefinitions>` is shared per team; each inner field
+/// is independently reference-counted so a request-scoped `FeatureFlagList`
+/// can share any subset without copying.
 #[derive(Clone, Debug)]
 pub struct PreparedFlagDefinitions {
-    pub flags: Arc<[FeatureFlag]>,
-    pub evaluation_metadata: EvaluationMetadata,
-    pub cohorts: Option<Vec<Cohort>>,
+    pub flags: PreparedFlags,
+    pub evaluation_metadata: Arc<EvaluationMetadata>,
+    pub cohorts: Option<Arc<[Cohort]>>,
 }
 
 impl PreparedFlagDefinitions {
@@ -516,7 +510,7 @@ mod mock_impls {
     impl Mock for FeatureFlagList {
         fn mock() -> Self {
             FeatureFlagList {
-                flags: Arc::from([<FeatureFlag as Mock>::mock()]),
+                flags: PreparedFlags::seal(vec![<FeatureFlag as Mock>::mock()]),
                 ..Default::default()
             }
         }
@@ -555,9 +549,9 @@ mod mock_impls {
 
     impl MockFrom<Vec<FeatureFlag>> for FeatureFlagList {
         fn mock_from(flags: Vec<FeatureFlag>) -> Self {
-            let evaluation_metadata = EvaluationMetadata::single_stage(&flags);
+            let evaluation_metadata = Arc::new(EvaluationMetadata::single_stage(&flags));
             FeatureFlagList {
-                flags: Arc::from(flags),
+                flags: PreparedFlags::seal(flags),
                 evaluation_metadata,
                 ..Default::default()
             }

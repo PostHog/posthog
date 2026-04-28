@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use crate::{
     api::errors::{simplify_serde_error, FlagError},
-    flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
+    flags::{
+        feature_flag_list::PreparedFlags,
+        flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
+    },
 };
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
@@ -69,9 +72,9 @@ pub async fn get_flags_from_redis(
     );
 
     Ok(FeatureFlagList {
-        flags: wrapper.flags.into(),
-        evaluation_metadata: wrapper.evaluation_metadata,
-        cohorts: wrapper.cohorts,
+        flags: PreparedFlags::seal(wrapper.flags),
+        evaluation_metadata: Arc::new(wrapper.evaluation_metadata),
+        cohorts: wrapper.cohorts.map(Arc::from),
         ..Default::default()
     })
 }
@@ -92,8 +95,8 @@ pub async fn update_flags_in_hypercache(
 ) -> Result<(), FlagError> {
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.flags.to_vec(),
-        evaluation_metadata: flags.evaluation_metadata.clone(),
-        cohorts: flags.cohorts.clone(),
+        evaluation_metadata: (*flags.evaluation_metadata).clone(),
+        cohorts: flags.cohorts.as_ref().map(|c| c.to_vec()),
     };
 
     // Match Django's format: JSON string -> Pickle

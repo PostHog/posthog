@@ -185,19 +185,31 @@ impl FlagService {
     /// On the hot path the in-memory `FlagDefinitionsCache` is keyed on the etag
     /// Django writes alongside the payload (`enable_etag=True`), so an in-memory
     /// hit short-circuits the payload fetch / pickle / JSON / validation work
-    /// entirely. The closure passed to `get_or_load` only runs on a true miss,
-    /// PG fallback, or when no etag is available.
+    /// entirely. The loader passed to `get_or_load` only runs on a true miss
+    /// or when no etag is available.
     pub async fn get_flags_from_cache_or_pg(
         &self,
         team_id: TeamId,
     ) -> Result<FlagResult, FlagError> {
         let key = KeyType::int(team_id);
 
-        // Cheap version probe: a single Redis GET on a 16-byte string. Failures
-        // here are non-fatal — we just lose the version-key fast path for this
-        // request and fall through to the payload fetch + compile path.
-        let etag = match self.flags_hypercache_reader.get_etag(&key).await {
-            Ok(opt) => opt,
+        // Cheap version probe: a single Redis GET on a 16-byte string. On a
+        // Redis error we bypass `get_or_load` entirely so the request
+        // increments only `etag_redis_error`, not also `etag_missing` /
+        // `sentinel` (each request must increment exactly one `reason`).
+        match self.flags_hypercache_reader.get_etag(&key).await {
+            Ok(etag) => {
+                let (prepared, cache_source) = self
+                    .flag_definitions_cache
+                    .get_or_load(team_id, etag, || async {
+                        self.fetch_wrapper_or_pg(team_id).await
+                    })
+                    .await?;
+                Ok(FlagResult {
+                    prepared,
+                    cache_source,
+                })
+            }
             Err(e) => {
                 tracing::debug!(
                     team_id,
@@ -209,24 +221,15 @@ impl FlagService {
                     &[("reason".to_string(), "etag_redis_error".to_string())],
                     1,
                 );
-                None
+                let (wrapper, cache_source) = self.fetch_wrapper_or_pg(team_id).await?;
+                let prepared =
+                    crate::flags::flag_definitions_cache::compile_from_wrapper(team_id, wrapper)?;
+                Ok(FlagResult {
+                    prepared,
+                    cache_source,
+                })
             }
-        };
-
-        // The closure body is the existing hypercache-fetch + PG-fallback path
-        // with one shape change: the parse-error tombstone is now produced
-        // inside the closure instead of upstream, so it only fires on misses.
-        let (prepared, cache_source) = self
-            .flag_definitions_cache
-            .get_or_load(team_id, etag, &CacheSource::Redis, || async {
-                self.fetch_wrapper_or_pg(team_id).await
-            })
-            .await?;
-
-        Ok(FlagResult {
-            prepared,
-            cache_source,
-        })
+        }
     }
 
     /// Hypercache-then-PG payload fetch, extracted so the in-memory cache can
@@ -301,6 +304,7 @@ mod tests {
 
     use crate::{
         flags::{
+            feature_flag_list::PreparedFlags,
             flag_definitions_cache::FlagDefinitionsCache,
             flag_models::{
                 EvaluationMetadata, FeatureFlag, FlagFilters, FlagPropertyGroup,
@@ -515,9 +519,9 @@ mod tests {
                 bucketing_identifier: None,
             },
         ];
-        let evaluation_metadata = EvaluationMetadata::single_stage(&flags_vec);
+        let evaluation_metadata = Arc::new(EvaluationMetadata::single_stage(&flags_vec));
         let mock_flags = FeatureFlagList {
-            flags: flags_vec.into(),
+            flags: PreparedFlags::seal(flags_vec),
             evaluation_metadata,
             ..Default::default()
         };
@@ -607,45 +611,46 @@ mod tests {
             .expect("Failed to insert team in Redis");
 
         // Create a large payload with multiple flags (>512 bytes triggers compression in Django)
-        let large_flags = FeatureFlagList {
-            flags: (0..10)
-                .map(|i| FeatureFlag {
-                    id: i,
-                    team_id: team.id,
-                    name: Some(format!("Test Flag {i} with a longer name for size")),
-                    key: format!("test_flag_{i}_with_extra_chars_for_larger_payload"),
-                    deleted: false,
-                    active: i % 2 == 0,
-                    filters: FlagFilters {
-                        groups: vec![FlagPropertyGroup {
-                            properties: Some(vec![PropertyFilter {
-                                key: format!("property_key_{i}"),
-                                value: Some(serde_json::json!(format!("value_{i}"))),
-                                operator: Some(OperatorType::Exact),
-                                prop_type: PropertyType::Person,
-                                group_type_index: None,
-                                negation: None,
-                                compiled_regex: None,
-                            }]),
-                            rollout_percentage: Some(50.0 + i as f64),
-                            variant: None,
-                            ..Default::default()
-                        }],
-                        multivariate: None,
-                        aggregation_group_type_index: None,
-                        payloads: None,
-                        super_groups: None,
-                        feature_enrollment: None,
+        let large_flags_vec: Vec<FeatureFlag> = (0..10)
+            .map(|i| FeatureFlag {
+                id: i,
+                team_id: team.id,
+                name: Some(format!("Test Flag {i} with a longer name for size")),
+                key: format!("test_flag_{i}_with_extra_chars_for_larger_payload"),
+                deleted: false,
+                active: i % 2 == 0,
+                filters: FlagFilters {
+                    groups: vec![FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: format!("property_key_{i}"),
+                            value: Some(serde_json::json!(format!("value_{i}"))),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                            compiled_regex: None,
+                        }]),
+                        rollout_percentage: Some(50.0 + i as f64),
+                        variant: None,
+                        ..Default::default()
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    feature_enrollment: None,
 
-                        holdout: None,
-                    },
-                    ensure_experience_continuity: Some(false),
-                    version: Some(1),
-                    evaluation_runtime: Some("all".to_string()),
-                    evaluation_tags: None,
-                    bucketing_identifier: None,
-                })
-                .collect(),
+                    holdout: None,
+                },
+                ensure_experience_continuity: Some(false),
+                version: Some(1),
+                evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
+                bucketing_identifier: None,
+            })
+            .collect();
+        let large_flags = FeatureFlagList {
+            flags: PreparedFlags::seal(large_flags_vec),
             ..Default::default()
         };
 
@@ -1239,9 +1244,11 @@ mod tests {
             )
             .mock_into(),
         );
-        let evaluation_metadata = EvaluationMetadata::single_stage(std::slice::from_ref(&flag));
+        let evaluation_metadata = Arc::new(EvaluationMetadata::single_stage(std::slice::from_ref(
+            &flag,
+        )));
         FeatureFlagList {
-            flags: vec![flag].into(),
+            flags: PreparedFlags::seal(vec![flag]),
             evaluation_metadata,
             ..Default::default()
         }

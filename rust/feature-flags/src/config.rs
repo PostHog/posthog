@@ -471,7 +471,7 @@ pub struct Config {
     pub flag_definitions_cache_capacity_bytes: u64,
 
     /// TTL for in-memory flag definitions cache entries.
-    /// Content-hashed keys ensure correctness — TTL mainly controls memory reclamation.
+    /// Etag-keyed entries ensure correctness, so TTL is purely for memory reclamation.
     /// Default: 90 seconds
     #[envconfig(from = "FLAG_DEFINITIONS_CACHE_TTL_SECONDS", default = "90")]
     pub flag_definitions_cache_ttl_seconds: u64,

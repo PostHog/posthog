@@ -32,12 +32,12 @@ pub const FLAG_DEFINITIONS_INMEM_CACHE_SIZE_BYTES_GAUGE: &str =
     "flags_definitions_inmem_cache_size_bytes";
 pub const FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE: &str =
     "flags_definitions_inmem_cache_entries";
-// Counter for requests that bypassed the version-keyed fast path. Labels:
-// reason="sentinel" (the team has no flags / __missing__ payload),
-// reason="etag_missing" (etag key is absent — TTL drift or pre-etag entry),
-// reason="etag_redis_error" (Redis failed; we fell through to the payload
-// path without populating the in-memory cache). Sustained spikes on
-// `etag_missing` point at a Django write-path or TTL-alignment regression.
+// Counter for requests that bypassed the version-keyed fast path. Each
+// request increments exactly one `reason` label:
+//   reason="sentinel"         — Django wrote `__missing__` (empty team).
+//   reason="etag_missing"     — etag key absent but the loader returned a
+//                                non-empty wrapper (TTL drift / pre-etag).
+//   reason="etag_redis_error" — the `get_etag` call itself failed.
 pub const FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER: &str =
     "flags_definitions_inmem_cache_no_version_total";
 // Cohort source for flag evaluation

@@ -17,4 +17,4 @@ pub mod property_filter;
 #[cfg(test)]
 mod test_flag_matching;
 #[cfg(test)]
-mod test_helpers;
+pub(crate) mod test_helpers;

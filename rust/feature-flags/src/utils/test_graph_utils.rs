@@ -1093,6 +1093,7 @@ mod precomputed_dependency_graph_tests {
     use crate::utils::test_utils::flag_list_with_metadata;
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
 
     /// Creates a test flag with the given dependencies and active state.
     ///
@@ -1219,11 +1220,11 @@ mod precomputed_dependency_graph_tests {
                 flag(3, "flag_c", HashSet::new(), true),
             ]
             .into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![3]],
                 flags_with_missing_deps: vec![1],
                 transitive_deps: HashMap::from([(1, HashSet::from([2])), (3, HashSet::new())]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1244,11 +1245,11 @@ mod precomputed_dependency_graph_tests {
                 flag(2, "flag_b", HashSet::from([999]), true),
             ]
             .into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![2], vec![1]],
                 flags_with_missing_deps: vec![1, 2],
                 transitive_deps: HashMap::from([(1, HashSet::from([2])), (2, HashSet::new())]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1298,11 +1299,11 @@ mod precomputed_dependency_graph_tests {
             ]
             .into(),
             filtered_out_flag_ids: HashSet::from([1]),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(2, HashSet::new())]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -1392,7 +1393,7 @@ mod precomputed_dependency_graph_tests {
                 flag(3, "flag_c", HashSet::new(), true),
             ]
             .into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![3], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -1400,7 +1401,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::from([3])),
                     (3, HashSet::new()),
                 ]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1435,7 +1436,7 @@ mod precomputed_dependency_graph_tests {
                 flag(3, "flag_c", HashSet::new(), true),
             ]
             .into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![2, 3], vec![1]],
                 flags_with_missing_deps: vec![1, 2],
                 transitive_deps: HashMap::from([
@@ -1443,7 +1444,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::new()),
                     (3, HashSet::new()),
                 ]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1464,7 +1465,7 @@ mod precomputed_dependency_graph_tests {
                 flag(3, "flag_c", HashSet::new(), true),
             ]
             .into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![3]], // only C, cycled flags excluded
                 flags_with_missing_deps: vec![1, 2],
                 transitive_deps: HashMap::from([
@@ -1472,7 +1473,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::from([1])),
                     (3, HashSet::new()),
                 ]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1518,11 +1519,11 @@ mod precomputed_dependency_graph_tests {
             ]
             .into(),
             filtered_out_flag_ids: HashSet::from([3]),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -1544,7 +1545,7 @@ mod precomputed_dependency_graph_tests {
             ]
             .into(),
             filtered_out_flag_ids: HashSet::from([2]),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![2, 3], vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -1552,7 +1553,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::new()),
                     (3, HashSet::new()),
                 ]),
-            },
+            }),
             cohorts: None,
         };
 
@@ -1587,7 +1588,7 @@ mod precomputed_dependency_graph_tests {
                 flag(4, "flag_d", HashSet::new(), true),
             ]
             .into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![3, 4], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -1596,7 +1597,7 @@ mod precomputed_dependency_graph_tests {
                     (3, HashSet::new()),
                     (4, HashSet::new()),
                 ]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1628,7 +1629,7 @@ mod precomputed_dependency_graph_tests {
                 flag(3, "flag_c", HashSet::new(), true),
             ]
             .into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2, 3]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -1636,7 +1637,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::new()),
                     (3, HashSet::new()),
                 ]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1652,11 +1653,11 @@ mod precomputed_dependency_graph_tests {
     fn test_build_with_flag_keys_precomputed_nonexistent_key() {
         let feature_flags = FeatureFlagList {
             flags: vec![flag(1, "flag_a", HashSet::new(), true)].into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new())]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1679,7 +1680,7 @@ mod precomputed_dependency_graph_tests {
                 flag(3, "flag_c", HashSet::new(), true),
             ]
             .into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![2, 3], vec![1]],
                 flags_with_missing_deps: vec![1, 2],
                 transitive_deps: HashMap::from([
@@ -1687,7 +1688,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::new()),
                     (3, HashSet::new()),
                 ]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1713,7 +1714,7 @@ mod precomputed_dependency_graph_tests {
                 flag(4, "flag_d", HashSet::new(), true),
             ]
             .into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![vec![3, 4], vec![1, 2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -1722,7 +1723,7 @@ mod precomputed_dependency_graph_tests {
                     (3, HashSet::new()),
                     (4, HashSet::new()),
                 ]),
-            },
+            }),
             ..Default::default()
         };
 
@@ -1761,7 +1762,7 @@ mod precomputed_dependency_graph_tests {
         ];
         let feature_flags = FeatureFlagList {
             flags: flags.clone().into(),
-            evaluation_metadata: EvaluationMetadata::single_stage(&flags),
+            evaluation_metadata: Arc::new(EvaluationMetadata::single_stage(&flags)),
             ..Default::default()
         };
 
@@ -1788,7 +1789,7 @@ mod precomputed_dependency_graph_tests {
                 flag(2, "flag_b", HashSet::from([1]), true),
             ]
             .into(),
-            evaluation_metadata: EvaluationMetadata {
+            evaluation_metadata: Arc::new(EvaluationMetadata {
                 dependency_stages: vec![
                     vec![1, 999], // 999 is a phantom ID
                     vec![2],
@@ -1799,7 +1800,7 @@ mod precomputed_dependency_graph_tests {
                     (2, HashSet::from([1])),
                     (999, HashSet::new()),
                 ]),
-            },
+            }),
             ..Default::default()
         };
 

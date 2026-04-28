@@ -14,18 +14,58 @@ use std::sync::Arc;
 /// Parsed hypercache result: flags, evaluation metadata, optional preloaded cohorts.
 type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<Cohort>>);
 
+/// `Arc<[FeatureFlag]>` with regexes pre-compiled. Every constructor routes
+/// through [`PreparedFlags::seal`] (or `from_arc` for already-sealed input),
+/// so a value of this type is guaranteed to have been through
+/// `prepare_regexes_in_place`.
+#[derive(Clone, Debug)]
+pub struct PreparedFlags(Arc<[FeatureFlag]>);
+
+impl PreparedFlags {
+    pub fn seal(mut flags: Vec<FeatureFlag>) -> Self {
+        FeatureFlagList::prepare_regexes_in_place(&mut flags);
+        Self(Arc::from(flags))
+    }
+
+    /// Wraps an already-sealed `Arc<[FeatureFlag]>`. Crate-private so external
+    /// callers can't smuggle in an unsealed Arc.
+    pub(crate) fn from_arc(flags: Arc<[FeatureFlag]>) -> Self {
+        Self(flags)
+    }
+
+    pub fn as_arc(&self) -> &Arc<[FeatureFlag]> {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for PreparedFlags {
+    type Target = [FeatureFlag];
+    fn deref(&self) -> &[FeatureFlag] {
+        &self.0
+    }
+}
+
+impl Default for PreparedFlags {
+    fn default() -> Self {
+        Self(Arc::from(Vec::<FeatureFlag>::new()))
+    }
+}
+
+impl From<Vec<FeatureFlag>> for PreparedFlags {
+    fn from(flags: Vec<FeatureFlag>) -> Self {
+        Self::seal(flags)
+    }
+}
+
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
         Self {
-            flags: Arc::from(flags),
+            flags: PreparedFlags::seal(flags),
             ..Default::default()
         }
     }
 
     /// Pre-compiles all regex patterns in property filters across a flag slice.
-    /// Operates in place so callers can prep a `Vec<FeatureFlag>` before wrapping
-    /// it in an `Arc<[FeatureFlag]>` for the in-memory cache — avoids needing
-    /// `Arc::get_mut` on a just-built Arc.
     pub fn prepare_regexes_in_place(flags: &mut [FeatureFlag]) {
         for flag in flags.iter_mut() {
             Self::prepare_group_regexes(&mut flag.filters.groups);
@@ -36,18 +76,6 @@ impl FeatureFlagList {
                 Self::prepare_group_regexes(super_groups);
             }
         }
-    }
-
-    /// Pre-compiles regexes on `flags` and seals them into the shared
-    /// `Arc<[FeatureFlag]>` shape used by `FeatureFlagList`. Owning the `Vec`
-    /// at the call site makes the unique-ownership precondition enforceable
-    /// by construction — there is no `Arc::get_mut` race possible because no
-    /// `Arc` exists until the moment we wrap. Mirrors the construction
-    /// pattern used by `flag_definitions_cache::compile_from_wrapper`, so the
-    /// codebase has one consistent way to build prepared flag lists.
-    pub fn prepare_and_seal(mut flags: Vec<FeatureFlag>) -> Arc<[FeatureFlag]> {
-        Self::prepare_regexes_in_place(&mut flags);
-        Arc::from(flags)
     }
 
     fn prepare_group_regexes(groups: &mut [FlagPropertyGroup]) {
@@ -1181,7 +1209,7 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_and_seal_compiles_regex_filters_only() {
+    fn test_prepared_flags_seal_compiles_regex_filters_only() {
         let flags = vec![FeatureFlag {
             id: 1,
             team_id: 1,
@@ -1228,7 +1256,7 @@ mod tests {
             bucketing_identifier: None,
         }];
 
-        let sealed = FeatureFlagList::prepare_and_seal(flags);
+        let sealed = PreparedFlags::seal(flags);
 
         let props = sealed[0].filters.groups[0].properties.as_ref().unwrap();
         assert!(
