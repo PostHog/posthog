@@ -114,6 +114,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                         required=True,
                         placeholder="",
                         caption=f'Share the sheet with our service account by entering **{settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}** into the "Add people" field. We only require "Viewer" permissions to sync the sheet.',
+                        secret=False,
                     )
                 ],
             ),

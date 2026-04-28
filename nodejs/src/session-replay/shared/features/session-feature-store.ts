@@ -3,6 +3,32 @@ import { FeatureEndResult } from '../../../session-recording/sessions/session-fe
 import { TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
+import { SessionFeatureStoreMetrics } from './metrics'
+
+interface KafkaMessage {
+    key: string
+    value: string
+}
+
+/** Ad-hoc sanity check. Should never be exceeded. Messages should stay < 50KB */
+const filterOversizedMessages = (messages: KafkaMessage[]): KafkaMessage[] => {
+    const MAX_MESSAGE_SIZE_BYTES = 256 * 1024
+    const kept: KafkaMessage[] = []
+    for (const message of messages) {
+        const size = Buffer.byteLength(message.value, 'utf8')
+        if (size > MAX_MESSAGE_SIZE_BYTES) {
+            SessionFeatureStoreMetrics.incrementOversizedMessagesDropped()
+            logger.warn('🧠', 'session_feature_store_message_dropped_oversized', {
+                sessionId: message.key,
+                size,
+                limit: MAX_MESSAGE_SIZE_BYTES,
+            })
+            continue
+        }
+        kept.push(message)
+    }
+    return kept
+}
 
 export interface SessionFeatureBlock {
     sessionId: string
@@ -81,17 +107,25 @@ export class SessionFeatureStore {
             is_deleted: block.isDeleted ? 1 : 0,
         }))
 
-        await this.producer.queueMessages({
-            topic: this.kafkaTopic,
-            messages: events.map((event) => ({
+        const messages = filterOversizedMessages(
+            events.map((event) => ({
                 key: event.session_id,
                 value: JSON.stringify(event),
-            })),
+            }))
+        )
+
+        if (messages.length === 0) {
+            return
+        }
+
+        await this.producer.queueMessages({
+            topic: this.kafkaTopic,
+            messages,
         })
 
         await this.producer.flush()
 
-        logger.info('🧠', 'session_feature_store_stored', { count: events.length })
+        logger.info('🧠', 'session_feature_store_stored', { count: messages.length })
     }
 
     public async storeDeletionMarkers(blocks: DeletionFeatureBlock[]): Promise<void> {
@@ -101,16 +135,24 @@ export class SessionFeatureStore {
             is_deleted: 1,
         }))
 
-        await this.producer.queueMessages({
-            topic: this.kafkaTopic,
-            messages: events.map((event) => ({
+        const messages = filterOversizedMessages(
+            events.map((event) => ({
                 key: event.session_id,
                 value: JSON.stringify(event),
-            })),
+            }))
+        )
+
+        if (messages.length === 0) {
+            return
+        }
+
+        await this.producer.queueMessages({
+            topic: this.kafkaTopic,
+            messages,
         })
 
         await this.producer.flush()
 
-        logger.info('🧠', 'session_feature_store_deletion_markers_stored', { count: events.length })
+        logger.info('🧠', 'session_feature_store_deletion_markers_stored', { count: messages.length })
     }
 }

@@ -1921,15 +1921,16 @@ export namespace Schemas {
 
 
     export const MultipleBreakdownType = {
-      Cohort: 'cohort',
       Person: 'person',
       Event: 'event',
       EventMetadata: 'event_metadata',
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
+      Cohort: 'cohort',
       RevenueAnalytics: 'revenue_analytics',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
     } as const;
 
     export interface Breakdown {
@@ -4442,14 +4443,14 @@ export namespace Schemas {
       /** @nullable */
       covariate_sum?: number | null;
       /** @nullable */
+      covariate_sum_product?: number | null;
+      /** @nullable */
       covariate_sum_squares?: number | null;
       /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
-      /** @nullable */
-      main_covariate_sum_product?: number | null;
       number_of_samples: number;
       /** @nullable */
       numerator_denominator_sum_product?: number | null;
@@ -4480,14 +4481,14 @@ export namespace Schemas {
       /** @nullable */
       covariate_sum?: number | null;
       /** @nullable */
+      covariate_sum_product?: number | null;
+      /** @nullable */
       covariate_sum_squares?: number | null;
       /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
-      /** @nullable */
-      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultFrequentistMethod;
       number_of_samples: number;
       /** @nullable */
@@ -4519,6 +4520,8 @@ export namespace Schemas {
       /** @nullable */
       covariate_sum?: number | null;
       /** @nullable */
+      covariate_sum_product?: number | null;
+      /** @nullable */
       covariate_sum_squares?: number | null;
       /**
        * @minItems 2
@@ -4531,8 +4534,6 @@ export namespace Schemas {
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
-      /** @nullable */
-      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultBayesianMethod;
       number_of_samples: number;
       /** @nullable */
@@ -6961,6 +6962,11 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    export interface BiasRisk {
+      /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
+      multiple_variant_percentage: number;
+    }
+
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -8716,6 +8722,8 @@ export namespace Schemas {
       target_project_ids: number[];
       /** Whether to also copy scheduled changes for this flag */
       copy_schedule?: boolean;
+      /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
+      disable_copied_flag?: boolean;
     }
 
     export interface CopyFlagsSuccessItem {
@@ -13618,6 +13626,7 @@ export namespace Schemas {
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
     * `Plain` - Plain
+    * `Resend` - Resend
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -13766,6 +13775,7 @@ export namespace Schemas {
       Convex: 'Convex',
       ClickHouse: 'ClickHouse',
       Plain: 'Plain',
+      Resend: 'Resend',
     } as const;
 
     /**
@@ -13920,7 +13930,8 @@ export namespace Schemas {
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
-    * `Plain` - Plain */
+    * `Plain` - Plain
+    * `Resend` - Resend */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -14548,11 +14559,6 @@ export namespace Schemas {
       /** Last materialization error message, if any. */
       error?: string;
       /**
-       * How often the materialization refreshes (e.g. 'every_hour').
-       * @nullable
-       */
-      sync_frequency?: string | null;
-      /**
        * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
        * @nullable
        */
@@ -14591,10 +14597,10 @@ export namespace Schemas {
        */
       description?: string | null;
       /**
-       * Cache TTL in seconds (60–86400).
+       * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
        * @nullable
        */
-      cache_age_seconds?: number | null;
+      data_freshness_seconds?: number | null;
       /**
        * Whether this endpoint is available for execution via the API.
        * @nullable
@@ -14605,11 +14611,6 @@ export namespace Schemas {
        * @nullable
        */
       is_materialized?: boolean | null;
-      /**
-       * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
-       * @nullable
-       */
-      sync_frequency?: string | null;
       /**
        * Short ID of the insight this endpoint was derived from.
        * @nullable
@@ -14655,11 +14656,8 @@ export namespace Schemas {
       query: unknown;
       /** Whether the endpoint can be executed via the API. */
       is_active: boolean;
-      /**
-       * Cache TTL in seconds, or null for default interval-based caching.
-       * @nullable
-       */
-      cache_age_seconds: number | null;
+      /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+      data_freshness_seconds: number;
       /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -14806,11 +14804,8 @@ export namespace Schemas {
       query: unknown;
       /** Whether the endpoint can be executed via the API. */
       is_active: boolean;
-      /**
-       * Cache TTL in seconds, or null for default interval-based caching.
-       * @nullable
-       */
-      cache_age_seconds: number | null;
+      /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+      data_freshness_seconds: number;
       /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -15079,6 +15074,12 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -15933,6 +15934,12 @@ export namespace Schemas {
       readonly last_updated_at: string;
       tags?: unknown[];
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -16546,6 +16553,7 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponseTotalExposures = {[key: string]: number};
 
     export interface ExperimentExposureQueryResponse {
+      bias_risk?: BiasRisk | null;
       date_range: DateRange;
       kind?: ExperimentExposureQueryResponseKind;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
@@ -17016,7 +17024,8 @@ export namespace Schemas {
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
-    * `Plain` - Plain */
+    * `Plain` - Plain
+    * `Resend` - Resend */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -20362,75 +20371,77 @@ export namespace Schemas {
     }
 
     /**
-     * * `slack` - Slack
-    * `slack-posthog-code` - Slack Posthog Code
-    * `salesforce` - Salesforce
-    * `hubspot` - Hubspot
-    * `google-pubsub` - Google Pubsub
-    * `google-cloud-storage` - Google Cloud Storage
-    * `google-ads` - Google Ads
-    * `google-sheets` - Google Sheets
-    * `google-cloud-service-account` - Google Cloud Service Account
-    * `snapchat` - Snapchat
-    * `linkedin-ads` - Linkedin Ads
-    * `reddit-ads` - Reddit Ads
-    * `tiktok-ads` - Tiktok Ads
+     * * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
-    * `intercom` - Intercom
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
     * `email` - Email
-    * `linear` - Linear
+    * `firebase` - Firebase
     * `github` - Github
     * `gitlab` - Gitlab
-    * `meta-ads` - Meta Ads
-    * `twilio` - Twilio
-    * `clickup` - Clickup
-    * `vercel` - Vercel
-    * `databricks` - Databricks
-    * `azure-blob` - Azure Blob
-    * `firebase` - Firebase
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
     * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
     * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
     * `stripe` - Stripe
-    * `customerio-app` - Customerio App
-    * `customerio-webhook` - Customerio Webhook
-    * `customerio-track` - Customerio Track
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
 
     export const IntegrationKindEnum = {
-      Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
-      Salesforce: 'salesforce',
-      Hubspot: 'hubspot',
-      GooglePubsub: 'google-pubsub',
-      GoogleCloudStorage: 'google-cloud-storage',
-      GoogleAds: 'google-ads',
-      GoogleSheets: 'google-sheets',
-      GoogleCloudServiceAccount: 'google-cloud-service-account',
-      Snapchat: 'snapchat',
-      LinkedinAds: 'linkedin-ads',
-      RedditAds: 'reddit-ads',
-      TiktokAds: 'tiktok-ads',
+      AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
-      Intercom: 'intercom',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
       Email: 'email',
-      Linear: 'linear',
+      Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
-      MetaAds: 'meta-ads',
-      Twilio: 'twilio',
-      Clickup: 'clickup',
-      Vercel: 'vercel',
-      Databricks: 'databricks',
-      AzureBlob: 'azure-blob',
-      Firebase: 'firebase',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
       Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
       PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
       Stripe: 'stripe',
-      CustomerioApp: 'customerio-app',
-      CustomerioWebhook: 'customerio-webhook',
-      CustomerioTrack: 'customerio-track',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
     } as const;
 
     /**
@@ -21444,6 +21455,8 @@ export namespace Schemas {
       /** @nullable */
       readonly template_id: string | null;
       readonly name: string;
+      /** Lowercase key from the linked template for brand icons. Empty if custom install (no template). */
+      readonly icon_key: string;
       /** @maxLength 200 */
       display_name?: string;
       /** @maxLength 2048 */
@@ -21858,6 +21871,11 @@ export namespace Schemas {
       text_content?: string;
       /** Updated notebook title. */
       title?: string;
+      /**
+       * ProseMirror cursor head position after applying steps.
+       * @nullable
+       */
+      cursor_head?: number | null;
     }
 
     export interface NotebookMinimal {
@@ -23752,6 +23770,8 @@ export namespace Schemas {
        * @nullable
        */
       end_date?: string | null;
+      /** @nullable */
+      readonly timezone: string | null;
     }
 
     export interface PaginatedScheduledChangeList {
@@ -26405,10 +26425,10 @@ export namespace Schemas {
        */
       description?: string | null;
       /**
-       * Cache TTL in seconds (60–86400).
+       * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
        * @nullable
        */
-      cache_age_seconds?: number | null;
+      data_freshness_seconds?: number | null;
       /**
        * Whether this endpoint is available for execution via the API.
        * @nullable
@@ -26419,11 +26439,6 @@ export namespace Schemas {
        * @nullable
        */
       is_materialized?: boolean | null;
-      /**
-       * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
-       * @nullable
-       */
-      sync_frequency?: string | null;
       /**
        * Short ID of the insight this endpoint was derived from.
        * @nullable
@@ -26472,6 +26487,12 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action?: boolean;
       readonly action_id?: number;
       readonly is_calculating?: boolean;
@@ -29064,6 +29085,8 @@ export namespace Schemas {
        * @nullable
        */
       end_date?: string | null;
+      /** @nullable */
+      readonly timezone?: string | null;
     }
 
     export interface PatchedSchemaPropertyGroup {
@@ -29221,6 +29244,14 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
       _create_in_folder?: string;
+    }
+
+    export interface PatchedSessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -31592,6 +31623,16 @@ export namespace Schemas {
     }
 
     /**
+     * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
+     */
+    export type PromotedPropertiesResponsePromotedProperties = {[key: string]: string};
+
+    export interface PromotedPropertiesResponse {
+      /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
+      promoted_properties: PromotedPropertiesResponsePromotedProperties;
+    }
+
+    /**
      * * `exact` - exact
     * `is_not` - is_not
     * `icontains` - icontains
@@ -32712,6 +32753,7 @@ export namespace Schemas {
     export type QueryResponseAlternative21TotalExposures = {[key: string]: number};
 
     export interface QueryResponseAlternative21 {
+      bias_risk?: BiasRisk | null;
       date_range: DateRange;
       kind?: QueryResponseAlternative21Kind;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
@@ -34929,15 +34971,27 @@ export namespace Schemas {
 
     export interface SentimentRequest {
       /**
+       * Trace IDs or generation IDs to classify, depending on analysis_level.
        * @minItems 1
        * @maxItems 5
        */
       ids: string[];
+      /** Whether the IDs are 'trace' IDs or 'generation' IDs.
+
+    * `trace` - trace
+    * `generation` - generation */
       analysis_level?: SentimentRequestAnalysisLevelEnum;
+      /** If true, bypass cache and reclassify. */
       force_refresh?: boolean;
-      /** @nullable */
+      /**
+       * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+       * @nullable
+       */
       date_from?: string | null;
-      /** @nullable */
+      /**
+       * End of date range for the lookup. Defaults to now.
+       * @nullable
+       */
       date_to?: string | null;
     }
 
@@ -34970,6 +35024,14 @@ export namespace Schemas {
        * @maxLength 500
        */
       focus_area?: string;
+    }
+
+    export interface SessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
     }
 
     /**
@@ -37014,10 +37076,6 @@ export namespace Schemas {
      */
     checks_offset?: number;
     };
-
-    export type EnvironmentsAppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type EnvironmentsAppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
 
     export type EnvironmentsBatchExportsListParams = {
     /**
@@ -39896,6 +39954,10 @@ export namespace Schemas {
 
     export type LlmSkillsListParams = {
     /**
+     * Filter skills by the ID of the user who created them.
+     */
+    created_by_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -40847,10 +40909,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type AppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type AppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
-
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -41524,6 +41582,13 @@ export namespace Schemas {
      * The exact event name to look up
      */
     name: string;
+    };
+
+    export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+    /**
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     */
+    names?: string[];
     };
 
     export type EventSchemasListParams = {

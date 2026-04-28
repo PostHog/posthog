@@ -6,6 +6,7 @@ import temporalio.workflow as wf
 from temporalio import common
 
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY
 
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
@@ -39,6 +40,30 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
 
     @wf.run
     async def run(self, inputs: RasterizeRecordingInputs) -> RasterizationActivityOutput:
+        try:
+            return await self._run(inputs)
+        except Exception:
+            # Only log on the terminal attempt — retries would double-count
+            # recordings that fail-then-succeed.
+            info = wf.info()
+            retry_policy = info.retry_policy
+
+            max_attempts = retry_policy.maximum_attempts if retry_policy else 1
+            is_terminal = max_attempts is not None and max_attempts > 0 and info.attempt >= max_attempts
+
+            if is_terminal:
+                session_recording_id = info.typed_search_attributes.get(POSTHOG_SESSION_RECORDING_ID_KEY)
+                wf.logger.warning(
+                    "rasterize_recording.workflow_failed",
+                    extra={
+                        "session_recording_id": session_recording_id,
+                        "exported_asset_id": inputs.exported_asset_id,
+                        "phase": self._phase,
+                    },
+                )
+            raise
+
+    async def _run(self, inputs: RasterizeRecordingInputs) -> RasterizationActivityOutput:
         retry_policy = common.RetryPolicy(maximum_attempts=3)
 
         # Step 1: Read ExportedAsset, validate, build activity input

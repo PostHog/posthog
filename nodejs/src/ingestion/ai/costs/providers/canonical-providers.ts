@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-27 10:38:45 UTC
+// Generated at: 2026-04-28 10:38:44 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -7,6 +7,7 @@ export type CanonicalProvider =
     | 'aion-labs'
     | 'aion-labs-bf16'
     | 'akashml-fp8'
+    | 'akashml-int4'
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
@@ -22,7 +23,6 @@ export type CanonicalProvider =
     | 'baidu-fp8'
     | 'baseten-fp4'
     | 'cerebras-fp16'
-    | 'chutes-bf16'
     | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
@@ -56,7 +56,6 @@ export type CanonicalProvider =
     | 'inceptron-int4'
     | 'infermatic-bf16'
     | 'inflection'
-    | 'io-net'
     | 'io-net-bf16'
     | 'io-net-fp16'
     | 'io-net-int4'
