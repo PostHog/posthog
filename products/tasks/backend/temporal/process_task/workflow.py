@@ -377,6 +377,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         elif follow_up_result == "no_pr":
                             # No PR will ever appear — stop the CI loop entirely.
                             self._ci_repetitions = MAX_CI_REPETITIONS
+                        elif follow_up_result == "skip":
+                            # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
+                            # Without this, _wait_for_ci_follow_up returns immediately
+                            # whenever last_active_time is older than the delay, and the
+                            # workflow tight-loops calling GET /repos/.../pulls/{n}.
+                            self._last_active_time = workflow.now()
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
                             workflow.logger.info(

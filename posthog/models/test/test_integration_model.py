@@ -31,12 +31,14 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
+    GitHubRateLimitError,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
     OauthIntegration,
     PostgreSQLIntegration,
     SlackIntegration,
+    raise_if_github_rate_limited,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -1536,6 +1538,106 @@ class TestGitHubIntegrationModel(BaseTest):
             call(repo, limit=100, offset=100),
             call(repo, limit=100, offset=200),
         ]
+
+    # --- raise_if_github_rate_limited ---
+
+    @parameterized.expand(
+        [
+            ("429_no_body", 429, "", True),
+            ("403_rate_limit_body", 403, "API rate limit exceeded for installation", True),
+            ("403_other_body", 403, "Forbidden", False),
+            ("200_ok", 200, "", False),
+            ("404_not_found", 404, "", False),
+        ]
+    )
+    def test_raise_if_github_rate_limited_detection(self, _name, status_code, body, should_raise):
+        response = MagicMock()
+        response.status_code = status_code
+        response.text = body
+        response.headers = {}
+
+        if should_raise:
+            with pytest.raises(GitHubRateLimitError):
+                raise_if_github_rate_limited(response)
+        else:
+            raise_if_github_rate_limited(response)  # must not raise
+
+    @freeze_time("2024-01-01 12:00:00")
+    def test_raise_if_github_rate_limited_populates_fields(self):
+        reset_timestamp = int(time.time()) + 60
+        response = MagicMock()
+        response.status_code = 429
+        response.text = ""
+        response.headers = {
+            "x-ratelimit-reset": str(reset_timestamp),
+            "retry-after": "30",
+        }
+
+        with pytest.raises(GitHubRateLimitError) as exc_info:
+            raise_if_github_rate_limited(response)
+
+        assert exc_info.value.reset_at == reset_timestamp
+        assert exc_info.value.retry_after == 30
+
+    @freeze_time("2024-01-01 12:00:00")
+    def test_raise_if_github_rate_limited_derives_retry_after_from_reset_at(self):
+        reset_timestamp = int(time.time()) + 45
+        response = MagicMock()
+        response.status_code = 429
+        response.text = ""
+        response.headers = {"x-ratelimit-reset": str(reset_timestamp)}
+
+        with pytest.raises(GitHubRateLimitError) as exc_info:
+            raise_if_github_rate_limited(response)
+
+        assert exc_info.value.retry_after == 45
+
+    # --- exception hierarchy ---
+
+    def test_github_rate_limit_error_is_integration_error(self):
+        assert isinstance(GitHubRateLimitError("test"), GitHubIntegrationError)
+
+    # --- get_access_token ---
+
+    def test_get_access_token_returns_token_when_not_expired(self):
+        integration = self.create_integration(
+            config={"expires_in": 3600, "refreshed_at": int(time.time())},
+            sensitive_config={"access_token": "valid-token"},
+        )
+        github = GitHubIntegration(integration)
+        assert github.get_access_token() == "valid-token"
+
+    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    def test_get_access_token_refreshes_when_expired(self, mock_reload, mock_client_request):
+        integration = self.create_integration(
+            config={"expires_in": 3600, "refreshed_at": int(time.time()) - 7200},  # expired: refreshed 2h ago
+            sensitive_config={"access_token": "old-token"},
+        )
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        dt = datetime.now(UTC) + timedelta(hours=1)
+        mock_response.json.return_value = {
+            "token": "new-token",
+            "expires_at": dt.replace(tzinfo=None).isoformat(timespec="seconds") + "Z",
+        }
+        mock_client_request.return_value = mock_response
+
+        github = GitHubIntegration(integration)
+        token = github.get_access_token()
+
+        assert token == "new-token"
+        mock_client_request.assert_called_once()
+
+    def test_get_access_token_raises_when_token_missing_after_refresh(self):
+        integration = self.create_integration(
+            config={"expires_in": 3600, "refreshed_at": int(time.time())},
+            sensitive_config={},  # no access_token key
+        )
+        github = GitHubIntegration(integration)
+
+        with pytest.raises(GitHubIntegrationError, match="Access token unavailable"):
+            github.get_access_token()
 
 
 class TestDatabricksIntegrationModel(BaseTest):

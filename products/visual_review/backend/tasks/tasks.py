@@ -13,7 +13,6 @@ from uuid import UUID
 import structlog
 from celery import shared_task
 
-from ..github import GitHubRateLimitError
 from ..logic import HashIntegrityError
 
 logger = structlog.get_logger(__name__)
@@ -35,6 +34,8 @@ def process_run_diffs(self, run_id: str) -> None:
     Verifies hash integrity of new uploads before creating Artifact
     records and computing diffs.
     """
+    from posthog.models.integration import GitHubRateLimitError
+
     from .. import logic
     from ..diffing import process_diffs
 
