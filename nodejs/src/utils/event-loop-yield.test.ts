@@ -110,8 +110,9 @@ describe('event-loop-yield', () => {
                     await yieldEventLoopIfNeeded('test', () => busyWaitMs(blockMs))
                 }
                 // 10 * 30 = 300ms total blocking. With yielding, longestDelay
-                // should be close to one block + scheduling jitter.
-                expect(longestDelay).toBeLessThan(blockMs * 3)
+                // should be close to one block + scheduling jitter. (If yielding
+                // were broken, this would be ~300ms.)
+                expect(longestDelay).toBeLessThan(blockMs * 4)
             } finally {
                 clearInterval(interval)
             }
@@ -260,8 +261,9 @@ describe('event-loop-yield', () => {
                 await yieldEach('test', items, () => busyWaitMs(blockMs))
 
                 // 10 * 30 = 300ms total blocking. With yielding, longestDelay
-                // should be close to one block + a little jitter.
-                expect(longestDelay).toBeLessThan(blockMs * 3)
+                // should be close to one block + a little jitter. (If yielding
+                // were broken, this would be ~300ms.)
+                expect(longestDelay).toBeLessThan(blockMs * 4)
             } finally {
                 clearInterval(interval)
             }

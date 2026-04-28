@@ -71,9 +71,10 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         }
 
         try {
-            const messages = events.map((event) => ({
-                value: Buffer.from(JSON.stringify(event.payload)),
-            }))
+            const messages: { value: Buffer }[] = []
+            await yieldEach('cdp-precalculated-filters-publish', events, (event) => {
+                messages.push({ value: Buffer.from(JSON.stringify(event.payload)) })
+            })
 
             await this.outputs.queueMessages(PREFILTERED_EVENTS_OUTPUT, messages)
         } catch (error) {
@@ -92,9 +93,10 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         }
 
         try {
-            const messages = events.map((event) => ({
-                value: Buffer.from(JSON.stringify(event.payload)),
-            }))
+            const messages: { value: Buffer }[] = []
+            await yieldEach('cdp-precalculated-filters-publish', events, (event) => {
+                messages.push({ value: Buffer.from(JSON.stringify(event.payload)) })
+            })
 
             await this.outputs.queueMessages(PRECALCULATED_PERSON_PROPERTIES_OUTPUT, messages)
         } catch (error) {
@@ -178,8 +180,7 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
         // Step 1: Parse all messages and group by team_id
         const eventsByTeam = new Map<number, RawClickHouseEvent[]>()
 
-        // Parse and group events by team
-        for (const message of messages) {
+        await yieldEach('cdp-precalculated-filters-parse', messages, (message) => {
             try {
                 const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
@@ -189,7 +190,7 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                         event: clickHouseEvent.event,
                         uuid: clickHouseEvent.uuid,
                     })
-                    continue // Skip events without person_id
+                    return // Skip events without person_id
                 }
 
                 if (!eventsByTeam.has(clickHouseEvent.team_id)) {
@@ -199,7 +200,7 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
             } catch (e) {
                 logger.error('Error parsing message', e)
             }
-        }
+        })
 
         // Step 2: Fetch all realtime supported filters for all teams in one query
         const teamIds = Array.from(eventsByTeam.keys())

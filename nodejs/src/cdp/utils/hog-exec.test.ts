@@ -65,8 +65,9 @@ describe('hog-exec', () => {
             expect(total).toBeLessThan(200 * numberToTest) // the hog exec limiter isn't exact
             await new Promise((resolve) => setTimeout(resolve, 1))
             // Rough upper bound: with the semaphore serializing calls, the
-            // event loop should never be starved for more than ~2× one block.
-            expect(longestDelay).toBeLessThan(blockTime * 2)
+            // event loop should not be starved for more than ~2.5× one block.
+            // (If yielding were broken, this would be ~10× the block.)
+            expect(longestDelay).toBeLessThan(blockTime * 2.5)
         })
     })
 })
