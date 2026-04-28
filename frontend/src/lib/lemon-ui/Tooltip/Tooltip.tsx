@@ -26,7 +26,9 @@ interface BaseTooltipProps {
     containerClassName?: string
     visible?: boolean
     /**
-     * Defaults to true if docLink is provided
+     * When true, the popup is part of the hoverable region so users can move the cursor into it
+     * (e.g. to click an embedded link). Defaults to true when `docLink` is set or when `title` is
+     * a non-string ReactNode (which may contain interactive content). Pass `false` to opt out.
      */
     interactive?: boolean
     docLink?: string
@@ -69,8 +71,8 @@ export function Tooltip({
     offset = 8,
     arrowOffset,
     delayMs = 400,
-    closeDelayMs = 0,
-    interactive = false,
+    closeDelayMs,
+    interactive,
     visible: controlledOpen,
     docLink,
     containerClassName,
@@ -107,7 +109,14 @@ export function Tooltip({
         return <>{child}</>
     }
 
-    const isInteractive = interactive || !!docLink
+    // A ReactNode title may render interactive content (e.g. a <Link>). Treat anything that isn't a
+    // plain string or a function returning a string as potentially interactive so the popup stays
+    // hoverable and the cursor can reach embedded links across the trigger/popup gap.
+    const titleIsRichContent = title !== undefined && typeof title !== 'string' && typeof title !== 'function'
+    const isInteractive = interactive ?? (!!docLink || titleIsRichContent)
+    // When the popup is hoverable, give the cursor a grace period to traverse the offset gap before
+    // the tooltip closes. Callers can still override explicitly.
+    const effectiveCloseDelayMs = closeDelayMs ?? (isInteractive ? 200 : 0)
     const { side, align } = placementToSideAlign(placement)
 
     const collisionAvoidance = fallbackPlacements
@@ -130,7 +139,7 @@ export function Tooltip({
 
     return (
         <BaseTooltip.Root open={open} onOpenChange={handleOpenChange} disableHoverablePopup={!isInteractive}>
-            <BaseTooltip.Trigger delay={delayMs} closeDelay={closeDelayMs} render={child} />
+            <BaseTooltip.Trigger delay={delayMs} closeDelay={effectiveCloseDelayMs} render={child} />
             {shouldRenderPortal && (
                 <BaseTooltip.Portal container={floatingContainer ?? undefined}>
                     <BaseTooltip.Positioner
