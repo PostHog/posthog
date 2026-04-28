@@ -7,12 +7,14 @@ from unittest.mock import patch
 
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
 from posthog.temporal.backfill_materialized_property.activities import (
+    MAX_MULTIIF_BRANCHES_PER_MUTATION,
     ActivateSlotsInputs,
     AssignPendingSlotsInputs,
     FailSlotsInputs,
     FinalizeCompactionInputs,
     RunBatchedMutationInputs,
     _build_batched_update_command,
+    _chunk_assignments_by_branch_count,
     _ColumnAssignment,
     _plan_column_assignments,
     activate_slots,
@@ -312,6 +314,66 @@ class TestRunBatchedMutation:
         assert "browser" in call_kwargs["parameters"].values()
 
         runner_instance.run_on_shards.assert_called_once_with(mock_get_cluster.return_value)
+
+    @patch("posthog.temporal.backfill_materialized_property.activities.AlterTableMutationRunner")
+    @patch("posthog.temporal.backfill_materialized_property.activities.get_cluster")
+    def test_splits_into_multiple_mutations_when_branches_exceed_cap(
+        self,
+        mock_get_cluster,
+        mock_runner_cls,
+        activity_environment,
+    ):
+        # Build one assignment per column, each with a small branch count, so the total
+        # branch count crosses MAX_MULTIIF_BRANCHES_PER_MUTATION and forces chunking.
+        branches_per_column = 50
+        column_count = (MAX_MULTIIF_BRANCHES_PER_MUTATION // branches_per_column) + 2
+        assignments = [
+            _ColumnAssignment(
+                column_index=i,
+                branches=[
+                    (team_id, "p", f"{i:08d}-1111-1111-1111-{team_id:012d}") for team_id in range(branches_per_column)
+                ],
+            )
+            for i in range(column_count)
+        ]
+
+        activity_environment.run(run_batched_mutation, RunBatchedMutationInputs(assignments=assignments))
+
+        # Should have submitted MORE THAN ONE mutation, but split at column boundaries.
+        assert mock_runner_cls.call_count >= 2
+        # Per-call commands must each parse as a single ALTER body (not exceeding cap individually).
+        for call in mock_runner_cls.call_args_list:
+            commands = call.kwargs["commands"]
+            assert len(commands) == 1
+
+
+class TestChunkAssignmentsByBranchCount:
+    def test_packs_into_minimum_chunks(self):
+        assignments = [
+            _ColumnAssignment(column_index=i, branches=[(j, "p", f"x{j}") for j in range(50)])
+            for i in range(10)  # 500 branches total
+        ]
+        chunks = _chunk_assignments_by_branch_count(assignments, max_branches=200)
+        # 500 branches / 200 per chunk → 3 chunks (200, 200, 100)
+        assert len(chunks) == 3
+        assert sum(len(a.branches) for a in chunks[0]) <= 200
+        assert sum(len(a.branches) for a in chunks[1]) <= 200
+        assert sum(len(a.branches) for a in chunks[2]) <= 200
+
+    def test_single_oversized_column_lands_in_its_own_chunk(self):
+        # A column whose branch count alone exceeds the cap still gets its own chunk —
+        # we never split a multiIf across mutations because the multiIf is self-contained.
+        big = _ColumnAssignment(column_index=0, branches=[(j, "p", f"x{j}") for j in range(300)])
+        small = _ColumnAssignment(column_index=1, branches=[(0, "p", "y0")])
+        chunks = _chunk_assignments_by_branch_count([big, small], max_branches=200)
+        # First chunk: just the oversized column (300 branches > cap)
+        # Second chunk: the small one
+        assert len(chunks) == 2
+        assert chunks[0] == [big]
+        assert chunks[1] == [small]
+
+    def test_returns_empty_for_empty_input(self):
+        assert _chunk_assignments_by_branch_count([], max_branches=200) == []
 
 
 @pytest.mark.django_db(transaction=True)

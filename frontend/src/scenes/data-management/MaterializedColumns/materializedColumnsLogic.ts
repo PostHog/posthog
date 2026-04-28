@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { materializedColumnsLogicType } from './materializedColumnsLogicType'
 
 export enum MaterializedColumnSlotState {
+    PENDING = 'PENDING',
     BACKFILL = 'BACKFILL',
     READY = 'READY',
     ERROR = 'ERROR',
@@ -26,9 +27,13 @@ export interface MaterializedColumnSlot {
     property_definition: number
     property_definition_details: PropertyDefinition
     property_type: string
-    slot_index: number
+    /** Null while in PENDING — a column is only assigned once the weekly workflow runs. */
+    slot_index: number | null
+    /** Set during compaction — ingestion dual-writes to both columns until the workflow swaps. */
+    compaction_target_slot_index: number | null
     state: MaterializedColumnSlotState
-    backfill_temporal_uuid: string | null
+    backfill_temporal_workflow_id: string | null
+    error_message: string | null
     created_at: string
     updated_at: string
 }
@@ -36,6 +41,11 @@ export interface MaterializedColumnSlot {
 export interface SlotUsageSummary {
     team_id: number
     team_name: string
+    /** Team-wide cap on materialized columns (matches MAX_SLOTS_PER_TEAM in the backend). */
+    max_slots_per_team: number
+    used_total: number
+    available: number
+    /** Per-type counts retained for backwards compat with the previous API shape. */
     usage: {
         [key: string]: {
             used: number
@@ -61,6 +71,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
     actions({
         setShowCreateModal: (show: boolean) => ({ show }),
         deleteSlot: (slotId: string) => ({ slotId }),
+        retrySlot: (slotId: string) => ({ slotId }),
     }),
     loaders(({ values }) => ({
         slots: [
@@ -132,9 +143,8 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                 if (!slotUsage) {
                     return false
                 }
-                return Object.values(slotUsage.usage).some(
-                    (usage: { used: number; total: number; available: number }) => usage.available > 0
-                )
+                // The cap is team-wide, not per-type — read `available` directly.
+                return slotUsage.available > 0
             },
         ],
     }),
@@ -157,6 +167,22 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                 actions.loadSlots()
             } catch (error) {
                 lemonToast.error('Failed to delete slot')
+                console.error(error)
+            }
+        },
+        retrySlot: async ({ slotId }) => {
+            try {
+                if (!values.currentTeam) {
+                    return
+                }
+                await api.create(
+                    `api/environments/${values.currentTeam.id}/materialized_column_slots/${slotId}/retry_backfill/`,
+                    {}
+                )
+                lemonToast.success('Slot re-queued — it will be picked up by the next weekly backfill cycle')
+                actions.loadSlots()
+            } catch (error) {
+                lemonToast.error('Failed to re-queue slot')
                 console.error(error)
             }
         },

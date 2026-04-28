@@ -501,6 +501,43 @@ class RunBatchedMutationInputs:
     assignments: list[_ColumnAssignment]
 
 
+# Soft cap on multiIf branches per ALTER TABLE statement. Each branch is roughly 250 chars
+# (extract SQL + team_id literal + param ref). ClickHouse's default `max_query_size` is
+# 256 KiB, so we cap chunks at ~500 branches to stay comfortably under the limit even with
+# long property names. When a cycle exceeds this, the activity submits multiple sequential
+# mutations rather than one giant one.
+MAX_MULTIIF_BRANCHES_PER_MUTATION = 500
+
+
+def _chunk_assignments_by_branch_count(
+    assignments: list[_ColumnAssignment], max_branches: int
+) -> list[list[_ColumnAssignment]]:
+    """Split assignments so each chunk has at most `max_branches` branches in total.
+
+    Splits at column boundaries — never breaks a single column's multiIf across mutations,
+    because the multiIf is self-contained per column. A column with more branches than
+    `max_branches` lands in its own chunk on its own (and may individually exceed the cap;
+    the caller logs a warning in that case).
+    """
+    chunks: list[list[_ColumnAssignment]] = []
+    current: list[_ColumnAssignment] = []
+    current_count = 0
+
+    for assignment in assignments:
+        branch_count = len(assignment.branches)
+        if current and current_count + branch_count > max_branches:
+            chunks.append(current)
+            current = []
+            current_count = 0
+        current.append(assignment)
+        current_count += branch_count
+
+    if current:
+        chunks.append(current)
+
+    return chunks
+
+
 def _build_batched_update_command(assignments: list[_ColumnAssignment]) -> tuple[str, dict[str, str]]:
     """
     Build the body of a single ALTER TABLE UPDATE that populates one or more dmat_string
@@ -554,28 +591,56 @@ def run_batched_mutation(inputs: RunBatchedMutationInputs) -> None:
       - is idempotent — re-running with the same command attaches to the existing mutation
       - submits with the cluster's default settings (mutations_sync=0 outside tests),
         then polls system.mutations on each replica until is_done=1
+
+    When the assignments would produce a SQL string larger than ClickHouse's
+    `max_query_size` (256 KiB by default), the activity splits them into multiple
+    sequential mutations. This caps the per-mutation read cost at the price of running
+    several mutations back-to-back instead of one big one — both are equivalent in terms
+    of total work since each mutation reads `properties` once per matching row.
     """
     if not inputs.assignments:
         logger.info("No assignments to backfill — skipping mutation")
         return
 
-    command, params = _build_batched_update_command(inputs.assignments)
+    chunks = _chunk_assignments_by_branch_count(inputs.assignments, MAX_MULTIIF_BRANCHES_PER_MUTATION)
 
+    total_branches = sum(len(a.branches) for a in inputs.assignments)
     logger.info(
         "Submitting batched dmat backfill mutation",
         column_count=len(inputs.assignments),
         team_count=len({tid for a in inputs.assignments for tid, _, _ in a.branches}),
+        branch_count=total_branches,
+        chunk_count=len(chunks),
     )
 
-    runner = AlterTableMutationRunner(
-        table="sharded_events",
-        commands={command},
-        parameters=params,
-    )
     cluster = get_cluster()
-    runner.run_on_shards(cluster)
+    for chunk_index, chunk in enumerate(chunks):
+        chunk_branches = sum(len(a.branches) for a in chunk)
+        if chunk_branches > MAX_MULTIIF_BRANCHES_PER_MUTATION:
+            # Single column with too many branches — let it through but warn so we notice.
+            # If this fires repeatedly the per-team cap or the column-packing strategy
+            # needs revisiting (e.g. raise MAX_SLOTS_PER_TEAM or pack fewer teams per column).
+            logger.warning(
+                "Single-column chunk exceeds branch cap — submitting anyway, may hit max_query_size",
+                chunk_branches=chunk_branches,
+                column_index=chunk[0].column_index if chunk else None,
+            )
 
-    logger.info("Batched dmat backfill mutation complete on all shards")
+        command, params = _build_batched_update_command(chunk)
+        runner = AlterTableMutationRunner(
+            table="sharded_events",
+            commands={command},
+            parameters=params,
+        )
+        runner.run_on_shards(cluster)
+        logger.info(
+            "Mutation chunk complete on all shards",
+            chunk_index=chunk_index + 1,
+            total_chunks=len(chunks),
+            chunk_branches=chunk_branches,
+        )
+
+    logger.info("All batched dmat backfill mutation chunks complete", chunk_count=len(chunks))
 
 
 @dataclasses.dataclass
