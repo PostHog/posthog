@@ -141,6 +141,16 @@ class TestEmailsPagination:
         assert mock_get.call_count == 1
         manager.save_state.assert_not_called()
 
+    @patch("posthog.temporal.data_imports.sources.resend.resend.requests.get")
+    def test_raises_when_empty_page_with_has_more_true(self, mock_get: MagicMock) -> None:
+        mock_get.return_value = _mock_response(json_payload={"data": [], "has_more": True})
+
+        manager = _mock_manager()
+        logger = MagicMock()
+
+        with pytest.raises(ValueError, match="empty page but has_more=True"):
+            list(get_rows("re_test", "emails", logger, manager))
+
 
 class TestContactsFanout:
     @patch("posthog.temporal.data_imports.sources.resend.resend.requests.get")

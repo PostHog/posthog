@@ -107,8 +107,12 @@ def _iter_emails(
         if items:
             yield items
 
-        if not has_more or not items:
+        if not has_more:
             break
+        if not items:
+            # has_more=True with an empty page would silently skip remaining
+            # rows; surface it instead of producing a data gap.
+            raise ValueError(f"Resend API returned an empty page but has_more=True for {url}")
 
         # Advance cursor from the last row's id (Resend keyset pagination on id).
         # Use direct access so a missing id surfaces as a hard error rather than
