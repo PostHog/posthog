@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 from typing import TypedDict
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
@@ -194,18 +195,59 @@ def _priority_rank(priority: Priority) -> int:
     }[priority]
 
 
-def _build_autostart_task_description(result: ReportResearchOutput, repository: str) -> str:
+def _build_inbox_url(team_id: int, report_id: str) -> str | None:
+    """Return the absolute URL to the inbox item for *report_id*, if SITE_URL is configured."""
+    site_url = getattr(settings, "SITE_URL", None)
+    if not site_url:
+        return None
+    return f"{site_url.rstrip('/')}/project/{team_id}/inbox/{report_id}"
+
+
+def _build_autostart_task_description(
+    *,
+    team_id: int,
+    report_id: str,
+    result: ReportResearchOutput,
+    repository: str,
+    reviewers_content: list[ReviewerContent],
+) -> str:
     priority_line = (
         f"Priority: {result.priority.priority.value}\nReason: {result.priority.explanation}\n\n"
         if result.priority
         else ""
     )
+
+    inbox_url = _build_inbox_url(team_id, report_id)
+    inbox_line = f"Inbox item: {inbox_url}\n\n" if inbox_url else ""
+
+    reviewer_logins = [reviewer["github_login"] for reviewer in reviewers_content if reviewer.get("github_login")]
+    reviewers_block = ""
+    if reviewer_logins:
+        reviewer_list = ", ".join(f"@{login}" for login in reviewer_logins)
+        reviewers_block = (
+            "Suggested reviewers (already surfaced on the inbox item — request the same set on the PR, "
+            f"in this order, unless one is the PR author): {reviewer_list}\n\n"
+        )
+
+    inbox_link_instruction = (
+        f"- Include a link back to the inbox item ({inbox_url}) in the PR description so reviewers can trace its origin.\n"
+        if inbox_url
+        else ""
+    )
+
     return (
+        f'Inbox item title: "{result.title}"\n\n'
         f"{result.summary}\n\n"
         f"{priority_line}"
         f"Repository: {repository}\n\n"
+        f"{inbox_line}"
+        f"{reviewers_block}"
         "Act on this signal report. Investigate the root cause, implement the fix, "
-        "and open a PR if appropriate."
+        "and open a PR if appropriate.\n\n"
+        "When opening the PR:\n"
+        "- Use the inbox item title above as the PR title verbatim, unless the implementation forces a meaningfully different scope — in which case explain the divergence in the PR description.\n"
+        f"{inbox_link_instruction}"
+        "- Request the suggested reviewers listed above as PR reviewers (skip any who are the PR author or no longer in the org)."
     )
 
 
@@ -295,7 +337,13 @@ async def _maybe_autostart_task_for_report(
     task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
         team=team,
         title=result.title,
-        description=_build_autostart_task_description(result, repository),
+        description=_build_autostart_task_description(
+            team_id=team_id,
+            report_id=report_id,
+            result=result,
+            repository=repository,
+            reviewers_content=reviewers_content,
+        ),
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         user_id=task_user.id,
         repository=repository,

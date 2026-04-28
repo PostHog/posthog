@@ -21,7 +21,11 @@ from products.signals.backend.report_generation.research import (
     SignalFinding,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, run_agentic_report_activity
+from products.signals.backend.temporal.agentic.report import (
+    RunAgenticReportInput,
+    _build_autostart_task_description,
+    run_agentic_report_activity,
+)
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
@@ -306,3 +310,57 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
             lambda: SignalReportArtefact.objects.filter(report=report).count()
         )()
         assert artefact_count == 0
+
+
+class TestBuildAutostartTaskDescription:
+    def test_includes_title_reviewers_and_inbox_link(self, settings):
+        settings.SITE_URL = "https://us.posthog.com"
+
+        description = _build_autostart_task_description(
+            team_id=42,
+            report_id="abc-123",
+            result=_build_research_output(),
+            repository="posthog/posthog",
+            reviewers_content=[
+                {"github_login": "alice", "github_name": "Alice Example", "relevant_commits": []},
+                {"github_login": "bob", "github_name": None, "relevant_commits": []},
+            ],
+        )
+
+        assert 'Inbox item title: "Onboarding funnel completion tracking may be regressing"' in description
+        assert "Inbox item: https://us.posthog.com/project/42/inbox/abc-123" in description
+        assert "@alice" in description and "@bob" in description
+        # Reviewers should be listed in the same order they were provided
+        assert description.index("@alice") < description.index("@bob")
+        assert "Use the inbox item title above as the PR title verbatim" in description
+        assert "Request the suggested reviewers listed above as PR reviewers" in description
+
+    def test_omits_inbox_link_when_site_url_not_configured(self, settings):
+        settings.SITE_URL = None
+
+        description = _build_autostart_task_description(
+            team_id=42,
+            report_id="abc-123",
+            result=_build_research_output(),
+            repository="posthog/posthog",
+            reviewers_content=[],
+        )
+
+        assert "Inbox item:" not in description
+        assert "/project/42/inbox/" not in description
+        # Without reviewers, the reviewer block and instruction should still gracefully render
+        assert "Suggested reviewers" not in description
+
+    def test_strips_trailing_slash_from_site_url(self, settings):
+        settings.SITE_URL = "https://us.posthog.com/"
+
+        description = _build_autostart_task_description(
+            team_id=42,
+            report_id="abc-123",
+            result=_build_research_output(),
+            repository="posthog/posthog",
+            reviewers_content=[],
+        )
+
+        assert "https://us.posthog.com/project/42/inbox/abc-123" in description
+        assert "https://us.posthog.com//project/42" not in description
