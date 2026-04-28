@@ -91,6 +91,7 @@ Once created, copy the **Signing key** from the webhook details page and add it 
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="Customer.io reporting webhook signing key",
+                        secret=True,
                     ),
                 ],
             ),
