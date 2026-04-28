@@ -1606,6 +1606,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
+                lemonToast.info('Experiment archived')
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to archive experiment')
             }
