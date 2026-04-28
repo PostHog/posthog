@@ -109,7 +109,7 @@ export function Chart<Meta = unknown>({
         if (max < 0) {
             max = 0
         }
-        const ticks = d3.ticks(min, max, 6)
+        const ticks = d3.scaleLinear().domain([min, max]).nice(6).ticks(6)
         if (ticks.length === 0) {
             return 0
         }
