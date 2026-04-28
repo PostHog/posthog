@@ -5,7 +5,7 @@ from posthog.schema import ActionsNode, EventsNode, ExperimentMeanMetric
 
 from posthog.hogql_queries.experiments.base_query_utils import is_session_property_metric
 
-DEFAULT_CUPED_LOOKBACK_DAYS = 14
+DEFAULT_CUPED_LOOKBACK_DAYS = 7
 MIN_CUPED_LOOKBACK_DAYS = 1
 MAX_CUPED_LOOKBACK_DAYS = 365
 
