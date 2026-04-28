@@ -15082,6 +15082,12 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -15936,6 +15942,12 @@ export namespace Schemas {
       readonly last_updated_at: string;
       tags?: unknown[];
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -20365,75 +20377,77 @@ export namespace Schemas {
     }
 
     /**
-     * * `slack` - Slack
-    * `slack-posthog-code` - Slack Posthog Code
-    * `salesforce` - Salesforce
-    * `hubspot` - Hubspot
-    * `google-pubsub` - Google Pubsub
-    * `google-cloud-storage` - Google Cloud Storage
-    * `google-ads` - Google Ads
-    * `google-sheets` - Google Sheets
-    * `google-cloud-service-account` - Google Cloud Service Account
-    * `snapchat` - Snapchat
-    * `linkedin-ads` - Linkedin Ads
-    * `reddit-ads` - Reddit Ads
-    * `tiktok-ads` - Tiktok Ads
+     * * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
-    * `intercom` - Intercom
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
     * `email` - Email
-    * `linear` - Linear
+    * `firebase` - Firebase
     * `github` - Github
     * `gitlab` - Gitlab
-    * `meta-ads` - Meta Ads
-    * `twilio` - Twilio
-    * `clickup` - Clickup
-    * `vercel` - Vercel
-    * `databricks` - Databricks
-    * `azure-blob` - Azure Blob
-    * `firebase` - Firebase
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
     * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
     * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
     * `stripe` - Stripe
-    * `customerio-app` - Customerio App
-    * `customerio-webhook` - Customerio Webhook
-    * `customerio-track` - Customerio Track
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
 
     export const IntegrationKindEnum = {
-      Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
-      Salesforce: 'salesforce',
-      Hubspot: 'hubspot',
-      GooglePubsub: 'google-pubsub',
-      GoogleCloudStorage: 'google-cloud-storage',
-      GoogleAds: 'google-ads',
-      GoogleSheets: 'google-sheets',
-      GoogleCloudServiceAccount: 'google-cloud-service-account',
-      Snapchat: 'snapchat',
-      LinkedinAds: 'linkedin-ads',
-      RedditAds: 'reddit-ads',
-      TiktokAds: 'tiktok-ads',
+      AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
-      Intercom: 'intercom',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
       Email: 'email',
-      Linear: 'linear',
+      Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
-      MetaAds: 'meta-ads',
-      Twilio: 'twilio',
-      Clickup: 'clickup',
-      Vercel: 'vercel',
-      Databricks: 'databricks',
-      AzureBlob: 'azure-blob',
-      Firebase: 'firebase',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
       Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
       PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
       Stripe: 'stripe',
-      CustomerioApp: 'customerio-app',
-      CustomerioWebhook: 'customerio-webhook',
-      CustomerioTrack: 'customerio-track',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
     } as const;
 
     /**
@@ -26484,6 +26498,12 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action?: boolean;
       readonly action_id?: number;
       readonly is_calculating?: boolean;
@@ -29237,6 +29257,14 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface PatchedSessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
+    }
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SourceProductEnum;
@@ -31603,6 +31631,16 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    /**
+     * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
+     */
+    export type PromotedPropertiesResponsePromotedProperties = {[key: string]: string};
+
+    export interface PromotedPropertiesResponse {
+      /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
+      promoted_properties: PromotedPropertiesResponsePromotedProperties;
     }
 
     /**
@@ -34986,6 +35024,14 @@ export namespace Schemas {
       focus_area?: string;
     }
 
+    export interface SessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
+    }
+
     /**
      * * `trace` - trace
     * `debug` - debug
@@ -37028,10 +37074,6 @@ export namespace Schemas {
      */
     checks_offset?: number;
     };
-
-    export type EnvironmentsAppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type EnvironmentsAppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
 
     export type EnvironmentsBatchExportsListParams = {
     /**
@@ -40861,10 +40903,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type AppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type AppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
-
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -41538,6 +41576,13 @@ export namespace Schemas {
      * The exact event name to look up
      */
     name: string;
+    };
+
+    export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+    /**
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     */
+    names?: string[];
     };
 
     export type EventSchemasListParams = {

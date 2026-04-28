@@ -96,7 +96,9 @@ def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that contain sensitive data from a source config's fields."""
     sensitive: set[str] = set()
     for field in fields:
-        if isinstance(field, SourceFieldInputConfig) and field.type == SourceFieldInputConfigType.PASSWORD:
+        if isinstance(field, SourceFieldInputConfig) and (
+            field.type == SourceFieldInputConfigType.PASSWORD or field.secret
+        ):
             sensitive.add(field.name)
         elif isinstance(field, SourceFieldFileUploadConfig):
             sensitive.add(field.name)
@@ -132,7 +134,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
 
     for field in fields:
         if isinstance(field, SourceFieldInputConfig):
-            if field.type == SourceFieldInputConfigType.PASSWORD:
+            if field.type == SourceFieldInputConfigType.PASSWORD or field.secret:
                 _add_name_variants(sensitive, field.name)
             else:
                 _add_name_variants(nonsensitive, field.name)
@@ -569,22 +571,26 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
 
-        # auth_method is a nested config - deep-merge to preserve sensitive fields (stripe_secret_key)
-        existing_auth_method = existing_job_inputs.get("auth_method")
-        incoming_auth_method = incoming_job_inputs.get("auth_method")
-        if incoming_auth_method is not None and not isinstance(incoming_auth_method, dict):
-            raise ValidationError({"job_inputs": {"auth_method": "Must be an object."}})
-        if isinstance(existing_auth_method, dict) and isinstance(incoming_auth_method, dict):
-            selection_changed = existing_auth_method.get("selection") != incoming_auth_method.get("selection")
+        # Nested SourceFieldSelectConfig containers (e.g. Stripe `auth_method`, Snowflake `auth_type`) need
+        # a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge above
+        # would otherwise wipe redacted credentials nested inside these containers.
+        for container_key in ("auth_method", "auth_type"):
+            existing_container = existing_job_inputs.get(container_key)
+            incoming_container = incoming_job_inputs.get(container_key)
+            if incoming_container is not None and not isinstance(incoming_container, dict):
+                raise ValidationError({"job_inputs": {container_key: "Must be an object."}})
+            if not (isinstance(existing_container, dict) and isinstance(incoming_container, dict)):
+                continue
+            selection_changed = existing_container.get("selection") != incoming_container.get("selection")
             if selection_changed:
-                # Auth method switched (e.g. api_key→oauth) — use only incoming, don't carry over old secrets
-                new_job_inputs["auth_method"] = incoming_auth_method
+                # Selection switched (e.g. password→keypair) — use only incoming, don't carry over old secrets
+                new_job_inputs[container_key] = incoming_container
             else:
-                merged_auth_method = {**existing_auth_method, **incoming_auth_method}
+                merged_container = {**existing_container, **incoming_container}
                 for key in sensitive_fields:
-                    if existing_auth_method.get(key) and not incoming_auth_method.get(key):
-                        merged_auth_method[key] = existing_auth_method[key]
-                new_job_inputs["auth_method"] = merged_auth_method
+                    if existing_container.get(key) and not incoming_container.get(key):
+                        merged_container[key] = existing_container[key]
+                new_job_inputs[container_key] = merged_container
 
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
