@@ -446,6 +446,17 @@ export const LlmAnalyticsClusteringRunsCreateBody = /* @__PURE__ */ zod
     .describe('Serializer for clustering workflow request parameters.')
 
 /**
+ * Set the active provider key for evaluations
+ */
+export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ */ zod.object({
+    key_id: zod
+        .uuid()
+        .describe(
+            "UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide."
+        ),
+})
+
+/**
  * CRUD for evaluation report configurations + report run history.
  */
 export const llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax = 64

@@ -2249,6 +2249,36 @@
             "readOnlyHint": true
         }
     },
+    "llm-analytics-eval-config-retrieve": {
+        "description": "Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the team has either trial credits available or an active provider key configured — without one, llm_judge runs will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation config",
+        "title": "Get evaluation config",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llm-analytics-eval-config-set-active-key-create": {
+        "description": "Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't pin its own key. The key must already be validated — use llm-analytics-provider-keys-validate-create or create a new key with the validation flow first.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Set active evaluation provider key",
+        "title": "Set active evaluation provider key",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llm-analytics-evaluation-summary-create": {
         "description": "Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an evaluation_id and an optional filter (\"all\", \"pass\", \"fail\", or \"na\") to scope which runs are analyzed. Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title, description, frequency, and example generation IDs), actionable recommendations, and run statistics. Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour — use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.",
         "category": "LLM analytics",
@@ -2264,6 +2294,21 @@
             "readOnlyHint": false
         },
         "requires_ai_consent": true
+    },
+    "llm-analytics-models-retrieve": {
+        "description": "List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry returns the model id and whether it is available on PostHog trial credits. Call this before creating an llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is chosen.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List supported LLM judge models",
+        "title": "List supported LLM judge models",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     },
     "llm-analytics-sentiment-create": {
         "description": "Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list of trace or generation IDs and an analysis_level (\"trace\" or \"generation\"). Returns per-ID sentiment labels with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute. Rate-limited.",

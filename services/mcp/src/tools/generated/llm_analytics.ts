@@ -5,7 +5,9 @@ import type { Schemas } from '@/api/generated'
 import {
     LlmAnalyticsClusteringJobsListQueryParams,
     LlmAnalyticsClusteringJobsRetrieveParams,
+    LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody,
     LlmAnalyticsEvaluationSummaryCreateBody,
+    LlmAnalyticsModelsRetrieveQueryParams,
     LlmAnalyticsSentimentCreateBody,
     LlmAnalyticsSummarizationCreateBody,
 } from '@/generated/llm_analytics/api'
@@ -28,6 +30,48 @@ const llmAnalyticsClusteringJobsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const LlmAnalyticsEvalConfigRetrieveSchema = z.object({})
+
+const llmAnalyticsEvalConfigRetrieve = (): ToolBase<
+    typeof LlmAnalyticsEvalConfigRetrieveSchema,
+    Schemas.EvaluationConfig
+> => ({
+    name: 'llm-analytics-eval-config-retrieve',
+    schema: LlmAnalyticsEvalConfigRetrieveSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsEvalConfigRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EvaluationConfig>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_config/`,
+        })
+        return result
+    },
+})
+
+const LlmAnalyticsEvalConfigSetActiveKeyCreateSchema = LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody
+
+const llmAnalyticsEvalConfigSetActiveKeyCreate = (): ToolBase<
+    typeof LlmAnalyticsEvalConfigSetActiveKeyCreateSchema,
+    Schemas.EvaluationConfig
+> => ({
+    name: 'llm-analytics-eval-config-set-active-key-create',
+    schema: LlmAnalyticsEvalConfigSetActiveKeyCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsEvalConfigSetActiveKeyCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.key_id !== undefined) {
+            body['key_id'] = params.key_id
+        }
+        const result = await context.api.request<Schemas.EvaluationConfig>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_config/set_active_key/`,
+            body,
         })
         return result
     },
@@ -78,6 +122,28 @@ const llmAnalyticsEvaluationSummaryCreate = (): ToolBase<
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_summary/`,
             body,
+        })
+        return result
+    },
+})
+
+const LlmAnalyticsModelsRetrieveSchema = LlmAnalyticsModelsRetrieveQueryParams
+
+const llmAnalyticsModelsRetrieve = (): ToolBase<
+    typeof LlmAnalyticsModelsRetrieveSchema,
+    Schemas.LLMModelsListResponse
+> => ({
+    name: 'llm-analytics-models-retrieve',
+    schema: LlmAnalyticsModelsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsModelsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LLMModelsListResponse>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/models/`,
+            query: {
+                key_id: params.key_id,
+                provider: params.provider,
+            },
         })
         return result
     },
@@ -168,7 +234,10 @@ const llmAnalyticsSummarizationCreate = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llm-analytics-clustering-jobs-list': llmAnalyticsClusteringJobsList,
     'llm-analytics-clustering-jobs-retrieve': llmAnalyticsClusteringJobsRetrieve,
+    'llm-analytics-eval-config-retrieve': llmAnalyticsEvalConfigRetrieve,
+    'llm-analytics-eval-config-set-active-key-create': llmAnalyticsEvalConfigSetActiveKeyCreate,
     'llm-analytics-evaluation-summary-create': llmAnalyticsEvaluationSummaryCreate,
+    'llm-analytics-models-retrieve': llmAnalyticsModelsRetrieve,
     'llm-analytics-sentiment-create': llmAnalyticsSentimentCreate,
     'llm-analytics-summarization-create': llmAnalyticsSummarizationCreate,
 }
