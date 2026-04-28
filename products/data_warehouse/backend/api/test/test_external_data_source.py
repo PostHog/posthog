@@ -4,7 +4,7 @@ from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -4007,6 +4007,25 @@ class TestExternalDataSource(APIBaseTest):
         assert isinstance(config, ExternalDataSourceRevenueAnalyticsConfig)
         assert config.external_data_source == source
         assert config.enabled is True  # Stripe should be enabled by default
+
+    def test_revenue_analytics_config_safe_property_handles_keyerror(self):
+        # Regression: under DB connection pressure the reverse-OneToOne descriptor
+        # cache can be in a state that surfaces a KeyError instead of DoesNotExist
+        # when the relation is accessed. The safe property must fall through to
+        # `get_or_create` rather than letting that KeyError propagate to DRF
+        # (which previously turned into a 500 on /external_data_sources/).
+        source = self._create_external_data_source()
+
+        with patch.object(
+            ExternalDataSource,
+            "revenue_analytics_config",
+            new_callable=PropertyMock,
+            side_effect=KeyError("revenue_analytics_config"),
+        ):
+            config = source.revenue_analytics_config_safe
+
+        assert isinstance(config, ExternalDataSourceRevenueAnalyticsConfig)
+        assert config.external_data_source_id == source.pk
 
     def test_revenue_analytics_config_in_api_response(self):
         """Test that revenue analytics config is included in API responses."""

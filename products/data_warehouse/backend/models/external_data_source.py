@@ -88,9 +88,13 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         """
         from .revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 
+        # `KeyError` can leak from Django's reverse-OneToOne descriptor when the
+        # `select_related` cache is partially populated under DB connection pressure
+        # (e.g. pgbouncer pool exhaustion). Treat it the same as `DoesNotExist` so
+        # the API doesn't 500 in that scenario — fall back to `get_or_create`.
         try:
             return self.revenue_analytics_config
-        except ExternalDataSourceRevenueAnalyticsConfig.DoesNotExist:
+        except (ExternalDataSourceRevenueAnalyticsConfig.DoesNotExist, KeyError):
             config, _ = ExternalDataSourceRevenueAnalyticsConfig.objects.get_or_create(
                 external_data_source=self,
                 defaults={
