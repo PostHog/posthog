@@ -1637,3 +1637,115 @@ async def test_fetch_due_subscriptions_excludes_disabled(team, user):
 
     assert enabled_sub.id in fetched_ids
     assert disabled_sub.id not in fetched_ids
+
+
+@patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
+@patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("posthog.slo.events.posthoganalytics")
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_deliver_subscription_emits_success_slo_when_disabling(
+    mock_slo_analytics: MagicMock,
+    mock_exporter: MagicMock,
+    mock_get_slack: MagicMock,
+    mock_build_snapshot: MagicMock,
+    mock_send_notification: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    # Pre-fix (production state observed at 158 events / 5 days / 33 teams):
+    # outcome=failure, error_type=ApplicationError — config issues polluted the
+    # subscription_delivery failure-rate dashboard.
+    # Post-fix: the activity auto-disables and returns cleanly, so the SLO
+    # interceptor records outcome=success. This test locks the metric fix in
+    # as a regression invariant — re-introducing `raise ApplicationError(...)`
+    # at activities.py would flip the captured outcome and fail this test.
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="slo-d1", name="SLO disable")
+    mock_build_snapshot.return_value = {
+        "id": insight.id,
+        "short_id": str(insight.short_id),
+        "name": insight.name or "",
+        "dashboard_tile_id": None,
+        "query_hash": "mock_cache_key",
+        "cache_key": "mock_cache_key",
+        "query_results": {"result": []},
+    }
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+    await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location="s3://bucket/slo-disable.png",
+    )
+
+    # Stub out the actual export — the test insight has no series, so the
+    # real exporter would raise ValidationError and pollute the SLO outcome
+    # with PartialExportFailure before deliver_subscription even runs.
+    def fake_export(asset_obj, **kwargs):
+        asset_obj.content_location = "s3://bucket/slo-disable.png"
+        asset_obj.save(update_fields=["content_location"])
+
+    mock_exporter.export_asset_direct = fake_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=10),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ProcessSubscriptionWorkflow.run,
+                TrackedSubscriptionInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
+                        distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                    ),
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    # Sanity: auto-disable wired correctly.
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
+    mock_send_notification.assert_called_once()
+
+    delivery_completed_calls = [
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
+    ]
+    # At least one subscription_delivery completion was recorded.
+    assert delivery_completed_calls, "expected an slo_operation_completed event for subscription_delivery"
+
+    # Every recorded outcome is success — and crucially, none is the pre-fix
+    # failure/ApplicationError pair we are guarding against.
+    for call in delivery_completed_calls:
+        props = call.kwargs["properties"]
+        assert props["outcome"] == SloOutcome.SUCCESS, (
+            f"subscription_delivery SLO must stay success after auto-disable, got {props}"
+        )
+        assert not (props["outcome"] == SloOutcome.FAILURE and props.get("error_type") == "ApplicationError"), (
+            "regression: auto-disable path must not emit failure+ApplicationError"
+        )
