@@ -208,22 +208,41 @@ class NonIntegratedConversionsTableQueryRunner(
 
         join_expr = self._build_compare_join(current_period_query, previous_period_query)
         select_columns = self._get_filtered_select_columns(current_period_query)
-
-        tuple_columns: list[ast.Expr] = [
-            ast.Alias(
-                alias=col.alias if isinstance(col, ast.Alias) else str(col),
-                expr=ast.Call(
-                    name="tuple",
-                    args=[
-                        ast.Field(chain=["current_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
-                        ast.Field(chain=["previous_period", col.alias if isinstance(col, ast.Alias) else str(col)]),
-                    ],
-                ),
-            )
-            for col in select_columns
-        ]
+        tuple_columns = self._build_compare_tuple_columns(select_columns, previous_period_query)
 
         return self._build_paginated_query(tuple_columns, join_expr)
+
+    @staticmethod
+    def _build_compare_tuple_columns(
+        select_columns: list[ast.Expr], previous_period_query: ast.SelectQuery
+    ) -> list[ast.Expr]:
+        """Build the (current, previous) tuple columns, substituting NULL for previous-period
+        columns that the previous SELECT does not project.
+
+        The empty-aggregator fallback in _build_select_query yields just Source + Campaign,
+        so a conversion-goal alias requested for the current period would otherwise raise
+        ResolutionError on the previous_period alias type during HogQL type resolution.
+        """
+        previous_aliases = {col.alias for col in (previous_period_query.select or []) if isinstance(col, ast.Alias)}
+
+        tuple_columns: list[ast.Expr] = []
+        for col in select_columns:
+            col_name = col.alias if isinstance(col, ast.Alias) else str(col)
+            previous_expr: ast.Expr = (
+                ast.Field(chain=["previous_period", col_name])
+                if col_name in previous_aliases
+                else ast.Constant(value=None)
+            )
+            tuple_columns.append(
+                ast.Alias(
+                    alias=col_name,
+                    expr=ast.Call(
+                        name="tuple",
+                        args=[ast.Field(chain=["current_period", col_name]), previous_expr],
+                    ),
+                )
+            )
+        return tuple_columns
 
     def _build_compare_join(
         self, current_period_query: ast.SelectQuery, previous_period_query: ast.SelectQuery
