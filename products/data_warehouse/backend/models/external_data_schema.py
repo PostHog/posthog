@@ -422,6 +422,85 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
             schema.save(update_fields=["label", "updated_at"])
 
 
+SCHEMA_MISSING_FROM_NEW_SOURCE_SCHEMA_ERROR = (
+    "Table not found under the source's current schema. The source's schema config "
+    "was changed but this table doesn't exist there. Re-create the table in the new "
+    "schema or remove this entry."
+)
+
+
+def propagate_postgres_source_schema_to_schemas(
+    *,
+    source_id: str,
+    team_id: int,
+    discovered_source_schemas: list[Any],
+) -> int:
+    """Re-point each row's `schema_metadata` to the freshly-discovered location.
+
+    Match by `source_table_name`. Rows whose table is missing from the new
+    schema get a `latest_error` so they surface in the UI instead of silently
+    syncing from the stale location.
+    """
+    by_table = {
+        s.source_table_name: s
+        for s in discovered_source_schemas
+        if getattr(s, "source_table_name", None) and getattr(s, "source_schema", None)
+    }
+    if not by_table:
+        return 0
+
+    updated = 0
+    for schema in get_all_schemas_for_source_id(source_id=source_id, team_id=team_id):
+        metadata = schema.sync_type_config.get("schema_metadata") if schema.sync_type_config else None
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        # Fallback to the display-name suffix for legacy rows missing source_table_name.
+        lookup_key = metadata.get("source_table_name") if isinstance(metadata.get("source_table_name"), str) else None
+        if not lookup_key:
+            lookup_key = schema.name.rsplit(".", 1)[-1]
+
+        discovered = by_table.get(lookup_key)
+        if discovered is None:
+            # Surface the orphan to the user without disabling the row — the
+            # DataWarehouseTable still holds prior data and an explicit action
+            # (re-create or delete) is the right next step.
+            if schema.latest_error != SCHEMA_MISSING_FROM_NEW_SOURCE_SCHEMA_ERROR:
+                schema.latest_error = SCHEMA_MISSING_FROM_NEW_SOURCE_SCHEMA_ERROR
+                schema.save(update_fields=["latest_error", "updated_at"])
+            continue
+
+        new_schema = discovered.source_schema
+        new_catalog = discovered.source_catalog
+        new_table = discovered.source_table_name
+
+        update_fields: list[str] = []
+        if (
+            metadata.get("source_schema") != new_schema
+            or metadata.get("source_catalog") != new_catalog
+            or metadata.get("source_table_name") != new_table
+        ):
+            metadata["source_schema"] = new_schema
+            metadata["source_catalog"] = new_catalog
+            metadata["source_table_name"] = new_table
+            sync_type_config = schema.sync_type_config or {}
+            sync_type_config["schema_metadata"] = metadata
+            schema.sync_type_config = sync_type_config
+            update_fields.append("sync_type_config")
+
+        # Clear stale orphan errors once the table is back in scope.
+        if schema.latest_error == SCHEMA_MISSING_FROM_NEW_SOURCE_SCHEMA_ERROR:
+            schema.latest_error = None
+            update_fields.append("latest_error")
+
+        if update_fields:
+            update_fields.append("updated_at")
+            schema.save(update_fields=update_fields)
+            updated += 1
+
+    return updated
+
+
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None],
     source_id: str,

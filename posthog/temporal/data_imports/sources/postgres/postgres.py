@@ -301,17 +301,16 @@ def _get_discovered_tables(
             for table_catalog, schema_name, table_name in discovered_rows
         }
     else:
+        # pg_class covers all syncable relkinds: r/p (tables), v/m (views), f (foreign).
         if selected_schema is not None:
             cursor.execute(
                 """
-                SELECT schemaname AS schema_name, tablename AS table_name
-                FROM pg_tables
-                WHERE schemaname = %(schema)s
-                UNION ALL
-                SELECT schemaname AS schema_name, matviewname AS table_name
-                FROM pg_matviews
-                WHERE schemaname = %(schema)s
-                ORDER BY schema_name, table_name
+                SELECT n.nspname AS schema_name, c.relname AS table_name
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                  AND n.nspname = %(schema)s
+                ORDER BY n.nspname, c.relname
                 """,
                 {"schema": selected_schema},
             )
@@ -321,18 +320,14 @@ def _get_discovered_tables(
             )
             cursor.execute(
                 f"""
-                SELECT schemaname AS schema_name, tablename AS table_name
-                FROM pg_tables
-                WHERE schemaname NOT IN ({system_schema_placeholders})
-                  AND schemaname NOT LIKE 'pg_temp_%%'
-                  AND schemaname NOT LIKE 'pg_toast_temp_%%'
-                UNION ALL
-                SELECT schemaname AS schema_name, matviewname AS table_name
-                FROM pg_matviews
-                WHERE schemaname NOT IN ({system_schema_placeholders})
-                  AND schemaname NOT LIKE 'pg_temp_%%'
-                  AND schemaname NOT LIKE 'pg_toast_temp_%%'
-                ORDER BY schema_name, table_name
+                SELECT n.nspname AS schema_name, c.relname AS table_name
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')
+                  AND n.nspname NOT IN ({system_schema_placeholders})
+                  AND n.nspname NOT LIKE 'pg_temp_%%'
+                  AND n.nspname NOT LIKE 'pg_toast_temp_%%'
+                ORDER BY n.nspname, c.relname
                 """,
                 system_schema_params,
             )

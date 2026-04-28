@@ -109,29 +109,26 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self._cleanup_cdc_resources()
 
     def _cleanup_cdc_resources(self) -> None:
-        """Best-effort cleanup of CDC replication slot and publication on source deletion.
+        """Drop the Temporal schedule (always) + PostHog-managed slot/publication.
 
-        Only drops resources for PostHog-managed mode. Self-managed slots are
-        never dropped by PostHog.
+        Schedule lives on our side, slot lives on the customer's DB.
         """
-        # Lazy import: top-level would create a circular import via
-        # posthog.temporal.data_imports.sources.__init__ → SourceRegistry → helpers.py
-        # → ExternalDataSource (this module).
+        # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
         from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 
-        cdc_config = PostgresCDCConfig.from_source(self)
-        if not cdc_config.enabled or cdc_config.management_mode != "posthog":
-            return
-        if not cdc_config.slot_name or not cdc_config.publication_name:
-            return
-
-        # Delete the CDC extraction schedule
+        # Schedule key = source id. Delete unconditionally; NotFound is a no-op.
         try:
             from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
 
             delete_cdc_extraction_schedule(str(self.id))
         except Exception:
             logger.exception("Failed to delete CDC extraction schedule", source_id=str(self.id))
+
+        cdc_config = PostgresCDCConfig.from_source(self)
+        if not cdc_config.enabled or cdc_config.management_mode != "posthog":
+            return
+        if not cdc_config.slot_name or not cdc_config.publication_name:
+            return
 
         # Drop slot and publication on the source database
         try:

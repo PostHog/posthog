@@ -1,6 +1,7 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -10,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import {
@@ -244,7 +246,17 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             null as ExternalDataSource | null,
             {
                 loadSource: async () => {
-                    return await api.externalDataSources.get(values.sourceId)
+                    try {
+                        return await api.externalDataSources.get(values.sourceId)
+                    } catch (error: any) {
+                        // Source soft-deleted. Bounce to the list and swallow
+                        // the failure so kea-loaders doesn't toast "Not found".
+                        if (error?.status === 404) {
+                            router.actions.replace(urls.sources())
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
