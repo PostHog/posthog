@@ -353,7 +353,9 @@ class ErrorTrackingQueryV3Builder:
 
     @cached_property
     def _properties(self):
-        return self.query.filterGroup.values[0].values if self.query.filterGroup and self.query.filterGroup.values else []
+        return (
+            self.query.filterGroup.values[0].values if self.query.filterGroup and self.query.filterGroup.values else []
+        )
 
     @cached_property
     def _issue_properties(self) -> list[ErrorTrackingIssueFilter]:
