@@ -5,6 +5,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    StringMapDatabaseField,
     Table,
 )
 
@@ -32,6 +33,7 @@ class TraceSpansTable(Table):
         "resource_attributes": StringJSONDatabaseField(name="resource_attributes", nullable=False),
         "resource_fingerprint": IntegerDatabaseField(name="resource_fingerprint", nullable=False),
         "attributes": StringJSONDatabaseField(name="attributes", nullable=False),
+        "attributes_map_str": StringMapDatabaseField(name="attributes_map_str", nullable=False, hidden=True),
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "time_bucket": DateTimeDatabaseField(name="time_bucket", nullable=False),
     }

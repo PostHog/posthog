@@ -20,7 +20,7 @@ from posthog.hogql.constants import (
     get_max_limit_for_context,
 )
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Table
+from posthog.hogql.database.models import DatabaseField, FunctionCallTable, StringMapDatabaseField, Table
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
@@ -1319,6 +1319,21 @@ class BasePrinter(Visitor[str]):
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
+
+        # ClickHouse Map(K, V) columns: print bracket access as a Map subscript instead of JSONExtract*.
+        # Wrap in nullIf(..., '') so a missing key behaves the same as a missing JSON key (NULL),
+        # which is what callers comparing `attributes['k'] != value` already expect from the old
+        # JSON-backed access path.
+        # Only single-key access is supported (Map values are scalar in our schemas).
+        database_field = type.field_type.resolve_database_field(self.context)
+        if isinstance(database_field, StringMapDatabaseField):
+            if len(type.chain) != 1:
+                raise QueryError(
+                    f"Map field '{type.field_type.name}' supports single-key access only, got chain: {type.chain}"
+                )
+            field_sql = self.visit(type.field_type)
+            key_param = self.context.add_value(type.chain[0])
+            return f"nullIf({field_sql}[{key_param}], '')"
 
         materialized_property_source = self._get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:

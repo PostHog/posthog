@@ -5,6 +5,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    StringMapDatabaseField,
     Table,
 )
 
@@ -25,6 +26,7 @@ class LogsTable(Table):
         "message": StringDatabaseField(name="body", nullable=False),
         "body": StringDatabaseField(name="body", nullable=False),
         "attributes": StringJSONDatabaseField(name="attributes", nullable=False),
+        "attributes_map_str": StringMapDatabaseField(name="attributes_map_str", nullable=False, hidden=True),
         "time_bucket": DateTimeDatabaseField(name="time_bucket", nullable=False),
         "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
         "observed_timestamp": DateTimeDatabaseField(name="observed_timestamp", nullable=False),

@@ -97,6 +97,22 @@ class StringJSONDatabaseField(DatabaseField):
         return ""
 
 
+class StringMapDatabaseField(DatabaseField):
+    """
+    A ClickHouse `Map(K, String)` column. Bracket access (`field['key']`) prints as a
+    Map subscript in ClickHouse, not as a JSON extraction. Use this for columns whose
+    underlying ClickHouse type is `Map(...)` rather than a JSON-encoded String.
+    """
+
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import StringType
+
+        return StringType(nullable=self.is_nullable())
+
+    def default_value(self) -> Any:
+        return ""
+
+
 class StructDatabaseField(DatabaseField):
     fields: dict[str, "DatabaseField"] = PydanticField(default_factory=dict)
 
