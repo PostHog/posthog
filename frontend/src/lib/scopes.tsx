@@ -21,6 +21,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
+    // `clickhouse_test_cluster_perf` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
@@ -101,6 +102,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
+    { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
     {
         key: 'user',
         objectName: 'User',
@@ -245,9 +247,13 @@ export const getScopeDescription = (scope: string): string | undefined => {
     }
 
     const scopeObject = API_SCOPES.find((s) => s.key === object)
+    if (!scopeObject) {
+        // Unknown / hidden scope — call sites .filter(Boolean) the result.
+        return undefined
+    }
     const actionWord = action === 'write' ? 'Write' : 'Read'
 
-    return `${actionWord} access to ${scopeObject?.objectPlural ?? scope}`
+    return `${actionWord} access to ${scopeObject.objectPlural}`
 }
 
 export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {

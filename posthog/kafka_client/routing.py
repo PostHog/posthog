@@ -61,10 +61,10 @@ from posthog.settings.kafka import KafkaProfileSettings
 # set `KAFKA_TOPIC_ROUTING_OVERRIDES=topic_name=profile_name` in the chart env.
 _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # --- DEFAULT (MSK events cluster) ---
-    KAFKA_EVENTS_JSON: KafkaClusterProfile.DEFAULT,
-    KAFKA_PERSON: KafkaClusterProfile.DEFAULT,
-    KAFKA_PERSON_DISTINCT_ID: KafkaClusterProfile.DEFAULT,
-    KAFKA_GROUPS: KafkaClusterProfile.DEFAULT,
+    KAFKA_EVENTS_JSON: KafkaClusterProfile.INGESTION,
+    KAFKA_PERSON: KafkaClusterProfile.INGESTION,
+    KAFKA_PERSON_DISTINCT_ID: KafkaClusterProfile.INGESTION,
+    KAFKA_GROUPS: KafkaClusterProfile.INGESTION,
     KAFKA_METRICS_TIME_TO_SEE_DATA: KafkaClusterProfile.DEFAULT,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT: KafkaClusterProfile.DEFAULT,
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE: KafkaClusterProfile.DEFAULT,
@@ -79,15 +79,15 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     # --- CYCLOTRON (Warpstream cyclotron) ---
-    KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CYCLOTRON
+    KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.CYCLOTRON,
     KAFKA_DWH_CDP_RAW_TABLE: KafkaClusterProfile.CYCLOTRON,
     # --- AUX metrics ---
-    KAFKA_LOG_ENTRIES: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.INGESTION
-    KAFKA_APP_METRICS2: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.INGESTION
+    KAFKA_LOG_ENTRIES: KafkaClusterProfile.INGESTION,
+    KAFKA_APP_METRICS2: KafkaClusterProfile.INGESTION,
     # --- CALCULATED_EVENTS (Warpstream calculated-events) ---
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CALCULATED_EVENTS
-    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CALCULATED_EVENTS
-    KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.DEFAULT,  # TODO: move to KafkaClusterProfile.CALCULATED_EVENTS
+    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES: KafkaClusterProfile.CALCULATED_EVENTS,
+    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS: KafkaClusterProfile.CALCULATED_EVENTS,
+    KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.CALCULATED_EVENTS,
 }
 
 
