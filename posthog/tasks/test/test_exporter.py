@@ -148,9 +148,7 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert asset.failure_type == FAILURE_TYPE_SYSTEM
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
-    def test_record_export_failure_does_not_crash_when_row_was_deleted(
-        self, mock_export_direct: MagicMock
-    ) -> None:
+    def test_record_export_failure_does_not_crash_when_row_was_deleted(self, mock_export_direct: MagicMock) -> None:
         # Reproduces the production race: the ExportedAsset row is hard-deleted
         # (TTL cleanup or team/insight cascade) while the export is running, so
         # the failure handler's save(update_fields=...) updates zero rows and

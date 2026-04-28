@@ -1,9 +1,10 @@
 from datetime import UTC, datetime, timedelta
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import DatabaseError
-from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
