@@ -1,6 +1,5 @@
 import re
 import json
-import time
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Optional
@@ -17,13 +16,11 @@ from rest_framework.response import Response
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
-from posthog.utils import generate_short_id
 
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -419,76 +416,3 @@ class DebugCHQueries(viewsets.ViewSet):
                 for row in response
             ]
         )
-
-    @action(detail=False, methods=["POST"])
-    def profile(self, request):
-        if not request.user.is_staff:
-            raise exceptions.PermissionDenied("Only staff users can profile queries.")
-
-        query = request.data.get("query", "").strip()
-        if not query:
-            raise exceptions.ValidationError("No query provided.")
-
-        profile_query_id = f"profile_{generate_short_id()}"
-
-        start_time = time.monotonic()
-        try:
-            with get_client_from_pool(workload=Workload.OFFLINE, readonly=False) as client:
-                client.execute(
-                    query,
-                    settings={
-                        "readonly": 2,
-                        "query_profiler_cpu_time_period_ns": 10_000_000,
-                        "query_profiler_real_time_period_ns": 10_000_000,
-                        "memory_profiler_step": 1_048_576,
-                        "max_execution_time": 30,
-                    },
-                    query_id=profile_query_id,
-                )
-        except Exception:
-            logger.exception("Query profiling failed for query_id %s", profile_query_id)
-            raise exceptions.ValidationError("Query execution failed.")
-        execution_time_ms = round((time.monotonic() - start_time) * 1000)
-
-        return Response(
-            {
-                "profile_query_id": profile_query_id,
-                "execution_time_ms": execution_time_ms,
-            }
-        )
-
-    @action(detail=False, methods=["GET"], url_path="profile_results")
-    def profile_results(self, request):
-        if not request.user.is_staff:
-            raise exceptions.PermissionDenied("Only staff users can profile queries.")
-
-        profile_query_id = request.query_params.get("profile_query_id", "").strip()
-        if not profile_query_id:
-            raise exceptions.ValidationError("No profile_query_id provided.")
-
-        try:
-            trace_results = sync_execute(
-                """
-                SELECT
-                    arrayStringConcat(arrayMap(x -> demangle(addressToSymbol(x)), trace), ';') AS stack,
-                    count() AS samples
-                FROM clusterAllReplicas(%(cluster)s, system, trace_log)
-                WHERE query_id = %(query_id)s AND trace_type = 'CPU'
-                GROUP BY trace
-                HAVING stack != ''
-                SETTINGS allow_introspection_functions=1, skip_unavailable_shards=1
-                """,
-                {"query_id": profile_query_id, "cluster": CLICKHOUSE_CLUSTER},
-            )
-        except Exception:
-            raise exceptions.ValidationError(
-                "Profiling data unavailable. The trace_log table may not be enabled on this ClickHouse instance."
-            )
-
-        if not trace_results:
-            return Response({"status": "pending"}, status=202)
-
-        folded_stacks = [f"{row[0]} {row[1]}" for row in trace_results]
-        sample_count = sum(row[1] for row in trace_results)
-
-        return Response({"status": "complete", "folded_stacks": folded_stacks, "sample_count": sample_count})
