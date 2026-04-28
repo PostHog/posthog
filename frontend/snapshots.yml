@@ -580,6 +580,22 @@ snapshots:
         hash: v1.k794b7964.ed81f151dd873f739ef80aced7f3818f180352c9e4cb8d607ae8a3bb0e0ec1d0.4y2eFIZieXgJMlKycWXQWu9cwkFhVo5-POgn6PLjNzY
     components-itemperformanceevent--no-performance-observer-captured-data--light:
         hash: v1.k794b7964.241d4ddad9773f0d20c14afdbd846e54bceb3f59fc6578e55858637bf4bab484.XhdUoRtEkS0kSOlc5lrkJeSfWtefMi3-C5Dg24v9Cdg
+    components-jsonviewer--array-of-strings--dark:
+        hash: v1.k794b7964.3d822a86637a571bd103550cf5760949c3ce8aabef29b818d56cc8ad700c410b.5CTBOhw3xyuu2lwqGv9hti9NVGsrNjY5HydRyaQa_OM
+    components-jsonviewer--array-of-strings--light:
+        hash: v1.k794b7964.016fa69db2cdd9a49e733499b49155ba6eb2c20c624d200dbe587e5d6471f34b.-heraBdLXtxf1W8sZJ9HgaU0rBREv_E8K62yRIg7yZA
+    components-jsonviewer--highlighted-with-search--dark:
+        hash: v1.k794b7964.942813e6ea381ba78b7589af5bf005bbdf6286823f1f359eee6d1b71781d50a0.TP2Ac-vUGrAKRGInnMe5EAzKWPuV6FiAT4OV50PayTA
+    components-jsonviewer--highlighted-with-search--light:
+        hash: v1.k794b7964.2f95a2b43fe35e6a0d74d4aace2ab9c388baeb2293966189ab9b3acf8a50596a.xScta6uBwdaQKPd1S_xrGm7TFJxul45LNodZOpEkUho
+    components-jsonviewer--nested-object--dark:
+        hash: v1.k794b7964.a943627bff8646032eaf7745900b4eb9f27b057d47107d75e9b66df295e97963.JJlGYMnNwW8_07uqUyVthBkISeIVM8GC8Gbj56Keq1E
+    components-jsonviewer--nested-object--light:
+        hash: v1.k794b7964.934bd266ffe65d683bf619f710d2e6eaaf0e9f968b7b8c1c39678251256c0963.UHEYvzjOhf7nCwJ-fJxcd-EqeFWv44gE7U22WnPoouQ
+    components-jsonviewer--simple-object--dark:
+        hash: v1.k794b7964.275f8ee8ebc0abe8d9b54c0946bc48b8dcf1980207b1f8ba8a84bd6706545409.JYDV_vcL5iR0NUvzV3x0Jj4mtHQXlTCA41msabmXDmU
+    components-jsonviewer--simple-object--light:
+        hash: v1.k794b7964.163b3a23f9d725d039a1d7af75d4ddbfd473a7a5cee9aea804750d6479cfce7d.2YKKEhavFba-JWM2OLtAR1KtL4v6W7NY6CHP7htVmWo
     components-markdown-editor-inline--bubble-menu-and-slash-commands--dark:
         hash: v1.k794b7964.e37be4a154683e968622e153fce39aff80fa2ef4030fe81b2e07adb1807419bd.RFG_1n8tDfzH2OZfzX6kd5BOb0GYySm1jMgrNjmXgFc
     components-markdown-editor-inline--bubble-menu-and-slash-commands--light:
