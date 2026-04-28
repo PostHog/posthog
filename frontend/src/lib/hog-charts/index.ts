@@ -7,8 +7,8 @@ export { Chart, DEFAULT_MARGINS } from './core/Chart'
 export type { ChartProps } from './core/Chart'
 
 // Chart context (for custom overlay children)
-export { useChart } from './core/chart-context'
-export type { BaseChartContext } from './core/chart-context'
+export { useChart, useChartHover, useChartLayout } from './core/chart-context'
+export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue } from './core/chart-context'
 
 // Core types
 export type {

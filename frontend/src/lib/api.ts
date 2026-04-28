@@ -226,6 +226,7 @@ import type {
 import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
+    SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -2909,6 +2910,14 @@ const api = {
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
+        },
+        async promotedProperties({
+            names,
+        }: {
+            names?: string[]
+        } = {}): Promise<{ promoted_properties: Record<string, string> }> {
+            const params = names && names.length > 0 ? toParams({ names }, true) : ''
+            return new ApiRequest().eventDefinitions().withAction('promoted_properties').withQueryString(params).get()
         },
         async getMetrics({
             eventDefinitionId,
@@ -6677,6 +6686,14 @@ const api = {
                 .sessionSummary()
                 .withAction('create_session_summaries_individually')
                 .create({ data })
+        },
+        config: {
+            async get(): Promise<SessionSummariesConfig> {
+                return await new ApiRequest().sessionSummary().withAction('config').get()
+            },
+            async update(data: Partial<SessionSummariesConfig>): Promise<SessionSummariesConfig> {
+                return await new ApiRequest().sessionSummary().withAction('config').update({ data })
+            },
         },
     },
 

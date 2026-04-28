@@ -14,6 +14,7 @@ import structlog
 from celery import shared_task
 
 from ..github import GitHubRateLimitError
+from ..logic import HashIntegrityError
 
 logger = structlog.get_logger(__name__)
 
@@ -28,9 +29,11 @@ logger = structlog.get_logger(__name__)
 )
 def process_run_diffs(self, run_id: str) -> None:
     """
-    Process diffs for all snapshots in a run.
+    Verify uploads, create artifacts, and process diffs for a run.
 
     Called after CI signals that all artifacts have been uploaded.
+    Verifies hash integrity of new uploads before creating Artifact
+    records and computing diffs.
     """
     from .. import logic
     from ..diffing import process_diffs
@@ -39,9 +42,13 @@ def process_run_diffs(self, run_id: str) -> None:
 
     try:
         logger.info("visual_review.diff_processing_started", run_id=run_id)
+        logic.verify_uploads_and_create_artifacts(run_uuid)
         process_diffs(run_uuid)
         logic.finish_processing(run_uuid)
         logger.info("visual_review.diff_processing_completed", run_id=run_id)
+    except HashIntegrityError as e:
+        logger.warning("visual_review.hash_integrity_failed", run_id=run_id, error=str(e))
+        logic.finish_processing(run_uuid, error_message=str(e))
     except GitHubRateLimitError as e:
         logger.warning(
             "visual_review.diff_processing_rate_limited",
