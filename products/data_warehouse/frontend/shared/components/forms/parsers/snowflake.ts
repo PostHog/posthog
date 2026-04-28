@@ -1,0 +1,56 @@
+import type { ParseResult, ParsedField } from './types'
+
+export function parseSnowflakeConnectionString(str: string): ParseResult {
+    if (!str.startsWith('snowflake://')) {
+        return { isValid: false, fields: [] }
+    }
+
+    let result: URL
+    try {
+        result = new URL(str)
+    } catch {
+        return { isValid: false, fields: [] }
+    }
+
+    const user = decodeURIComponent(result.username || '')
+    const password = decodeURIComponent(result.password || '')
+    const accountId = decodeURIComponent(result.hostname || '')
+
+    const segments = result.pathname.split('/').filter(Boolean).map(decodeURIComponent)
+    const database = segments[0] || ''
+    const schema = segments[1] || ''
+
+    if (!user || !accountId || !database) {
+        return { isValid: false, fields: [] }
+    }
+
+    const fields: ParsedField[] = [
+        { path: ['account_id'], value: accountId },
+        { path: ['database'], value: database },
+    ]
+
+    if (schema) {
+        fields.push({ path: ['schema'], value: schema })
+    }
+
+    const warehouse = result.searchParams.get('warehouse')
+    if (warehouse) {
+        fields.push({ path: ['warehouse'], value: warehouse })
+    }
+
+    const role = result.searchParams.get('role')
+    if (role) {
+        fields.push({ path: ['role'], value: role })
+    }
+
+    // The URL form can only carry user + password (not a private key), so we always
+    // select the "password" branch of the auth_type select. The form stores the
+    // selection at [auth_type, selection] and the credentials in the nested group.
+    fields.push(
+        { path: ['auth_type', 'selection'], value: 'password' },
+        { path: ['auth_type', 'password', 'user'], value: user },
+        { path: ['auth_type', 'password', 'password'], value: password }
+    )
+
+    return { isValid: true, fields }
+}

@@ -48,6 +48,14 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="mysql://user:password@localhost:3306/database",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
                         name="host",
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,

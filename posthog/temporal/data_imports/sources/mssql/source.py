@@ -59,6 +59,14 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="mssql://user:password@localhost:1433/database",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
                         name="host",
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,
