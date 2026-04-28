@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
-from django.db.models import Prefetch
 
 import structlog
 from loginas.utils import is_impersonated_session
@@ -35,22 +34,14 @@ def resolve_persons_for_deletion(
     distinct_ids: builtins.list[str] | None,
 ) -> builtins.list[Person]:
     """Materialize Persons matching either uuids or distinct_ids (or both)."""
-    person_ids: set[int] = set()
     if uuids:
-        person_ids.update(Person.objects.filter(team_id=team_id, uuid__in=uuids).values_list("id", flat=True))
+        persons_queryset = Person.get_queryset().filter(uuid__in=uuids, team_id=team_id).defer("properties")
     if distinct_ids:
-        person_ids.update(
-            PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).values_list(
-                "person_id", flat=True
-            )
+        person_ids = PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).values_list(
+            "person_id", flat=True
         )
-    if not person_ids:
-        return []
-    return list(
-        Person.objects.filter(id__in=person_ids, team_id=team_id)
-        .defer("properties")
-        .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-    )
+        persons_queryset = Person.get_queryset().filter(id__in=person_ids, team_id=team_id).defer("properties")
+    return list(persons_queryset)
 
 
 def delete_persons_profile(
