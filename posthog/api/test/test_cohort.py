@@ -5451,11 +5451,13 @@ Jane Smith,user456,jane@example.com
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_respects_email_property_key_casing(self, patch_calculate_cohort_from_list):
         """
-        Test that CSV upload with email column respects the exact property key casing from the CSV header.
-        This test demonstrates the fix for case-insensitive email property matching.
+        CSV upload with an email column matches against the exact property key from the CSV header.
 
-        Before the fix: Only 'email' (lowercase) property key was checked
-        After the fix: The exact property key from CSV header is used
+        Before the fix: only the lowercase 'email' property key was queried.
+        After the fix: the property key matches the CSV header casing.
+
+        Note: this exercises the Postgres path because the `cohort-email-lookup-clickhouse`
+        feature flag defaults off in tests. CH path coverage is handled separately below.
         """
         # Create persons with different email property key casings
         person_lowercase = Person.objects.create(
@@ -5566,3 +5568,42 @@ User 2,uppercase@example.com
         self.assertIn(str(person_titlecase.uuid), person_uuids_in_cohort)
         self.assertNotIn(str(person_uppercase.uuid), person_uuids_in_cohort)
         self.assertNotIn(str(person_lowercase.uuid), person_uuids_in_cohort)
+
+    @parameterized.expand(
+        [
+            ("default lowercase key uses CH", "email", True),
+            ("explicit lowercase key uses CH", "email", True),
+            ("titlecase key forces PG", "Email", False),
+            ("uppercase key forces PG", "EMAIL", False),
+        ]
+    )
+    @patch("posthog.models.cohort.cohort.posthoganalytics.feature_enabled", return_value=True)
+    def test_insert_users_by_email_routes_to_clickhouse_only_for_default_key(
+        self, _name, email_property_key, expects_ch, _patch_feature_flag
+    ):
+        cohort = Cohort.objects.create(team=self.team, name=f"ch-routing-{email_property_key}", is_static=True)
+        with (
+            patch.object(Cohort, "_get_uuids_for_emails_batch_ch", return_value=[]) as ch_mock,
+            patch.object(Cohort, "_get_uuids_for_emails_batch_pg", return_value=[]) as pg_mock,
+        ):
+            cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id, email_property_key=email_property_key)
+
+        if expects_ch:
+            ch_mock.assert_called_once()
+            pg_mock.assert_not_called()
+        else:
+            ch_mock.assert_not_called()
+            pg_mock.assert_called_once()
+            # Non-default keys must reach the PG helper with the exact casing from the caller.
+            self.assertEqual(pg_mock.call_args.kwargs.get("email_property_key"), email_property_key)
+
+    @patch("posthog.models.cohort.cohort.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.models.cohort.cohort.sync_execute", side_effect=RuntimeError("CH down"))
+    def test_clickhouse_email_lookup_falls_back_to_postgres_on_failure(self, _patch_sync_execute, _patch_feature_flag):
+        # When the CH primitive raises, _get_uuids_for_emails_batch_ch swallows the exception
+        # and re-runs the lookup against Postgres with the default 'email' key.
+        cohort = Cohort.objects.create(team=self.team, name="ch-fallback", is_static=True)
+        with patch.object(Cohort, "_get_uuids_for_emails_batch_pg", return_value=[]) as pg_mock:
+            cohort.insert_users_by_email(["a@example.com"], team_id=self.team.id)
+
+        pg_mock.assert_called()
