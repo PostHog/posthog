@@ -3607,7 +3607,7 @@ export interface ExperimentStatsBase {
     sum_squares: number
     covariate_sum?: number
     covariate_sum_squares?: number
-    main_covariate_sum_product?: number
+    covariate_sum_product?: number
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number

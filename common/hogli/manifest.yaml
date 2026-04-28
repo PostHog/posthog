@@ -781,9 +781,5 @@ environment:
         hidden: true
     warm:flags:cache:
         bin_script: warm-flags-cache
-        description: 'Warm the feature-flags hypercache by batch-building flag caches for every team (Rust port of the Python warmer)'
-        hidden: true
-    warm:flags:cache:local:
-        bin_script: warm-flags-cache-local
-        description: 'Warm the feature-flags hypercache against the local dev environment'
+        description: 'Warm the feature-flags hypercache against the local dev environment (requires ./bin/start running)'
         hidden: true
