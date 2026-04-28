@@ -31,7 +31,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import GitHubReposQuerySerializer, GitHubReposResponseSerializer
-from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication, session_auth_required
+from posthog.auth import (
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    session_auth_required,
+)
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.integration import GitHubInstallationAccess, GitHubIntegration, Integration
 from posthog.models.user import User
@@ -61,7 +66,7 @@ def _github_oauth_redirect_uri() -> str:
 
 def _connect_from_github_start(request: Request) -> str | None:
     """Optional ``connect_from`` from JSON body (e.g. PostHog Code)."""
-    data = request.data
+    data: Any = request.data
     if not isinstance(data, dict):
         return None
     raw = data.get("connect_from")
@@ -77,7 +82,7 @@ def _team_for_github_start(user: User, request: Request):
     session's ``user.current_team`` may not match the app UI. The web app omits
     it and uses ``current_team``.
     """
-    data = request.data
+    data: Any = request.data
     if not isinstance(data, dict):
         data = {}
     raw_id = data.get("team_id")
@@ -172,12 +177,7 @@ class UserGitHubLinkStartResponseSerializer(serializers.Serializer):
 
 @extend_schema(tags=["core"])
 class UserIntegrationViewSet(viewsets.GenericViewSet):
-    """``/api/users/@me/integrations/`` — manage the user's GitHub integrations.
-
-    Session or OAuth access token (e.g. PostHog Code). Personal API keys are not
-    accepted. OAuth tokens must include ``user:read`` / ``user:write`` like other
-    ``@me`` user APIs. Implicitly scoped to ``request.user``.
-    """
+    """`/api/users/@me/integrations/` — manage the user's personal GitHub integrations."""
 
     scope_object = "user"
     required_scopes: list[str] | None = None
@@ -192,13 +192,27 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "github_destroy",
     ]
 
-    authentication_classes = [SessionAuthentication, OAuthAccessTokenAuthentication]
+    authentication_classes = [OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     http_method_names = ["get", "post", "delete"]
     serializer_class = UserGitHubIntegrationItemSerializer
 
     def _get_user(self) -> User:
-        return cast(User, self.request.user)
+        """Resolve the target user from the nested ``parent_lookup_uuid`` (same rules as ``UserViewSet``)."""
+        request_user = cast(User, self.request.user)
+        uuid_param = self.kwargs.get("parent_lookup_uuid")
+        if uuid_param is None:
+            return request_user
+        if uuid_param == "@me":
+            return request_user
+        if not request_user.is_staff:
+            raise exceptions.PermissionDenied(
+                "As a non-staff user you're only allowed to access the `@me` user instance."
+            )
+        user = User.objects.filter(uuid=uuid_param, is_active=True).first()
+        if user is None:
+            raise exceptions.NotFound()
+        return user
 
     def _team_github_installation_ids(self, user: User) -> set[str]:
         """Installation IDs for the current team's GitHub integrations (for ``uses_shared_installation``)."""
@@ -293,7 +307,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         from django.utils.crypto import get_random_string
 
         token = get_random_string(48)
-        state = urlencode({"token": token, "source": "linked_accounts"})
+        state = urlencode({"token": token, "source": "user_integration"})
         user = self._get_user()
         team = _team_for_github_start(user, self.request)
         connect_from = _connect_from_github_start(self.request)

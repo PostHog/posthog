@@ -2168,7 +2168,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         return result.gh_login if result else None
 
     @classmethod
-    def github_user_from_code(cls, code: str) -> "GitHubUserAuthorization | None":
+    def github_user_from_code(cls, code: str, *, redirect_uri: str | None = None) -> "GitHubUserAuthorization | None":
         """Exchange an OAuth code from the GitHub App user authorization flow.
 
         Returns a :class:`GitHubUserAuthorization` with the user's id/login plus the
@@ -2181,14 +2181,18 @@ class GitHubIntegration(GitHubIntegrationBase):
             logger.warning("GitHubIntegration: GITHUB_APP_CLIENT_ID/SECRET not configured, cannot exchange code")
             return None
 
+        token_payload: dict[str, str] = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": code,
+        }
+        if redirect_uri is not None:
+            token_payload["redirect_uri"] = redirect_uri
+
         try:
             token_response = requests.post(
                 "https://github.com/login/oauth/access_token",
-                json={
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "code": code,
-                },
+                json=token_payload,
                 headers={"Accept": "application/json"},
                 timeout=10,
             )
