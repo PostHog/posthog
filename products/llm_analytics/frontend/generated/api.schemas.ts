@@ -553,7 +553,7 @@ export interface EvaluationReportApi {
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
     /**
-     * Anchor datetime for the rrule (ISO 8601). Required when frequency is 'scheduled'; ignored otherwise.
+     * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
      * @nullable
      */
     starts_at?: string | null
@@ -582,15 +582,15 @@ export interface EvaluationReportApi {
     report_prompt_guidance?: string
     /**
      * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * @minimum 10
+     * @maximum 10000
      * @nullable
      */
     trigger_threshold?: number | null
     /**
      * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * @minimum 60
+     * @maximum 1440
      */
     cooldown_minutes?: number
     /**
@@ -625,7 +625,7 @@ export interface PatchedEvaluationReportApi {
     /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
     /**
-     * Anchor datetime for the rrule (ISO 8601). Required when frequency is 'scheduled'; ignored otherwise.
+     * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
      * @nullable
      */
     starts_at?: string | null
@@ -654,15 +654,15 @@ export interface PatchedEvaluationReportApi {
     report_prompt_guidance?: string
     /**
      * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * @minimum 10
+     * @maximum 10000
      * @nullable
      */
     trigger_threshold?: number | null
     /**
      * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * @minimum 60
+     * @maximum 1440
      */
     cooldown_minutes?: number
     /**

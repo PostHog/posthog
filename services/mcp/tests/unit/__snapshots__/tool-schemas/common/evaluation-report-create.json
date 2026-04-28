@@ -3,8 +3,8 @@
     "properties": {
         "cooldown_minutes": {
             "description": "Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.",
-            "maximum": 2147483647,
-            "minimum": -2147483648,
+            "maximum": 1440,
+            "minimum": 60,
             "type": "number"
         },
         "daily_run_cap": {
@@ -54,7 +54,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Anchor datetime for the rrule (ISO 8601). Required when frequency is 'scheduled'; ignored otherwise."
+            "description": "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
         },
         "timezone_name": {
             "description": "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.",
@@ -64,8 +64,8 @@
         "trigger_threshold": {
             "anyOf": [
                 {
-                    "maximum": 2147483647,
-                    "minimum": -2147483648,
+                    "maximum": 10000,
+                    "minimum": 10,
                     "type": "number"
                 },
                 {

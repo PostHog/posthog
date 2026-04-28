@@ -68,8 +68,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             },
             "starts_at": {
                 "help_text": (
-                    "Anchor datetime for the rrule (ISO 8601). Required when frequency is 'scheduled'; ignored "
-                    "otherwise."
+                    "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation "
+                    "is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
                 )
             },
             "timezone_name": {
@@ -97,18 +97,22 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                 )
             },
             "trigger_threshold": {
+                "min_value": EvaluationReport.TRIGGER_THRESHOLD_MIN,
+                "max_value": EvaluationReport.TRIGGER_THRESHOLD_MAX,
                 "help_text": (
                     f"Number of new evaluation results that triggers a report (every_n mode only). "
                     f"Min {EvaluationReport.TRIGGER_THRESHOLD_MIN}, max {EvaluationReport.TRIGGER_THRESHOLD_MAX}. "
                     f"Defaults to {EvaluationReport.TRIGGER_THRESHOLD_DEFAULT}. Required when frequency is 'every_n'."
-                )
+                ),
             },
             "cooldown_minutes": {
+                "min_value": EvaluationReport.COOLDOWN_MINUTES_MIN,
+                "max_value": EvaluationReport.COOLDOWN_MINUTES_MAX,
                 "help_text": (
                     f"Minimum minutes between count-triggered reports to prevent spam (every_n mode only). "
                     f"Min {EvaluationReport.COOLDOWN_MINUTES_MIN}, max {EvaluationReport.COOLDOWN_MINUTES_MAX} "
                     f"(24 hours). Defaults to {EvaluationReport.COOLDOWN_MINUTES_DEFAULT}."
-                )
+                ),
             },
             "daily_run_cap": {
                 "help_text": (

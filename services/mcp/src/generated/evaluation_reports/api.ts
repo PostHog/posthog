@@ -40,11 +40,11 @@ export const llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax = 64
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin = -2147483648
-export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax = 2147483647
+export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax = 10000
 
-export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMin = -2147483648
-export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMax = 2147483647
+export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMin = 60
+export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMax = 1440
 
 export const llmAnalyticsEvaluationReportsCreateBodyDailyRunCapMin = -2147483648
 export const llmAnalyticsEvaluationReportsCreateBodyDailyRunCapMax = 2147483647
@@ -68,7 +68,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .datetime({})
         .nullish()
         .describe(
-            "Anchor datetime for the rrule (ISO 8601). Required when frequency is 'scheduled'; ignored otherwise."
+            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     timezone_name: zod
         .string()
@@ -150,11 +150,11 @@ export const llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax = 64
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMin = -2147483648
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMax = 2147483647
 
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin = -2147483648
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax = 2147483647
+export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin = 10
+export const llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax = 10000
 
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMin = -2147483648
-export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax = 2147483647
+export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMin = 60
+export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax = 1440
 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMin = -2147483648
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax = 2147483647
@@ -178,7 +178,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .datetime({})
         .nullish()
         .describe(
-            "Anchor datetime for the rrule (ISO 8601). Required when frequency is 'scheduled'; ignored otherwise."
+            "Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise."
         ),
     timezone_name: zod
         .string()
