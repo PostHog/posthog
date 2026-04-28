@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-import posthoganalytics
-
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
@@ -13,7 +11,6 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
-from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
     FieldType,
@@ -26,7 +23,10 @@ from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WAREHOUSE_WEBHOOK_FLAG, WebhookSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookSourceManager,
+    is_webhook_feature_flag_enabled,
+)
 from posthog.temporal.data_imports.sources.generated_configs import SlackSourceConfig
 from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
 from posthog.temporal.data_imports.sources.slack.slack import (
@@ -37,36 +37,6 @@ from posthog.temporal.data_imports.sources.slack.slack import (
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
-
-
-def _is_webhook_feature_flag_enabled(team_id: int) -> bool:
-    from posthog.models import Team
-
-    try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    except Team.DoesNotExist:
-        return False
-
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            WAREHOUSE_WEBHOOK_FLAG,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-
-        return bool(enabled)
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 @SourceRegistry.register
@@ -180,7 +150,7 @@ Once saved, copy the **Signing Secret** from **Basic Information > App Credentia
             raise ValueError("Slack access token not found")
 
         msg_config = messages_endpoint_config()
-        webhook_flag_enabled = _is_webhook_feature_flag_enabled(team_id)
+        webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
         channels = get_channels(access_token)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
