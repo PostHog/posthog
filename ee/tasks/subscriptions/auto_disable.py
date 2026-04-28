@@ -15,6 +15,10 @@ SLACK_PERMISSION_REVOKED_REASON = "PostHog can no longer post to this Slack chan
 # the subscription re-fire every cycle and rack up SLO failure events.
 # Excludes `not_in_channel` (admin can re-add the bot), `internal_error`/5xx
 # (transient), and `rate_limited` (transient).
+# Subset of SLACK_USER_CONFIG_ERRORS (in __init__.py) that won't self-heal
+# without user intervention — auto-disable the subscription on these. Excludes
+# `not_in_channel` (admin can re-add bot) and includes `token_revoked` (token-
+# level, not channel-level). Keep in sync with SLACK_USER_CONFIG_ERRORS.
 TERMINAL_SLACK_ERROR_CODES = frozenset(
     {"invalid_auth", "account_inactive", "token_revoked", "is_archived", "channel_not_found"}
 )

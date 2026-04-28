@@ -7,7 +7,11 @@ from posthog.models.subscription import Subscription
 
 logger = structlog.get_logger(__name__)
 
-# Slack errors that are user configuration issues, not system failures
+# Slack errors that are user configuration issues, not system failures.
+# These codes don't trigger Temporal retries (delivery won't succeed without
+# user action). A subset that excludes `not_in_channel` (admin can re-add the
+# bot trivially) is also auto-disabled — see TERMINAL_SLACK_ERROR_CODES in
+# ee/tasks/subscriptions/auto_disable.py. Keep these in sync.
 SLACK_USER_CONFIG_ERRORS = frozenset(
     ["not_in_channel", "account_inactive", "is_archived", "channel_not_found", "invalid_auth"]
 )

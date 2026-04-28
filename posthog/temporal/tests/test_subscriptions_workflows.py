@@ -614,10 +614,6 @@ async def test_deliver_subscription_short_circuits_when_already_disabled(team, u
 async def test_deliver_subscription_handles_slack_api_errors(
     team, user, case_label, slack_error_code, expect_auto_disable
 ):
-    """Terminal SlackApiError codes (revoked auth, archived channel, etc.) must
-    auto-disable the subscription and return cleanly. Non-terminal codes
-    (transient or admin-fixable) preserve the existing retry/no-retry behavior.
-    """
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"slk-{case_label[:5]}", name=case_label)
     asset = await sync_to_async(ExportedAsset.objects.create)(
         team=team,
