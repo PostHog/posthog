@@ -381,7 +381,7 @@ export const notebookLogic = kea<notebookLogicType>([
                                     cursor_head: values.ttEditor.state.selection.head,
                                 }
                             )
-                            actions.ackLocalSteps(stepsJson, sendable.clientID)
+                            actions.ackLocalSteps(stepsJson, String(sendable.clientID))
                             if (notebook.content === values.localContent) {
                                 actions.clearLocalContent()
                             }
