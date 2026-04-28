@@ -55,6 +55,16 @@ export function filterLowMultipleVariant<T extends { variant: string; percentage
     )
 }
 
+/**
+ * Resolves the effective multi-variant handling, applying the backend default when unset.
+ * See posthog/hogql_queries/experiments/exposure_query_logic.py (default = `EXCLUDE`).
+ */
+export function resolveMultipleVariantHandling(
+    handling: 'exclude' | 'first_seen' | undefined
+): 'exclude' | 'first_seen' {
+    return handling ?? 'exclude'
+}
+
 export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
     return config.kind === NodeKind.ExperimentEventExposureConfig || 'event' in config
 }

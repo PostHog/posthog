@@ -58,7 +58,7 @@ class Migration(migrations.Migration):
                 ],
                 "constraints": [
                     models.CheckConstraint(
-                        check=models.Q(time_range_start__lt=models.F("time_range_end")),
+                        condition=models.Q(time_range_start__lt=models.F("time_range_end")),
                         name="time_range_start_before_end",
                     ),
                 ],

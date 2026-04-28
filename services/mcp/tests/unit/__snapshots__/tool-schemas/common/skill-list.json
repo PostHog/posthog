@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "created_by_id": {
+            "description": "Filter skills by the ID of the user who created them.",
+            "type": "number"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

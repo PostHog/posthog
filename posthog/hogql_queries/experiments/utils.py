@@ -25,11 +25,13 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client.escape import substitute_params_for_display
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.hogql_queries.experiments.cuped_config import CupedQueryConfig, get_cuped_config
 from posthog.models import Team
 
 from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
+from products.experiments.stats.shared.cuped import CupedData, cuped_adjust
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
@@ -115,154 +117,72 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
+# Maps SQL aliases produced by experiment_query_builder.py SELECT clauses to
+# ExperimentStatsBase field names. Aliases not registered here are ignored —
+# adding a new SELECT column without updating this map is a silent no-op.
+_ALIAS_TO_STATS_FIELD: dict[str, str] = {
+    "variant": "key",
+    "num_users": "number_of_samples",
+    "total_sum": "sum",
+    "total_sum_of_squares": "sum_squares",
+    "step_counts": "step_counts",
+    "denominator_sum": "denominator_sum",
+    "denominator_sum_squares": "denominator_sum_squares",
+    "numerator_denominator_sum_product": "numerator_denominator_sum_product",
+    "covariate_sum": "covariate_sum",
+    "covariate_sum_squares": "covariate_sum_squares",
+    "main_covariate_sum_product": "main_covariate_sum_product",
+}
+
+
 def get_variant_result(
-    result: tuple,
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    row: tuple,
+    columns: list[str],
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
     """
-    Parse a single result row from the experiment query into a structured variant result.
+    Parse a single result row into (breakdown_tuple, ExperimentStatsBase).
 
-    Supports multiple breakdowns - breakdown values are returned as a tuple of strings,
-    even for single breakdowns (for consistency).
+    The contract between the SQL builder and this parser is the column aliases
+    declared in each SELECT (`count(...) AS num_users`, `sum(...) AS covariate_sum`,
+    `breakdown_value_1`, …). Field presence is driven by which aliases appear in
+    `columns`, so adding or reordering SELECT columns propagates here automatically
+    without any positional offsets to maintain.
 
-    Args:
-        result: Query result tuple with structure depending on metric type and breakdown count
-        metric: The metric definition that determines expected fields and breakdown count
-
-    Returns:
-        Tuple of (breakdown_tuple, ExperimentStatsBase)
-        - breakdown_tuple is None for non-breakdown queries
-        - breakdown_tuple is a tuple of strings for breakdown queries
-          Examples: ("Chrome",) for single, ("MacOS", "Chrome") for multiple
-
-    Expected result structures:
-
-    Without breakdown (num_breakdowns=0):
-        (variant, num_samples, sum, sum_squares, [metric_specific_fields...])
-
-    With single breakdown (num_breakdowns=1):
-        (variant, breakdown_value_1, num_samples, sum, sum_squares, [metric_specific_fields...])
-
-    With multiple breakdowns (num_breakdowns=2):
-        (variant, breakdown_value_1, breakdown_value_2, num_samples, sum, sum_squares, [metric_specific_fields...])
-
-    Metric-specific fields:
-        - FunnelMetric: step_counts, [optional: step_sessions]
-        - RatioMetric: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
-        - MeanMetric: (no additional fields)
-        - RetentionMetric: (no additional fields)
+    Breakdown columns (`breakdown_value_1`, `breakdown_value_2`, …) are collected
+    in numeric order into the returned tuple. If none are present, the breakdown
+    tuple is None.
     """
-    # Determine number of breakdowns from metric definition
-    num_breakdowns = 0
-    if metric.breakdownFilter and metric.breakdownFilter.breakdowns:
-        num_breakdowns = len(metric.breakdownFilter.breakdowns)
+    row_dict = dict(zip(columns, row))
 
-    # Extract variant key (always at position 0)
-    variant_key = result[0]
+    breakdown_keys = sorted(
+        (k for k in columns if k.startswith("breakdown_value_")),
+        key=lambda k: int(k.removeprefix("breakdown_value_")),
+    )
+    breakdown_tuple = tuple(str(row_dict[k]) for k in breakdown_keys) or None
 
-    breakdown_tuple = tuple(str(result[i + 1]) for i in range(num_breakdowns)) if num_breakdowns > 0 else None
-    stats_start_idx = 1 + num_breakdowns
-
-    # Extract base statistical fields
-    num_samples = result[stats_start_idx]
-    sum_value = result[stats_start_idx + 1]
-    sum_squares = result[stats_start_idx + 2]
-    metric_fields_start_idx = stats_start_idx + 3
-
-    # Build base stats
-    base_stats = {
-        "key": variant_key,
-        "number_of_samples": num_samples,
-        "sum": sum_value,
-        "sum_squares": sum_squares,
+    base_stats: dict[str, Any] = {
+        field: row_dict[alias] for alias, field in _ALIAS_TO_STATS_FIELD.items() if alias in row_dict
     }
 
-    # Add metric-specific fields based on metric type
-    match metric:
-        case ExperimentFunnelMetric():
-            base_stats["step_counts"] = result[metric_fields_start_idx]
-            if len(result) > metric_fields_start_idx + 1:
-                base_stats["step_sessions"] = [
-                    [
-                        SessionData(
-                            person_id=person_id, session_id=session_id, event_uuid=event_uuid, timestamp=timestamp
-                        )
-                        for person_id, session_id, event_uuid, timestamp in step_sessions
-                    ]
-                    for step_sessions in result[metric_fields_start_idx + 1]
-                ]
-        case ExperimentRatioMetric():
-            base_stats["denominator_sum"] = result[metric_fields_start_idx]
-            base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
-            base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
-        case ExperimentRetentionMetric():
-            # Retention metrics are treated as ratio metrics for correct significance calculations
-            # Numerator: binary completion (0 or 1), Denominator: always 1 per user who started
-            base_stats["denominator_sum"] = result[metric_fields_start_idx]
-            base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
-            base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
-        case ExperimentMeanMetric():
-            pass  # No additional fields beyond base_stats
+    # steps_event_data is the only column needing structural conversion
+    # (raw tuples → SessionData); all other aliases map directly via _ALIAS_TO_STATS_FIELD.
+    if "steps_event_data" in row_dict and row_dict["steps_event_data"] is not None:
+        base_stats["step_sessions"] = [
+            [
+                SessionData(person_id=person_id, session_id=session_id, event_uuid=event_uuid, timestamp=timestamp)
+                for person_id, session_id, event_uuid, timestamp in step_sessions
+            ]
+            for step_sessions in row_dict["steps_event_data"]
+        ]
 
-    return (breakdown_tuple, ExperimentStatsBase(**base_stats))
+    return breakdown_tuple, ExperimentStatsBase(**base_stats)
 
 
 def get_variant_results(
-    sorted_results: list[tuple],
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    rows: list[tuple],
+    columns: list[str],
 ) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
-    """
-    Parse multiple result rows from experiment query into structured variant results.
-
-    This is the main entry point for parsing query results with breakdown support.
-    Delegates to get_variant_result for each row.
-
-    Args:
-        sorted_results: List of query result tuples
-        metric: The metric definition that determines expected fields and breakdown count
-
-    Returns:
-        List of (breakdown_tuple, ExperimentStatsBase) tuples
-    """
-    return [get_variant_result(result, metric) for result in sorted_results]
-
-
-def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStatsBase]:
-    # Handle both mean metrics (4 values), funnel metrics (5 values) and ratio metrics (7 values)
-    variant_results = []
-    for result in sorted_results:
-        # All metrics have this
-        base_stats = {
-            "key": result[0],
-            "number_of_samples": result[1],
-            "sum": result[2],
-            "sum_squares": result[3],
-        }
-
-        # Funnel metrics
-        if len(result) == 5:
-            base_stats["step_counts"] = result[4]
-        elif len(result) == 6:
-            # Funnel metrics with sampled session IDs
-            base_stats["step_counts"] = result[4]
-            base_stats["step_sessions"] = [
-                [
-                    SessionData(person_id=person_id, session_id=session_id, event_uuid=event_uuid, timestamp=timestamp)
-                    for person_id, session_id, event_uuid, timestamp in step_sessions
-                ]
-                for step_sessions in result[5]
-            ]
-
-        # Ratio metrics
-        elif len(result) == 7:
-            # Ratio metric
-            base_stats["denominator_sum"] = result[4]
-            base_stats["denominator_sum_squares"] = result[5]
-            base_stats["numerator_denominator_sum_product"] = result[6]
-
-        variant_results.append(ExperimentStatsBase(**base_stats))
-
-    return variant_results
+    return [get_variant_result(row, columns) for row in rows]
 
 
 def aggregate_variants_across_breakdowns(
@@ -332,6 +252,19 @@ def aggregate_variants_across_breakdowns(
                 }
             )
 
+        if variant_list[0].covariate_sum is not None:
+            aggregated_stats.update(
+                {
+                    "covariate_sum": sum(v.covariate_sum for v in variant_list if v.covariate_sum is not None),
+                    "covariate_sum_squares": sum(
+                        v.covariate_sum_squares for v in variant_list if v.covariate_sum_squares is not None
+                    ),
+                    "main_covariate_sum_product": sum(
+                        v.main_covariate_sum_product for v in variant_list if v.main_covariate_sum_product is not None
+                    ),
+                }
+            )
+
         aggregated_variants.append(ExperimentStatsBase(**aggregated_stats))
 
     return aggregated_variants
@@ -372,6 +305,12 @@ def validate_variant_result(
         validated_result.denominator_sum = variant_result.denominator_sum
         validated_result.denominator_sum_squares = variant_result.denominator_sum_squares
         validated_result.numerator_denominator_sum_product = variant_result.numerator_denominator_sum_product
+
+    # Include CUPED-specific fields if present
+    if hasattr(variant_result, "covariate_sum") and variant_result.covariate_sum is not None:
+        validated_result.covariate_sum = variant_result.covariate_sum
+        validated_result.covariate_sum_squares = variant_result.covariate_sum_squares
+        validated_result.main_covariate_sum_product = variant_result.main_covariate_sum_product
 
     return validated_result
 
@@ -434,13 +373,69 @@ def metric_variant_to_statistic(
         )
 
 
+def metric_variant_to_cuped_data(variant: ExperimentStatsBaseValidated) -> CupedData:
+    return CupedData(
+        pre_statistic=SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.covariate_sum or 0.0,
+            sum_squares=variant.covariate_sum_squares or 0.0,
+        ),
+        sum_of_cross_products=variant.main_covariate_sum_product or 0.0,
+    )
+
+
+def _copy_cuped_fields(
+    result: ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian,
+    variant: ExperimentStatsBaseValidated,
+) -> None:
+    if variant.covariate_sum is None:
+        return
+
+    result.covariate_sum = variant.covariate_sum
+    result.covariate_sum_squares = variant.covariate_sum_squares
+    result.main_covariate_sum_product = variant.main_covariate_sum_product
+
+
+ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic
+
+
+def _apply_cuped_adjustment_if_enabled(
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    cuped_config: CupedQueryConfig,
+    test_stat: ExperimentStatistic,
+    control_stat: ExperimentStatistic,
+    test_variant: ExperimentStatsBaseValidated,
+    control_variant: ExperimentStatsBaseValidated,
+) -> tuple[ExperimentStatistic, ExperimentStatistic, float | None]:
+    if not cuped_config.enabled or not isinstance(metric, ExperimentMeanMetric):
+        return test_stat, control_stat, None
+
+    if not isinstance(test_stat, SampleMeanStatistic) or not isinstance(control_stat, SampleMeanStatistic):
+        return test_stat, control_stat, None
+
+    cuped_result = cuped_adjust(
+        test_stat,
+        control_stat,
+        metric_variant_to_cuped_data(test_variant),
+        metric_variant_to_cuped_data(control_variant),
+    )
+
+    return (
+        cuped_result.treatment_adjusted,
+        cuped_result.control_adjusted,
+        cuped_result.control_unadjusted_mean,
+    )
+
+
 def get_frequentist_experiment_result(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
+    cuped_config: CupedQueryConfig | None = None,
 ) -> ExperimentQueryResponse:
     frequentist_config = stats_config.get("frequentist", {}) if stats_config else {}
+    resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
 
     config = FrequentistConfig(
         alpha=_validate_numeric_range(frequentist_config.get("alpha", 0.05), 0.0, 1.0, 0.05),
@@ -487,12 +482,29 @@ def get_frequentist_experiment_result(
             experiment_variant_result.numerator_denominator_sum_product = (
                 test_variant_validated.numerator_denominator_sum_product
             )
+        _copy_cuped_fields(experiment_variant_result, test_variant_validated)
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                result = method.run_test(test_stat, control_stat)
+                test_stat_for_result, control_stat_for_result, unadjusted_mean = _apply_cuped_adjustment_if_enabled(
+                    metric,
+                    resolved_cuped_config,
+                    test_stat,
+                    control_stat,
+                    test_variant_validated,
+                    control_variant_validated,
+                )
+
+                if unadjusted_mean is None:
+                    result = method.run_test(test_stat_for_result, control_stat_for_result)
+                else:
+                    result = method.run_test(
+                        test_stat_for_result,
+                        control_stat_for_result,
+                        unadjusted_mean=unadjusted_mean,
+                    )
 
                 confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
@@ -521,11 +533,13 @@ def get_bayesian_experiment_result(
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
+    cuped_config: CupedQueryConfig | None = None,
 ) -> ExperimentQueryResponse:
     """
     Get experiment results using the new Bayesian method with the new format
     """
     bayesian_config = stats_config.get("bayesian", {}) if stats_config else {}
+    resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
 
     config = BayesianConfig(
         ci_level=_validate_numeric_range(bayesian_config.get("ci_level", 0.95), 0.0, 1.0, 0.95),
@@ -572,12 +586,29 @@ def get_bayesian_experiment_result(
             experiment_variant_result.numerator_denominator_sum_product = (
                 test_variant_validated.numerator_denominator_sum_product
             )
+        _copy_cuped_fields(experiment_variant_result, test_variant_validated)
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                result = method.run_test(test_stat, control_stat)
+                test_stat_for_result, control_stat_for_result, unadjusted_mean = _apply_cuped_adjustment_if_enabled(
+                    metric,
+                    resolved_cuped_config,
+                    test_stat,
+                    control_stat,
+                    test_variant_validated,
+                    control_variant_validated,
+                )
+
+                if unadjusted_mean is None:
+                    result = method.run_test(test_stat_for_result, control_stat_for_result)
+                else:
+                    result = method.run_test(
+                        test_stat_for_result,
+                        control_stat_for_result,
+                        unadjusted_mean=unadjusted_mean,
+                    )
 
                 # Convert credible interval to percentage
                 credible_interval = [result.credible_interval[0], result.credible_interval[1]]

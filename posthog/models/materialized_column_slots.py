@@ -32,11 +32,11 @@ class MaterializedColumnSlot(UUIDTModel):
         related_query_name="materialized_column_slot",
     )
     # Denormalized from PropertyDefinition for efficient constraints and queries
-    property_type = models.CharField(max_length=50, choices=PropertyType.choices)
+    property_type = models.CharField(max_length=50, choices=PropertyType)
     slot_index = models.PositiveSmallIntegerField()
     state = models.CharField(
         max_length=20,
-        choices=MaterializedColumnSlotState.choices,
+        choices=MaterializedColumnSlotState,
         default=MaterializedColumnSlotState.BACKFILL,
     )
     backfill_temporal_workflow_id = models.CharField(max_length=400, null=True, blank=True)
@@ -54,7 +54,7 @@ class MaterializedColumnSlot(UUIDTModel):
             ),
             models.CheckConstraint(
                 name="valid_slot_index",
-                check=models.Q(slot_index__gte=0) & models.Q(slot_index__lte=9),
+                condition=models.Q(slot_index__gte=0) & models.Q(slot_index__lte=9),
             ),
         ]
         indexes = [

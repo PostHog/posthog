@@ -278,14 +278,15 @@ class OrderDirection(StrEnum):
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
-    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    COHORT = "cohort"
     REVENUE_ANALYTICS = "revenue_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
 class AssistantEventType(StrEnum):
@@ -3370,15 +3371,16 @@ class MultiQuestionFormQuestionType(StrEnum):
 
 
 class MultipleBreakdownType(StrEnum):
-    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    COHORT = "cohort"
     REVENUE_ANALYTICS = "revenue_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
 class NativeMarketingSource(StrEnum):
@@ -6772,9 +6774,12 @@ class ExperimentStatsBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    covariate_sum: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     step_counts: list[int] | None = None
@@ -6787,9 +6792,12 @@ class ExperimentStatsBaseValidated(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    covariate_sum: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     step_counts: list[int] | None = None
@@ -6804,10 +6812,13 @@ class ExperimentVariantResultBayesian(BaseModel):
         extra="forbid",
     )
     chance_to_win: float | None = None
+    covariate_sum: float | None = None
+    covariate_sum_squares: float | None = None
     credible_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
@@ -6824,9 +6835,12 @@ class ExperimentVariantResultFrequentist(BaseModel):
         extra="forbid",
     )
     confidence_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
+    covariate_sum: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     method: Literal["frequentist"] = "frequentist"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
@@ -8211,6 +8225,15 @@ class SourceFieldInputConfig(BaseModel):
     name: str
     placeholder: str
     required: bool
+    secret: bool = Field(
+        ...,
+        description=(
+            "Marks this field as containing sensitive data. The value is stripped from"
+            " API responses regardless of the rendering `type` (so a multi-line PEM"
+            " blob can use `textarea` and still be redacted). Required: source authors"
+            " must explicitly classify every field."
+        ),
+    )
     type: SourceFieldInputConfigType
 
 
@@ -9612,6 +9635,14 @@ class AssistantRecordingsQuery(BaseModel):
             " activity_score).\n- `cohort`: Filter recordings to persons belonging to a"
             ' cohort. Example: `{ type: "cohort", key: "id", value: 42, operator:'
             ' "in" }`.'
+        ),
+    )
+    session_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "Filter to specific session recording IDs. Use this when you have known"
+            " session IDs (e.g., from $session_id on events) to fetch multiple"
+            " recordings in a single call."
         ),
     )
 
