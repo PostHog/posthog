@@ -22,7 +22,7 @@ describe('goalLinesAdapter', () => {
         it('ignores hidden series', () => {
             const result = computeSeriesNonZeroMax([
                 makeSeries([1, 2, 3]),
-                makeSeries([1000], { key: 'b', hidden: true }),
+                makeSeries([1000], { key: 'b', visibility: { excluded: true } }),
             ])
             expect(result).toBe(3)
         })
