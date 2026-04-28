@@ -66,6 +66,11 @@ async def create_task_and_trigger(
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
+    # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
+    # None would clobber it. sandbox_environment_id already accepts None.
+    posthog_mcp_scopes: PosthogMcpScopes = (
+        context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
+    )
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
@@ -77,6 +82,8 @@ async def create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
+        posthog_mcp_scopes=posthog_mcp_scopes,
+        sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
         sandbox_environment_id=context.sandbox_environment_id,
         posthog_mcp_scopes=context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full",
