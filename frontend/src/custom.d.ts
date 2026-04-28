@@ -49,10 +49,3 @@ declare module '@tiptap/react/menus' {
 declare module 'react-grid-layout/extras' {
     export * from 'react-grid-layout/dist/extras'
 }
-
-declare module 'd3-flame-graph' {
-    const flamegraph: () => any
-    export default flamegraph
-    export const tooltip: () => any
-    export const colorMapper: any
-}

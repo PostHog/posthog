@@ -1,5 +1,8 @@
 import json
+import time
+import asyncio
 import datetime as dt
+import threading
 from datetime import UTC, datetime, timedelta
 
 import unittest
@@ -21,10 +24,12 @@ from products.logs.backend.alert_check_query import BucketedCount
 from products.logs.backend.alert_state_machine import AlertState, NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.temporal.activities import (
+    CheckAlertsInput,
     CheckAlertsOutput,
     _check_alerts_sync,
     _derive_breaches,
     _evaluate_single_alert,
+    check_alerts_activity,
 )
 
 
@@ -231,6 +236,109 @@ class TestCheckAlertsSync(APIBaseTest):
         assert result.alerts_checked == 1
         mock_record_lag.assert_not_called()
         mock_unavailable.assert_called_once()
+
+
+class TestCheckAlertsActivityConcurrency(unittest.TestCase):
+    """Async path: bounded concurrency via asyncio.TaskGroup + Semaphore.
+
+    These tests exercise the orchestration layer in isolation by patching the
+    DB-touching helpers (`_load_alerts_and_checkpoint`, `_evaluate_single_alert`).
+    The single-alert eval logic is covered by `TestEvaluateSingleAlert` and
+    `TestEvaluateSingleAlertEndToEnd`; the per-cycle DB read by `TestCheckAlertsSync`.
+    """
+
+    @staticmethod
+    def _mock_alerts(n: int) -> list[MagicMock]:
+        return [MagicMock(id=f"alert-{i}", name=f"alert-{i}", team_id=1) for i in range(n)]
+
+    @parameterized.expand([("fired",), ("resolved",), ("errored",)])
+    def test_evaluates_all_alerts_and_aggregates_stats(self, outcome):
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        alerts = self._mock_alerts(4)
+
+        def fake_eval(alert, now, stats, *, checkpoint=None):
+            stats["checked"] += 1
+            stats[outcome] += 1
+
+        with (
+            patch(
+                "products.logs.backend.temporal.activities._load_alerts_and_checkpoint",
+                return_value=(now, alerts, None),
+            ),
+            patch(
+                "products.logs.backend.temporal.activities._evaluate_single_alert", side_effect=fake_eval
+            ) as mock_eval,
+        ):
+            result = asyncio.run(check_alerts_activity(CheckAlertsInput()))
+
+        assert mock_eval.call_count == 4
+        assert result.alerts_checked == 4
+        assert getattr(result, f"alerts_{outcome}") == 4
+        for other in ("fired", "resolved", "errored"):
+            if other != outcome:
+                assert getattr(result, f"alerts_{other}") == 0
+
+    def test_bounded_concurrency_does_not_exceed_semaphore_limit(self):
+        """Force overlap; peak concurrent in-flight must equal the semaphore limit."""
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        alerts = self._mock_alerts(10)
+
+        peak = 0
+        active = 0
+        lock = threading.Lock()
+
+        def fake_eval(alert, now, stats, *, checkpoint=None):
+            nonlocal peak, active
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.05)
+            with lock:
+                active -= 1
+            stats["checked"] += 1
+
+        with (
+            patch(
+                "products.logs.backend.temporal.activities._load_alerts_and_checkpoint",
+                return_value=(now, alerts, None),
+            ),
+            patch("products.logs.backend.temporal.activities.MAX_CONCURRENT_ALERT_EVALS", 3),
+            patch("products.logs.backend.temporal.activities._evaluate_single_alert", side_effect=fake_eval),
+        ):
+            result = asyncio.run(check_alerts_activity(CheckAlertsInput()))
+
+        assert peak <= 3, f"expected peak concurrency ≤ 3 (semaphore limit), got {peak}"
+        assert peak > 1, f"expected concurrency to be utilised (peak={peak}), check thread pool availability"
+        assert result.alerts_checked == 10
+
+    def test_unexpected_error_isolates_to_single_alert(self):
+        """One alert raising must not block the others; the activity counts it as errored."""
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+        alerts = self._mock_alerts(3)
+
+        call_count = 0
+        lock = threading.Lock()
+
+        def fake_eval(alert, now, stats, *, checkpoint=None):
+            nonlocal call_count
+            with lock:
+                call_count += 1
+                this_call = call_count
+            if this_call == 2:
+                raise RuntimeError("kaboom")
+            stats["checked"] += 1
+
+        with (
+            patch(
+                "products.logs.backend.temporal.activities._load_alerts_and_checkpoint",
+                return_value=(now, alerts, None),
+            ),
+            patch("products.logs.backend.temporal.activities._evaluate_single_alert", side_effect=fake_eval),
+        ):
+            result = asyncio.run(check_alerts_activity(CheckAlertsInput()))
+
+        assert result.alerts_checked == 2
+        assert result.alerts_errored == 1
 
 
 class TestEvaluateSingleAlert(APIBaseTest):
