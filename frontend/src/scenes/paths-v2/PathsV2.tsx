@@ -87,7 +87,9 @@ export function PathsV2(): JSX.Element {
                     } as React.CSSProperties
                 }
             >
-                {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
+                {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && (
+                    <InsightEmptyState query={insightQuery} />
+                )}
                 {!insightDataError &&
                     nodes &&
                     nodes.map((node, idx) => <PathNodeLabel key={idx} node={node} insightProps={insightProps} />)}

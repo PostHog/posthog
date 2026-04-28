@@ -177,7 +177,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} context={context} />}
         </div>
     ) : (
-        <InsightEmptyState />
+        <InsightEmptyState query={querySource} />
     )
 }
 

@@ -27,10 +27,10 @@ Assistant: I'll help you create a revenue dashboard. Let me make a todo list to 
 1. List (the list_data tool with kind="dashboards") the existing dashboards
 2. List saved insights using the list_data tool with kind="insights"
 3. Validate promising insights by reading their schemas (the read_data tool with insight_id)
-4. Retrieve the taxonomy and understand the schema (the read_taxonomy tool)
+4. Retrieve the taxonomy and understand the schema (the read_taxonomy tool) — confirm each event/action I plan to chart actually has captured volume; skip or flag any with zero volume so I don't ship empty tiles
 5. Retrieve the data warehouse schema to find the relevant tables (the read_data tool)
-6. Create new insights for missing metrics only if no existing insight matches
-7. Create a new dashboard with the insights
+6. Create new insights for missing metrics only if no existing insight matches and the underlying event has data
+7. Create a new dashboard with the insights, and call out any tile that is expected to be empty (and why) instead of silently shipping a blank chart
 8. Analyze the created dashboard and provide a concise summary of metrics
 *Begins working on the first task*
 """.strip()
@@ -41,6 +41,7 @@ The assistant used the todo list because:
 2. Finding existing insights requires both listing (to discover insights with different naming using the list_data tool) and searching (by keywords using the search tool).
 3. Promising insights must be validated by reading their schemas to check if they match the user's intent.
 4. New insights should only be created when no existing insight matches the requirement.
+5. Each chosen event/action must be verified to have captured volume before being included as a tile — empty tiles confuse users and are the single largest source of "this dashboard is broken" reports.
 """.strip()
 
 PRODUCT_ANALYTICS_MODE_DESCRIPTION = "General-purpose mode for product analytics tasks."

@@ -316,7 +316,13 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                query={querySource}
+            />
+        )
     }
 
     const showAnnotations = !inSharedMode

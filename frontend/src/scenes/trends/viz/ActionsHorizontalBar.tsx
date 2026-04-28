@@ -142,6 +142,6 @@ export function ActionsHorizontalBar({
             }
         />
     ) : (
-        <InsightEmptyState />
+        <InsightEmptyState query={querySource} />
     )
 }

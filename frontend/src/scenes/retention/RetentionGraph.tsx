@@ -36,6 +36,7 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
         shouldShowMeanPerBreakdown,
         showTrendLines,
         xAxisLabels,
+        querySource,
     } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
@@ -111,6 +112,6 @@ export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): J
             goalLines={retentionFilter?.goalLines ?? []}
         />
     ) : (
-        <InsightEmptyState />
+        <InsightEmptyState query={querySource} />
     )
 }

@@ -88,7 +88,13 @@ export function ActionsLineGraph({
     if (
         !(indexedResults && indexedResults[0]?.data && indexedResults.filter((result) => result.count !== 0).length > 0)
     ) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                query={querySource}
+            />
+        )
     }
 
     const finalDatasets = indexedResults.flatMap((originalDataset, index) => {

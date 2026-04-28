@@ -161,7 +161,9 @@ export function Paths(): JSX.Element {
                     } as React.CSSProperties
                 }
             >
-                {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
+                {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && (
+                    <InsightEmptyState query={insightQuery} />
+                )}
                 {!insightDataError &&
                     resolvedNodeCards.map((node, idx) => (
                         <PathNodeCard

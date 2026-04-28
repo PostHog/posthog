@@ -29,8 +29,8 @@ import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
-import { isFunnelsDataWarehouseNode } from '~/queries/utils'
+import { FunnelsQuery, InsightQueryNode, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
+import { isFunnelsDataWarehouseNode, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -43,14 +43,71 @@ import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/Action
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 
+/**
+ * Inspects a query and surfaces the most likely reasons it returned no data,
+ * so users (and the agent reading the same UI string in support) don't have to
+ * guess. Heuristics are ordered by typical fix-likelihood.
+ */
+export function deriveEmptyStateHints(query?: InsightQueryNode | Node | null): string[] {
+    if (!query) {
+        return []
+    }
+    const source: Record<string, any> | null = isInsightVizNode(query)
+        ? query.source
+        : isInsightQueryNode(query)
+          ? query
+          : null
+    if (!source) {
+        return []
+    }
+
+    const hints: string[] = []
+
+    if (source.filterTestAccounts === true) {
+        hints.push(
+            'Test accounts are excluded — if you expected to see them, toggle "Filter test accounts" off above the chart.'
+        )
+    }
+
+    const properties = source.properties
+    const hasProperties = Array.isArray(properties)
+        ? properties.length > 0
+        : !!properties && Array.isArray(properties.values) && properties.values.length > 0
+    if (hasProperties) {
+        hints.push('Property filters narrow results — try removing one to widen the query.')
+    }
+
+    const dateFrom = source.dateRange?.date_from
+    if (typeof dateFrom === 'string') {
+        // Catches very narrow relative ranges like -1h, -24h, -1d, -2d, -7d
+        const narrow = /^-(\d+)(h|d)$/i.exec(dateFrom)
+        if (narrow) {
+            const amount = parseInt(narrow[1], 10)
+            const unit = narrow[2].toLowerCase()
+            if ((unit === 'h' && amount <= 24) || (unit === 'd' && amount <= 7)) {
+                hints.push('The selected date range is short — try expanding it (for example "Last 30 days").')
+            }
+        }
+    }
+
+    return hints
+}
+
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
     detail = 'Try changing the date range, or pick another action, event or breakdown.',
     icon: iconProp,
+    query,
 }: {
     heading?: string
     detail?: string | JSX.Element
     icon?: JSX.Element
+    /**
+     * The active query for this insight — when provided, the empty state
+     * surfaces targeted hints (e.g. test-account filtering, narrow date
+     * range, restrictive property filters) instead of only the generic copy.
+     */
+    query?: InsightQueryNode | Node | null
 }): JSX.Element {
     const icon =
         iconProp ??
@@ -60,6 +117,8 @@ export function InsightEmptyState({
             <IconArchive className="text-5xl mb-2 text-tertiary" />
         ))
 
+    const hints = deriveEmptyStateHints(query)
+
     return (
         <div
             data-attr="insight-empty-state"
@@ -68,6 +127,16 @@ export function InsightEmptyState({
             {icon}
             <h2 className="text-xl leading-tight">{heading}</h2>
             <p className="text-sm text-tertiary">{detail}</p>
+            {hints.length > 0 && (
+                <ul
+                    data-attr="insight-empty-state-hints"
+                    className="text-sm text-tertiary mt-3 list-disc list-inside text-left max-w-120"
+                >
+                    {hints.map((hint, i) => (
+                        <li key={i}>{hint}</li>
+                    ))}
+                </ul>
+            )}
         </div>
     )
 }
