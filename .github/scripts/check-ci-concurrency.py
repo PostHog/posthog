@@ -28,12 +28,15 @@ Usage:
     uv run .github/scripts/check-ci-concurrency.py
 """
 
+import re
 import sys
 from pathlib import Path
 
 import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parent.parent / "workflows"
+
+BAD_FALLBACK = re.compile(r"head_ref\s*\|\|\s*github\.run_id")
 
 # Workflows intentionally exempt from concurrency cancellation.
 # Each entry has a one-line reason so the next reader knows why.
@@ -81,7 +84,7 @@ def check_concurrency() -> tuple[list[str], list[str], list[str]]:
             group_expr = concurrency.get("group") or ""
         elif isinstance(concurrency, str):
             group_expr = concurrency
-        if isinstance(group_expr, str) and "github.run_id" in group_expr and "head_ref" in group_expr:
+        if isinstance(group_expr, str) and BAD_FALLBACK.search(group_expr):
             bad_group.append(workflow_file.name)
 
         # PyYAML parses the top-level `on:` key as boolean True.
