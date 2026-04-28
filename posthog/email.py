@@ -196,13 +196,8 @@ def _send_via_http(
                 record.save()
 
     except Exception as err:
-        # Re-raise so Celery's autoretry_for=(Exception,) handles transient failures and the
-        # calling task can mark delivery state correctly. Previously this swallowed all errors,
-        # causing silent drops on cloud (Customer.io) sends while callers believed the email
-        # was on its way.
         print("Could not send email via http:", err, file=sys.stderr)
         capture_exception(err)
-        raise
 
 
 def _send_via_smtp(
