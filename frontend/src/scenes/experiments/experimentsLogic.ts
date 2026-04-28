@@ -303,6 +303,15 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         count: values.experiments.count - 1,
                     }
                 },
+                unarchiveExperiment: async (id: number) => {
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/unarchive`)
+                    lemonToast.info('Experiment unarchived')
+                    return {
+                        ...values.experiments,
+                        results: values.experiments.results.filter((experiment) => experiment.id !== id),
+                        count: values.experiments.count - 1,
+                    }
+                },
                 duplicateExperiment: async (payload: { id: number; featureFlagKey?: string; name?: string }) => {
                     const data: Record<string, string> = {}
                     if (payload.featureFlagKey) {

@@ -706,6 +706,7 @@ export const experimentLogic = kea<experimentLogicType>([
         pauseExperiment: true,
         resumeExperiment: true,
         archiveExperiment: true,
+        unarchiveExperiment: true,
         resetRunningExperiment: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
@@ -1607,6 +1608,18 @@ export const experimentLogic = kea<experimentLogicType>([
                 refreshTreeItem('experiment', String(values.experimentId))
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to archive experiment')
+            }
+        },
+        unarchiveExperiment: async () => {
+            try {
+                const response: Experiment = await api.create(
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unarchive`
+                )
+                actions.setExperiment(response)
+                refreshTreeItem('experiment', String(values.experimentId))
+                lemonToast.success('Experiment unarchived')
+            } catch (error: any) {
+                lemonToast.error(error.detail || 'Failed to unarchive experiment')
             }
         },
         refreshExperimentResults: async ({ forceRefresh, triggeredBy }) => {
