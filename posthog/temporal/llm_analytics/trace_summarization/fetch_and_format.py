@@ -7,9 +7,9 @@ import temporalio
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.models.team import Team
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
@@ -90,17 +90,21 @@ def _fetch_and_format_generation(
     start_dt_str = format_datetime_for_clickhouse(window_start)
     end_dt_str = format_datetime_for_clickhouse(window_end)
 
+    # Query the dedicated table first; the resolver rewrites + re-runs against the
+    # shared `events` table when ai_events returns zero rows. Heavy columns (`input`,
+    # `output`) live as native columns on ai_events and as stripped JSON on events
+    # post-cutover — only the migrated path can recover them for recent rows.
     query = parse_select(
         """
         SELECT
-            properties.$ai_model as model,
-            properties.$ai_provider as provider,
-            properties.$ai_input as input,
-            properties.$ai_output as output,
-            properties.$ai_input_tokens as input_tokens,
-            properties.$ai_output_tokens as output_tokens,
-            properties.$ai_latency as latency
-        FROM events
+            model,
+            provider,
+            input,
+            output,
+            input_tokens,
+            output_tokens,
+            latency
+        FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND timestamp >= toDateTime({start_dt}, 'UTC')
             AND timestamp < toDateTime({end_dt}, 'UTC')
@@ -110,8 +114,7 @@ def _fetch_and_format_generation(
     )
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
-        result = execute_hogql_query(
-            query_type="GenerationForSummarization",
+        result = execute_with_ai_events_fallback(
             query=query,
             placeholders={
                 "start_dt": ast.Constant(value=start_dt_str),
@@ -119,6 +122,7 @@ def _fetch_and_format_generation(
                 "generation_id": ast.Constant(value=generation_id),
             },
             team=team,
+            query_type="GenerationForSummarization",
         )
 
     if not result.results:
