@@ -22,6 +22,10 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
+    MISSING_CERT_PATH,
+    TLS,
+    Authority,
+    Credentials,
     DatabricksIntegration,
     DatabricksIntegrationError,
     EmailIntegration,
@@ -31,6 +35,7 @@ from posthog.models.integration import (
     GoogleCloudServiceAccountIntegration,
     Integration,
     OauthIntegration,
+    PostgreSQLIntegration,
     SlackIntegration,
 )
 from posthog.models.organization import Organization
@@ -1755,3 +1760,97 @@ class TestGitLabIntegrationSSRFProtection:
             GitLabIntegration.post("http://192.168.1.1", "projects/1/issues", "token123", {"title": "test"})
 
         mock_post.assert_not_called()
+
+
+class TestPostgreSQLIntegrationModel(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "require_no_cert",
+                {"ssl_mode": "require"},
+                {},
+                TLS(ssl_mode="require", ssl_root_cert=MISSING_CERT_PATH),
+            ),
+            (
+                "require_system_cert",
+                {"ssl_mode": "require", "ssl_root_cert": "system"},
+                {},
+                TLS(ssl_mode="require", ssl_root_cert="system"),
+            ),
+            (
+                "verify_ca_with_cert",
+                {
+                    "ssl_mode": "verify-ca",
+                    "ssl_root_cert": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+                },
+                {},
+                TLS(
+                    ssl_mode="verify-ca",
+                    ssl_root_cert="-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+                ),
+            ),
+            (
+                "prefer_no_cert",
+                {"ssl_mode": "prefer"},
+                {},
+                TLS(ssl_mode="prefer", ssl_root_cert=MISSING_CERT_PATH),
+            ),
+        ]
+    )
+    def test_tls_with_ssl_configs(self, _name, config_overrides, sensitive_config_overrides, expected_tls):
+        config = {"host": "db.example.com", "port": 5432, "user": "exporter"}
+        config.update(config_overrides)
+
+        sensitive_config: dict = {"password": "hunter2"}
+        sensitive_config.update(sensitive_config_overrides)
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.POSTGRESQL,
+            integration_id=f"{self.team.pk}-db.example.com-5432-exporter",
+            config=config,
+            sensitive_config=sensitive_config,
+        )
+
+        pq = PostgreSQLIntegration(integration)
+        assert pq.tls() == expected_tls
+
+    @parameterized.expand(
+        [
+            (
+                "defaults",
+                {},
+                TLS(ssl_mode="require", ssl_root_cert=MISSING_CERT_PATH),
+            ),
+            (
+                "system_cert",
+                {"ssl_root_cert": "system"},
+                TLS(ssl_mode="require", ssl_root_cert="system"),
+            ),
+            (
+                "verify_full_with_cert",
+                {"ssl_mode": "verify-full", "ssl_root_cert": "cert-data"},
+                TLS(ssl_mode="verify-full", ssl_root_cert="cert-data"),
+            ),
+        ]
+    )
+    def test_integration_from_config(self, _name, overrides, expected_tls):
+        kwargs = {
+            "team_id": self.team.pk,
+            "host": "db.example.com",
+            "port": 5432,
+            "user": "exporter",
+            "password": "super-secret",
+        }
+        kwargs.update(overrides)
+
+        integration = PostgreSQLIntegration.integration_from_config(**kwargs)  # type: ignore
+        pq = PostgreSQLIntegration(integration)
+
+        assert pq.authority() == Authority(host="db.example.com", port=5432)
+        assert pq.credentials() == Credentials(user="exporter", password="super-secret")
+        assert pq.tls() == expected_tls
+
+        assert "password" not in integration.config
+
+        assert integration.sensitive_config["password"] == "super-secret"

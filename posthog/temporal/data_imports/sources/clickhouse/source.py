@@ -73,6 +73,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="play.clickhouse.com",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -80,6 +81,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="8443",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -87,6 +89,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="default",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="user",
@@ -94,6 +97,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="default",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -101,6 +105,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldSelectConfig(
                         name="secure",

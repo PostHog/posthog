@@ -29,7 +29,7 @@ import { buildInstructionsV1, buildInstructionsV2, type QueryToolInfo } from '@/
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
+import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -59,6 +59,7 @@ export type RequestProperties = {
     mcpClientVersion?: string
     mcpProtocolVersion?: string
     readOnly?: boolean
+    mode?: McpMode
     transport?: 'streamable-http' | 'sse'
     requestStartTime?: number
 }
@@ -463,7 +464,15 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = this.requestProperties
+        const {
+            features,
+            tools,
+            version: clientVersion,
+            organizationId,
+            projectId,
+            readOnly,
+            mode,
+        } = this.requestProperties
 
         // Resolve MCP client info before any code reads it — most importantly
         // the `useSingleExec` decision below. During init() this resolves from
@@ -522,8 +531,13 @@ export class MCP extends McpAgent<Env> {
         // decision sees the real value on first-connect. PostHog's agent wrapper
         // self-identifies via the `x-posthog-mcp-consumer` header and forces
         // single-exec regardless of the wrapped client's reported name.
+        // An explicit `mode` from the caller (header `x-posthog-mcp-mode` or query
+        // param `mode`) wins over the flag + client-profile heuristic.
         const useSingleExec =
-            singleExecFlagOn && (clientProfile.isCodingAgent() || clientProfile.isPostHogCodeConsumer())
+            mode === 'cli' ||
+            (mode !== 'tools' &&
+                singleExecFlagOn &&
+                (clientProfile.isCodingAgent() || clientProfile.isPostHogCodeConsumer()))
         const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         // Fetch group types and metadata in parallel (cache is now seeded)
@@ -711,9 +725,11 @@ export class MCP extends McpAgent<Env> {
                 {
                     tool_count: allTools.length,
                     mcp_version: version,
+                    mcp_mode: useSingleExec ? 'cli' : 'tools',
                     has_organization_id: !!organizationId,
                     has_project_id: !!projectId,
                     read_only: !!readOnly,
+                    ...(mode ? { mcp_mode_explicit: mode } : {}),
                     ...(initDurationMs !== undefined ? { init_duration_ms: initDurationMs } : {}),
                 },
                 analyticsContext ? { context: analyticsContext } : undefined
