@@ -23,6 +23,7 @@ class TestBreakdownExpr:
 
     def test_traffic_type_uses_multiMatchAnyIndex(self):
         expr = _breakdown_expr(LogsSparklineBreakdownBy.TRAFFIC_TYPE)
+        assert isinstance(expr, ast.Call)
         comparison = expr.args[0]
         assert isinstance(comparison, ast.CompareOperation)
         assert isinstance(comparison.left, ast.Call)
@@ -30,6 +31,7 @@ class TestBreakdownExpr:
 
     def test_traffic_type_default_is_regular(self):
         expr = _breakdown_expr(LogsSparklineBreakdownBy.TRAFFIC_TYPE)
+        assert isinstance(expr, ast.Call)
         default = expr.args[1]
         assert isinstance(default, ast.Constant)
         assert default.value == "Regular"

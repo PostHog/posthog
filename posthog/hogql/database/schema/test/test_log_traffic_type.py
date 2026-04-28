@@ -36,6 +36,7 @@ class TestLogUserAgentExpr:
 
     def test_checks_otel_http_user_agent_first(self):
         expr = log_user_agent_expr()
+        assert isinstance(expr, ast.Call)
         first_null_if = expr.args[0]
         assert isinstance(first_null_if, ast.Call)
         assert first_null_if.name == "nullIf"
@@ -43,6 +44,7 @@ class TestLogUserAgentExpr:
 
     def test_checks_user_agent_original_second(self):
         expr = log_user_agent_expr()
+        assert isinstance(expr, ast.Call)
         second_null_if = expr.args[1]
         assert isinstance(second_null_if, ast.Call)
         assert second_null_if.name == "nullIf"
@@ -50,6 +52,7 @@ class TestLogUserAgentExpr:
 
     def test_checks_posthog_raw_user_agent_third(self):
         expr = log_user_agent_expr()
+        assert isinstance(expr, ast.Call)
         third_null_if = expr.args[2]
         assert isinstance(third_null_if, ast.Call)
         assert third_null_if.name == "nullIf"
@@ -57,6 +60,7 @@ class TestLogUserAgentExpr:
 
     def test_falls_back_to_posthog_user_agent(self):
         expr = log_user_agent_expr()
+        assert isinstance(expr, ast.Call)
         assert expr.args[3] == ast.Field(chain=["attributes", "$user_agent"])
 
 
@@ -90,6 +94,7 @@ class TestLogIsBotField:
 
     def test_uses_multiMatchAnyIndex(self):
         field = create_log_is_bot_field(name="$virt_is_bot")
+        assert isinstance(field.expr, ast.CompareOperation)
         assert isinstance(field.expr.left, ast.Call)
         assert field.expr.left.name == "multiMatchAnyIndex"
 
@@ -102,6 +107,7 @@ class TestLogTrafficTypeField:
 
     def test_default_value_is_regular(self):
         field = create_log_traffic_type_field(name="$virt_traffic_type")
+        assert isinstance(field.expr, ast.Call)
         default = field.expr.args[1]
         assert isinstance(default, ast.Constant)
         assert default.value == "Regular"
