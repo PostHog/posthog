@@ -12,16 +12,39 @@ description: >
 PostHog captures distributed traces via OpenTelemetry. Each trace is a tree of spans representing
 a request's journey through services — from the entry point down to individual operations.
 
+## Code map (repo)
+
+- **`products/tracing/mcp/tools.yaml`** — Enables each tool, `url_prefix: /tracing`, scopes `tracing:read`, UI apps (`trace-span`, `trace-span-list`), prompt file for query.
+- **`services/mcp/src/tools/generated/tracing.ts`** — Generated handlers: `POST/GET` to `/api/environments/{projectId}/tracing/spans/...` (from OpenAPI operation IDs).
+- **`services/mcp/src/tools/generated/index.ts`** — Merges `...tracing` into `GENERATED_TOOL_MAP`.
+- **`services/mcp/schema/generated-tool-definitions.json`** — Tool metadata (`required_scopes`, `new_mcp`, descriptions).
+- **`products/tracing/backend/presentation/views.py`** — `SpansViewSet` actions; each action uses `required_scopes=["tracing:read"]`.
+
+## MCP connectivity (why tools can be “missing”)
+
+The MCP server **only registers** a tool if the session’s API key passes `hasScopes` for that tool’s `required_scopes`. Tracing tools need **`tracing:read`** (or `*`).
+
+Local dev: `setup_local_api_key` defaults to **empty scopes** unless you pass `--scopes` / `--add-scopes`. If your key has no `tracing:read`, tracing tools never appear and clients report **tool not found**. Fix:
+
+```bash
+python manage.py setup_local_api_key --add-scopes tracing:read
+# or --scopes "*" for full access (local DEBUG only)
+```
+
+Also ensure the MCP binary matches a build whose OpenAPI includes tracing (`hogli build:openapi` and MCP generate per `services/mcp/CONTRIBUTING.md`), then restart the MCP process.
+
+**Tool name prefixes:** Some hosts document `posthog:tracing-spans-query-create`. **Cursor’s local PostHog MCP** lists tools as **`tracing-spans-query-create`** (no `posthog:` prefix). Use the names your client actually exposes.
+
 ## Available tools
 
-| Tool                                           | Purpose                                                |
-| ---------------------------------------------- | ------------------------------------------------------ |
-| `posthog:tracing-spans-query-create`           | Search and filter spans (by service, status, duration) |
-| `posthog:tracing-spans-trace-create`           | Get all spans for a specific trace by hex trace ID     |
-| `posthog:tracing-spans-service-names-retrieve` | List available service names                           |
-| `posthog:tracing-spans-attributes-retrieve`    | List available span/resource attribute names           |
-| `posthog:tracing-spans-values-retrieve`        | List values for a specific attribute key               |
-| `posthog:execute-sql`                          | Ad-hoc SQL for complex trace analysis                  |
+| Tool (typical local / Cursor name)        | Purpose                                                |
+| ----------------------------------------- | ------------------------------------------------------ |
+| `tracing-spans-query-create`              | Search and filter spans (by service, status, duration) |
+| `tracing-spans-trace-create`              | Get all spans for a specific trace by hex trace ID     |
+| `tracing-spans-service-names-retrieve`    | List available service names                           |
+| `tracing-spans-attributes-retrieve`       | List available span/resource attribute names           |
+| `tracing-spans-values-retrieve`           | List values for a specific attribute key               |
+| `execute-sql` (or `query-run` with HogQL) | Ad-hoc SQL for complex trace analysis                  |
 
 ## Span data model
 
@@ -52,14 +75,14 @@ Each span contains:
 ### Step 1 — Discover services
 
 ```json
-posthog:tracing-spans-service-names-retrieve
+tracing-spans-service-names-retrieve
 {}
 ```
 
 ### Step 2 — Find slow or error spans
 
 ```json
-posthog:tracing-spans-query-create
+tracing-spans-query-create
 {
   "query": {
     "serviceNames": ["api-gateway"],
@@ -75,7 +98,7 @@ Duration is in nanoseconds: 1s = 1,000,000,000 ns, 1ms = 1,000,000 ns.
 ### Step 3 — Drill into a specific trace
 
 ```json
-posthog:tracing-spans-trace-create
+tracing-spans-trace-create
 {
   "trace_id": "<hex_trace_id_from_step_2>"
 }
@@ -106,7 +129,7 @@ LIMIT 10
 ## Workflow: find error traces
 
 ```json
-posthog:tracing-spans-query-create
+tracing-spans-query-create
 {
   "query": {
     "filterGroup": [{ "key": "status_code", "operator": "exact", "type": "span", "value": "2" }],
@@ -125,21 +148,21 @@ When you don't know what attributes are available:
 1. List attribute names:
 
 ```json
-posthog:tracing-spans-attributes-retrieve
+tracing-spans-attributes-retrieve
 { "attribute_type": "span", "search": "http" }
 ```
 
 2. List values for an attribute:
 
 ```json
-posthog:tracing-spans-values-retrieve
+tracing-spans-values-retrieve
 { "key": "http.method", "attribute_type": "span" }
 ```
 
 3. Use discovered attributes in filters:
 
 ```json
-posthog:tracing-spans-query-create
+tracing-spans-query-create
 {
   "query": {
     "filterGroup": [
