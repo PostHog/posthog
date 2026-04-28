@@ -153,7 +153,7 @@ export interface RoleLookupResponseApi {
 }
 
 /**
- * `apns` - Apple Push Notification service
+ * * `apns` - Apple Push
  * `azure-blob` - Azure Blob
  * `bing-ads` - Bing Ads
  * `clickup` - Clickup
