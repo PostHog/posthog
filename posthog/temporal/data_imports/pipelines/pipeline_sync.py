@@ -192,6 +192,7 @@ async def validate_schema_and_update_table(
                     "team_id": team_id,
                     "row_count": row_count,
                     "queryable_folder": queryable_folder,
+                    "options": {},
                 }
 
                 # create or update
@@ -314,6 +315,7 @@ async def register_cdc_companion_table(
             "team_id": team_id,
             "row_count": row_count,
             "queryable_folder": queryable_folder,
+            "options": {},
         }
 
         try:

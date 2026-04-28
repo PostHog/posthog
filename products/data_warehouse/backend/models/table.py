@@ -138,7 +138,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         help_text="Dict of all columns with Clickhouse type (including Nullable())",
     )
 
-    options = models.JSONField(default=dict, blank=True)
+    options = models.JSONField(default=dict, null=True, blank=True)
 
     row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
     size_in_s3_mib = models.FloatField(null=True, help_text="The object size in S3 for this table in MiB")

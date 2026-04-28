@@ -107,9 +107,11 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
 
     if inputs.job_id is None:
         job: ExternalDataJob | None = await database_sync_to_async_pool(
-            lambda: ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
-            .order_by("-created_at")
-            .first()
+            lambda: (
+                ExternalDataJob.objects.filter(schema_id=inputs.schema_id, status=ExternalDataJob.Status.RUNNING)
+                .order_by("-created_at")
+                .first()
+            )
         )()
         if job is None:
             logger.info("No job to update status on")
@@ -313,7 +315,11 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_resumable_attempts,
-                        non_retryable_error_types=["NonRetryableException"],
+                        non_retryable_error_types=[
+                            "NonRetryableException",
+                            "NotNullViolation",
+                            "IntegrityError",
+                        ],
                     ),
                 }
             elif incremental_or_append:
@@ -321,14 +327,23 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "start_to_close_timeout": dt.timedelta(weeks=1),
                     "retry_policy": RetryPolicy(
                         maximum_attempts=max_incremental_attempts,
-                        non_retryable_error_types=["NonRetryableException"],
+                        non_retryable_error_types=[
+                            "NonRetryableException",
+                            "NotNullViolation",
+                            "IntegrityError",
+                        ],
                     ),
                 }
             else:
                 timeout_params = {
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(
-                        maximum_attempts=3, non_retryable_error_types=["NonRetryableException"]
+                        maximum_attempts=3,
+                        non_retryable_error_types=[
+                            "NonRetryableException",
+                            "NotNullViolation",
+                            "IntegrityError",
+                        ],
                     ),
                 }
 
