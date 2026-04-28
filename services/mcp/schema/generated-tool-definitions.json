@@ -1410,7 +1410,7 @@
         }
     },
     "experiment-archive": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later by setting archived=false via update.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later via the unarchive tool.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Archive experiment",
@@ -1617,6 +1617,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "experiment-unarchive": {
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nUnarchive an archived experiment to restore it to the default list view.\n\nReturns 400 if the experiment is not currently archived (\"Experiment is not archived.\").\n\nNo request body needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Unarchive experiment",
+        "title": "Unarchive experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "experiment-update": {
