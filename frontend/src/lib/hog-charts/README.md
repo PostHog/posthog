@@ -73,9 +73,15 @@ For custom tooltip content, pass a component to the `tooltip` prop. It receives
 
 ### Series visibility flags
 
-- `hidden`: fully excludes the series — no rendering, no scale contribution, no
-  tooltip row, no hit-testing.
-- `hideFromTooltip`: the series still renders and participates in scales and
+All flags live under `series.visibility` and default to `false`.
+
+- `excluded`: fully excludes the series — no rendering, no scale contribution,
+  no tooltip row, no hit-testing.
+- `fromTooltip`: the series still renders and participates in scales and
   hit-testing, but is omitted from `TooltipContext.seriesData` so it doesn't
   appear as a tooltip row. Useful for background/reference series that
   shouldn't clutter the tooltip.
+- `fromValueLabels`: the `ValueLabels` overlay skips this series.
+- `fromStack`: the series is excluded from d3 stack computation. Use for
+  auxiliary overlays (trend lines, moving averages) that should not affect
+  cumulative area heights.

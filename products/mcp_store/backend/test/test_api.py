@@ -32,6 +32,29 @@ class TestIsValidPosthogCodeCallbackUrl(TestCase):
         assert _is_valid_posthog_code_callback_url(url) == expected
 
 
+class TestMCPServerTemplateIconKeyNormalization(TestCase):
+    @parameterized.expand(
+        [
+            ("simple_lowercase", "notion", "notion"),
+            ("titlecase", "Notion", "notion"),
+            ("multi_word", "PostHog MCP", "posthog_mcp"),
+            ("multi_space", "Cisco   ThousandEyes", "cisco_thousandeyes"),
+            ("leading_trailing_whitespace", "  Linear  ", "linear"),
+            ("empty", "", ""),
+            ("whitespace_only", "   ", ""),
+        ]
+    )
+    def test_save_normalizes_icon_key(self, _name, raw, expected):
+        template = MCPServerTemplate.objects.create(
+            name=f"Test-{_name}",
+            url=f"https://mcp.example.com/{_name}",
+            auth_type="api_key",
+            icon_key=raw,
+        )
+        template.refresh_from_db()
+        assert template.icon_key == expected
+
+
 class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _create_active_template(self, **overrides) -> MCPServerTemplate:
         import uuid as _uuid
@@ -41,7 +64,7 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "url": f"https://mcp.test-{_uuid.uuid4().hex[:8]}.example.com/mcp",
             "description": "Test integration",
             "auth_type": "oauth",
-            "icon_key": "Test",
+            "icon_key": "test",
             "is_active": True,
             "oauth_metadata": {
                 "authorization_endpoint": "https://auth.test.example.com/authorize",
@@ -111,6 +134,30 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         assert len(results) == 1
         assert results[0]["id"] == str(installation.id)
         assert results[0]["name"] == "Test Server"
+        assert results[0]["icon_key"] == ""
+
+    def test_list_installation_icon_key_from_template(self):
+        # Pass a non-normalized icon_key to confirm the model's save() normalizes it
+        # and the value flows through the serializer unchanged.
+        template = MCPServerTemplate.objects.create(
+            name="PostHog MCP",
+            url="https://mcp.notion.example/mcp",
+            description="d",
+            auth_type="api_key",
+            is_active=True,
+            icon_key="PostHog MCP",
+        )
+        MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            display_name="",
+            url=template.url,
+            auth_type="api_key",
+        )
+        response = self.client.get(f"/api/environments/{self.team.id}/mcp_server_installations/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"][0]["icon_key"] == "posthog_mcp"
 
     def test_uninstall_server(self):
         installation = MCPServerInstallation.objects.create(

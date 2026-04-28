@@ -8,7 +8,15 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 
 
 def create_endpoint_with_version(
-    name, team, query, created_by, is_active=True, description="", cache_age_seconds=None, current_version=1, **kwargs
+    name,
+    team,
+    query,
+    created_by,
+    is_active=True,
+    description="",
+    data_freshness_seconds=86400,
+    current_version=1,
+    **kwargs,
 ):
     """Helper to create an endpoint with its initial version.
 
@@ -27,7 +35,7 @@ def create_endpoint_with_version(
         version=current_version,
         query=query,
         description=description,
-        cache_age_seconds=cache_age_seconds,
+        data_freshness_seconds=data_freshness_seconds,
         created_by=created_by,
     )
     return endpoint
