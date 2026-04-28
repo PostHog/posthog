@@ -372,6 +372,10 @@ build:
     build:openapi-mcp-tools:
         cmd: pnpm --filter=@posthog/mcp run generate-tools
         description: Generate MCP tool handlers from YAML definitions + Orval schemas
+    build:openapi-mcp-scopes:
+        bin_script: build-mcp-oauth-scopes.py
+        description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
+            metadata from posthog/scopes.py
     build:openapi:
         steps:
             - build:openapi-schema
@@ -379,6 +383,7 @@ build:
             - build:openapi-mcp-types
             - build:openapi-mcp
             - build:openapi-mcp-tools
+            - build:openapi-mcp-scopes
         description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build

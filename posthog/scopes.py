@@ -8,6 +8,11 @@ from typing import Literal, get_args
 # WARNING: Make sure to keep in sync with the frontend!
 # - frontend/src/lib/scopes.tsx
 # - frontend/src/types.ts (`export type APIScopeObject`)
+#
+# The MCP `OAUTH_SCOPES_SUPPORTED` list at
+# `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
+# `get_scope_descriptions()` below via `bin/build-mcp-oauth-scopes.py`. Run
+# `hogli build:openapi` to regenerate after editing this file.
 APIScopeObject = Literal[
     "action",
     "access_control",
