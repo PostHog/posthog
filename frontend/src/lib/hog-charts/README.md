@@ -19,7 +19,10 @@ PostHog's canvas-based charting library built on D3.
   `x(label) => px`, `y(value) => px`, `yTicks() => number[]`.
 - **Canvas functions are stateless.** Pure functions in `canvas-renderer.ts`, no
   React or side effects.
-- **Overlays use `useChart()`, not props from Chart.**
+- **Overlays use `useChartLayout()` / `useChartHover()` (or `useChart()` for both),
+  not props from Chart.** Prefer the granular hooks: `useChartLayout()` doesn't
+  re-render on hover, while `useChartHover()` does. Use `useChart()` only when an
+  overlay needs both — it re-renders on every mousemove.
 
 ## Adding a new chart type
 
@@ -60,8 +63,10 @@ import { LineChart } from 'lib/hog-charts'
 import type { ChartTheme, LineChartConfig, Series } from 'lib/hog-charts'
 ```
 
-For custom overlays rendered as children, use `useChart()` to access scales,
-dimensions, and hover state.
+For custom overlays rendered as children, use `useChartLayout()` to read scales,
+dimensions, theme, and resolved values; use `useChartHover()` if the overlay
+reacts to the hovered data point. `useChart()` returns the merged shape and is
+kept for back-compat.
 
 For custom tooltip content, pass a component to the `tooltip` prop. It receives
 `TooltipContext` as props. Omit to use the built-in `DefaultTooltip`.

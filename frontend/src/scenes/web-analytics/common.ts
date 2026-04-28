@@ -485,6 +485,9 @@ export const INITIAL_DATE_FROM = '-7d' as string | null
 export const INITIAL_DATE_TO = null as string | null
 export const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
+/** Events included in bot analytics queries — crawlers don't execute JS so $http_log captures most real bot traffic */
+export const BOT_ANALYTICS_EVENTS = ['$pageview', '$screen', '$http_log']
+
 export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
     productKey: ProductKey.WEB_ANALYTICS,
 }
