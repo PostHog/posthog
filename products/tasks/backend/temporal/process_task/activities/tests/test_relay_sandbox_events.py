@@ -381,9 +381,7 @@ class TestRelaySandboxEventsErrorHandling:
 
 
 class TestRelaySandboxEventsWorkflowOptions:
-    async def test_relay_sandbox_events_uses_extended_timeout_for_new_workflows(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_relay_sandbox_events_uses_extended_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         workflow = ProcessTaskWorkflow()
         workflow._context = TaskProcessingContext(
             task_id="task-id",
@@ -399,7 +397,6 @@ class TestRelaySandboxEventsWorkflowOptions:
             _branch="feature-branch",
         )
         execute_activity_mock = AsyncMock()
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _patch_id: True)
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity_mock)
 
         await workflow._relay_sandbox_events(

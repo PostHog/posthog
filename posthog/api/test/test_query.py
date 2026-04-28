@@ -41,7 +41,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.monitoring import Feature
 from posthog.api.query import _infer_query_tags
 from posthog.api.services.query import process_query_dict, process_query_model
-from posthog.clickhouse.query_tagging import QueryTags
+from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
 
@@ -1393,7 +1393,7 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestInferQueryTags(APIBaseTest):
-    def test_cohort_scene_infers_cohorts_product_and_cohort_feature(self):
+    def test_cohort_scene_infers_cohorts_product_and_cohort_feature(self) -> None:
         # Mirrors the payload fired by the Cohort scene when listing members: the frontend's
         # addTags attaches `tags.scene = "Cohort"` to every query issued from that scene.
         query = ActorsQuery(
@@ -1411,7 +1411,14 @@ class TestInferQueryTags(APIBaseTest):
             ("SQLEditor", ProductKey.DATA_WAREHOUSE),
         ]
     )
-    def test_query_scenes_infer_product_and_query_feature(self, scene: str, product: ProductKey):
+    def test_query_scenes_infer_product_and_query_feature(self, scene: str, product: ProductKey) -> None:
         query = HogQLQuery(query="SELECT count() FROM events", tags=QueryLogTags(scene=scene))
 
         assert _infer_query_tags(query) == {"product": product, "feature": Feature.QUERY}
+
+    def test_debug_query_scene_infers_internal_product_and_debug_feature(self) -> None:
+        # Mirrors a query payload fired from the DebugQuery scene. The scene tag is auto-attached
+        # by `addTags` in `dataNodeLogic.ts`.
+        scene = "DebugQuery"
+        query = ActorsQuery(select=["id"], tags=QueryLogTags(scene=scene))
+        assert _infer_query_tags(query) == {"product": Product.INTERNAL, "feature": Feature.DEBUG_QUERY}

@@ -36,6 +36,40 @@
             {% endif %}
         </td>
     </tr>
+    {% if is_person_removal %}
+    <tr>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top;">Person UUIDs</th>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd;">
+            {% if obj.person_uuids %}
+                <ul style="margin: 0; padding-left: 20px;">
+                    {% for uuid in obj.person_uuids %}<li><code>{{ uuid }}</code></li>{% endfor %}
+                </ul>
+            {% else %}
+                <em>None</em>
+            {% endif %}
+        </td>
+    </tr>
+    <tr>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top;">Person distinct IDs</th>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd;">
+            {% if obj.person_distinct_ids %}
+                <ul style="margin: 0; padding-left: 20px;">
+                    {% for did in obj.person_distinct_ids %}<li><code>{{ did }}</code></li>{% endfor %}
+                </ul>
+            {% else %}
+                <em>None</em>
+            {% endif %}
+        </td>
+    </tr>
+    <tr>
+        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd;">Drop flags</th>
+        <td style="padding: 8px; border-bottom: 1px solid #ddd;">
+            profiles: <strong>{{ obj.person_drop_profiles|yesno:"yes,no" }}</strong>,
+            events: <strong>{{ obj.person_drop_events|yesno:"yes,no" }}</strong>,
+            recordings: <strong>{{ obj.person_drop_recordings|yesno:"yes,no" }}</strong>
+        </td>
+    </tr>
+    {% endif %}
     {% if obj.notes %}
     <tr><th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd; vertical-align: top;">Notes</th><td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.notes }}</td></tr>
     {% endif %}
@@ -68,6 +102,16 @@
 {% if missing_properties %}
 <div style="margin: 16px 0; padding: 12px 16px; border: 1px solid #dc3545; border-radius: 4px; background: #f8d7da; color: #721c24;">
     <strong>Cannot submit:</strong> This is a property removal request but no properties are specified. Go back and add properties before submitting.
+</div>
+{% endif %}
+{% if missing_person_selectors %}
+<div style="margin: 16px 0; padding: 12px 16px; border: 1px solid #dc3545; border-radius: 4px; background: #f8d7da; color: #721c24;">
+    <strong>Cannot submit:</strong> This is a person removal request but no person UUIDs or distinct IDs are specified.
+</div>
+{% endif %}
+{% if missing_person_drop_flag %}
+<div style="margin: 16px 0; padding: 12px 16px; border: 1px solid #dc3545; border-radius: 4px; background: #f8d7da; color: #721c24;">
+    <strong>Cannot submit:</strong> Person removal needs at least one drop flag (profiles/events/recordings).
 </div>
 {% endif %}
 
