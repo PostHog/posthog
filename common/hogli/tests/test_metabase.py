@@ -134,6 +134,13 @@ def test_metabase_cookie_check_validates_via_http(cache_dir: Path) -> None:
     check.assert_called_once()
 
 
+def test_metabase_cookie_requires_region_flag() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["metabase:cookie"])
+    assert result.exit_code != 0
+    assert "--region" in result.output
+
+
 def test_metabase_login_writes_cookie_after_validation(cache_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     captured = {
         "metabase.SESSION": "s",
@@ -199,8 +206,16 @@ def test_wait_for_valid_cookie_times_out(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(metabase, "_check_cookie", lambda d, h: False)
     monkeypatch.setattr(metabase.time, "sleep", lambda _: None)
 
-    fake_now = iter([0.0, 0.0, 100.0])  # checked twice (entry + after first sleep), then expired
-    monkeypatch.setattr(metabase.time, "monotonic", lambda: next(fake_now))
+    # Return 0.0 twice (start + flush-hint check), then saturate past the deadline.
+    # Saturating instead of exhausting the iterator keeps the test resilient if
+    # someone adds another `time.monotonic()` call inside the loop later.
+    call_count = {"n": 0}
+
+    def fake_monotonic() -> float:
+        call_count["n"] += 1
+        return 0.0 if call_count["n"] <= 2 else 100.0
+
+    monkeypatch.setattr(metabase.time, "monotonic", fake_monotonic)
 
     with pytest.raises(click.ClickException, match="Timed out"):
         metabase._wait_for_valid_cookie("metabase.example", None, timeout=10.0, interval=0.0)
@@ -311,6 +326,8 @@ def test_metabase_query_save_to_file(cache_dir: Path, monkeypatch: pytest.Monkey
     assert result.exit_code == 0, result.output
     assert out_path.read_text() == "x\n42\n"
     assert "42" not in result.output.replace("Wrote", "")  # value didn't leak to stdout
+    mode = out_path.stat().st_mode & 0o777
+    assert mode == 0o600, f"--save output must be owner-only, got {oct(mode)}"
 
 
 def test_metabase_query_rejects_empty_sql(cache_dir: Path) -> None:

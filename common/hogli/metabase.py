@@ -19,6 +19,7 @@ prefer it over `cookie` when automation is running the query.
 
 from __future__ import annotations
 
+import os
 import sys
 import json
 import time
@@ -131,11 +132,25 @@ def _load_cookies_from_browser(domain: str, browser: str | None) -> dict[str, st
     return found
 
 
+def _secure_write(path: Path, content: str) -> None:
+    """Write `content` to `path` atomically at mode 0600.
+
+    `Path.write_text` goes through open(2) with the process umask, so the file
+    is briefly world-readable before we could chmod it. `os.open` with an
+    explicit mode dodges the TOCTOU window — callers storing session cookies
+    or query results must use this instead of `write_text`.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, content.encode())
+    finally:
+        os.close(fd)
+
+
 def _write_cookie_file(region: str, cookie_header: str) -> Path:
     path = _cookie_path(region)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(cookie_header)
-    path.chmod(0o600)
+    _secure_write(path, cookie_header)
     return path
 
 
@@ -194,9 +209,7 @@ def _wait_for_valid_cookie(
                 last_header = cookie_header
                 if _check_cookie(domain, cookie_header):
                     return cookie_header
-                status = "Cookies present but session not yet valid; still waiting..."
-            else:
-                status = "Cookies present but session not yet valid; still waiting..."
+            status = "Cookies present but session not yet valid; still waiting..."
         else:
             status = f"Waiting for cookies: missing {missing}..."
 
@@ -276,8 +289,8 @@ def metabase_login(region: str, browser: str | None, no_open: bool, timeout: flo
 @click.option(
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
-    default="us",
-    show_default=True,
+    required=True,
+    help="Region whose cached cookie to print (us or eu)",
 )
 @click.option("--check/--no-check", default=False, help="Validate the cookie before printing")
 def metabase_cookie(region: str, check: bool) -> None:
@@ -496,7 +509,7 @@ def metabase_query(
         rendered = _render_rows_tsv(body)
 
     if save:
-        Path(save).write_text(rendered)
+        _secure_write(Path(save), rendered)
         row_count = body.get("row_count", "?")
         click.echo(f"Wrote {row_count} rows to {save}")
     else:
