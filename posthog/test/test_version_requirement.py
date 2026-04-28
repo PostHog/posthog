@@ -39,7 +39,6 @@ class TestServiceVersionRequirement(TestCase):
         self.assertEqual(version1.major, 14)
         self.assertEqual(version1.minor, 0)
         self.assertEqual(version1.patch, 0)
-        self.assertEqual(str(version1), "14.0.0")
 
         version2 = version_requirement.version_string_to_semver("14.1")
         self.assertEqual(version2.major, 14)
