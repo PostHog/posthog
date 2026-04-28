@@ -94,7 +94,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                         <div className="min-w-0 w-full overflow-hidden">
                             <Link
                                 to={urls.subscription(sub.id)}
-                                className={`font-medium block truncate ${sub.enabled ? '' : 'text-muted'}`}
+                                className={`font-medium block truncate ${sub.enabled !== false ? '' : 'text-muted'}`}
                                 data-attr="subscription-name-link"
                             >
                                 {name}
@@ -190,7 +190,11 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             key: 'enabled',
             dataIndex: 'enabled',
             render: (_value: unknown, sub: SubscriptionApi) =>
-                sub.enabled ? <LemonTag type="success">ENABLED</LemonTag> : <LemonTag type="danger">DISABLED</LemonTag>,
+                sub.enabled !== false ? (
+                    <LemonTag type="success">ENABLED</LemonTag>
+                ) : (
+                    <LemonTag type="danger">DISABLED</LemonTag>
+                ),
         },
         {
             width: 56,
