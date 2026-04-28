@@ -80,6 +80,7 @@ export const OutputTypeEnumApi = {
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
  * `azure_openai` - Azure OpenAI
+ * `together_ai` - Together AI
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -90,6 +91,7 @@ export const LLMProviderEnumApi = {
     Openrouter: 'openrouter',
     Fireworks: 'fireworks',
     AzureOpenai: 'azure_openai',
+    TogetherAi: 'together_ai',
 } as const
 
 /**

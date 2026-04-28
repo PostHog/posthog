@@ -35,6 +35,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
     { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
+    { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
     { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
     { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
@@ -49,9 +50,11 @@ export const API_SCOPES: APIScope[] = [
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
+    { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'LLM analytics', objectPlural: 'LLM analytics' },
     { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
+    { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
@@ -91,6 +94,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
+    { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
     {
         key: 'session_recording_playlist',
@@ -101,6 +105,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
+    { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
     { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
     {
@@ -128,6 +133,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'warehouse_view', objectName: 'Warehouse view', objectPlural: 'warehouse views' },
     { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
+    { key: 'web_analytics', objectName: 'Web analytics', objectPlural: 'web analytics' },
 ]
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
