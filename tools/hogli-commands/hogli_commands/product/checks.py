@@ -35,43 +35,6 @@ def check_file_exists(backend_dir: Path, path: str) -> bool:
     return False
 
 
-def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
-    """Check if a product has legacy interface leak blocks in tach.toml.
-
-    These are products where core (posthog/ee) still imports internals directly,
-    so they can't safely be tested in isolation via contract-check.
-
-    Detected structurally: an [[interfaces]] block that exposes non-facade paths
-    (anything other than backend.facade or backend.presentation) and references
-    this specific module in its from = [...] field.
-    """
-    # Find all [[interfaces]] blocks and check if any expose non-facade paths
-    # for this specific module.
-    for match in re.finditer(r"\[\[interfaces\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
-        block = match.group(1)
-        # Check if this block references our module in from = [...]
-        if not re.search(rf'from\s*=\s*\[\s*"{re.escape(module_path)}"\s*,?\s*\]', block):
-            continue
-        # Check if any expose pattern is NOT facade or presentation
-        expose_match = re.search(r"expose\s*=\s*\[(.*?)\]", block, re.DOTALL)
-        if not expose_match:
-            continue
-        patterns = re.findall(r'"(.*?)"', expose_match.group(1))
-        for pattern in patterns:
-            if not pattern.startswith("backend\\.facade") and not pattern.startswith("backend\\.presentation"):
-                return True
-    return False
-
-
-def is_isolated_product(backend_dir: Path) -> bool:
-    return (backend_dir / "facade" / "contracts.py").exists() or (backend_dir / "facade" / "contracts").exists()
-
-
-# ---------------------------------------------------------------------------
-# Canonical facade alternation validation (global, not per-product)
-# ---------------------------------------------------------------------------
-
-
 def _iter_interface_blocks(tach_content: str):
     """Yield (expose_patterns, from_patterns) for every [[interfaces]] block."""
     for match in re.finditer(r"\[\[interfaces\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
@@ -85,19 +48,47 @@ def _iter_interface_blocks(tach_content: str):
         yield expose_patterns, from_patterns
 
 
-def _is_canonical_facade_expose(expose_patterns: list[str]) -> bool:
-    """Canonical = every expose pattern targets backend.facade or backend.presentation.
+def _pattern_targets_public_surface(pattern: str) -> bool:
+    """True if a tach expose pattern targets backend.facade or backend.presentation.
 
-    Strips backslashes before matching — TOML source uses `\\.` (two backslashes
-    on disk) while Python-string fixtures often use a single backslash.
+    Strips backslashes first so it works on both the on-disk TOML form (`\\.`,
+    two literal backslashes) and Python-string fixtures (single backslash).
     """
+    normalized = pattern.replace("\\", "")
+    return normalized.startswith("backend.facade") or normalized.startswith("backend.presentation")
+
+
+def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
+    """Check if a product has legacy interface leak blocks in tach.toml.
+
+    These are products where core (posthog/ee) still imports internals directly,
+    so they can't safely be tested in isolation via contract-check.
+
+    Detected structurally: an [[interfaces]] block whose `from` is exactly this
+    module and whose `expose` includes any non-facade/non-presentation pattern.
+    """
+    for expose_patterns, from_patterns in _iter_interface_blocks(tach_content):
+        if from_patterns != [module_path]:
+            continue
+        if any(not _pattern_targets_public_surface(p) for p in expose_patterns):
+            return True
+    return False
+
+
+def is_isolated_product(backend_dir: Path) -> bool:
+    return (backend_dir / "facade" / "contracts.py").exists() or (backend_dir / "facade" / "contracts").exists()
+
+
+# ---------------------------------------------------------------------------
+# Canonical facade alternation validation (global, not per-product)
+# ---------------------------------------------------------------------------
+
+
+def _is_canonical_facade_expose(expose_patterns: list[str]) -> bool:
+    """Canonical = every expose pattern targets backend.facade or backend.presentation."""
     if not expose_patterns:
         return False
-    return all(
-        (normalized := p.replace("\\", "")).startswith("backend.facade")
-        or normalized.startswith("backend.presentation")
-        for p in expose_patterns
-    )
+    return all(_pattern_targets_public_surface(p) for p in expose_patterns)
 
 
 def _names_from_pattern(pattern: str) -> set[str]:
