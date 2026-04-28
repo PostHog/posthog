@@ -49,6 +49,13 @@ test.describe('Persons', () => {
             expect(nameValue).toContain('Alice')
             const planValue = await propsTable.row('plan').column('value')
             expect(planValue).toContain('pro')
+            // Object- and array-shaped values render through JSONViewer, which is
+            // a separate rendering path from flat scalars. Asserting these guards
+            // against regressions like PR #56446 where JSONViewer threw at render.
+            const addressValue = await propsTable.row('address').column('value')
+            expect(addressValue).toContain('New York')
+            const tagsValue = await propsTable.row('tags').column('value')
+            expect(tagsValue).toContain('beta')
         })
 
         await test.step('verify events tab shows the seeded pageview events', async () => {

@@ -20,7 +20,10 @@ const customUser = (n: number): string => `custom-user-${n}`
 
 /**
  * Two persons with known identities and person properties (via $set).
- * - alice@example.com: 2 pageviews, person props name=Alice, plan=pro
+ * - alice@example.com: 2 pageviews, person props name=Alice, plan=pro,
+ *   plus an object-shaped `address` and array-shaped `tags` so the
+ *   Properties tab renders via JSONViewer (catches PR #56446-style regressions
+ *   where JSONViewer crashes on object/array values).
  * - customer-42: 1 pageview, person props name=Bob, plan=free
  */
 export const personsWithIdentity = {
@@ -29,7 +32,14 @@ export const personsWithIdentity = {
             event: '$pageview',
             user: () => 'alice@example.com',
             timestamp: hoursAgo(2),
-            properties: { $set: { name: 'Alice', plan: 'pro' } },
+            properties: {
+                $set: {
+                    name: 'Alice',
+                    plan: 'pro',
+                    address: { city: 'New York', country: 'US' },
+                    tags: ['beta', 'enterprise'],
+                },
+            },
         }).repeat(2),
         ...createEvent({
             event: '$pageview',
