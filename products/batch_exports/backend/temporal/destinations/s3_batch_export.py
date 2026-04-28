@@ -293,9 +293,14 @@ class S3BatchExportWorkflow(PostHogWorkflow):
         return
 
 
+@dataclasses.dataclass
+class S3BatchExportResult(BatchExportResult):
+    files_uploaded: list[str] = dataclasses.field(default_factory=list)
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
-async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExportResult:
+async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchExportResult:
     """Activity to batch export data to a customer's S3.
 
     This is a new version of the `insert_into_s3_activity` activity that reads data from our internal S3 stage
@@ -355,7 +360,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
                 inputs.data_interval_end or "END",
             )
 
-            return BatchExportResult(records_completed=0, bytes_exported=0)
+            return S3BatchExportResult(records_completed=0, bytes_exported=0)
 
         record_batch_schema = pa.schema(
             # NOTE: For some reason, some batches set non-nullable fields as non-nullable, whereas other
@@ -386,12 +391,19 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
                 max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             )
 
-        return await run_consumer_from_stage(
+        result = await run_consumer_from_stage(
             queue=queue,
             consumer=consumer,
             producer_task=producer_task,
             transformer=transformer,
             json_columns=json_columns,
+        )
+        return S3BatchExportResult(
+            bytes_exported=result.bytes_exported,
+            records_completed=result.records_completed,
+            records_failed=result.records_failed,
+            error=result.error,
+            files_uploaded=consumer.files_uploaded,
         )
 
 
