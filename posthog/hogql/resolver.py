@@ -48,6 +48,8 @@ from posthog.models.utils import UUIDT
 # To quickly disable global joins, switch this to False
 USE_GLOBAL_JOINS = False
 
+_SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 EMPTY_SCOPE = ast.SelectQueryType()
 
 type PostgresKeywordType = type[ast.DateType] | type[ast.DateTimeType]
@@ -2065,6 +2067,9 @@ class Resolver(CloningVisitor):
 
         function_name = table_name_chain[0].lower()
         if function_name not in {entry.lower() for entry in available_table_functions if isinstance(entry, str)}:
+            return None
+
+        if not _SAFE_TABLE_FUNCTION_NAME_RE.match(function_name):
             return None
 
         return build_opaque_function_call_table(function_name)

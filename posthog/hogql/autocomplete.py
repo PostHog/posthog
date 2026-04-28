@@ -60,12 +60,17 @@ MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
 
 
-def get_connection_supported_functions(context: HogQLContext) -> list[str]:
+def _get_direct_connection_metadata(context: HogQLContext) -> Optional[dict]:
     metadata = context.direct_postgres_connection_metadata
     if metadata is None and context.database is not None:
         metadata = getattr(context.database, "_direct_connection_metadata", None)
 
-    if not isinstance(metadata, dict):
+    return metadata if isinstance(metadata, dict) else None
+
+
+def get_connection_supported_functions(context: HogQLContext) -> list[str]:
+    metadata = _get_direct_connection_metadata(context)
+    if metadata is None:
         return []
 
     available_functions = metadata.get("available_functions")
@@ -83,15 +88,15 @@ def get_available_functions(language: str, context: HogQLContext) -> list[str]:
 
 
 def get_direct_table_function_names(context: HogQLContext) -> list[str]:
-    metadata = context.direct_postgres_connection_metadata
-    if metadata is None and context.database is not None:
-        metadata = getattr(context.database, "_direct_connection_metadata", None)
-
-    if not isinstance(metadata, dict):
+    metadata = _get_direct_connection_metadata(context)
+    if metadata is None:
         return []
 
-    introspected = metadata.get("available_table_functions") or []
-    return sorted({name for name in introspected if isinstance(name, str)})
+    available_table_functions = metadata.get("available_table_functions")
+    if not isinstance(available_table_functions, list):
+        return []
+
+    return sorted({name for name in available_table_functions if isinstance(name, str)})
 
 
 def append_function_suggestions(
