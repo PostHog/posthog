@@ -12,7 +12,7 @@ use health::HealthRegistry;
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result;
 use personhog_coordination::pod::{PodConfig, PodHandle};
-use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
+use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::AssignmentStrategy;
 use rdkafka::mocking::MockCluster;
@@ -90,10 +90,9 @@ pub fn start_coordinator(
 // ── Router (for ack quorum) ─────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CutoverEvent {
-    pub partition: u32,
-    pub old_owner: String,
-    pub new_owner: String,
+pub enum CutoverEvent {
+    StashBegan { partition: u32, new_owner: String },
+    StashDrained { partition: u32, target: String },
 }
 
 pub struct MockCutoverHandler {
@@ -113,17 +112,19 @@ impl MockCutoverHandler {
 }
 
 #[async_trait]
-impl CutoverHandler for MockCutoverHandler {
-    async fn execute_cutover(
-        &self,
-        partition: u32,
-        old_owner: &str,
-        new_owner: &str,
-    ) -> Result<()> {
-        self.events.lock().await.push(CutoverEvent {
+impl StashHandler for MockCutoverHandler {
+    async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashBegan {
             partition,
-            old_owner: old_owner.to_string(),
             new_owner: new_owner.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn drain_stash(&self, partition: u32, target: &str) -> Result<()> {
+        self.events.lock().await.push(CutoverEvent::StashDrained {
+            partition,
+            target: target.to_string(),
         });
         Ok(())
     }
@@ -211,7 +212,8 @@ pub async fn start_leader_pod(
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
 
     // Pod with real handoff handler
-    let handler = LeaderHandoffHandler::new(Arc::clone(&cache));
+    let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
+    let handler = LeaderHandoffHandler::new(Arc::clone(&cache), Arc::clone(&inflight));
     let pod = PodHandle::new(
         store,
         PodConfig {
@@ -231,6 +233,7 @@ pub async fn start_leader_pod(
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
+        Arc::clone(&inflight),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -267,7 +270,8 @@ pub async fn start_leader_pod_with_lease_ttl(
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
 
     let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
-    let handler = LeaderHandoffHandler::new(Arc::clone(&cache));
+    let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
+    let handler = LeaderHandoffHandler::new(Arc::clone(&cache), Arc::clone(&inflight));
     let pod = PodHandle::new(
         store,
         PodConfig {
@@ -288,6 +292,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
+        Arc::clone(&inflight),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -366,6 +371,7 @@ pub async fn start_leader_with_pg_fallback(
         CHANGELOG_TOPIC.to_string(),
         Some(pool),
         Arc::new(DashMap::new()),
+        Arc::new(personhog_leader::inflight::InflightTracker::new()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

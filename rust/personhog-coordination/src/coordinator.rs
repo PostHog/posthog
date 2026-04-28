@@ -16,6 +16,7 @@ use crate::strategy::AssignmentStrategy;
 use crate::types::{
     AssignmentStatus, HandoffPhase, HandoffState, PartitionAssignment, PodStatus, RegisteredPod,
 };
+
 use crate::util;
 
 #[derive(Debug, Clone)]
@@ -125,14 +126,12 @@ impl Coordinator {
     }
 
     async fn run_coordination_loop(&self, cancel: CancellationToken) -> Result<()> {
-        // Reconcile any handoffs that already have full ack quorum.
-        // This handles acks that arrived before this coordinator took leadership.
-        self.reconcile_pending_handoffs().await?;
-
-        // Compute initial assignments for any pods that are already registered
-        self.handle_pod_change().await?;
-
-        // Watch pods, handoffs, and router acks concurrently
+        // Spawn all watch loops BEFORE doing any work that produces etcd
+        // events. The new protocol requires the coordinator itself to
+        // observe ack writes (PodDrainedAck, PodWarmedAck, RouterFreezeAck)
+        // to advance handoffs through their phases. If we did initial
+        // bootstrap before attaching watches, events fired during bootstrap
+        // would be missed and handoffs would stall in their initial phase.
         let mut tasks = tokio::task::JoinSet::new();
 
         {
@@ -160,8 +159,31 @@ impl Coordinator {
         {
             let store = Arc::clone(&self.store);
             let token = cancel.child_token();
-            tasks.spawn(async move { Self::watch_handoff_acks_loop(store, token).await });
+            tasks.spawn(async move { Self::watch_freeze_acks_loop(store, token).await });
         }
+
+        {
+            let store = Arc::clone(&self.store);
+            let token = cancel.child_token();
+            tasks.spawn(async move { Self::watch_drained_acks_loop(store, token).await });
+        }
+
+        {
+            let store = Arc::clone(&self.store);
+            let token = cancel.child_token();
+            tasks.spawn(async move { Self::watch_warmed_acks_loop(store, token).await });
+        }
+
+        // Watches are now attached at the current etcd revision.
+        // Any handoff/ack events produced from this point forward will be
+        // observed by the relevant watch loops.
+        //
+        // Reconcile any handoffs that already have full ack quorum.
+        // This handles acks that arrived before this coordinator took leadership.
+        self.reconcile_pending_handoffs().await?;
+
+        // Compute initial assignments for any pods that are already registered
+        self.handle_pod_change().await?;
 
         let result = tokio::select! {
             _ = cancel.cancelled() => Ok(()),
@@ -240,6 +262,14 @@ impl Coordinator {
                             match parse_watch_value::<HandoffState>(event) {
                                 Ok(handoff) => {
                                     Self::handle_handoff_update_static(&store, &handoff).await?;
+                                    // Initial / dead-old-owner handoffs can
+                                    // satisfy their Freezing → Warming
+                                    // preconditions at creation time (no
+                                    // drain needed, vacuous router quorum).
+                                    // Nudge advancement here so they don't
+                                    // stall waiting for an ack event that
+                                    // will never arrive.
+                                    Self::check_phase_advance(&store, handoff.partition).await?;
                                 }
                                 Err(e) => {
                                     tracing::error!(error = %e, "failed to parse handoff event");
@@ -264,29 +294,53 @@ impl Coordinator {
         }
     }
 
-    /// Watch for router cutover acks. When all registered routers have acked
-    /// a partition's handoff, complete the handoff (update assignment + phase).
-    async fn watch_handoff_acks_loop(
+    /// Watch for router freeze acks (routers confirming they have begun stashing).
+    async fn watch_freeze_acks_loop(
         store: Arc<PersonhogStore>,
         cancel: CancellationToken,
     ) -> Result<()> {
-        let mut stream = store.watch_handoff_acks().await?;
+        let mut stream = store.watch_freeze_acks().await?;
+        Self::run_ack_watch("freeze", &mut stream, &store, cancel).await
+    }
 
+    /// Watch for the old owner's drained acks.
+    async fn watch_drained_acks_loop(
+        store: Arc<PersonhogStore>,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        let mut stream = store.watch_drained_acks().await?;
+        Self::run_ack_watch("drained", &mut stream, &store, cancel).await
+    }
+
+    /// Watch for the new owner's warmed acks.
+    async fn watch_warmed_acks_loop(
+        store: Arc<PersonhogStore>,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        let mut stream = store.watch_warmed_acks().await?;
+        Self::run_ack_watch("warmed", &mut stream, &store, cancel).await
+    }
+
+    async fn run_ack_watch(
+        kind: &str,
+        stream: &mut etcd_client::WatchStream,
+        store: &PersonhogStore,
+        cancel: CancellationToken,
+    ) -> Result<()> {
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
-                    let resp = msg?.ok_or_else(|| Error::invalid_state("ack watch stream ended".to_string()))?;
+                    let resp = msg?.ok_or_else(|| Error::invalid_state(format!("{kind} ack watch stream ended")))?;
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
-                            // Extract partition from the ack key
                             let partition = event.kv().and_then(|kv| {
                                 let key = std::str::from_utf8(kv.key()).ok()?;
                                 store::extract_partition_from_ack_key(key)
                             });
 
                             if let Some(partition) = partition {
-                                Self::check_ack_completion(&store, partition).await?;
+                                Self::check_phase_advance(store, partition).await?;
                             }
                         }
                     }
@@ -295,42 +349,105 @@ impl Coordinator {
         }
     }
 
-    /// Check if all routers have acked a partition handoff.
-    /// If so, atomically complete the handoff.
-    async fn check_ack_completion(store: &PersonhogStore, partition: u32) -> Result<()> {
-        let routers = store.list_routers().await?;
-        if routers.is_empty() {
-            tracing::warn!(partition, "no routers registered, cannot complete handoff");
-            return Ok(());
-        }
+    /// Advance a handoff's phase when its current phase's preconditions are satisfied:
+    ///   Freezing -> Warming:  all registered routers have FreezeAck AND old owner has DrainedAck
+    ///   Warming  -> Complete: new owner has WarmedAck (and CAS-updates the assignment)
+    ///
+    /// Called whenever an ack key is observed. Safe to call spuriously: reads
+    /// are idempotent and transitions use CAS.
+    async fn check_phase_advance(store: &PersonhogStore, partition: u32) -> Result<()> {
+        let handoff = match store.get_handoff(partition).await? {
+            Some(h) => h,
+            None => return Ok(()),
+        };
 
-        let acks = store.list_router_acks(partition).await?;
+        match handoff.phase {
+            HandoffPhase::Freezing => {
+                let routers = store.list_routers().await?;
+                let freeze_acks = store.list_freeze_acks(partition).await?;
 
-        if acks.len() >= routers.len() {
-            tracing::info!(
-                partition,
-                acks = acks.len(),
-                routers = routers.len(),
-                "all routers acked, completing handoff"
-            );
-            match store.complete_handoff(partition).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    tracing::warn!(partition, "handoff was modified concurrently, skipping");
+                // With zero routers there is no traffic to stash, so the
+                // freeze quorum is vacuously met. This keeps bootstrap and
+                // router-less configurations (e.g. tests exercising only
+                // the coordinator+pod) unblocked.
+                let all_routers_frozen = freeze_acks.len() >= routers.len();
+                let old_owner_condition = match &handoff.old_owner {
+                    // Initial assignment or handoff with no prior owner -
+                    // nothing to drain, advance as soon as routers are frozen.
+                    None => true,
+                    Some(name) => {
+                        let pods = store.list_pods().await?;
+                        let old_owner_alive = pods
+                            .iter()
+                            .any(|p| p.pod_name == *name && p.status == PodStatus::Ready);
+                        if !old_owner_alive {
+                            // Dead or missing: can't ack, but also can't be
+                            // producing more writes. Treat as drained.
+                            true
+                        } else {
+                            let drained_acks = store.list_drained_acks(partition).await?;
+                            drained_acks.iter().any(|a| a.pod_name == *name)
+                        }
+                    }
+                };
+
+                if all_routers_frozen && old_owner_condition {
+                    // CAS on the handoff version: concurrent
+                    // check_phase_advance calls (an ack-watch firing
+                    // alongside watch_handoffs_loop's nudge) must not both
+                    // write Warming, which would generate duplicate Put
+                    // events and cause downstream listeners to react twice.
+                    let advanced = store
+                        .cas_handoff_phase(partition, HandoffPhase::Freezing, HandoffPhase::Warming)
+                        .await?;
+                    if advanced {
+                        tracing::info!(
+                            partition,
+                            freeze_acks = freeze_acks.len(),
+                            routers = routers.len(),
+                            old_owner = ?handoff.old_owner,
+                            "freeze + drain complete, advanced to Warming"
+                        );
+                    }
                 }
-                Err(Error::NotFound(_)) => {
-                    tracing::warn!(partition, "handoff already deleted, ignoring duplicate ack");
+            }
+            HandoffPhase::Warming => {
+                let warmed = store.list_warmed_acks(partition).await?;
+                let new_owner_warmed = warmed.iter().any(|a| a.pod_name == handoff.new_owner);
+
+                if new_owner_warmed {
+                    tracing::info!(
+                        partition,
+                        new_owner = %handoff.new_owner,
+                        "new owner warmed, completing handoff"
+                    );
+                    match store.complete_handoff(partition).await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            tracing::warn!(partition, "handoff modified concurrently, skipping");
+                        }
+                        Err(Error::NotFound(_)) => {
+                            tracing::warn!(partition, "handoff already deleted, ignoring");
+                        }
+                        Err(e) => return Err(e),
+                    }
                 }
-                Err(e) => return Err(e),
+            }
+            HandoffPhase::Complete => {
+                // Terminal; nothing to do. watch_handoffs_loop will clean up.
             }
         }
 
         Ok(())
     }
 
-    /// Check all in-flight handoffs for completed ack quorum. Completes any
-    /// handoffs where all routers have already acked, which can happen when the
-    /// coordinator restarts or a new leader is elected after acks were written.
+    /// Reconcile pre-existing handoffs on coordinator startup or leadership
+    /// change. Handles three cases:
+    ///   - Handoffs already in Complete: clean up the records the prior
+    ///     coordinator wrote but didn't get to delete (their cleanup runs in
+    ///     watch_handoffs_loop, which the new coordinator missed).
+    ///   - Handoffs whose preconditions are already met: nudge them forward.
+    ///   - Handoffs still in flight: leave alone; watches will drive them.
     async fn reconcile_pending_handoffs(&self) -> Result<()> {
         let handoffs = self.store.list_handoffs().await?;
         if handoffs.is_empty() {
@@ -343,9 +460,11 @@ impl Coordinator {
         );
 
         for handoff in &handoffs {
-            if handoff.phase == HandoffPhase::Ready {
-                Self::check_ack_completion(&self.store, handoff.partition).await?;
-            }
+            // Complete handoffs need their cleanup applied directly — the
+            // watch_handoffs_loop's Put-driven path won't replay them.
+            Self::handle_handoff_update_static(&self.store, handoff).await?;
+            // Non-terminal handoffs may have their preconditions already met.
+            Self::check_phase_advance(&self.store, handoff.partition).await?;
         }
 
         Ok(())
@@ -409,14 +528,69 @@ impl Coordinator {
 
         let new_assignments =
             strategy.compute_assignments(&current_map, &active_pods, total_partitions);
-        let handoffs = compute_required_handoffs(&current_map, &new_assignments);
+        let reassignments = compute_required_handoffs(&current_map, &new_assignments);
 
-        if handoffs.is_empty() && !current_map.is_empty() {
+        // Every partition that has a new owner goes through the handoff
+        // protocol, including partitions that had no prior owner (initial
+        // assignment). This guarantees routers never route to a pod whose
+        // cache hasn't been warmed.
+        //
+        // Partitions that already have the correct owner are skipped.
+        let assigned_partitions: std::collections::HashSet<u32> =
+            new_assignments.keys().copied().collect();
+        let reassignment_partitions: std::collections::HashSet<u32> =
+            reassignments.iter().map(|(p, _, _)| *p).collect();
+
+        // Fresh partitions = assigned but neither in current nor being reassigned.
+        let fresh_partitions: Vec<u32> = assigned_partitions
+            .iter()
+            .copied()
+            .filter(|p| !current_map.contains_key(p) && !reassignment_partitions.contains(p))
+            .collect();
+
+        if reassignments.is_empty() && fresh_partitions.is_empty() {
             tracing::debug!("no handoffs needed");
             return Ok(());
         }
 
-        // Build assignment objects for all partitions
+        let now = util::now_seconds();
+        let mut handoff_objects: Vec<HandoffState> = Vec::new();
+
+        // Reassignments: old_owner = Some(prior owner)
+        for (partition, old_owner, new_owner) in &reassignments {
+            handoff_objects.push(HandoffState {
+                partition: *partition,
+                old_owner: Some(old_owner.clone()),
+                new_owner: new_owner.clone(),
+                phase: HandoffPhase::Freezing,
+                started_at: now,
+            });
+        }
+
+        // Fresh assignments: old_owner = None (skip drain, skip release)
+        for partition in &fresh_partitions {
+            let new_owner = &new_assignments[partition];
+            handoff_objects.push(HandoffState {
+                partition: *partition,
+                old_owner: None,
+                new_owner: new_owner.clone(),
+                phase: HandoffPhase::Freezing,
+                started_at: now,
+            });
+        }
+
+        tracing::info!(
+            reassignments = reassignments.len(),
+            fresh = fresh_partitions.len(),
+            "creating handoffs"
+        );
+
+        // Assignments for partitions that are NOT being moved (correct owner
+        // already) still need to be written to etcd, but reassignments and
+        // fresh assignments defer their PartitionAssignment writes until the
+        // handoff reaches Complete.
+        let handoff_partitions: std::collections::HashSet<u32> =
+            handoff_objects.iter().map(|h| h.partition).collect();
         let assignment_objects: Vec<PartitionAssignment> = new_assignments
             .iter()
             .map(|(&partition, owner)| PartitionAssignment {
@@ -425,40 +599,6 @@ impl Coordinator {
                 status: AssignmentStatus::Active,
             })
             .collect();
-
-        if handoffs.is_empty() {
-            // Initial assignment, no handoffs needed
-            tracing::info!(
-                partitions = total_partitions,
-                pods = pods.len(),
-                "writing initial assignments"
-            );
-            store.put_assignments(&assignment_objects).await?;
-            return Ok(());
-        }
-
-        // Create handoff states for partitions that need to move
-        let now = util::now_seconds();
-        let handoff_objects: Vec<HandoffState> = handoffs
-            .iter()
-            .map(|(partition, old_owner, new_owner)| HandoffState {
-                partition: *partition,
-                old_owner: old_owner.clone(),
-                new_owner: new_owner.clone(),
-                phase: HandoffPhase::Warming,
-                started_at: now,
-            })
-            .collect();
-
-        tracing::info!(
-            handoffs = handoff_objects.len(),
-            "creating handoffs for partition reassignment"
-        );
-
-        // Only write assignments for partitions that are NOT being handed off.
-        // Handed-off partitions keep their current assignment until cutover.
-        let handoff_partitions: std::collections::HashSet<u32> =
-            handoffs.iter().map(|(p, _, _)| *p).collect();
         let stable_assignments: Vec<PartitionAssignment> = assignment_objects
             .into_iter()
             .filter(|a| !handoff_partitions.contains(&a.partition))
@@ -468,24 +608,51 @@ impl Coordinator {
             .create_assignments_and_handoffs(&stable_assignments, &handoff_objects)
             .await?;
 
+        // Nudge advancement for handoffs whose preconditions are already
+        // satisfied at creation time (no old_owner, dead old_owner, vacuous
+        // router quorum). Without this, such handoffs would stall waiting
+        // for an ack event that will never arrive — the watch loop's nudge
+        // only catches subsequent Put events.
+        for handoff in &handoff_objects {
+            Self::check_phase_advance(store, handoff.partition).await?;
+        }
+
         Ok(())
     }
 
-    /// Delete handoffs whose `new_owner` is no longer an active pod.
+    /// Delete handoffs that cannot progress because either the new_owner is
+    /// gone, or the old_owner is gone before it wrote a DrainedAck.
     async fn cleanup_stale_handoffs(store: &PersonhogStore, active_pods: &[String]) -> Result<()> {
         let handoffs = store.list_handoffs().await?;
         let active_set: std::collections::HashSet<&str> =
             active_pods.iter().map(|s| s.as_str()).collect();
 
         for handoff in &handoffs {
-            if !active_set.contains(handoff.new_owner.as_str()) {
+            let new_owner_gone = !active_set.contains(handoff.new_owner.as_str());
+
+            // Check if old_owner is gone and hasn't acked its drain yet.
+            // A dead old_owner with a DrainedAck already present is fine —
+            // the protocol has all it needs to advance. Without the ack the
+            // handoff is stuck in Freezing forever.
+            let stuck_on_dead_old_owner = match &handoff.old_owner {
+                Some(name) if !active_set.contains(name.as_str()) => {
+                    let drained = store.list_drained_acks(handoff.partition).await?;
+                    !drained.iter().any(|a| a.pod_name == *name)
+                }
+                _ => false,
+            };
+
+            if new_owner_gone || stuck_on_dead_old_owner {
                 tracing::warn!(
                     partition = handoff.partition,
                     new_owner = %handoff.new_owner,
+                    old_owner = ?handoff.old_owner,
                     phase = ?handoff.phase,
-                    "cleaning up stale handoff targeting dead pod"
+                    new_owner_gone,
+                    stuck_on_dead_old_owner,
+                    "cleaning up stale handoff"
                 );
-                store.delete_router_acks(handoff.partition).await?;
+                store.delete_all_handoff_acks(handoff.partition).await?;
                 store.delete_handoff(handoff.partition).await?;
             }
         }
@@ -502,7 +669,7 @@ impl Coordinator {
                 partition = handoff.partition,
                 "handoff complete, cleaning up"
             );
-            store.delete_router_acks(handoff.partition).await?;
+            store.delete_all_handoff_acks(handoff.partition).await?;
             store.delete_handoff(handoff.partition).await?;
         }
         Ok(())

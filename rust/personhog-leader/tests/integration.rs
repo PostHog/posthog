@@ -148,6 +148,7 @@ async fn unowned_partition_returns_failed_precondition() {
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
+        Arc::new(personhog_leader::inflight::InflightTracker::new()),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -441,6 +442,7 @@ async fn update_produces_person_state_to_kafka() {
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
+        Arc::new(personhog_leader::inflight::InflightTracker::new()),
     );
 
     cache.create_partition(0);
@@ -534,6 +536,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
+        Arc::new(personhog_leader::inflight::InflightTracker::new()),
     );
 
     cache.create_partition(0);
@@ -632,6 +635,7 @@ async fn e2e_update_produces_to_local_kafka() {
         CHANGELOG_TOPIC.to_string(),
         None,
         Arc::new(DashMap::new()),
+        Arc::new(personhog_leader::inflight::InflightTracker::new()),
     );
 
     cache.create_partition(0);

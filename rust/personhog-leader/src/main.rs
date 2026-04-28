@@ -138,12 +138,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let locks = Arc::new(DashMap::new());
+    let inflight = Arc::new(personhog_leader::inflight::InflightTracker::new());
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         kafka_producer,
         config.kafka_person_state_topic.clone(),
         fallback_pool,
         Arc::clone(&locks),
+        Arc::clone(&inflight),
     );
 
     // Connect to etcd and start coordination
@@ -156,7 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to connect to etcd");
     let store = Arc::new(PersonhogStore::new(etcd_store));
 
-    let handler = LeaderHandoffHandler::new(Arc::clone(&cache));
+    let handler = LeaderHandoffHandler::new(Arc::clone(&cache), Arc::clone(&inflight));
     let pod = PodHandle::new(
         store,
         PodConfig {
