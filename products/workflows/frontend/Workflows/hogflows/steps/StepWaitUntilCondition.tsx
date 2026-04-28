@@ -1,6 +1,7 @@
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 
+import { IconCursor, IconPerson } from '@posthog/icons'
 import { LemonDivider, LemonLabel } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -32,11 +33,14 @@ export function StepWaitUntilConditionConfiguration({
         <>
             <StepSchemaErrors />
 
-            <div className="flex flex-col gap-1">
-                <LemonLabel>Events to wait for</LemonLabel>
-                <p className="text-xs text-muted">
+            <div className="flex flex-col gap-3">
+                <span className="flex gap-1">
+                    <IconCursor className="text-lg" />
+                    <span className="text-md font-semibold">Events to wait for</span>
+                </span>
+                <span className="text-xs text-muted">
                     The workflow continues on the matched path when any of these events fire.
-                </p>
+                </span>
                 <HogFlowEventFilters
                     filtersKey={`wait-until-events-${action.id}`}
                     filters={eventFilters}
@@ -50,10 +54,20 @@ export function StepWaitUntilConditionConfiguration({
                 />
             </div>
 
-            <LemonDivider className="my-2" />
+            <div className="flex items-center gap-4 my-2">
+                <div className="flex-1 border-t border-border" />
+                <span className="text-xs text-tertiary uppercase tracking-wide">or</span>
+                <div className="flex-1 border-t border-border" />
+            </div>
 
-            <div className="flex flex-col gap-1">
-                <LemonLabel>Property conditions</LemonLabel>
+            <div className="flex flex-col gap-3">
+                <span className="flex gap-1">
+                    <IconPerson className="text-lg" />
+                    <span className="text-md font-semibold">Property conditions</span>
+                </span>
+                <span className="text-xs text-muted">
+                    The workflow continues when the person matches these properties.
+                </span>
                 <LemonInput
                     value={localConditionName || ''}
                     onChange={handleNameChange}
@@ -70,7 +84,7 @@ export function StepWaitUntilConditionConfiguration({
                 />
             </div>
 
-            <LemonDivider className="my-2" />
+            <LemonDivider />
 
             <div className="flex flex-col gap-1">
                 <LemonLabel>Max time to wait</LemonLabel>
