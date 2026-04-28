@@ -360,3 +360,9 @@ tools:
     llm-analytics-evaluation-reports-runs-list:
         operation: llm_analytics_evaluation_reports_runs_list
         enabled: false
+    llm-analytics-offline-evaluations-experiment-items-create:
+        operation: llm_analytics_offline_evaluations_experiment_items_create
+        enabled: false
+    llm-analytics-sentiment-generations-create:
+        operation: llm_analytics_sentiment_generations_create
+        enabled: false
