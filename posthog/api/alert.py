@@ -2,6 +2,7 @@ import dataclasses
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from django.db import models, transaction
 from django.db.models import OuterRef, QuerySet, Subquery
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
@@ -10,6 +11,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
@@ -21,8 +23,10 @@ from posthog.schema import (
     TrendsAlertConfig,
 )
 
+from posthog.api.alert_destinations import build_slack_config, build_webhook_config
 from posthog.api.alert_schedule_restriction import AlertScheduleRestriction
 from posthog.api.documentation import extend_schema_field
+from posthog.api.hog_function import HogFunctionSerializer
 from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
@@ -31,6 +35,7 @@ from posthog.event_usage import get_request_analytics_properties
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
@@ -657,6 +662,57 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
     )
 
 
+class DestinationType(models.TextChoices):
+    SLACK = "slack"
+    WEBHOOK = "webhook"
+
+
+class AlertCreateDestinationSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=list(DestinationType),
+        help_text="Destination type — either 'slack' (post to a Slack channel) or 'webhook' (POST to an HTTPS endpoint).",
+    )
+    slack_workspace_id = serializers.IntegerField(
+        required=False,
+        help_text="ID of the connected Slack integration. Required when type=slack. Look this up via the integrations API.",
+    )
+    slack_channel_id = serializers.CharField(
+        required=False,
+        help_text="Slack channel ID (e.g. 'C1234567890'). Required when type=slack. The PostHog Slack app must be a member of private channels.",
+    )
+    slack_channel_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional human-readable channel name (e.g. 'analytics-platform') used only for the destination's display name.",
+    )
+    webhook_url = serializers.URLField(
+        required=False,
+        help_text="HTTPS endpoint to POST to when the alert fires. Required when type=webhook.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        destination_type = attrs["type"]
+        if destination_type == DestinationType.SLACK:
+            if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
+                raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
+        elif destination_type == DestinationType.WEBHOOK:
+            if not attrs.get("webhook_url"):
+                raise ValidationError("webhook_url is required for webhook destinations.")
+        return attrs
+
+
+class AlertDeleteDestinationSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        help_text="HogFunction IDs to delete. Each ID must belong to this alert (i.e. its filter properties include alert_id={alert_id}).",
+    )
+
+
+class AlertDestinationResponseSerializer(serializers.Serializer):
+    hog_function_ids = serializers.ListField(child=serializers.UUIDField())
+
+
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
     queryset = AlertConfiguration.objects.select_related("team", "insight").order_by("-created_at")
@@ -812,6 +868,78 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         response_serializer = AlertSimulateResponseSerializer(result)
         return Response(response_serializer.data)
+
+    @extend_schema(
+        request=AlertCreateDestinationSerializer,
+        responses={201: AlertDestinationResponseSerializer},
+        description=(
+            "Create a Slack or webhook notification destination for this alert. "
+            "Creates a HogFunction wired to the alert's `$insight_alert_firing` event. "
+            "Slack destinations require an existing Slack integration (look up `integration_id` "
+            "via the integrations API). Channel delivery for the alert UI is also stored as a "
+            "HogFunction, so destinations created here show up in the alert's destination list "
+            "alongside any added through the UI."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["alert:write"])
+    def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        serializer = AlertCreateDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        if data["type"] == DestinationType.SLACK:
+            config = build_slack_config(
+                alert,
+                slack_workspace_id=data["slack_workspace_id"],
+                slack_channel_id=data["slack_channel_id"],
+                slack_channel_name=data.get("slack_channel_name") or None,
+            )
+        else:
+            config = build_webhook_config(alert, webhook_url=data["webhook_url"])
+
+        team = config.pop("team")
+        # Route through HogFunctionSerializer so template lookup, input validation,
+        # and Hog bytecode compilation match the path the UI takes.
+        hog_function_serializer = HogFunctionSerializer(
+            data=config,
+            context={"request": request, "get_team": lambda: team, "is_create": True},
+        )
+        hog_function_serializer.is_valid(raise_exception=True)
+        hog_function = hog_function_serializer.save(team=team)
+
+        response = AlertDestinationResponseSerializer({"hog_function_ids": [hog_function.id]})
+        return Response(response.data, status=201)
+
+    @extend_schema(
+        request=AlertDeleteDestinationSerializer,
+        responses={204: None},
+        description=(
+            "Delete one or more notification destinations for this alert. Soft-deletes the "
+            "underlying HogFunctions. All IDs must belong to this alert — if any do not, the "
+            "whole call is rejected and nothing is deleted."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="destinations/delete", required_scopes=["alert:write"])
+    def delete_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
+        alert = self.get_object()
+        serializer = AlertDeleteDestinationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        hog_function_ids = serializer.validated_data["hog_function_ids"]
+
+        with transaction.atomic():
+            updated = HogFunction.objects.filter(
+                team_id=self.team_id,
+                id__in=hog_function_ids,
+                deleted=False,
+                filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
+            ).update(deleted=True, enabled=False)
+            if updated != len(hog_function_ids):
+                # Filtered UPDATE touched fewer rows than requested → at least one ID
+                # doesn't belong to this alert (or is already deleted). Roll back.
+                raise ValidationError("One or more HogFunctions do not belong to this alert.")
+
+        return Response(status=204)
 
 
 class ThresholdWithAlertSerializer(ThresholdSerializer):

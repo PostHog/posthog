@@ -25,13 +25,46 @@ tools:
             configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad,
             iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold
             (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR
-            logic. Requires an insight ID and at least one subscribed user.
+            logic. Requires an insight ID and at least one subscribed user. To deliver firings to a Slack channel or
+            HTTPS webhook, follow up with the alert-destinations-create tool — subscribed_users only controls email
+            recipients.
         exclude_params:
             - state
             - last_notified_at
             - last_checked_at
             - next_check_at
             - last_value
+    alert-destinations-create:
+        operation: alerts_destinations_create
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add Slack/webhook destination to alert
+        description: >
+            Wire a Slack channel or HTTPS webhook to an existing alert so its firings are delivered there. For Slack,
+            pass type=slack with slack_workspace_id (the connected Slack integration's ID — list integrations to find
+            it) and slack_channel_id (e.g. 'C1234567890'); slack_channel_name is optional and only used for the
+            destination's display name. For webhooks, pass type=webhook with webhook_url. Returns hog_function_ids —
+            keep these to remove the destination later via alert-destinations-delete-create. Email recipients are
+            still managed via the alert's subscribed_users field.
+    alert-destinations-delete-create:
+        operation: alerts_destinations_delete_create
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove destinations from alert
+        description: >
+            Remove one or more Slack/webhook destinations from an alert by passing the hog_function_ids returned from
+            alert-destinations-create. The IDs must all belong to the same alert; otherwise the whole call is rejected
+            and nothing is removed.
     alert-delete:
         operation: alerts_destroy
         enabled: true
