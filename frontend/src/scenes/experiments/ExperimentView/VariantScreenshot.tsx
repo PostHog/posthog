@@ -81,7 +81,8 @@ export function VariantScreenshot({
                 return
             }
 
-            for (const item of items) {
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i]
                 if (item.type.startsWith('image/')) {
                     e.preventDefault()
                     const file = item.getAsFile()
