@@ -11,6 +11,7 @@ import {
     EvaluationsPartialUpdateParams,
     EvaluationsRetrieveParams,
     EvaluationsTestHogCreateBody,
+    LlmAnalyticsEvaluationSummaryCreateBody,
 } from '@/generated/evaluations/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -124,6 +125,38 @@ const evaluationRun = (): ToolBase<typeof EvaluationRunSchema, unknown> => ({
     },
 })
 
+const EvaluationSummarizeRunsSchema = LlmAnalyticsEvaluationSummaryCreateBody
+
+const evaluationSummarizeRuns = (): ToolBase<
+    typeof EvaluationSummarizeRunsSchema,
+    Schemas.EvaluationSummaryResponse
+> => ({
+    name: 'evaluation-summarize-runs',
+    schema: EvaluationSummarizeRunsSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationSummarizeRunsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.evaluation_id !== undefined) {
+            body['evaluation_id'] = params.evaluation_id
+        }
+        if (params.filter !== undefined) {
+            body['filter'] = params.filter
+        }
+        if (params.generation_ids !== undefined) {
+            body['generation_ids'] = params.generation_ids
+        }
+        if (params.force_refresh !== undefined) {
+            body['force_refresh'] = params.force_refresh
+        }
+        const result = await context.api.request<Schemas.EvaluationSummaryResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_summary/`,
+            body,
+        })
+        return result
+    },
+})
+
 const EvaluationTestHogSchema = EvaluationsTestHogCreateBody
 
 const evaluationTestHog = (): ToolBase<typeof EvaluationTestHogSchema, Schemas.TestHogResponse> => ({
@@ -230,6 +263,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'evaluation-delete': evaluationDelete,
     'evaluation-get': evaluationGet,
     'evaluation-run': evaluationRun,
+    'evaluation-summarize-runs': evaluationSummarizeRuns,
     'evaluation-test-hog': evaluationTestHog,
     'evaluation-update': evaluationUpdate,
     'evaluations-get': evaluationsGet,

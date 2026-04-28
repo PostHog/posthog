@@ -1129,15 +1129,27 @@ export const SentimentRequestAnalysisLevelEnumApi = {
 
 export interface SentimentRequestApi {
     /**
+     * Trace IDs or generation IDs to classify, depending on analysis_level.
      * @minItems 1
      * @maxItems 5
      */
     ids: string[]
+    /** Whether the IDs are 'trace' IDs or 'generation' IDs.
+
+* `trace` - trace
+* `generation` - generation */
     analysis_level?: SentimentRequestAnalysisLevelEnumApi
+    /** If true, bypass cache and reclassify. */
     force_refresh?: boolean
-    /** @nullable */
+    /**
+     * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+     * @nullable
+     */
     date_from?: string | null
-    /** @nullable */
+    /**
+     * End of date range for the lookup. Defaults to now.
+     * @nullable
+     */
     date_to?: string | null
 }
 
