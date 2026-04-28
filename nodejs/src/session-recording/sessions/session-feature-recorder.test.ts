@@ -6,7 +6,7 @@ import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
 import { MouseInteractions, RRWebEventSource, RRWebEventType } from '../rrweb-types'
 import { MAX_UNIQUE_VALUES, SessionFeatureRecorder } from './session-feature-recorder'
 
-const md5 = (s: string): string => crypto.createHash('md5').update(s).digest('hex')
+import { MAX_UNIQUE_VALUES, md5Hex, SessionFeatureRecorder } from './session-feature-recorder'
 
 jest.mock('../../config/config', () => ({
     defaultConfig: {
