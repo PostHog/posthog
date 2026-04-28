@@ -614,10 +614,53 @@ def build_result(base_ref: str) -> dict[str, object]:
     }
 
 
+def format_summary(result: dict[str, object]) -> str:
+    snob = result["snob"]
+    ast_data = result["ast"]
+    combined = result["combined"]
+    durations = result["durations"]
+
+    lines = [
+        "## Shadow test selection",
+        "",
+        "Shadow-only. Compares Snob's import-graph selection with PostHog-specific AST groups for API-client and other non-import-shaped tests.",
+        "",
+        "| Metric | Count | Est. duration |",
+        "|---|---:|---:|",
+        f"| Changed files | {result['changed_file_count']} | - |",
+        f"| Snob-selected tests | {snob['count']} | {durations['snob_seconds']}s |",
+        f"| AST-selected tests | {len(ast_data['tests'])} | {durations['ast_seconds']}s |",
+        f"| Combined unique tests | {combined['count']} | {combined['duration_seconds']}s |",
+        f"| Full duration data | - | {durations['total_seconds']}s |",
+        "",
+        "| AST group | Test files |",
+        "|---|---:|",
+    ]
+    groups = ast_data.get("groups") or {}
+    if groups:
+        lines.extend(f"| `{name}` | {len(tests)} |" for name, tests in groups.items())
+    else:
+        lines.append("| none | 0 |")
+
+    if snob.get("status") != "ok":
+        lines += ["", f"**Snob error:** {snob.get('error', 'unknown')}"]
+
+    full_run_reasons = ast_data.get("full_run_reasons") or []
+    if full_run_reasons:
+        lines += ["", "### Full-run signals", ""]
+        lines.extend(f"- {reason}" for reason in full_run_reasons)
+
+    return "\n".join(lines) + "\n"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-ref", required=True, help="Base ref for git diff, for example origin/master")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON")
+    parser.add_argument(
+        "--summary-path",
+        help="Append a Markdown summary to this file (e.g. $GITHUB_STEP_SUMMARY)",
+    )
     args = parser.parse_args()
 
     try:
@@ -628,6 +671,10 @@ def main() -> None:
 
     indent = 2 if args.pretty else None
     sys.stdout.write(json.dumps(result, indent=indent, sort_keys=True) + "\n")
+
+    if args.summary_path:
+        with Path(args.summary_path).expanduser().open("a") as fh:
+            fh.write(format_summary(result))
 
 
 if __name__ == "__main__":

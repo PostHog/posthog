@@ -16,6 +16,7 @@ const SPAN_LOGS_PARSE_BODIES = 'logsIngestionConsumer.handleEachBatch.parseLogBo
 const SPAN_LOGS_ENRICH_JSON = 'logsIngestionConsumer.handleEachBatch.enrichJsonAttributes'
 const SPAN_LOGS_PII_SCRUB = 'logsIngestionConsumer.handleEachBatch.piiScrubLogRecords'
 const SPAN_LOGS_ENCODE = 'logsIngestionConsumer.handleEachBatch.encodeLogRecords'
+const SPAN_LOGS_PROCESS_BUFFER = 'logsIngestionConsumer.handleEachBatch.processLogMessageBuffer'
 
 const logRecordProcessInstrumentOpts = { measureTime: false, sendException: false } as const
 
@@ -270,7 +271,10 @@ const scrubBatch = instrumented({
  * When both `json_parse_logs` and `pii_scrub_logs` are on, scrub runs **before** parse/enrich so flattened JSON
  * attributes are derived from the redacted body string. `parseLogBodiesForIngestion` runs only when JSON parse is on.
  */
-export async function processLogMessageBuffer(
+export const processLogMessageBuffer = instrumented({
+    key: SPAN_LOGS_PROCESS_BUFFER,
+    ...logRecordProcessInstrumentOpts,
+})(async function processLogMessageBufferImpl(
     buffer: Buffer,
     settings: LogsSettings
 ): Promise<{ value: Buffer; pii: PiiScrubStats }> {
@@ -318,4 +322,4 @@ export async function processLogMessageBuffer(
             durationSeconds
         )
     }
-}
+}) as (buffer: Buffer, settings: LogsSettings) => Promise<{ value: Buffer; pii: PiiScrubStats }>

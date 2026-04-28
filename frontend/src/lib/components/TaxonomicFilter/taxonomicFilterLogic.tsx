@@ -351,6 +351,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         tabLeft: true,
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
+        recordPaste: (pastedLength: number) => ({ pastedLength }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
         selectItem: (
             group: TaxonomicFilterGroup,
@@ -1840,14 +1841,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             }
         },
 
+        recordPaste: ({ pastedLength }) => {
+            cache.pastedCharsSinceLastCapture = (cache.pastedCharsSinceLastCapture ?? 0) + Math.max(0, pastedLength)
+        },
+
         setSearchQuery: async ({ searchQuery }, breakpoint) => {
             const { activeTaxonomicGroup } = values
 
             await breakpoint(500)
+            const pastedChars = cache.pastedCharsSinceLastCapture ?? 0
+            cache.pastedCharsSinceLastCapture = 0
             if (searchQuery) {
+                const totalLength = searchQuery.length
+                const inputMode: 'pasted' | 'mixed' | 'typed' =
+                    pastedChars >= totalLength && pastedChars > 0 ? 'pasted' : pastedChars > 0 ? 'mixed' : 'typed'
                 posthog.capture('taxonomic_filter_search_query', {
                     searchQuery,
                     groupType: activeTaxonomicGroup?.type,
+                    inputMode,
+                    pastedFraction: totalLength > 0 ? Math.min(1, pastedChars / totalLength) : 0,
                 })
             }
         },
