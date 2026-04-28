@@ -1036,10 +1036,10 @@ export interface TrendsQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type GroupNodeApiKind = (typeof GroupNodeApiKind)[keyof typeof GroupNodeApiKind]
+export type EventsNodeApiKind = (typeof EventsNodeApiKind)[keyof typeof EventsNodeApiKind]
 
-export const GroupNodeApiKind = {
-    GroupNode: 'GroupNode',
+export const EventsNodeApiKind = {
+    EventsNode: 'EventsNode',
 } as const
 
 export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
@@ -1282,12 +1282,6 @@ export interface RevenueCurrencyPropertyConfigApi {
     property?: string | null
     static?: CurrencyCodeApi | null
 }
-
-export type EventsNodeApiKind = (typeof EventsNodeApiKind)[keyof typeof EventsNodeApiKind]
-
-export const EventsNodeApiKind = {
-    EventsNode: 'EventsNode',
-} as const
 
 export const EventsNodeApiMath = {
     ...BaseMathTypeApi,
@@ -1617,6 +1611,12 @@ export interface DataWarehouseNodeApi {
      */
     version?: number | null
 }
+
+export type GroupNodeApiKind = (typeof GroupNodeApiKind)[keyof typeof GroupNodeApiKind]
+
+export const GroupNodeApiKind = {
+    GroupNode: 'GroupNode',
+} as const
 
 export const GroupNodeApiMath = {
     ...BaseMathTypeApi,
@@ -2013,7 +2013,7 @@ export interface TrendsQueryApi {
      */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
+    series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /** Properties specific to the trends insight */
@@ -2573,7 +2573,7 @@ export interface FunnelsQueryApi {
      */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | FunnelsDataWarehouseNodeApi)[]
+    series: (EventsNodeApi | ActionsNodeApi | FunnelsDataWarehouseNodeApi | GroupNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /**

@@ -2075,13 +2075,6 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type GroupNodeKind = typeof GroupNodeKind[keyof typeof GroupNodeKind];
-
-
-    export const GroupNodeKind = {
-      GroupNode: 'GroupNode',
-    } as const;
-
     export type EventsNodeKind = typeof EventsNodeKind[keyof typeof EventsNodeKind];
 
 
@@ -2206,6 +2199,13 @@ export namespace Schemas {
        */
       version?: number | null;
     }
+
+    export type GroupNodeKind = typeof GroupNodeKind[keyof typeof GroupNodeKind];
+
+
+    export const GroupNodeKind = {
+      GroupNode: 'GroupNode',
+    } as const;
 
     export const GroupNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
       hogql: 'hogql',
@@ -2510,7 +2510,7 @@ export namespace Schemas {
        */
       samplingFactor?: number | null;
       /** Events and actions to include */
-      series: (GroupNode | EventsNode | ActionsNode | DataWarehouseNode)[];
+      series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
       /** Properties specific to the trends insight */
@@ -2893,7 +2893,7 @@ export namespace Schemas {
        */
       samplingFactor?: number | null;
       /** Events and actions to include */
-      series: (GroupNode | EventsNode | ActionsNode | FunnelsDataWarehouseNode)[];
+      series: (EventsNode | ActionsNode | FunnelsDataWarehouseNode | GroupNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
       /**
