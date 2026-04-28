@@ -1040,7 +1040,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
                 if dependent_cohorts.exists():
                     count = dependent_cohorts.count()
-                    cohort_names = [c.name for c in dependent_cohorts[:5]]
+                    cohort_names = [c.name or "Unnamed" for c in dependent_cohorts[:5]]
                     names_str = ", ".join(cohort_names)
                     if count > 5:
                         names_str = f"{names_str}, and {count - 5} more"
@@ -1516,10 +1516,14 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         insights_qs = get_insights_using_cohort(cohort)
         insights_total = insights_qs.count()
-        insights_data = list(insights_qs.values("id", "short_id", "name", "derived_name")[:COHORT_USED_IN_PAGE_SIZE])
-        for insight in insights_data:
-            insight["name"] = insight.get("name") or insight.get("derived_name") or "Unnamed"
-            insight.pop("derived_name", None)
+        insights_data = [
+            {
+                "id": insight["id"],
+                "short_id": insight["short_id"],
+                "name": insight.get("name") or insight.get("derived_name") or "Unnamed",
+            }
+            for insight in insights_qs.values("id", "short_id", "name", "derived_name")[:COHORT_USED_IN_PAGE_SIZE]
+        ]
 
         cohorts_qs = get_cohorts_using_cohort(cohort)
         cohorts_total = cohorts_qs.count()
