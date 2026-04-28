@@ -1,7 +1,10 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
+
+if TYPE_CHECKING:
+    from products.data_warehouse.backend.models import ExternalDataSource
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -160,6 +163,45 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
         }
+
+    def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
+        """Drop the Temporal schedule (always) + PostHog-managed slot/publication.
+
+        Schedule lives on our side, slot lives on the customer's DB.
+        """
+        import logging
+
+        from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
+
+        log = logging.getLogger(__name__)
+
+        # Schedule key = source id. Delete unconditionally; NotFound is a no-op.
+        try:
+            from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+
+            delete_cdc_extraction_schedule(str(source.id))
+        except Exception:
+            log.exception("Failed to delete CDC extraction schedule", extra={"source_id": str(source.id)})
+
+        cdc_config = PostgresCDCConfig.from_source(source)
+        if not cdc_config.enabled or cdc_config.management_mode != "posthog":
+            return
+        if not cdc_config.slot_name or not cdc_config.publication_name:
+            return
+
+        try:
+            from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
+                cdc_pg_connection,
+                drop_slot_and_publication,
+            )
+
+            with cdc_pg_connection(source, connect_timeout=10) as conn:
+                drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
+        except Exception:
+            log.exception(
+                "Failed to drop CDC slot/publication on source DB (best-effort)",
+                extra={"source_id": str(source.id), "slot_name": cdc_config.slot_name},
+            )
 
     def get_schemas(
         self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
