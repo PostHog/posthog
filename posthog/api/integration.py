@@ -1271,7 +1271,9 @@ class IntegrationViewSet(
             teams, has_more = github.list_teams(search=search, limit=limit, offset=offset)
         except GitHubIntegrationError as err:
             capture_exception(err)
-            raise ValidationError("Unable to fetch GitHub teams. Please check integration settings and try again.") from err
+            raise ValidationError(
+                "Unable to fetch GitHub teams. Please check integration settings and try again."
+            ) from err
 
         return Response({"teams": teams, "has_more": has_more})
 
