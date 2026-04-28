@@ -1921,15 +1921,16 @@ export namespace Schemas {
 
 
     export const MultipleBreakdownType = {
-      Cohort: 'cohort',
       Person: 'person',
       Event: 'event',
       EventMetadata: 'event_metadata',
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
+      Cohort: 'cohort',
       RevenueAnalytics: 'revenue_analytics',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
     } as const;
 
     export interface Breakdown {
@@ -13620,6 +13621,7 @@ export namespace Schemas {
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
     * `Plain` - Plain
+    * `Resend` - Resend
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -13768,6 +13770,7 @@ export namespace Schemas {
       Convex: 'Convex',
       ClickHouse: 'ClickHouse',
       Plain: 'Plain',
+      Resend: 'Resend',
     } as const;
 
     /**
@@ -13922,7 +13925,8 @@ export namespace Schemas {
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
-    * `Plain` - Plain */
+    * `Plain` - Plain
+    * `Resend` - Resend */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -14550,11 +14554,6 @@ export namespace Schemas {
       /** Last materialization error message, if any. */
       error?: string;
       /**
-       * How often the materialization refreshes (e.g. 'every_hour').
-       * @nullable
-       */
-      sync_frequency?: string | null;
-      /**
        * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
        * @nullable
        */
@@ -14593,10 +14592,10 @@ export namespace Schemas {
        */
       description?: string | null;
       /**
-       * Cache TTL in seconds (60–86400).
+       * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
        * @nullable
        */
-      cache_age_seconds?: number | null;
+      data_freshness_seconds?: number | null;
       /**
        * Whether this endpoint is available for execution via the API.
        * @nullable
@@ -14607,11 +14606,6 @@ export namespace Schemas {
        * @nullable
        */
       is_materialized?: boolean | null;
-      /**
-       * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
-       * @nullable
-       */
-      sync_frequency?: string | null;
       /**
        * Short ID of the insight this endpoint was derived from.
        * @nullable
@@ -14657,11 +14651,8 @@ export namespace Schemas {
       query: unknown;
       /** Whether the endpoint can be executed via the API. */
       is_active: boolean;
-      /**
-       * Cache TTL in seconds, or null for default interval-based caching.
-       * @nullable
-       */
-      cache_age_seconds: number | null;
+      /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+      data_freshness_seconds: number;
       /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -14808,11 +14799,8 @@ export namespace Schemas {
       query: unknown;
       /** Whether the endpoint can be executed via the API. */
       is_active: boolean;
-      /**
-       * Cache TTL in seconds, or null for default interval-based caching.
-       * @nullable
-       */
-      cache_age_seconds: number | null;
+      /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+      data_freshness_seconds: number;
       /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -15081,6 +15069,12 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -15935,6 +15929,12 @@ export namespace Schemas {
       readonly last_updated_at: string;
       tags?: unknown[];
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -17018,7 +17018,8 @@ export namespace Schemas {
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
-    * `Plain` - Plain */
+    * `Plain` - Plain
+    * `Resend` - Resend */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -20364,75 +20365,77 @@ export namespace Schemas {
     }
 
     /**
-     * * `slack` - Slack
-    * `slack-posthog-code` - Slack Posthog Code
-    * `salesforce` - Salesforce
-    * `hubspot` - Hubspot
-    * `google-pubsub` - Google Pubsub
-    * `google-cloud-storage` - Google Cloud Storage
-    * `google-ads` - Google Ads
-    * `google-sheets` - Google Sheets
-    * `google-cloud-service-account` - Google Cloud Service Account
-    * `snapchat` - Snapchat
-    * `linkedin-ads` - Linkedin Ads
-    * `reddit-ads` - Reddit Ads
-    * `tiktok-ads` - Tiktok Ads
+     * * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
-    * `intercom` - Intercom
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
     * `email` - Email
-    * `linear` - Linear
+    * `firebase` - Firebase
     * `github` - Github
     * `gitlab` - Gitlab
-    * `meta-ads` - Meta Ads
-    * `twilio` - Twilio
-    * `clickup` - Clickup
-    * `vercel` - Vercel
-    * `databricks` - Databricks
-    * `azure-blob` - Azure Blob
-    * `firebase` - Firebase
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
     * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
     * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
     * `stripe` - Stripe
-    * `customerio-app` - Customerio App
-    * `customerio-webhook` - Customerio Webhook
-    * `customerio-track` - Customerio Track
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
 
     export const IntegrationKindEnum = {
-      Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
-      Salesforce: 'salesforce',
-      Hubspot: 'hubspot',
-      GooglePubsub: 'google-pubsub',
-      GoogleCloudStorage: 'google-cloud-storage',
-      GoogleAds: 'google-ads',
-      GoogleSheets: 'google-sheets',
-      GoogleCloudServiceAccount: 'google-cloud-service-account',
-      Snapchat: 'snapchat',
-      LinkedinAds: 'linkedin-ads',
-      RedditAds: 'reddit-ads',
-      TiktokAds: 'tiktok-ads',
+      AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
-      Intercom: 'intercom',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
       Email: 'email',
-      Linear: 'linear',
+      Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
-      MetaAds: 'meta-ads',
-      Twilio: 'twilio',
-      Clickup: 'clickup',
-      Vercel: 'vercel',
-      Databricks: 'databricks',
-      AzureBlob: 'azure-blob',
-      Firebase: 'firebase',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
       Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
       PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
       Stripe: 'stripe',
-      CustomerioApp: 'customerio-app',
-      CustomerioWebhook: 'customerio-webhook',
-      CustomerioTrack: 'customerio-track',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
     } as const;
 
     /**
@@ -26416,10 +26419,10 @@ export namespace Schemas {
        */
       description?: string | null;
       /**
-       * Cache TTL in seconds (60–86400).
+       * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
        * @nullable
        */
-      cache_age_seconds?: number | null;
+      data_freshness_seconds?: number | null;
       /**
        * Whether this endpoint is available for execution via the API.
        * @nullable
@@ -26430,11 +26433,6 @@ export namespace Schemas {
        * @nullable
        */
       is_materialized?: boolean | null;
-      /**
-       * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
-       * @nullable
-       */
-      sync_frequency?: string | null;
       /**
        * Short ID of the insight this endpoint was derived from.
        * @nullable
@@ -26483,6 +26481,12 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action?: boolean;
       readonly action_id?: number;
       readonly is_calculating?: boolean;
@@ -29236,6 +29240,14 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface PatchedSessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
+    }
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SourceProductEnum;
@@ -31602,6 +31614,16 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    /**
+     * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
+     */
+    export type PromotedPropertiesResponsePromotedProperties = {[key: string]: string};
+
+    export interface PromotedPropertiesResponse {
+      /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
+      promoted_properties: PromotedPropertiesResponsePromotedProperties;
     }
 
     /**
@@ -34985,6 +35007,14 @@ export namespace Schemas {
       focus_area?: string;
     }
 
+    export interface SessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
+    }
+
     /**
      * * `trace` - trace
     * `debug` - debug
@@ -37027,10 +37057,6 @@ export namespace Schemas {
      */
     checks_offset?: number;
     };
-
-    export type EnvironmentsAppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type EnvironmentsAppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
 
     export type EnvironmentsBatchExportsListParams = {
     /**
@@ -39909,6 +39935,10 @@ export namespace Schemas {
 
     export type LlmSkillsListParams = {
     /**
+     * Filter skills by the ID of the user who created them.
+     */
+    created_by_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -40860,10 +40890,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type AppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type AppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
-
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -41537,6 +41563,13 @@ export namespace Schemas {
      * The exact event name to look up
      */
     name: string;
+    };
+
+    export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+    /**
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     */
+    names?: string[];
     };
 
     export type EventSchemasListParams = {

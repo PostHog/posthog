@@ -1,6 +1,6 @@
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import BreakdownType, TrendsQuery
+from posthog.schema import BreakdownType, MultipleBreakdownType, TrendsQuery
 
 from posthog.hogql_queries.insights.utils.breakdowns import (
     has_breakdown_filter,
@@ -26,15 +26,28 @@ class ValidateDataWarehouseBreakdown:
 
         assert context.query.breakdownFilter is not None  # type checking
         breakdown_filter = context.query.breakdownFilter
+        insight_name = get_query_insight_name(context.query).lower()
 
         if has_multi_breakdown(breakdown_filter):
-            raise ValidationError(
-                f"Multi-breakdowns not supported for {get_query_insight_name(context.query).lower()} with a data warehouse series.",
-                code=self.code,
-            )
+            assert breakdown_filter.breakdowns is not None  # type checking
+            # A length-1 `breakdowns` is treated like the legacy single-breakdown form: it's
+            # accepted iff its `type` is `data_warehouse`. Anything longer (or a different
+            # type) keeps being rejected.
+            if len(breakdown_filter.breakdowns) > 1:
+                raise ValidationError(
+                    f"Multi-breakdowns not supported for {insight_name} with a data warehouse series.",
+                    code=self.code,
+                )
+
+            if breakdown_filter.breakdowns[0].type != MultipleBreakdownType.DATA_WAREHOUSE:
+                raise ValidationError(
+                    f"Event based breakdowns are not supported for {insight_name} with a data warehouse series.",
+                    code=self.code,
+                )
+            return
 
         if has_single_breakdown(breakdown_filter) and breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE:
             raise ValidationError(
-                f"Event based breakdowns are not supported for {get_query_insight_name(context.query).lower()} with a data warehouse series.",
+                f"Event based breakdowns are not supported for {insight_name} with a data warehouse series.",
                 code=self.code,
             )
