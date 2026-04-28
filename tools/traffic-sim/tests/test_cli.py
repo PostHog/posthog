@@ -203,3 +203,19 @@ class TestAnalyticsCapture:
         assert cap._is_posthog("https://ph.example.com/i/v0/e/")
         assert cap._is_posthog("https://us.i.posthog.com/capture/")
         assert not cap._is_posthog("https://other.example.com/api")
+
+
+class TestLoadBrowserstackYaml:
+    def test_returns_none_when_file_missing(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(cli, "__file__", str(tmp_path / "cli.py"))
+        assert cli._load_browserstack_yaml() == (None, None)
+
+    def test_parses_username_and_access_key(self, monkeypatch, tmp_path):
+        (tmp_path / "browserstack.yml").write_text("# example header\nuserName: alice\naccessKey: 'secret-123'\n")
+        monkeypatch.setattr(cli, "__file__", str(tmp_path / "cli.py"))
+        assert cli._load_browserstack_yaml() == ("alice", "secret-123")
+
+    def test_skips_placeholder_blanks(self, monkeypatch, tmp_path):
+        (tmp_path / "browserstack.yml").write_text("userName:\naccessKey: \n")
+        monkeypatch.setattr(cli, "__file__", str(tmp_path / "cli.py"))
+        assert cli._load_browserstack_yaml() == (None, None)

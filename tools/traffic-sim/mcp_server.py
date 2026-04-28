@@ -178,14 +178,14 @@ async def check_posthog_loading(
     not_loaded: list[str] = []
     errors: list[dict[str, str]] = []
     load_methods: Counter[str] = Counter()
-    for path, page in pages.items():
+    for url, page in pages.items():
         if page.get("error"):
-            errors.append({"path": path, "error": page["error"]})
+            errors.append({"url": url, "error": page["error"]})
             continue
         if page.get("runtime_state", {}).get("loaded"):
-            loaded.append(path)
+            loaded.append(url)
         else:
-            not_loaded.append(path)
+            not_loaded.append(url)
         load_methods[page.get("load_method", "unknown")] += 1
     summary = {
         "loaded": loaded,

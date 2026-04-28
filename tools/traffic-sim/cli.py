@@ -251,11 +251,43 @@ async def simulate_user_behavior(page: Page) -> None:
 # ---- BrowserStack (optional --cloud) ------------------------------------------
 
 
+def _load_browserstack_yaml() -> tuple[str | None, str | None]:
+    # Falls back to browserstack.yml next to this file (matches the shipped
+    # browserstack.yml.example). Env vars take precedence; YAML is the
+    # documented file-based path. Parsed manually to avoid a PyYAML dep.
+    yml_path = Path(__file__).parent / "browserstack.yml"
+    if not yml_path.exists():
+        return None, None
+    username: str | None = None
+    access_key: str | None = None
+    try:
+        for raw in yml_path.read_text().splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if not line or ":" not in line:
+                continue
+            key, _, value = line.partition(":")
+            value = value.strip().strip('"').strip("'")
+            if key.strip() == "userName":
+                username = value or None
+            elif key.strip() == "accessKey":
+                access_key = value or None
+    except OSError:
+        return None, None
+    return username, access_key
+
+
 def _build_browserstack_cdp_url() -> str:
     username = os.environ.get("BROWSERSTACK_USERNAME")
     access_key = os.environ.get("BROWSERSTACK_ACCESS_KEY")
     if not username or not access_key:
-        raise RuntimeError("--cloud requires BROWSERSTACK_USERNAME and BROWSERSTACK_ACCESS_KEY env vars")
+        yml_user, yml_key = _load_browserstack_yaml()
+        username = username or yml_user
+        access_key = access_key or yml_key
+    if not username or not access_key:
+        raise RuntimeError(
+            "--cloud requires BROWSERSTACK_USERNAME and BROWSERSTACK_ACCESS_KEY env vars, "
+            "or a browserstack.yml file with userName/accessKey next to cli.py"
+        )
     try:
         import playwright  # type: ignore[import-untyped]
 
@@ -489,7 +521,7 @@ async def run_check_loading(
                     detection = await page.evaluate(POSTHOG_DETECT_JS)
                     detection["url"] = url
                     detection["error"] = None
-                    pages[short] = detection
+                    pages[url] = detection
                     loaded = detection.get("runtime_state", {}).get("loaded", False)
                     if verbose:
                         cfg = detection.get("init_config") or {}
@@ -502,7 +534,7 @@ async def run_check_loading(
                         marker = "✓" if loaded else "✗"
                         print(f"  {marker} method={detection['load_method']}")
                 except Exception as exc:
-                    pages[short] = {"url": url, "error": str(exc)}
+                    pages[url] = {"url": url, "error": str(exc)}
                     print(f"  Error: {exc}")
                 finally:
                     await page.close()
@@ -518,18 +550,19 @@ def _print_check_loading_table(pages: dict[str, dict]) -> None:
     print("=" * 100)
     print("POSTHOG LOADING")
     print("=" * 100)
-    print(f"{'Path':<55} {'Loaded':<8} {'Method':<14} {'Snippet In':<12} {'API key':<14}")
+    print(f"{'URL':<55} {'Loaded':<8} {'Method':<14} {'Snippet In':<12} {'API key':<14}")
     print("-" * 100)
-    for path, data in pages.items():
+    for url, data in pages.items():
+        label = url if len(url) <= 55 else url[:54] + "…"
         if data.get("error"):
-            print(f"{path:<55} ERROR    {data['error'][:40]}")
+            print(f"{label:<55} ERROR    {data['error'][:40]}")
             continue
         loaded = "yes" if data.get("runtime_state", {}).get("loaded", False) else "no"
         method = data.get("load_method", "-")
         snip = data.get("snippet_location") or "-"
         cfg = data.get("init_config") or {}
         key = (cfg.get("api_key") or "-")[:14]
-        print(f"{path:<55} {loaded:<8} {method:<14} {snip:<12} {key:<14}")
+        print(f"{label:<55} {loaded:<8} {method:<14} {snip:<12} {key:<14}")
 
 
 # ---- Output --------------------------------------------------------------------
