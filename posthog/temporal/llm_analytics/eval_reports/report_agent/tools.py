@@ -66,7 +66,14 @@ def _widened_ts_window(state: dict) -> tuple[datetime, datetime]:
 
 
 def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = None) -> list[list]:
-    """Execute a HogQL query and return results."""
+    """Execute a HogQL query against `events` and return results.
+
+    Used by every query in this module that does NOT read the six stripped
+    heavy columns (`input`, `output`, `output_choices`, `input_state`,
+    `output_state`, `tools`). Sweeping these through the resolver too would
+    only buy uniform `ai_query_source` tagging — a deliberate scope choice,
+    not load-bearing for the strip-heavy migration.
+    """
     from posthog.hogql.parser import parse_select
     from posthog.hogql.query import execute_hogql_query
 
@@ -83,6 +90,36 @@ def _execute_hogql(team_id: int, query_str: str, placeholders: dict | None = Non
             placeholders=placeholders or {},
             team=team,
         )
+
+    return result.results or []
+
+
+def _execute_hogql_via_ai_events(team_id: int, query_str: str, placeholders: dict | None = None) -> list[list]:
+    """Execute a HogQL query written against `posthog.ai_events` with the events-table fallback.
+
+    Use this only for queries that read heavy columns (`input`, `output`,
+    `output_choices`, `input_state`, `output_state`, `tools`) — those are
+    stripped from `events.properties` post-cutover and only survive in the
+    dedicated `ai_events` table. Other queries should keep using
+    `_execute_hogql` against `events`.
+    """
+    from posthog.hogql.parser import parse_select
+
+    from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+    from posthog.models import Team
+
+    team = Team.objects.get(id=team_id)
+    query = parse_select(query_str)
+
+    # `execute_with_ai_events_fallback` wraps its own
+    # `tags_context(product=Product.LLM_ANALYTICS)` internally; no need to
+    # double-wrap here.
+    result = execute_with_ai_events_fallback(
+        query=query,
+        placeholders=placeholders or {},
+        team=team,
+        query_type="EvalReportAgent",
+    )
 
     return result.results or []
 
@@ -418,16 +455,21 @@ def sample_generation_details(
     # which the SDK doesn't set). Match on the event uuid column.
     # $ai_output is empty for chat-format SDK calls (most OpenAI/Anthropic).
     # The actual content lives in $ai_output_choices. Use COALESCE to fall back.
-    rows = _execute_hogql(
+    # Reads heavy `input` / `output` / `output_choices` / `input_state` /
+    # `output_state` — must go through ai_events (post-strip those are NULL on
+    # events). On the events fallback the column rewriter rewrites these
+    # native columns back to `properties.$ai_*`, so the coalesce semantics are
+    # preserved on both branches.
+    rows = _execute_hogql_via_ai_events(
         team_id,
         """
         SELECT
             toString(uuid) as generation_id,
             properties.$ai_model as model,
-            properties.$ai_input as input,
+            input,
             coalesce(
-                nullIf(properties.$ai_output, ''),
-                properties.$ai_output_choices
+                nullIf(output, ''),
+                output_choices
             ) as output,
             properties.$ai_input_tokens as input_tokens,
             properties.$ai_output_tokens as output_tokens,
@@ -436,9 +478,9 @@ def sample_generation_details(
             properties.$ai_error as error,
             properties.$ai_tools_called as tools_called,
             properties.$ai_tool_call_count as tool_call_count,
-            properties.$ai_input_state as input_state,
-            properties.$ai_output_state as output_state
-        FROM events
+            input_state,
+            output_state
+        FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND toString(uuid) IN {ids}
         LIMIT {limit}
@@ -504,18 +546,19 @@ def get_generation_detail(
         "ts_end": ast.Constant(value=ts_end),
     }
 
-    # Full generation event data
-    gen_rows = _execute_hogql(
+    # Full generation event data — heavy `input` / `output` / `output_choices` /
+    # `tools` / `input_state` / `output_state` only survive on ai_events.
+    gen_rows = _execute_hogql_via_ai_events(
         team_id,
         """
         SELECT
             toString(uuid) as generation_id,
             properties.$ai_model as model,
             properties.$ai_provider as provider,
-            properties.$ai_input as input,
+            input,
             coalesce(
-                nullIf(properties.$ai_output, ''),
-                properties.$ai_output_choices
+                nullIf(output, ''),
+                output_choices
             ) as output,
             properties.$ai_input_tokens as input_tokens,
             properties.$ai_output_tokens as output_tokens,
@@ -528,10 +571,10 @@ def get_generation_detail(
             properties.$ai_error as error,
             properties.$ai_tools_called as tools_called,
             properties.$ai_tool_call_count as tool_call_count,
-            properties.$ai_tools as tools_available,
-            properties.$ai_input_state as input_state,
-            properties.$ai_output_state as output_state
-        FROM events
+            tools as tools_available,
+            input_state,
+            output_state
+        FROM posthog.ai_events AS ai_events
         WHERE event = '$ai_generation'
             AND toString(uuid) = {generation_id}
             AND timestamp >= {ts_start}
