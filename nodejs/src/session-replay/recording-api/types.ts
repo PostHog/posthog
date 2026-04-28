@@ -5,6 +5,10 @@
  * Recording API-specific types.
  */
 import { CommonConfig } from '../../common/config'
+import {
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+} from '../../config/kafka-topics'
 import { DEFAULT_PRODUCER, type DefaultProducer, type WarpstreamProducer } from '../../ingestion/common/outputs'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '../../session-recording/config'
 
@@ -57,24 +61,28 @@ export type RecordingApiConfig = Pick<
         | 'SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY'
         | 'SESSION_RECORDING_V2_S3_BUCKET'
         | 'SESSION_RECORDING_V2_S3_PREFIX'
-        | 'SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC'
-        | 'SESSION_RECORDING_V2_SESSION_FEATURES_KAFKA_TOPIC'
     >
 
 /**
- * Producer routing config for Recording API outputs. Topic keys are part of
- * `RecordingApiConfig` (picked from `SessionRecordingConfig`); only the
- * producer keys live here.
+ * Recording API outputs — topic and producer routing per output. All keys
+ * follow the `RECORDING_API_OUTPUT_*` convention. Topic values default to
+ * the same Kafka topics the session-replay ingestion consumer writes to,
+ * since recording-api emits deletion tombstones into the same streams.
  */
 export type RecordingApiOutputsConfig = {
-    SESSION_REPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: RecordingApiProducerName
-    SESSION_REPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: RecordingApiProducerName
+    RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: string
+    RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: RecordingApiProducerName
+
+    RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: string
+    RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: RecordingApiProducerName
 }
 
 export function getDefaultRecordingApiOutputsConfig(): RecordingApiOutputsConfig {
     return {
-        SESSION_REPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: DEFAULT_PRODUCER,
-        SESSION_REPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: DEFAULT_PRODUCER,
+        RECORDING_API_OUTPUT_REPLAY_EVENTS_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+        RECORDING_API_OUTPUT_REPLAY_EVENTS_PRODUCER: DEFAULT_PRODUCER,
+        RECORDING_API_OUTPUT_SESSION_FEATURES_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+        RECORDING_API_OUTPUT_SESSION_FEATURES_PRODUCER: DEFAULT_PRODUCER,
     }
 }
 

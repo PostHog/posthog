@@ -963,8 +963,6 @@ describe('Session Recording Consumer Integration', () => {
             SESSION_RECORDING_V2_S3_TIMEOUT_MS: TEST_CONFIG.S3_TIMEOUT_MS,
             SESSION_RECORDING_MAX_BATCH_SIZE_KB: 1,
             SESSION_RECORDING_MAX_BATCH_AGE_MS: 1000,
-            // Use the test topic (with _test suffix) to match ClickHouse's Kafka engine table
-            SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
         })
 
         team = await getFirstTeam(hub.postgres)
