@@ -153,7 +153,7 @@ jobs:
     dagster:
         name: Dagster tests (${{ matrix.runner }}, ${{ matrix.group }}/4)
         needs: [changes]
-        timeout-minutes: 15
+        timeout-minutes: 30 # SEED RUN: temp 30 to let imbalanced shards finish & emit .test_durations
         strategy:
             fail-fast: false
             matrix:
@@ -263,6 +263,7 @@ jobs:
                   pytest posthog/dags products/**/dags \
                       --splits 4 --group ${{ matrix.group }} \
                       --splitting-algorithm=duration_based_chunks \
+                      --store-durations --durations-min=1.0 \
                       --durations=20 \
                       --junitxml=junit-dagster-${{ matrix.group }}.xml
                   exit_code=$?
@@ -279,6 +280,13 @@ jobs:
               with:
                   name: junit-results-dagster-${{ matrix.group }}
                   path: junit-*.xml
+
+            - name: Upload .test_durations (seed run)
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always() && !startsWith(matrix.runner, 'blacksmith')
+              with:
+                  name: test-durations-shard-${{ matrix.group }}
+                  path: .test_durations
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     dagster_tests:
