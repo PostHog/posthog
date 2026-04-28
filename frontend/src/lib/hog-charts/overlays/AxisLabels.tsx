@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 
-import { useChart } from '../core/chart-context'
+import { useChartLayout } from '../core/chart-context'
 
 interface AxisLabelsProps {
     xTickFormatter?: (value: string, index: number) => string | null
@@ -84,7 +84,7 @@ export function AxisLabels({
     hideYAxis,
     axisColor = 'rgba(0, 0, 0, 0.5)',
 }: AxisLabelsProps): React.ReactElement | null {
-    const { scales, dimensions, labels } = useChart()
+    const { scales, dimensions, labels } = useChartLayout()
     const yTicks = scales.yTicks()
 
     const rightAxis = useMemo(() => {

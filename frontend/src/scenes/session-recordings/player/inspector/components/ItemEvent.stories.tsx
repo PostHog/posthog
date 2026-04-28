@@ -19,7 +19,9 @@ const meta: Meta<ItemEventProps> = {
     component: ItemEvent,
     decorators: [
         mswDecorator({
-            get: {},
+            get: {
+                '/api/projects/:project_id/event_definitions/promoted_properties/': { promoted_properties: {} },
+            },
         }),
     ],
     parameters: {
@@ -103,8 +105,32 @@ export const PageViewWithPath: Story = {
 export const PageViewWithCurrentURL: Story = {
     render: renderBasic as any,
     args: {
-        item: makeItem({}, { event: '$pageview' }, { $current_url: 'https://my-site.io/some/path' }),
+        item: makeItem(
+            {},
+            { event: '$pageview' },
+            { $pathname: '/some/path', $current_url: 'https://my-site.io/some/path' }
+        ),
     },
+}
+
+export const CustomEventWithPromotedProperty: Story = {
+    render: renderBasic as any,
+    args: {
+        item: makeItem(
+            {},
+            { event: 'order_placed' },
+            { order_id: 'ord_12345', customer_email: 'buyer@example.com', total_usd: 42.5 }
+        ),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:project_id/event_definitions/promoted_properties/': {
+                    promoted_properties: { order_placed: 'order_id' },
+                },
+            },
+        }),
+    ],
 }
 
 export const ErrorEvent: Story = {
