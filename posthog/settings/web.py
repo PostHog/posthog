@@ -69,6 +69,7 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
+    "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
 ]
 
 INSTALLED_APPS = [
@@ -200,7 +201,7 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 # Authentication
 
 AUTHENTICATION_BACKENDS: list[str] = [
-    "axes.backends.AxesBackend",
+    "axes.backends.AxesStandaloneBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
@@ -376,16 +377,105 @@ SPECTACULAR_SETTINGS = {
         "posthog.api.documentation.custom_postprocessing_hook",
     ],
     "ENUM_NAME_OVERRIDES": {
-        "DashboardRestrictionLevel": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
-        "PropertyGroupOperator": ["AND", "OR"],
-        "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
+        # Overrides fall into two categories depending on how drf-spectacular hashes them:
+        #
+        # 1. Model class paths — used for ChoiceField-backed enums where drf-spectacular
+        #    injects x-spec-enum-id from (value, label) tuples.  The override must point
+        #    to the same Choices/Enum class so _load_enum_name_overrides hashes identically.
+        #
+        # 2. Inline value lists — used for Enum type-hint enums (SerializerMethodField
+        #    return types) where there is NO x-spec-enum-id.  Postprocessing hashes these
+        #    as (value, value) tuples, so the override must also be a plain value list
+        #    (which _load_enum_name_overrides normalizes to (value, value)).
+        #
+        # Getting this wrong means the override hash doesn't match and the warning persists.
+        # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
+        "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
         "ConversationStatus": "ee.models.assistant.Conversation.Status",
         "ConversationType": "ee.models.assistant.Conversation.Type",
-        # Shared by LogsAlertConfigurationSerializer.state and LogsAlertStateIntervalSerializer.state
-        # — without this override drf-spectacular collapses the two usages to an auto-named enum.
+        "DetailModeEnum": "products.llm_analytics.backend.summarization.models.SummarizationMode",
+        "SavedQueryStatusEnum": "products.data_warehouse.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
+        "DesktopRecordingStatusEnum": "products.desktop_recordings.backend.models.DesktopRecording.Status",
+        "MeetingPlatformEnum": "products.desktop_recordings.backend.models.DesktopRecording.Platform",
+        "PropertyDefinitionTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
+        "ExternalDataSourceTypeEnum": "products.data_warehouse.backend.types.ExternalDataSourceType",
+        "ExperimentMetricKindEnum": "products.llm_analytics.backend.models.score_definitions.ScoreDefinition.Kind",
+        "IntegrationKindEnum": "posthog.models.integration.Integration.IntegrationKind",
+        "LLMProviderEnum": "products.llm_analytics.backend.models.provider_keys.LLMProvider",
+        "HogFlowStatusEnum": "posthog.models.hog_flow.hog_flow.HogFlow.State",
+        "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
+        "PropertyGroupOperator": ["AND", "OR"],
+        "PropertyFilterTypeEnum": [
+            "event",
+            "event_metadata",
+            "feature",
+            "person",
+            "cohort",
+            "element",
+            "static-cohort",
+            "dynamic-cohort",
+            "precalculated-cohort",
+            "group",
+            "recording",
+            "log_entry",
+            "behavioral",
+            "session",
+            "hogql",
+            "data_warehouse",
+            "data_warehouse_person_property",
+            "error_tracking_issue",
+            "log",
+            "log_attribute",
+            "log_resource_attribute",
+            "span",
+            "span_attribute",
+            "span_resource_attribute",
+            "revenue_analytics",
+            "flag",
+            "workflow_variable",
+        ],
+        "AssigneeTypeEnum": ["user", "role"],
+        "PropertyGroupTypeEnum": ["cohort", "person", "group"],
+        "ExistenceOperatorEnum": ["is_set", "is_not_set"],
+        "TaskExecutionModeEnum": ["interactive", "background"],
+        "HogFunctionTemplatingEnum": ["hog", "liquid"],
+        "SourceMatchEnum": ["none", "auto", "mapped"],
+        "NotificationDestinationTypeEnum": ["slack", "webhook"],
+        "TaskRunArtifactTypeEnum": [
+            "plan",
+            "context",
+            "reference",
+            "output",
+            "artifact",
+            "tree_snapshot",
+            "user_attachment",
+        ],
+        # Same-value collisions: identical choice sets appear on fields with different names.
+        # href_matching, text_matching, url_matching on ActionStep all share the same choices.
+        "ActionStepMatchingEnum": ["contains", "regex", "exact"],
+        # effective_restriction_level and effective_privilege_level are SerializerMethodFields
+        # returning Dashboard.RestrictionLevel/PrivilegeLevel (IntegerChoices).  Since they
+        # go through the type-hint path (no x-spec-enum-id), they hash as (value, value).
+        "EffectivePrivilegeLevelEnum": [(21, 21), (37, 37)],
+        # effective_membership_level and level on OrganizationMember use the same int values.
+        "EffectiveMembershipLevelEnum": [(1, 1), (8, 8), (15, 15)],
+        # descriptionContentType and thankYouMessageDescriptionContentType share values.
+        "DescriptionContentTypeEnum": ["text", "html"],
+        # Field-name collisions: multiple different choice sets use the same field name
+        # across different serializer components.
+        "StringMatchOperatorEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        "DateOperatorEnum": ["is_date_exact", "is_date_before", "is_date_after"],
+        "DetailModeValueEnum": ["minimal", "detailed"],
         "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
+        # runtime_adapter on TaskRunCreateRequestSerializer (full set) vs
+        # ClaudeTaskRunCreateSchemaSerializer and CodexTaskRunCreateSchemaSerializer (subsets).
+        "RuntimeAdapterEnum": ["claude", "codex"],
+        "ClaudeRuntimeAdapterEnum": ["claude"],
+        "CodexRuntimeAdapterEnum": ["codex"],
     },
 }
 

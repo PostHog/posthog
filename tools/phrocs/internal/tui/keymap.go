@@ -109,8 +109,8 @@ func defaultKeyMap() keyMap {
 			key.WithHelp("↑:", "prev match"),
 		),
 		CommitFilter: key.NewBinding(
-			key.WithKeys("enter"),
-			key.WithHelp("↵:", "filter"),
+			key.WithKeys("tab"),
+			key.WithHelp("↹:", "filter"),
 		),
 		ToggleFilter: key.NewBinding(
 			key.WithKeys("tab"),

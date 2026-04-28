@@ -254,6 +254,19 @@ export class ApiClient {
                         throw new Error(`Validation error: ${detail}${attr}`)
                     }
 
+                    if (response.status === 404) {
+                        const experimentMatch = /\/experiments\/(\d+)/.exec(url)
+                        if (experimentMatch) {
+                            const experimentId = experimentMatch[1]
+                            console.error(`[API] Experiment ${experimentId} not found on ${method} ${url}`)
+                            throw new Error(
+                                `Experiment ${experimentId} not found in this project. ` +
+                                    `If the id is correct, the experiment may belong to a different project — ` +
+                                    `call experiment-list to see experiments accessible with your current API key and project, or switch-project first.`
+                            )
+                        }
+                    }
+
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
                     throw new Error(
                         `Request failed:\nURL: ${method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
@@ -949,7 +962,7 @@ export class ApiClient {
                         const recordingLinks = (row[2] ?? [])
                             .map((r: any) => r.session_id)
                             .filter(Boolean)
-                            .map((sessionId: string) => `${baseUrl}/replay/home?sessionRecordingId=${sessionId}`)
+                            .map((sessionId: string) => `${baseUrl}/replay/${sessionId}`)
                         return [...base, recordingLinks]
                     }
                     return base

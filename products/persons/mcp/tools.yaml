@@ -9,6 +9,7 @@ feature: persons
 url_prefix: /persons
 ui_apps: {}
 tools:
+    
     cohorts-persons-retrieve:
         operation: cohorts_persons_retrieve
         enabled: false
@@ -192,3 +193,6 @@ tools:
         exclude_params:
             - format
             - force_refresh
+    persons-all-activity-retrieve:
+        operation: persons_all_activity_retrieve
+        enabled: false

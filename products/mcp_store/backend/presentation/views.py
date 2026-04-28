@@ -8,7 +8,7 @@ from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Count, Q, QuerySet
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 
@@ -127,10 +127,28 @@ def _get_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL}/api/mcp_store/oauth_redirect/"
 
 
+def _template_uses_dcr(template: MCPServerTemplate) -> bool:
+    """Is this template configured for per-user Dynamic Client Registration?
+
+    DCR templates intentionally have no shared ``oauth_credentials.client_id``:
+    every user who installs the template mints their own client against the
+    provider (same quarantine property as custom OAuth installs). The backend
+    detects this implicitly — the user-facing ``auth_type`` stays ``"oauth"``
+    so neither the API nor the UI needs to know about DCR as a concept.
+
+    Operators seed a DCR template by populating (name, url, oauth_metadata,
+    icon, category, docs_url) and leaving ``oauth_credentials`` empty.
+    """
+    if template.auth_type != "oauth":
+        return False
+    credentials = template.oauth_credentials or {}
+    return not credentials.get("client_id")
+
+
 class MCPServerTemplateSerializer(serializers.ModelSerializer):
     class Meta:
         model = MCPServerTemplate
-        fields = ["id", "name", "url", "description", "auth_type", "icon_key"]
+        fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "category"]
 
 
 @extend_schema(tags=["mcp_store"])
@@ -159,7 +177,16 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
+    icon_key = serializers.CharField(
+        source="template.icon_key",
+        read_only=True,
+        default="",
+        help_text="Lowercase key from the linked template for brand icons. Empty if custom install (no template).",
+    )
     proxy_url = serializers.SerializerMethodField()
+    tool_count = serializers.SerializerMethodField(
+        help_text="Number of live (non-removed) tools exposed by this installation."
+    )
 
     class Meta:
         model = MCPServerInstallation
@@ -167,6 +194,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "id",
             "template_id",
             "name",
+            "icon_key",
             "display_name",
             "url",
             "description",
@@ -175,10 +203,19 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "needs_reauth",
             "pending_oauth",
             "proxy_url",
+            "tool_count",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "template_id", "created_at", "updated_at"]
+        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count"]
+
+    def get_tool_count(self, obj: MCPServerInstallation) -> int:
+        # Prefer the annotation to avoid N+1 on list; fall back to a direct
+        # query for single-object endpoints (install/get_or_create paths).
+        annotated = getattr(obj, "tool_count_annotated", None)
+        if annotated is not None:
+            return annotated
+        return obj.tools.filter(removed_at__isnull=True).count()
 
     def get_name(self, obj: MCPServerInstallation) -> str:
         if obj.display_name:
@@ -341,6 +378,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return (
             queryset.filter(team_id=self.team_id, user=self.request.user)
             .select_related("template")
+            .annotate(tool_count_annotated=Count("tools", filter=Q(tools__removed_at__isnull=True)))
             .order_by("-created_at")
         )
 
@@ -523,18 +561,74 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             result = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
             return Response(result.data, status=status.HTTP_201_CREATED)
 
-        # OAuth template install — use the shared client credentials.
-        credentials = template.oauth_credentials or {}
-        client_id = credentials.get("client_id", "")
-        if not client_id or not template.oauth_metadata:
-            if created:
-                installation.delete()
-            return Response(
-                {"detail": "Template is missing OAuth credentials"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+        # OAuth template install — resolve metadata and client credentials.
+        # Shared-creds templates require admin-seeded metadata and a shared
+        # client_id. DCR templates require neither: we discover metadata
+        # fresh at install time (same as custom installs) and mint a per-user
+        # client against the provider. Never written back to the template —
+        # the install-flow discovery result lives only on this installation,
+        # so a first-installer can't poison template state for other users.
         redirect_uri = _get_oauth_redirect_uri()
+        if _template_uses_dcr(template):
+            try:
+                metadata = discover_oauth_metadata(template.url)
+            except Exception as e:
+                logger.exception(
+                    "OAuth discovery failed for DCR template",
+                    template_id=str(template.id),
+                    server_url=template.url,
+                    error=str(e),
+                )
+                if created:
+                    installation.delete()
+                return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                client_id = self._register_dcr_client_or_raise(
+                    metadata,
+                    redirect_uri,
+                    server_url=template.url,
+                )
+            except DCRNotSupportedError:
+                if created:
+                    installation.delete()
+                return Response(
+                    {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            except DCRRegistrationFailedError:
+                if created:
+                    installation.delete()
+                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Cache the discovered metadata and minted per-user client on the
+            # installation so reconnect/refresh can reuse them. Nothing is
+            # written back to the template.
+            sensitive = dict(installation.sensitive_configuration or {})
+            sensitive["dcr_client_id"] = client_id
+            sensitive["dcr_is_user_provided"] = False
+            installation.oauth_metadata = metadata
+            installation.sensitive_configuration = sensitive
+            installation.save(update_fields=["oauth_metadata", "sensitive_configuration", "updated_at"])
+            logger.info(
+                "DCR client registered for template install",
+                installation_id=str(installation.id),
+                template_id=str(template.id),
+                team_id=self.team_id,
+            )
+        else:
+            # Shared-creds template: admin-seeded metadata + shared client_id.
+            if not template.oauth_metadata:
+                if created:
+                    installation.delete()
+                return Response(
+                    {"detail": "Template is missing OAuth metadata"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            metadata = template.oauth_metadata
+            # _template_uses_dcr guarantees client_id is present here.
+            client_id = template.oauth_credentials["client_id"]
+
         code_verifier, code_challenge = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
@@ -549,7 +643,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         try:
             authorize_url = self._build_authorize_url_from_metadata(
-                metadata=template.oauth_metadata,
+                metadata=metadata,
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state_token=token,
@@ -844,11 +938,6 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except MCPServerTemplate.DoesNotExist:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        credentials = template.oauth_credentials or {}
-        client_id = credentials.get("client_id", "")
-        if not client_id or not template.oauth_metadata:
-            return Response({"detail": "Template missing OAuth credentials"}, status=status.HTTP_400_BAD_REQUEST)
-
         installation, _ = MCPServerInstallation.objects.get_or_create(
             team_id=self.team_id,
             user=cast(User, request.user),
@@ -864,6 +953,40 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             installation.template = template
             installation.save(update_fields=["template", "updated_at"])
 
+        # Resolve the metadata + client_id the authorize URL needs.
+        # Shared-creds templates: admin-seeded template fields.
+        # DCR templates: per-installation state cached during install. If it's
+        # missing (rare — implies an install was interrupted), discover fresh
+        # from the MCP server URL rather than making the user reinstall.
+        if _template_uses_dcr(template):
+            sensitive = installation.sensitive_configuration or {}
+            client_id = sensitive.get("dcr_client_id", "")
+            if not client_id:
+                return Response(
+                    {"detail": "Installation is missing OAuth state — reinstall the server"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            metadata = installation.oauth_metadata or {}
+            if not metadata:
+                try:
+                    metadata = discover_oauth_metadata(template.url)
+                except Exception as e:
+                    logger.exception(
+                        "OAuth discovery failed during DCR template reconnect",
+                        template_id=str(template.id),
+                        server_url=template.url,
+                        error=str(e),
+                    )
+                    return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
+                installation.oauth_metadata = metadata
+                installation.save(update_fields=["oauth_metadata", "updated_at"])
+        else:
+            if not template.oauth_metadata:
+                return Response({"detail": "Template missing OAuth metadata"}, status=status.HTTP_400_BAD_REQUEST)
+            metadata = template.oauth_metadata
+            # _template_uses_dcr guarantees client_id is present here.
+            client_id = template.oauth_credentials["client_id"]
+
         redirect_uri = _get_oauth_redirect_uri()
         code_verifier, code_challenge = generate_pkce()
         token = secrets.token_urlsafe(32)
@@ -878,7 +1001,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         )
         try:
             authorize_url = self._build_authorize_url_from_metadata(
-                metadata=template.oauth_metadata,
+                metadata=metadata,
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state_token=token,

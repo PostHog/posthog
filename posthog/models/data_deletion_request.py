@@ -114,7 +114,7 @@ class DataDeletionRequest(UUIDModel):
     team_id = models.IntegerField()
     request_type = models.CharField(
         max_length=40,
-        choices=RequestType.choices,
+        choices=RequestType,
         help_text="property_removal: remove specific properties from matching events. "
         "event_removal: delete entire events matching the criteria.",
     )
@@ -150,7 +150,7 @@ class DataDeletionRequest(UUIDModel):
     person_drop_events = models.BooleanField(null=True, blank=True, help_text="Drop event records related to persons.")
     person_drop_recordings = models.BooleanField(null=True, blank=True, help_text="Drop person recordings.")
 
-    status = models.CharField(max_length=40, choices=RequestStatus.choices, default=RequestStatus.DRAFT)
+    status = models.CharField(max_length=40, choices=RequestStatus, default=RequestStatus.DRAFT)
 
     # Stats (populated by ClickHouse query)
     count = models.BigIntegerField(null=True, blank=True, help_text="Number of events matching criteria")

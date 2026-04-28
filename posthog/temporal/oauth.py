@@ -65,12 +65,13 @@ PosthogMcpScopes = McpScopePreset | list[str]
 MCP_SCOPE_PRESETS = ("read_only", "full")
 
 
-def resolve_scopes(scopes: PosthogMcpScopes = "read_only") -> list[str]:
+def resolve_scopes(scopes: PosthogMcpScopes = "read_only", *, include_internal_scopes: bool = True) -> list[str]:
+    internal = list(INTERNAL_SCOPES) if include_internal_scopes else []
     if isinstance(scopes, str):
         if scopes == "full":
-            return [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *INTERNAL_SCOPES]
-        return [*MCP_READ_SCOPES, *INTERNAL_SCOPES]
-    return [*scopes, *INTERNAL_SCOPES]
+            return [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal]
+        return [*MCP_READ_SCOPES, *internal]
+    return [*scopes, *internal]
 
 
 def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
@@ -94,8 +95,14 @@ def get_array_app() -> OAuthApplication:
         raise RuntimeError(f"Array app not found for region {region} (client_id={client_id})") from err
 
 
-def create_oauth_access_token_for_user(user, team_id: int, *, scopes: PosthogMcpScopes = "read_only") -> str:
-    resolved = resolve_scopes(scopes)
+def create_oauth_access_token_for_user(
+    user,
+    team_id: int,
+    *,
+    scopes: PosthogMcpScopes = "read_only",
+    include_internal_scopes: bool = True,
+) -> str:
+    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
     app = get_array_app()
     token_value = generate_random_oauth_access_token(None)
 

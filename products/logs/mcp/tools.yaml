@@ -9,6 +9,7 @@ feature: logs
 url_prefix: /logs
 ui_apps: {}
 tools:
+    
     batch-exports-logs-retrieve:
         operation: batch_exports_logs_retrieve
         enabled: false
@@ -309,9 +310,24 @@ tools:
             idempotent: true
         title: Query logs
         description_file: ./prompts/query-logs.md
+        system_prompt_hint: Log filtering by severity/service/attribute
         response:
             include:
                 - results
     tasks-runs-logs-retrieve:
         operation: tasks_runs_logs_retrieve
         enabled: false
+    logs-count:
+        operation: logs_count_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Count logs
+        description_file: ./prompts/logs-count.md
+        response:
+            include:
+                - count

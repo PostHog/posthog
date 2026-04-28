@@ -29,7 +29,6 @@ tools:
             idempotent: false
         title: Add persons to static cohort
         description: |
-            Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
     cohorts-calculation-history-retrieve:
         operation: cohorts_calculation_history_retrieve
         enabled: false
@@ -157,4 +156,7 @@ tools:
         enabled: false
     persons-cohorts-retrieve:
         operation: persons_cohorts_retrieve
+        enabled: false
+    cohorts-all-activity-retrieve:
+        operation: cohorts_all_activity_retrieve
         enabled: false

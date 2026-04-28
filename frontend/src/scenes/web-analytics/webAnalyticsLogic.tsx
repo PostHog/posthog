@@ -25,6 +25,7 @@ import {
 } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -79,6 +80,7 @@ import {
 
 import {
     ActiveHoursTab,
+    BOT_ANALYTICS_EVENTS,
     BotTrafficFilter,
     ConversionGoalWarning,
     DeviceTab,
@@ -126,8 +128,6 @@ export interface DateFilterState {
     isIntervalManuallySet: boolean
 }
 
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     path(['scenes', 'webAnalytics', 'webAnalyticsSceneLogic']),
     connect(() => ({
@@ -214,6 +214,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setBotTrafficFilter: (botTrafficFilter: BotTrafficFilter) => ({ botTrafficFilter }),
         setBotTrendsTab: (tab: string) => ({ tab }),
+        setBotDetailName: (botDetailName: string | null) => ({ botDetailName }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -275,242 +276,252 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         },
     })),
-    reducers({
-        surveyModalPath: [
-            null as string | null,
-            {
-                openSurveyModal: (_, { path }) => path,
-                closeSurveyModal: () => null,
-            },
-        ],
-        _graphsTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setGraphsTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
-                setConversionGoal: (oldTab, { conversionGoal }) => {
-                    if (conversionGoal) {
-                        return GraphsTab.UNIQUE_CONVERSIONS
-                    }
-                    return oldTab
+    reducers(() => {
+        const persistConfig = { persist: true, prefix: `${getCurrentTeamId()}__` }
+        return {
+            surveyModalPath: [
+                null as string | null,
+                {
+                    openSurveyModal: (_, { path }) => path,
+                    closeSurveyModal: () => null,
                 },
-            },
-        ],
-        _sourceTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setSourceTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.sourceTab || oldTab,
-            },
-        ],
-        _deviceTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setDeviceTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.deviceTab || oldTab,
-            },
-        ],
-        _pathTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setPathTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.pathTab || oldTab,
-            },
-        ],
-        _geographyTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setGeographyTab: (_, { tab }) => tab,
-                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
-            },
-        ],
-        _activeHoursTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setActiveHoursTab: (_, { tab }) => tab,
-            },
-        ],
-        _isPathCleaningEnabled: [
-            true as boolean,
-            persistConfig,
-            {
-                setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
-                clearFilters: () => true,
-            },
-        ],
-        tablesOrderBy: [
-            null as WebAnalyticsOrderBy | null,
-            persistConfig,
-            {
-                setTablesOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
-                clearTablesOrderBy: () => null,
+            ],
+            _graphsTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setGraphsTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
+                    setConversionGoal: (oldTab, { conversionGoal }) => {
+                        if (conversionGoal) {
+                            return GraphsTab.UNIQUE_CONVERSIONS
+                        }
+                        return oldTab
+                    },
+                },
+            ],
+            _sourceTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setSourceTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.sourceTab || oldTab,
+                },
+            ],
+            _deviceTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setDeviceTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.deviceTab || oldTab,
+                },
+            ],
+            _pathTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setPathTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.pathTab || oldTab,
+                },
+            ],
+            _geographyTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setGeographyTab: (_, { tab }) => tab,
+                    togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
+                },
+            ],
+            _activeHoursTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setActiveHoursTab: (_, { tab }) => tab,
+                },
+            ],
+            _isPathCleaningEnabled: [
+                true as boolean,
+                persistConfig,
+                {
+                    setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
+                    clearFilters: () => true,
+                },
+            ],
+            tablesOrderBy: [
+                null as WebAnalyticsOrderBy | null,
+                persistConfig,
+                {
+                    setTablesOrderBy: (_, { orderBy, direction }) => [orderBy, direction],
+                    clearTablesOrderBy: () => null,
 
-                // Reset the order by when the conversion goal changes because most of the columns are different
-                setConversionGoal: () => null,
-            },
-        ],
-        dateFilter: [
-            {
-                dateFrom: INITIAL_DATE_FROM,
-                dateTo: INITIAL_DATE_TO,
-                interval: INITIAL_INTERVAL,
-                isIntervalManuallySet: false,
-            } as DateFilterState,
-            persistConfig,
-            {
-                setDates: ({ interval, isIntervalManuallySet }, { dateTo, dateFrom }) => {
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval: isIntervalManuallySet ? interval : getDefaultInterval(dateFrom, dateTo),
-                        isIntervalManuallySet,
-                    }
+                    // Reset the order by when the conversion goal changes because most of the columns are different
+                    setConversionGoal: () => null,
                 },
-                setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
-                    dateTo,
-                    dateFrom,
-                    interval,
-                    isIntervalManuallySet: true,
-                }),
-                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
-                    if (!dateFrom && !dateTo) {
-                        dateFrom = INITIAL_DATE_FROM
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
-                        dateFrom = INITIAL_DATE_FROM
-                    }
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval: interval || getDefaultInterval(dateFrom, dateTo),
-                        isIntervalManuallySet: !!interval,
-                    }
-                },
-                clearFilters: () => ({
+            ],
+            dateFilter: [
+                {
                     dateFrom: INITIAL_DATE_FROM,
                     dateTo: INITIAL_DATE_TO,
                     interval: INITIAL_INTERVAL,
                     isIntervalManuallySet: false,
-                }),
-            },
-        ],
-        preZoomDateFilter: [
-            null as { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null,
-            {
-                setPreZoomDateFilter: (_, { filter }) => filter,
-                setDates: () => null,
-                setDateInterval: () => null,
-                clearFilters: () => null,
-            },
-        ],
-        shouldFilterTestAccounts: [
-            false as boolean,
-            persistConfig,
-            {
-                setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
-                clearFilters: () => false,
-            },
-        ],
-        botTrafficFilter: [
-            'regular' as BotTrafficFilter,
-            persistConfig,
-            {
-                setBotTrafficFilter: (_, { botTrafficFilter }) => botTrafficFilter,
-                clearFilters: () => 'regular' as BotTrafficFilter,
-            },
-        ],
-        _botTrendsTab: [
-            null as string | null,
-            persistConfig,
-            {
-                setBotTrendsTab: (_, { tab }) => tab,
-            },
-        ],
-        shouldStripQueryParams: [
-            false as boolean,
-            persistConfig,
-            {
-                setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
-            },
-        ],
-        includeHostPath: [
-            false as boolean,
-            persistConfig,
-            {
-                setIncludeHostPath: (_, { includeHostPath }) => includeHostPath,
-            },
-        ],
-        conversionGoal: [
-            null as WebAnalyticsConversionGoal | null,
-            persistConfig,
-            {
-                setConversionGoal: (_, { conversionGoal }) => conversionGoal,
-                clearFilters: () => null,
-            },
-        ],
-        conversionGoalWarning: [
-            null as ConversionGoalWarning | null,
-            {
-                setConversionGoalWarning: (_, { warning }) => warning,
-            },
-        ],
-        productTab: [
-            ProductTab.ANALYTICS as ProductTab,
-            {
-                setProductTab: (_, { tab }) => tab,
-            },
-        ],
-        webVitalsPercentile: [
-            PropertyMathType.P90 as WebVitalsPercentile,
-            persistConfig,
-            {
-                setWebVitalsPercentile: (_, { percentile }) => percentile,
-            },
-        ],
-        webVitalsTab: [
-            'INP' as WebVitalsMetric,
-            {
-                setWebVitalsTab: (_, { tab }) => tab,
-            },
-        ],
-        tileVisualizations: [
-            {} as Record<TileId, TileVisualizationOption>,
-            {
-                setTileVisualization: (state, { tileId, visualization }) => ({
-                    ...state,
-                    [tileId]: visualization,
-                }),
-            },
-        ],
-        hiddenTiles: [
-            [] as TileId[],
-            persistConfig,
-            {
-                setTileVisibility: (state, { tileId, visible }) => {
-                    if (visible) {
-                        return state.filter((id) => id !== tileId)
-                    }
-                    return state.includes(tileId) ? state : [...state, tileId]
+                } as DateFilterState,
+                persistConfig,
+                {
+                    setDates: ({ interval, isIntervalManuallySet }, { dateTo, dateFrom }) => {
+                        if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                            dateFrom = INITIAL_DATE_FROM
+                        }
+                        return {
+                            dateTo,
+                            dateFrom,
+                            interval: isIntervalManuallySet ? interval : getDefaultInterval(dateFrom, dateTo),
+                            isIntervalManuallySet,
+                        }
+                    },
+                    setDateInterval: ({ dateFrom, dateTo }, { interval }) => ({
+                        dateTo,
+                        dateFrom,
+                        interval,
+                        isIntervalManuallySet: true,
+                    }),
+                    setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
+                        if (!dateFrom && !dateTo) {
+                            dateFrom = INITIAL_DATE_FROM
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateTo && !isValidRelativeOrAbsoluteDate(dateTo)) {
+                            dateTo = INITIAL_DATE_TO
+                        }
+                        if (dateFrom && !isValidRelativeOrAbsoluteDate(dateFrom)) {
+                            dateFrom = INITIAL_DATE_FROM
+                        }
+                        return {
+                            dateTo,
+                            dateFrom,
+                            interval: interval || getDefaultInterval(dateFrom, dateTo),
+                            isIntervalManuallySet: !!interval,
+                        }
+                    },
+                    clearFilters: () => ({
+                        dateFrom: INITIAL_DATE_FROM,
+                        dateTo: INITIAL_DATE_TO,
+                        interval: INITIAL_INTERVAL,
+                        isIntervalManuallySet: false,
+                    }),
                 },
-                resetTileVisibility: () => [],
-            },
-        ],
+            ],
+            preZoomDateFilter: [
+                null as { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null,
+                {
+                    setPreZoomDateFilter: (_, { filter }) => filter,
+                    setDates: () => null,
+                    setDateInterval: () => null,
+                    clearFilters: () => null,
+                },
+            ],
+            shouldFilterTestAccounts: [
+                false as boolean,
+                persistConfig,
+                {
+                    setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
+                    clearFilters: () => false,
+                },
+            ],
+            botTrafficFilter: [
+                'regular' as BotTrafficFilter,
+                persistConfig,
+                {
+                    setBotTrafficFilter: (_, { botTrafficFilter }) => botTrafficFilter,
+                    clearFilters: () => 'regular' as BotTrafficFilter,
+                },
+            ],
+            _botTrendsTab: [
+                null as string | null,
+                persistConfig,
+                {
+                    setBotTrendsTab: (_, { tab }) => tab,
+                },
+            ],
+            botDetailName: [
+                null as string | null,
+                {
+                    setBotDetailName: (_, { botDetailName }) => botDetailName,
+                    setProductTab: () => null,
+                },
+            ],
+            shouldStripQueryParams: [
+                false as boolean,
+                persistConfig,
+                {
+                    setShouldStripQueryParams: (_, { shouldStripQueryParams }) => shouldStripQueryParams,
+                },
+            ],
+            includeHostPath: [
+                false as boolean,
+                persistConfig,
+                {
+                    setIncludeHostPath: (_, { includeHostPath }) => includeHostPath,
+                },
+            ],
+            conversionGoal: [
+                null as WebAnalyticsConversionGoal | null,
+                persistConfig,
+                {
+                    setConversionGoal: (_, { conversionGoal }) => conversionGoal,
+                    clearFilters: () => null,
+                },
+            ],
+            conversionGoalWarning: [
+                null as ConversionGoalWarning | null,
+                {
+                    setConversionGoalWarning: (_, { warning }) => warning,
+                },
+            ],
+            productTab: [
+                ProductTab.ANALYTICS as ProductTab,
+                {
+                    setProductTab: (_, { tab }) => tab,
+                },
+            ],
+            webVitalsPercentile: [
+                PropertyMathType.P90 as WebVitalsPercentile,
+                persistConfig,
+                {
+                    setWebVitalsPercentile: (_, { percentile }) => percentile,
+                },
+            ],
+            webVitalsTab: [
+                'INP' as WebVitalsMetric,
+                {
+                    setWebVitalsTab: (_, { tab }) => tab,
+                },
+            ],
+            tileVisualizations: [
+                {} as Record<TileId, TileVisualizationOption>,
+                {
+                    setTileVisualization: (state, { tileId, visualization }) => ({
+                        ...state,
+                        [tileId]: visualization,
+                    }),
+                },
+            ],
+            hiddenTiles: [
+                [] as TileId[],
+                persistConfig,
+                {
+                    setTileVisibility: (state, { tileId, visible }) => {
+                        if (visible) {
+                            return state.filter((id) => id !== tileId)
+                        }
+                        return state.includes(tileId) ? state : [...state, tileId]
+                    },
+                    resetTileVisibility: () => [],
+                },
+            ],
+        }
     }),
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
@@ -658,6 +669,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 key: '$virt_is_bot',
                                 value: ['true'],
                                 operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                            {
+                                // Exclude events with no user agent — these are missing data, not confirmed bots
+                                key: '$virt_traffic_category',
+                                value: ['no_user_agent'],
+                                operator: PropertyOperator.IsNot,
                                 type: PropertyFilterType.Event,
                             },
                         ]
@@ -2275,49 +2293,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             operator: PropertyOperator.Exact,
                             type: PropertyFilterType.Event,
                         },
-                    ]
-
-                    const AI_REFERRER_DOMAINS = [
-                        'chatgpt.com',
-                        'openai.com',
-                        'perplexity.ai',
-                        'claude.ai',
-                        'anthropic.com',
-                        'you.com',
-                        'phind.com',
-                        'gemini.google.com',
+                        {
+                            key: '$virt_bot_name',
+                            value: [''],
+                            operator: PropertyOperator.IsNot,
+                            type: PropertyFilterType.Event,
+                        },
                     ]
 
                     const botTiles: (WebAnalyticsTile | null)[] = [
-                        {
-                            kind: 'query',
-                            tileId: TileId.BOT_OVERVIEW,
-                            title: 'Bot traffic overview',
-                            layout: {
-                                colSpanClassName: 'md:col-span-full',
-                            },
-                            query: {
-                                kind: NodeKind.WebOverviewQuery,
-                                properties: botFilters,
-                                dateRange,
-                                compareFilter,
-                                sampling,
-                                filterTestAccounts,
-                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                            },
-                            insightProps: createInsightProps(TileId.BOT_OVERVIEW),
-                            canOpenInsight: false,
-                        },
                         (() => {
-                            const botTrendsSeries = [
-                                {
-                                    event: '$pageview',
-                                    kind: NodeKind.EventsNode as const,
-                                    math: BaseMathType.TotalCount,
-                                    name: 'Pageview',
-                                    custom_name: 'Requests',
-                                },
-                            ]
+                            const botTrendsSeries = BOT_ANALYTICS_EVENTS.map((event) => ({
+                                event,
+                                kind: NodeKind.EventsNode as const,
+                                math: BaseMathType.TotalCount,
+                                name: event,
+                                custom_name: 'Requests',
+                            }))
                             const createBotTrendsTab = (
                                 id: string,
                                 title: string,
@@ -2332,7 +2324,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     source: {
                                         kind: NodeKind.TrendsQuery,
                                         dateRange,
-                                        interval,
+                                        interval: interval ?? 'hour',
                                         series: botTrendsSeries,
                                         trendsFilter: {
                                             display: ChartDisplayType.ActionsLineGraph,
@@ -2343,7 +2335,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         },
                                         properties: botFilters,
                                         filterTestAccounts,
-                                        compareFilter,
                                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                     },
                                     hidePersonsModal: true,
@@ -2351,6 +2342,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 insightProps: createInsightProps(TileId.BOT_TRENDS, id),
                                 canOpenInsight: true,
+                                showIntervalSelect: true,
                             })
                             return {
                                 kind: 'tabs' as const,
@@ -2369,10 +2361,48 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         })(),
                         {
                             kind: 'query',
+                            tileId: TileId.BOT_CRAWLERS,
+                            title: 'Crawlers',
+                            layout: {
+                                colSpanClassName: 'md:col-span-full',
+                            },
+                            query: {
+                                full: true,
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.HogQLQuery,
+                                    query: `SELECT
+    \`$virt_bot_name\` AS "Crawler",
+    \`$virt_traffic_category\` AS "Category",
+    count() AS "Requests",
+    max(timestamp) AS "Last seen"
+FROM events
+WHERE \`$virt_is_bot\` = true
+    AND \`$virt_bot_name\` != ''
+    AND event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})
+    AND {filters}
+GROUP BY "Crawler", "Category"
+ORDER BY "Requests" DESC
+LIMIT 50`,
+                                    filters: {
+                                        dateRange,
+                                        properties: botFilters,
+                                        filterTestAccounts,
+                                    },
+                                },
+                                showActions: false,
+                                embedded: true,
+                            },
+                            insightProps: createInsightProps(TileId.BOT_CRAWLERS, 'table'),
+                            canOpenModal: false,
+                            canOpenInsight: false,
+                        },
+                        {
+                            kind: 'query',
                             tileId: TileId.BOT_PATHS,
                             title: 'Most crawled paths',
                             layout: {
-                                colSpanClassName: 'md:col-span-1',
+                                colSpanClassName: 'md:col-span-full',
                             },
                             query: {
                                 full: true,
@@ -2382,7 +2412,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     breakdownBy: WebStatsBreakdown.Page,
                                     properties: botFilters,
                                     dateRange,
-                                    compareFilter,
                                     sampling,
                                     limit: 10,
                                     orderBy: tablesOrderBy ?? undefined,
@@ -2390,122 +2419,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     doPathCleaning: isPathCleaningEnabled,
                                     tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 },
+                                columns: ['breakdown_value', 'visitors', 'views'],
                                 embedded: true,
-                                showActions: true,
+                                showActions: false,
                             },
                             insightProps: createInsightProps(TileId.BOT_PATHS, 'table'),
                             canOpenModal: true,
-                            canOpenInsight: true,
-                        },
-                        {
-                            kind: 'query',
-                            tileId: TileId.BOT_SOURCES,
-                            title: 'Bot referrer domains',
-                            layout: {
-                                colSpanClassName: 'md:col-span-1',
-                            },
-                            query: {
-                                full: true,
-                                kind: NodeKind.DataTableNode,
-                                source: {
-                                    kind: NodeKind.WebStatsTableQuery,
-                                    breakdownBy: WebStatsBreakdown.InitialReferringDomain,
-                                    properties: botFilters,
-                                    dateRange,
-                                    compareFilter,
-                                    sampling,
-                                    limit: 10,
-                                    orderBy: tablesOrderBy ?? undefined,
-                                    filterTestAccounts,
-                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                },
-                                embedded: true,
-                                showActions: true,
-                            },
-                            insightProps: createInsightProps(TileId.BOT_SOURCES, 'table'),
-                            canOpenModal: true,
-                            canOpenInsight: true,
-                        },
-                        {
-                            kind: 'query',
-                            tileId: TileId.BOT_AI_REFERRALS,
-                            title: 'AI referral traffic',
-                            layout: {
-                                colSpanClassName: 'md:col-span-1',
-                            },
-                            query: {
-                                full: true,
-                                kind: NodeKind.DataTableNode,
-                                source: {
-                                    kind: NodeKind.WebStatsTableQuery,
-                                    breakdownBy: WebStatsBreakdown.InitialReferringDomain,
-                                    properties: [
-                                        {
-                                            key: '$entry_referring_domain',
-                                            value: AI_REFERRER_DOMAINS,
-                                            operator: PropertyOperator.Exact,
-                                            type: PropertyFilterType.Session,
-                                        },
-                                    ],
-                                    dateRange,
-                                    compareFilter,
-                                    sampling,
-                                    limit: 10,
-                                    filterTestAccounts,
-                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                },
-                                embedded: true,
-                                showActions: true,
-                            },
-                            insightProps: createInsightProps(TileId.BOT_AI_REFERRALS, 'table'),
-                            canOpenModal: true,
-                            canOpenInsight: true,
-                        },
-                        {
-                            kind: 'query',
-                            tileId: TileId.BOT_AI_ENGAGEMENT,
-                            title: 'AI referral engagement',
-                            layout: {
-                                colSpanClassName: 'md:col-span-1',
-                            },
-                            query: {
-                                kind: NodeKind.InsightVizNode,
-                                source: {
-                                    kind: NodeKind.TrendsQuery,
-                                    dateRange,
-                                    interval,
-                                    series: [
-                                        {
-                                            event: '$pageview',
-                                            kind: NodeKind.EventsNode,
-                                            math: BaseMathType.UniqueUsers,
-                                            name: 'Pageview',
-                                            custom_name: 'AI-referred visitors',
-                                        },
-                                    ],
-                                    trendsFilter: {
-                                        display: ChartDisplayType.ActionsLineGraph,
-                                    },
-                                    breakdownFilter: {
-                                        breakdown: '$entry_referring_domain',
-                                        breakdown_type: 'session',
-                                    },
-                                    properties: [
-                                        {
-                                            key: '$entry_referring_domain',
-                                            value: AI_REFERRER_DOMAINS,
-                                            operator: PropertyOperator.Exact,
-                                            type: PropertyFilterType.Session,
-                                        },
-                                    ],
-                                    filterTestAccounts,
-                                    compareFilter,
-                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                                },
-                                hidePersonsModal: true,
-                                embedded: true,
-                            },
-                            insightProps: createInsightProps(TileId.BOT_AI_ENGAGEMENT),
                             canOpenInsight: true,
                         },
                     ]
@@ -2557,6 +2476,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return urls.webAnalyticsHealth()
             } else if (productTab === ProductTab.LIVE) {
                 return '/web/live'
+            } else if (productTab === ProductTab.BOT_ANALYTICS) {
+                if (rawWebAnalyticsFilters.length > 0) {
+                    urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
+                }
+                if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
+                    urlParams.set('date_from', dateFrom ?? '')
+                    urlParams.set('date_to', dateTo ?? '')
+                    urlParams.set('interval', interval ?? '')
+                }
+                return `/web/bots${urlParams.toString() ? '?' + urlParams.toString() : ''}`
             }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
@@ -2633,8 +2562,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
-            } else if (productTab === ProductTab.BOT_ANALYTICS) {
-                basePath = '/web/bot-analytics'
             }
 
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
@@ -2790,7 +2717,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
         }
 
-        return { '/web': toAction, '/web/:productTab': toAction, '/web/page-reports': toAction }
+        return {
+            '/web': toAction,
+            '/web/page-reports': toAction,
+            '/web/bots': (_, searchParams) => {
+                toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
+                actions.setBotDetailName(null)
+            },
+            '/web/bots/:botName': (params, searchParams) => {
+                toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
+                if (params.botName) {
+                    actions.setBotDetailName(decodeURIComponent(params.botName))
+                }
+            },
+            '/web/:productTab': toAction,
+        }
     }),
 
     listeners(({ values, actions }) => {
@@ -2901,6 +2842,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 actions.cancelAllLoading()
                 if (tab === ProductTab.HEALTH) {
                     actions.trackTabViewed()
+                }
+                if (tab === ProductTab.BOT_ANALYTICS && values.dateFilter.dateFrom === INITIAL_DATE_FROM) {
+                    actions.setDates('-1d', null)
                 }
             },
             setGraphsTab: ({ tab }) => {

@@ -21,7 +21,7 @@ import IconSlack from 'public/services/slack.png'
 import IconWebhook from 'public/services/webhook.svg'
 
 import {
-    DestinationTypesEnumApi,
+    NotificationDestinationTypeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
     ThresholdOperatorEnumApi,
@@ -123,13 +123,13 @@ export function LogsAlertList(): JSX.Element {
                 return (
                     <div className="flex items-center gap-1">
                         <div className="flex gap-1">
-                            {types.includes(DestinationTypesEnumApi.Slack) && (
+                            {types.includes(NotificationDestinationTypeEnumApi.Slack) && (
                                 <LemonTag>
                                     <img src={IconSlack} alt="" className="h-3 w-3 object-contain" />
                                     Slack
                                 </LemonTag>
                             )}
-                            {types.includes(DestinationTypesEnumApi.Webhook) && (
+                            {types.includes(NotificationDestinationTypeEnumApi.Webhook) && (
                                 <LemonTag>
                                     <img src={IconWebhook} alt="" className="h-3 w-3 object-contain" />
                                     Webhook
