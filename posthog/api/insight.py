@@ -74,7 +74,6 @@ from posthog.hogql_queries.query_runner import (
     execution_mode_from_refresh,
     shared_insights_execution_mode,
 )
-from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import Cohort, Filter, Insight, User
 from posthog.models.activity_logging.activity_log import (
     Change,
@@ -103,7 +102,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
+from posthog.settings import SITE_URL
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import (
     filters_override_requested_by_client,
@@ -1914,30 +1913,6 @@ When set, the specified dashboard's filters and date range override will be appl
         if "client_query_id" not in request.data:
             raise serializers.ValidationError({"client_query_id": "Field is required."})
         cancel_query_on_cluster(team_id=self.team.pk, client_query_id=request.data["client_query_id"])
-        return Response(status=status.HTTP_201_CREATED)
-
-    @extend_schema(exclude=True)  # internal endpoint, not for public use
-    @action(methods=["POST"], detail=False)
-    def timing(self, request: request.Request, **kwargs):
-        from posthog.kafka_client.routing import get_producer
-        from posthog.models.event.util import format_clickhouse_timestamp
-        from posthog.utils import cast_timestamp_or_now
-
-        if CAPTURE_TIME_TO_SEE_DATA:
-            payload = {
-                **request.data,
-                "team_id": self.team_id,
-                "user_id": self.request.user.pk,
-                "timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(None)),
-            }
-            if "min_last_refresh" in payload:
-                payload["min_last_refresh"] = format_clickhouse_timestamp(payload["min_last_refresh"])
-            if "max_last_refresh" in payload:
-                payload["max_last_refresh"] = format_clickhouse_timestamp(payload["max_last_refresh"])
-            get_producer(topic=KAFKA_METRICS_TIME_TO_SEE_DATA).produce(
-                topic=KAFKA_METRICS_TIME_TO_SEE_DATA, data=payload
-            )
-
         return Response(status=status.HTTP_201_CREATED)
 
 

@@ -48,8 +48,6 @@
     {# e.g. for PostHog Cloud we serve the frontend JS from a CDN #}
     {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag #}
     window.JS_URL = "{{ js_url|default:"" }}";
-    {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag (yesno filter produces literal strings) #}
-    window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
 </script>
 
 {% if debug %}

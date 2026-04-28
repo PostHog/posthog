@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
-import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { objectClean } from 'lib/utils'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
@@ -336,8 +335,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             params,
         }),
         reportPersonsModalSearched: (params: { teamId?: number | null; actorType?: string }) => ({ params }),
-        // timing
-        reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
         reportGroupTypeDetailDashboardCreated: () => ({}),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
@@ -1129,9 +1126,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 posthog_properties_count,
             }
             posthog.capture('person viewed', properties)
-        },
-        reportTimeToSeeData: async ({ payload }) => {
-            posthog.capture('time to see data', payload)
         },
         reportGroupTypeDetailDashboardCreated: async () => {
             posthog.capture('group type detail dashboard created')

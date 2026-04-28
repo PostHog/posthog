@@ -6,7 +6,6 @@
     <option name="PARENT_ENVS" value="true" />
     <envs>
       <env name="BILLING_SERVICE_URL" value="https://billing.dev.posthog.dev" />
-      <env name="CAPTURE_TIME_TO_SEE_DATA" value="0" />
       <env name="CLICKHOUSE_SECURE" value="False" />
       <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
       <env name="DEBUG" value="1" />

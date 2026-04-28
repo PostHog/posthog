@@ -254,24 +254,6 @@ def create_tile(
         # other types of query aren't cacheable
         pytest.param(
             create_insight,
-            {
-                "query": {"kind": "TimeToSeeDataSessionsQuery"},
-                "viewed_at_delta": timedelta(days=1),
-            },
-            TargetCacheAge.NO_CACHING,
-            id="insight with TimeToSeeDataSessionsQuery query viewed recently",
-        ),
-        pytest.param(
-            create_insight,
-            {
-                "query": {"kind": "TimeToSeeDataQuery"},
-                "viewed_at_delta": timedelta(days=1),
-            },
-            TargetCacheAge.NO_CACHING,
-            id="insight with TimeToSeeDataQuery query viewed recently",
-        ),
-        pytest.param(
-            create_insight,
             {"query": {"kind": "something else"}, "viewed_at_delta": timedelta(days=1)},
             TargetCacheAge.NO_CACHING,
             id="insight with query viewed recently but not a cacheable type of query",

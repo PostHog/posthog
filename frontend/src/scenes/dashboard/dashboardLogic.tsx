@@ -29,7 +29,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
+import { clearDOMTextSelection, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BREAKPOINTS, dashboardToSaveableTemplate } from 'scenes/dashboard/dashboardUtils'
@@ -1776,18 +1776,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         loadDashboardFailure: () => {
-            const { action, dashboardQueryId, startTime } = values.dashboardLoadData
-
-            eventUsageLogic.actions.reportTimeToSeeData({
-                team_id: values.currentTeamId,
-                type: 'dashboard_load',
-                context: 'dashboard',
-                status: 'failure',
-                action,
-                primary_interaction_id: dashboardQueryId,
-                time_to_see_data_ms: Math.floor(performance.now() - startTime),
-            })
-
             if (values.isAnalyzing) {
                 actions.setAnalyzeStatus(false)
                 actions.setRefreshAnalysisCacheKey(null)
@@ -2016,7 +2004,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const tilesStaleCount = sortedTilesToRefresh.length
             let tilesRefreshedCount = 0
-            let tilesRefreshedCachedCount = 0
             let tilesErroredCount = 0
             let tilesAbortedCount = 0
 
@@ -2043,7 +2030,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     effectiveRefreshFilters,
                     urlFilters,
                     urlVariables,
-                    dashboardLoadData,
                     dashboard,
                     lastDashboardRefresh,
                     isAnalyzing,
@@ -2077,9 +2063,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                             actions.setRefreshStatus(insight.short_id)
                             tilesRefreshedCount++
-                            if (refreshedInsight.is_cached) {
-                                tilesRefreshedCachedCount++
-                            }
 
                             eventUsageLogic.actions.reportDashboardTileRefreshed(
                                 dashboardId,
@@ -2115,24 +2098,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // and all tiles were refreshed
                 if (forceRefresh && tilesAbortedCount === 0 && tilesErroredCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
-                }
-
-                if (isInitialLoad) {
-                    // capture time to see data
-                    const { dashboardQueryId, startTime, responseBytes } = dashboardLoadData
-                    eventUsageLogic.actions.reportTimeToSeeData({
-                        team_id: currentTeamId,
-                        type: 'dashboard_load',
-                        context: 'dashboard',
-                        action,
-                        status: 'success',
-                        primary_interaction_id: dashboardQueryId,
-                        time_to_see_data_ms: Math.floor(performance.now() - startTime),
-                        api_response_bytes: responseBytes,
-                        insights_fetched: sortedTilesToRefresh.length,
-                        insights_fetched_cached: tilesRefreshedCachedCount,
-                        ...getJSHeapMemory(),
-                    })
                 }
 
                 eventUsageLogic.actions.reportDashboardRefreshed(
@@ -2338,26 +2303,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         cancelDashboardRefresh: () => {
             actions.abortAnyRunningQuery()
         },
-        abortQuery: async ({ queryId, queryStartTime }) => {
-            const { currentTeamId, dashboardLoadData } = values
+        abortQuery: async ({ queryId }) => {
+            const { currentTeamId } = values
             try {
                 await api.insights.cancelQuery(queryId, currentTeamId ?? undefined)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }
-
-            const { dashboardQueryId } = dashboardLoadData
-            eventUsageLogic.actions.reportTimeToSeeData({
-                team_id: currentTeamId,
-                type: 'insight_load',
-                context: 'dashboard',
-                primary_interaction_id: dashboardQueryId,
-                query_id: queryId,
-                status: 'cancelled',
-                time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
-                insights_fetched: 0,
-                insights_fetched_cached: 0,
-            })
         },
         applyFilters: () => {
             actions.refreshDashboardItems({

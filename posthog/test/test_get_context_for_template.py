@@ -18,7 +18,6 @@ class TestGetContextForTemplate(APIBaseTest):
         # but we use the posthog cloud api_token for the context
         assert actual == {
             "git_rev": mock.ANY,
-            "js_capture_time_to_see_data": False,
             # NB: we default to the PH Cloud key
             "js_posthog_api_key": "sTMFPsFhdP1Ssg",
             "js_posthog_host": "",

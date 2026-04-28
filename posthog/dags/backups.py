@@ -47,7 +47,6 @@ NON_SHARDED_TABLES = [
     "groups",
     "infi_clickhouse_orm_migrations",
     "log_entries",
-    "metrics_time_to_see_data",
     "person",
     "person_collapsing",
     "person_distinct_id2",
