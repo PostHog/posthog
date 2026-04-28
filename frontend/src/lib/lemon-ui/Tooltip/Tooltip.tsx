@@ -60,10 +60,7 @@ function isInfoIconTrigger(node: React.ReactNode): boolean {
         return true
     }
     const inner = (node.props as { children?: React.ReactNode } | null | undefined)?.children
-    if (React.isValidElement(inner) && inner.type === IconInfo) {
-        return true
-    }
-    return false
+    return React.isValidElement(inner) && inner.type === IconInfo
 }
 
 function placementToSideAlign(placement: Placement): { side: Side; align: Align } {
