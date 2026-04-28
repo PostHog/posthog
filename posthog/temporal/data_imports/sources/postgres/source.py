@@ -1,3 +1,4 @@
+import logging
 from typing import TYPE_CHECKING, Optional, cast
 
 from psycopg import OperationalError
@@ -21,6 +22,8 @@ from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, 
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
+from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection, drop_slot_and_publication
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSLRequiredError,
     filter_postgres_incremental_fields,
@@ -35,6 +38,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+
+log = logging.getLogger(__name__)
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -169,16 +174,11 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
 
         Schedule lives on our side, slot lives on the customer's DB.
         """
-        import logging
-
-        from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
-
-        log = logging.getLogger(__name__)
+        # Lazy: data_load.service pulls in Temporal client / Celery setup we don't want at module load.
+        from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
 
         # Schedule key = source id. Delete unconditionally; NotFound is a no-op.
         try:
-            from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
-
             delete_cdc_extraction_schedule(str(source.id))
         except Exception:
             log.exception("Failed to delete CDC extraction schedule", extra={"source_id": str(source.id)})
@@ -190,11 +190,6 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             return
 
         try:
-            from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
-                cdc_pg_connection,
-                drop_slot_and_publication,
-            )
-
             with cdc_pg_connection(source, connect_timeout=10) as conn:
                 drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
         except Exception:
