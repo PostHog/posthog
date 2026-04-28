@@ -245,6 +245,7 @@ class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     min_periods: int | None = None
     event_filters: list[Union[EventPropFilter, HogQLFilter]] | None = None
     explicit_datetime: str | None = None
+    explicit_datetime_to: str | None = None
 
 
 class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):

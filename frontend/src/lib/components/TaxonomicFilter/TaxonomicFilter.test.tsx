@@ -766,7 +766,9 @@ describe('TaxonomicFilter', () => {
             },
             {
                 eventNames: ['$pageview'],
-                expectedItems: [],
+                // Pageview's taxonomy promoted property ($pathname) bubbles up here so the
+                // user can filter by what the team has chosen to promote for that event.
+                expectedItems: ['Path name'],
             },
         ])(
             'SuggestedFilters shows $expectedItems.length items when eventNames=$eventNames',

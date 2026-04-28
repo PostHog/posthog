@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
@@ -1210,6 +1211,47 @@ export const WebVitalsPathBreakdownTile = ({
     )
 }
 
+const HogQLTableTile = ({
+    uniqueKey,
+    attachTo,
+    query,
+    insightProps,
+    tileId,
+}: {
+    uniqueKey: string
+    attachTo?: BuiltLogic | LogicWrapper
+    query: DataTableNode
+    insightProps: InsightLogicProps
+    tileId: TileId
+}): JSX.Element => {
+    const context = useMemo((): QueryContext => {
+        if (tileId === TileId.BOT_CRAWLERS) {
+            return {
+                ...webAnalyticsDataTableQueryContext,
+                insightProps,
+                rowProps: (record: unknown) => {
+                    const result = (record as { result?: unknown[] })?.result
+                    const botName = Array.isArray(result) ? (result[0] as string) : null
+                    if (!botName) {
+                        return {}
+                    }
+                    return {
+                        className: 'cursor-pointer',
+                        onClick: () => router.actions.push(urls.webAnalyticsBotDetail(botName)),
+                    }
+                },
+            }
+        }
+        return { ...webAnalyticsDataTableQueryContext, insightProps }
+    }, [insightProps, tileId])
+
+    return (
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+            <Query uniqueKey={uniqueKey} attachTo={attachTo} query={query} readOnly={true} context={context} />
+        </div>
+    )
+}
+
 export const WebQuery = ({
     query,
     showIntervalSelect,
@@ -1321,6 +1363,18 @@ export const WebQuery = ({
 
     if (query.kind === NodeKind.DataVisualizationNode) {
         return <AveragePageViewVisualizationTile attachTo={attachTo} query={query} insightProps={insightProps} />
+    }
+
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.HogQLQuery) {
+        return (
+            <HogQLTableTile
+                uniqueKey={uniqueKey}
+                attachTo={attachTo}
+                query={query}
+                insightProps={insightProps}
+                tileId={tileId}
+            />
+        )
     }
 
     return (

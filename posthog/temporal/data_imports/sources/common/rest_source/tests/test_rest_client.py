@@ -1,13 +1,14 @@
 import json
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Response
 
 from posthog.temporal.data_imports.sources.common.rest_source.exceptions import IgnoreResponseException
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator, SinglePagePaginator
-from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient, RESTClientRetryableError
 
 
 def _make_response(json_body: Any, status_code: int = 200) -> Response:
@@ -215,3 +216,72 @@ class TestRESTClient:
 
         prepared_request = mock_session.prepare_request.call_args.args[0]
         assert prepared_request.params == {"limit": 100, "name": "alice"}
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    def test_send_request_retries_on_429(self, MockSession) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
+        rate_limited.url = "https://api.example.com/items"
+        ok = _make_response({"results": [{"id": 1}]})
+
+        mock_session.send.side_effect = [rate_limited, ok]
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    def test_send_request_retries_on_500(self, MockSession) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        server_error = _make_response({"error": "internal"}, status_code=500)
+        server_error.url = "https://api.example.com/items"
+        ok = _make_response([{"id": 1}])
+
+        mock_session.send.side_effect = [server_error, ok]
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    def test_send_request_raises_after_max_retries(self, MockSession) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        error = _make_response({"error": "rate limited"}, status_code=429)
+        error.url = "https://api.example.com/items"
+        mock_session.send.return_value = error
+
+        client = RESTClient(base_url="https://api.example.com")
+        with pytest.raises(RESTClientRetryableError):
+            list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session")
+    def test_send_request_respects_retry_after_header(self, MockSession) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
+        rate_limited.url = "https://api.example.com/items"
+        rate_limited.headers["Retry-After"] = "90"
+        ok = _make_response({"results": [{"id": 1}]})
+
+        mock_session.send.side_effect = [rate_limited, ok]
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2

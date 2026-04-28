@@ -1059,17 +1059,28 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return base_result
 
     def _is_breakdown_filter_field_boolean(self):
-        if (
-            not self.query.breakdownFilter
-            or not self.query.breakdownFilter.breakdown_type
-            or not self.query.breakdownFilter.breakdown
-        ):
+        if not self.query.breakdownFilter:
             return False
 
-        if (
-            isinstance(self.query.series[0], DataWarehouseNode)
-            and self.query.breakdownFilter.breakdown_type == "data_warehouse"
-        ):
+        breakdown_filter = self.query.breakdownFilter
+        breakdown_value: str | int | list[str | int] | None
+        breakdown_type: BreakdownType | MultipleBreakdownType | None
+        breakdown_group_type_index: int | None
+
+        # `breakdowns` of length 1 is treated as the equivalent single-breakdown.
+        if breakdown_filter.breakdowns is not None and len(breakdown_filter.breakdowns) == 1:
+            single = breakdown_filter.breakdowns[0]
+            breakdown_value = single.property
+            breakdown_type = single.type
+            breakdown_group_type_index = single.group_type_index
+        elif breakdown_filter.breakdown_type and breakdown_filter.breakdown:
+            breakdown_value = breakdown_filter.breakdown
+            breakdown_type = breakdown_filter.breakdown_type
+            breakdown_group_type_index = breakdown_filter.breakdown_group_type_index
+        else:
+            return False
+
+        if isinstance(self.query.series[0], DataWarehouseNode) and breakdown_type == "data_warehouse":
             series = self.query.series[0]  # only one series when data warehouse is active
 
             table_or_view = get_view_or_table_by_name(self.team, series.table_name)
@@ -1079,11 +1090,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             if table_or_view.columns is None:
                 return False
 
-            breakdown_key = (
-                self.query.breakdownFilter.breakdown[0]
-                if isinstance(self.query.breakdownFilter.breakdown, list)
-                else self.query.breakdownFilter.breakdown
-            )
+            breakdown_key = breakdown_value[0] if isinstance(breakdown_value, list) else breakdown_value
 
             columns = dict(table_or_view.columns)
             if breakdown_key not in columns:
@@ -1098,9 +1105,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 return True
 
         return self._is_breakdown_field_boolean(
-            self.query.breakdownFilter.breakdown,
-            self.query.breakdownFilter.breakdown_type,
-            self.query.breakdownFilter.breakdown_group_type_index,
+            breakdown_value,
+            breakdown_type,
+            breakdown_group_type_index,
         )
 
     def _is_breakdown_field_boolean(

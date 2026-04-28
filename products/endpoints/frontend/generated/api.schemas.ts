@@ -481,15 +481,16 @@ export const BreakdownTypeApi = {
 export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
 
 export const MultipleBreakdownTypeApi = {
-    Cohort: 'cohort',
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    Cohort: 'cohort',
     RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
 } as const
 
 export interface BreakdownApi {

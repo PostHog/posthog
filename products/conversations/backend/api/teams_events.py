@@ -15,9 +15,13 @@ from posthog.rate_limit import TeamsEventWebhookThrottle
 
 from products.conversations.backend.models import TeamConversationsTeamsConfig
 from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
-from products.conversations.backend.support_teams import is_trusted_teams_service_url, validate_teams_request
-from products.conversations.backend.tasks import process_teams_event, send_teams_welcome
-from products.conversations.backend.teams import is_bot_added_event
+from products.conversations.backend.support_teams import (
+    get_bot_from_id,
+    is_trusted_teams_service_url,
+    validate_teams_request,
+)
+from products.conversations.backend.tasks import is_duplicate_teams_event, process_teams_event, send_teams_help
+from products.conversations.backend.teams import is_bot_added_event, is_command_message
 
 logger = structlog.get_logger(__name__)
 
@@ -141,7 +145,33 @@ def teams_event_handler(request: HttpRequest) -> HttpResponse:
     activity_type = activity.get("type", "")
     logger.info("supporthog_teams_event_received", activity_type=activity_type)
 
+    activity_id = activity.get("id", "")
+
     if activity_type == "message":
+        # Generic-command guarantee (Teams Store cert 11.4.4.3): "Hi", "Hello",
+        # "Help", etc. must always get a valid response — even from tenants
+        # that haven't completed PostHog OAuth yet (this is exactly the path
+        # the AppSource validators run against). Reply with the help card
+        # before the team-config gate, then bail without creating a ticket.
+        if is_command_message(activity):
+            if not _claims_match_activity(claims, activity):
+                return HttpResponse(status=200)
+            # Defense in depth: never reply to a message that claims to come
+            # from our own bot identity. Bot Framework doesn't echo, but a
+            # valid-JWT replay with a spoofed from.id shouldn't loop us.
+            try:
+                bot_from_id = get_bot_from_id()
+            except ValueError:
+                bot_from_id = ""
+            if bot_from_id and (activity.get("from") or {}).get("id") == bot_from_id:
+                return HttpResponse(status=200)
+            # Bot Framework retries the webhook on 5xx / timeout for up to ~10
+            # minutes with the *same* activity.id. De-dupe on dispatch so we
+            # don't post the help card twice.
+            if activity_id and is_duplicate_teams_event(activity_id):
+                return HttpResponse(status=202)
+            cast(Any, send_teams_help).delay(activity=activity, reply=True)
+            return HttpResponse(status=202)
         _route_activity_to_relevant_region(request, activity, claims)
         return HttpResponse(status=202)
 
@@ -158,7 +188,9 @@ def teams_event_handler(request: HttpRequest) -> HttpResponse:
     if activity_type == "conversationUpdate" and is_bot_added_event(activity):
         if not _claims_match_activity(claims, activity):
             return HttpResponse(status=200)
-        cast(Any, send_teams_welcome).delay(activity=activity)
+        if activity_id and is_duplicate_teams_event(activity_id):
+            return HttpResponse(status=200)
+        cast(Any, send_teams_help).delay(activity=activity, reply=False)
         return HttpResponse(status=200)
 
     # Acknowledge other activity types (installationUpdate, etc.)
