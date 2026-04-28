@@ -115,6 +115,10 @@ def check_ducklake_version_compatible(
 ) -> bool:
     """Check if the current runtime is compatible with a catalog's ducklake version.
 
+    Accepts team_id from the caller rather than using catalog.team_id because
+    catalog.team_id is deprecated and nullable (org-scoped catalogs may have
+    team_id=None).
+
     When the catalog has no version set (None), we proceed for backward
     compatibility (dev mode, unset catalogs). When the catalog version is set
     but the runtime version is unknown, we skip to avoid potential incompatibility.
@@ -150,43 +154,6 @@ def check_ducklake_version_compatible(
         logger.error(
             "duckling_version_mismatch",
             team_id=team_id,
-            catalog_version=catalog.ducklake_version,
-            runtime_version=runtime_version,
-            duckdb_version=duckdb.__version__,
-        )
-        return False
-
-    context.log.info(
-        f"DuckLake version check passed: runtime {runtime_version} matches catalog version {catalog.ducklake_version}"
-    )
-    return True
-
-    runtime_version = get_runtime_ducklake_version()
-    if runtime_version is None:
-        context.log.warning(
-            f"Unknown DuckLake version for team_id={catalog.team_id}: "
-            f"catalog requires version {catalog.ducklake_version} but this runtime "
-            f"has duckdb {duckdb.__version__} which is not in the known version mapping. "
-            f"Skipping to avoid potential incompatibility."
-        )
-        logger.warning(
-            "duckling_unknown_runtime_version",
-            team_id=catalog.team_id,
-            catalog_version=catalog.ducklake_version,
-            duckdb_version=duckdb.__version__,
-        )
-        return False
-
-    if catalog.ducklake_version != runtime_version:
-        context.log.error(
-            f"DuckLake version mismatch for team_id={catalog.team_id}: "
-            f"catalog requires version {catalog.ducklake_version} but this runtime "
-            f"supports version {runtime_version} (duckdb {duckdb.__version__}). "
-            f"Run this backfill on the correct container image."
-        )
-        logger.error(
-            "duckling_version_mismatch",
-            team_id=catalog.team_id,
             catalog_version=catalog.ducklake_version,
             runtime_version=runtime_version,
             duckdb_version=duckdb.__version__,
