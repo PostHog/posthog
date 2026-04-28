@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Optional
+from typing import Any, Literal, LiteralString, Optional, cast
 
 import psycopg
 import pyarrow as pa
@@ -24,7 +24,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 # Max rows per FETCH when reading a partitioned parent table. A partitioned
 # parent scan dispatches across every child partition; a large chunk size can
 # blow past the source's statement_timeout even when per-row payload is small.
-PARTITIONED_TABLE_MAX_CHUNK_SIZE = 10_000
+PARTITIONED_TABLE_MAX_CHUNK_SIZE = 30_000
 
 # Retry budgets for iterate_date_windows. Counters reset on every successful
 # window. Exhausting QueryCanceled surfaces QueryTimeoutException; exhausting
@@ -490,6 +490,46 @@ def iterate_date_windows(
     )
 
 
+def build_partition_query(
+    child_schema: str,
+    child_name: str,
+    should_use_incremental_field: bool,
+    incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType],
+    db_incremental_field_last_value: Optional[Any],
+) -> sql.Composed:
+    """Build a SELECT against one child partition.
+
+    Targets the child relation directly so the planner skips the parent's Append and
+    runs a single seq scan. Applies the incremental cutoff when present; on children
+    whose lower bound is already past the cursor, the WHERE clause is no-op for the
+    planner and is kept for safety. ORDER BY is always added so the pipeline can
+    advance the incremental cursor per chunk via max() without risking data loss on
+    restart.
+    """
+    if not should_use_incremental_field:
+        return sql.SQL("SELECT * FROM {schema}.{table}").format(
+            schema=sql.Identifier(child_schema),
+            table=sql.Identifier(child_name),
+        )
+
+    if incremental_field is None or incremental_field_type is None:
+        raise ValueError("incremental_field and incremental_field_type can't be None")
+
+    if db_incremental_field_last_value is None:
+        db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
+
+    query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
+        schema=sql.Identifier(child_schema),
+        table=sql.Identifier(child_name),
+        incremental_field=sql.Identifier(incremental_field),
+        last_value=sql.Literal(db_incremental_field_last_value),
+    )
+
+    query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
+    return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
+
+
 def iterate_partitions(
     *,
     get_connection: Callable[[], psycopg.Connection],
@@ -603,6 +643,7 @@ __all__ = [
     "WINDOW_MAX_SERIALIZATION_RETRIES",
     "ChildPartition",
     "PartitionStrategy",
+    "build_partition_query",
     "derive_upper_bound",
     "get_estimated_row_count_for_partitioned_table",
     "get_partition_settings_for_partitioned_table",
