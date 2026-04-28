@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -105,6 +106,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "created_at": data["created_at"],
             "created_by": data["created_by"],
             "deleted": False,
+            "enabled": True,
             "title": "My Subscription",
             "next_delivery_date": data["next_delivery_date"],
             "integration_id": None,
@@ -899,6 +901,81 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert len(results) == 1
         assert results[0]["id"] == sub_id
         assert results[0]["target_type"] == target_type
+
+    def test_patch_enabled_field(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": False},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        assert response.json()["enabled"] is False
+        subscription.refresh_from_db()
+        assert subscription.enabled is False
+
+    def test_get_returns_enabled_field(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/")
+        assert response.status_code == 200, response.content
+        assert response.json()["enabled"] is True
+
+    def test_patch_enabled_false_does_not_trigger_workflow(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+            enabled=True,
+        )
+        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+                {"enabled": False},
+                format="json",
+            )
+            assert response.status_code == 200, response.content
+            temporal_mock.return_value.start_workflow.assert_not_called()
+
+    def test_patch_enabled_true_does_trigger_workflow(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+        )
+        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+            temporal_mock.return_value.start_workflow = AsyncMock()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+                {"enabled": True},
+                format="json",
+            )
+            assert response.status_code == 200, response.content
+            temporal_mock.return_value.start_workflow.assert_called_once()
 
 
 class TestSubscriptionDeliveryAPI(APILicensedTest):

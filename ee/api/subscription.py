@@ -103,6 +103,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "deleted",
+            "enabled",
             "title",
             "summary",
             "next_delivery_date",
@@ -142,6 +143,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
             "title": {"help_text": "Human-readable name for this subscription."},
             "deleted": {"help_text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted."},
+            "enabled": {
+                "help_text": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid."
+            },
         }
 
     def get_insight_short_id(self, obj: Subscription) -> Optional[str]:
@@ -344,6 +348,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         request = self.context["request"]
         previous_value = instance.target_value
+        previous_enabled = instance.enabled
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
@@ -375,6 +380,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+        # Skip the workflow trigger when the only material change was disabling the
+        # subscription. Re-enabling (false → true) DOES trigger the workflow so the
+        # next delivery runs — we want subscriptions to "wake up" cleanly.
+        is_disable_only = (
+            previous_enabled is True and instance.enabled is False and instance.target_value == previous_value
+        )
+        if is_disable_only:
+            return instance
 
         temporal = sync_connect()
         workflow_id = f"handle-subscription-value-change-{instance.id}-{uuid.uuid4()}"

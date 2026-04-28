@@ -381,6 +381,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
         title: zod
             .string()
             .max(subscriptionsCreateBodyTitleMax)
@@ -502,6 +508,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
         deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
+            ),
         title: zod
             .string()
             .max(subscriptionsPartialUpdateBodyTitleMax)
