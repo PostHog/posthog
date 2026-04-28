@@ -99,25 +99,20 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             )
             return config
 
-    @property
-    def is_cdc_source(self) -> bool:
-        """True when CDC is enabled in `job_inputs`. Source-agnostic."""
-        return bool((self.job_inputs or {}).get("cdc_enabled"))
-
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = datetime.now()
         self.save()
 
-        if self.is_cdc_source:
-            # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
-            from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+        if (self.job_inputs or {}).get("cdc_enabled"):
+            self.cleanup_cdc_resources_on_deletion()
 
-            try:
-                source_impl = SourceRegistry.get_source(self.source_type)
-            except ValueError:
-                return
-            source_impl.cleanup_cdc_resources_on_deletion(self)
+    def cleanup_cdc_resources_on_deletion(self) -> None:
+        """Delegate CDC teardown to the source impl that owns the wire protocol."""
+        # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
+        from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+
+        SourceRegistry.get_source(self.source_type).cleanup_cdc_resources_on_deletion(self)
 
     def reload_schemas(self):
         from products.data_warehouse.backend.data_load.service import (
