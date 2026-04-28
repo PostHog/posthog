@@ -26,6 +26,7 @@ logger = structlog.get_logger(__name__)
 
 class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
     next_refresh_at = serializers.SerializerMethodField()
+    meta = serializers.SerializerMethodField()
 
     class Meta:
         model = ErrorTrackingRecommendation
@@ -37,6 +38,12 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
         if not rec or rec.refresh_interval is None or not obj.computed_at:
             return None
         return (obj.computed_at + rec.refresh_interval).isoformat()
+
+    def get_meta(self, obj: ErrorTrackingRecommendation) -> dict:
+        rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
+        if not rec:
+            return obj.meta
+        return rec.enrich(obj.team, obj.meta)
 
 
 def _is_stale(rec: Recommendation, obj: ErrorTrackingRecommendation, now: datetime) -> bool:

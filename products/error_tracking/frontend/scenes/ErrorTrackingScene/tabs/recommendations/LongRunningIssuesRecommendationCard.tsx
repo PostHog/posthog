@@ -1,9 +1,13 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { humanFriendlyLargeNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { RecommendationCard } from './RecommendationCard'
+import { recommendationsTabLogic } from './recommendationsTabLogic'
 import type { LongRunningIssuesRecommendation } from './types'
 
 export function LongRunningIssuesRecommendationCard({
@@ -13,6 +17,8 @@ export function LongRunningIssuesRecommendationCard({
     recommendation: LongRunningIssuesRecommendation
     dismissed?: boolean
 }): JSX.Element | null {
+    const { suppressIssue } = useActions(recommendationsTabLogic)
+
     const issues = recommendation.meta.issues ?? []
 
     if (issues.length === 0) {
@@ -28,17 +34,50 @@ export function LongRunningIssuesRecommendationCard({
             dismissed={dismissed}
         >
             <div className="flex flex-col gap-0">
-                {issues.map((issue) => (
-                    <div key={issue.id} className="flex items-center gap-3 py-2 border-b last:border-b-0">
-                        <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">{issue.name}</div>
-                            <div className="text-xs text-muted">{dayjs(issue.created_at).fromNow(true)} old</div>
-                        </div>
-                        <LemonButton size="xsmall" type="secondary" to={urls.errorTrackingIssue(issue.id)}>
-                            View
-                        </LemonButton>
-                    </div>
-                ))}
+                {issues.map((issue) => {
+                    const isActive = issue.status === 'active'
+                    return (
+                        <Link
+                            key={issue.id}
+                            subtle
+                            to={urls.errorTrackingIssue(issue.id)}
+                            className={`group flex items-center gap-3 py-2 border-b last:border-b-0 no-underline ${
+                                isActive ? '' : 'opacity-60'
+                            }`}
+                        >
+                            <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium truncate flex items-center gap-2">
+                                    <span className="truncate">{issue.name}</span>
+                                    {!isActive && (
+                                        <LemonTag size="small" type="muted">
+                                            {issue.status}
+                                        </LemonTag>
+                                    )}
+                                </div>
+                                <div className="text-xs text-secondary">
+                                    {dayjs(issue.created_at).fromNow(true)} old ·{' '}
+                                    {humanFriendlyLargeNumber(issue.occurrences)} occurrences in last 7 days
+                                </div>
+                            </div>
+                            {isActive && (
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        status="danger"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            suppressIssue(issue.id)
+                                        }}
+                                    >
+                                        Suppress
+                                    </LemonButton>
+                                </div>
+                            )}
+                        </Link>
+                    )
+                })}
             </div>
         </RecommendationCard>
     )

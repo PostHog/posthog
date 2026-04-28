@@ -14,3 +14,8 @@ class Recommendation(ABC):
 
     @abstractmethod
     def compute(self, team: Team) -> dict[str, Any]: ...
+
+    def enrich(self, team: Team, meta: dict[str, Any]) -> dict[str, Any]:
+        """Hook to overlay live, fast-changing data on top of the cached compute output.
+        Runs on every read but is not persisted. Default is identity."""
+        return meta

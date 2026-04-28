@@ -12,7 +12,12 @@ from rest_framework import status
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.utils import uuid7
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingRecommendation
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingRecommendation,
+    sync_issues_to_clickhouse,
+)
 from products.error_tracking.backend.recommendations.alerts import AlertsRecommendation
 from products.error_tracking.backend.recommendations.long_running_issues import LongRunningIssuesRecommendation
 
@@ -163,28 +168,40 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         )
         ErrorTrackingIssue.objects.filter(id=issue.id).update(created_at=created_at)
         issue.refresh_from_db()
+        fingerprint = f"fp::{issue.id}"
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, fingerprint=fingerprint).update(
+            first_seen=created_at
+        )
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         return issue
 
-    def _create_exception(self, issue_id, timestamp):
+    def _create_exception(self, issue_id, timestamp, fingerprint=None):
         _create_event(
             distinct_id="user_1",
             event="$exception",
             team=self.team,
-            properties={"$exception_issue_id": str(issue_id)},
+            properties={
+                "$exception_issue_id": str(issue_id),
+                "$exception_fingerprint": fingerprint or f"fp::{issue_id}",
+            },
             timestamp=timestamp,
         )
 
     def test_long_running_returns_oldest_active_issues_with_recent_occurrences(self):
         old_active = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Oldest")
-        newer_active = self._create_issue(created_at=timezone.now() - timedelta(days=5), name="Newer")
+        mid_active = self._create_issue(created_at=timezone.now() - timedelta(days=20), name="MidAged")
+        recent_active = self._create_issue(created_at=timezone.now() - timedelta(days=3), name="Recent")
         self._create_exception(old_active.id, _days_ago(1))
-        self._create_exception(newer_active.id, _days_ago(1))
+        self._create_exception(mid_active.id, _days_ago(1))
+        # Recent issue still has activity but was first seen <7d ago, so it shouldn't qualify as long-running.
+        self._create_exception(recent_active.id, _days_ago(1))
         flush_persons_and_events()
 
         meta = LongRunningIssuesRecommendation().compute(self.team)
 
         names = [i["name"] for i in meta["issues"]]
-        self.assertEqual(names, ["Oldest", "Newer"])
+        self.assertEqual(names, ["Oldest", "MidAged"])
 
     def test_long_running_ignores_issues_without_recent_occurrences(self):
         stale = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Stale")

@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -41,6 +41,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
     actions({
         toggleDismissedExpanded: true,
         setOpenAlertTriggerKey: (triggerKey: HogFunctionSubTemplateIdType | null) => ({ triggerKey }),
+        suppressIssue: (issueId: string) => ({ issueId }),
     }),
 
     reducers({
@@ -57,6 +58,13 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             },
         ],
     }),
+
+    listeners(({ actions }) => ({
+        suppressIssue: async ({ issueId }) => {
+            await api.errorTracking.updateIssue(issueId, { status: 'suppressed' })
+            actions.loadRecommendations()
+        },
+    })),
 
     selectors({
         activeRecommendations: [

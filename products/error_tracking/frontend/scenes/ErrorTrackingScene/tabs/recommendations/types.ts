@@ -1,3 +1,4 @@
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { HogFunctionSubTemplateIdType } from '~/types'
 
 export type ErrorTrackingRecommendationType = 'alerts' | 'long_running_issues'
@@ -49,6 +50,8 @@ export interface LongRunningIssueItem {
     name: string
     description: string | null
     created_at: string
+    occurrences: number
+    status: ErrorTrackingIssue['status']
 }
 
 export interface LongRunningIssuesRecommendationMeta extends Record<string, unknown> {
