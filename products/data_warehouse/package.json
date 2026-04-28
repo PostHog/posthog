@@ -11,6 +11,9 @@
         "kea-test-utils": "catalog:",
         "posthog-js": "catalog:"
     },
+    "devDependencies": {
+        "@testing-library/react": "*"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",

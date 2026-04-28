@@ -7,7 +7,6 @@ import {
     LemonDivider,
     LemonFileInput,
     LemonInput,
-    LemonSelect,
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
@@ -29,6 +28,7 @@ import { SSH_FIELD, sourceWizardLogic } from '../../../scenes/NewSourceScene/sou
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionString } from './parseConnectionString'
+import { SelectFieldInput } from './SelectFieldInput'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -192,17 +192,13 @@ export const sourceFieldToElement = (
                 label={field.label}
             >
                 {({ value, onChange }) => (
-                    <>
-                        <LemonSelect
-                            options={field.options}
-                            value={
-                                (value === undefined || value === null ? lastValue?.[field.name] : value) ||
-                                field.defaultValue
-                            }
-                            onChange={onChange}
-                        />
-                        <Group name={field.name}>{getOptions(value)}</Group>
-                    </>
+                    <SelectFieldInput
+                        field={field}
+                        value={value}
+                        onChange={onChange}
+                        lastValue={lastValue}
+                        renderOptionFields={() => <Group name={field.name}>{getOptions(value)}</Group>}
+                    />
                 )}
             </LemonField>
         )
