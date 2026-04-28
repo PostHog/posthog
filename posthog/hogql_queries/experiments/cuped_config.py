@@ -36,7 +36,7 @@ def _parse_lookback_days(value: Any) -> int:
     return days
 
 
-def _is_cuped_supported_metric(metric: object) -> bool:
+def _metric_supports_cuped(metric: object) -> bool:
     if isinstance(metric, ExperimentMeanMetric):
         # Session property metrics use a separate session-deduplication CTE pipeline.
         # Keep CUPED disabled there until the same single-scan windowing is implemented.
@@ -60,7 +60,7 @@ def _is_cuped_supported_metric(metric: object) -> bool:
 
 
 def get_cuped_config(stats_config: dict | None, metric: object) -> CupedQueryConfig:
-    if not _is_cuped_supported_metric(metric):
+    if not _metric_supports_cuped(metric):
         return CupedQueryConfig()
 
     cuped_config = (stats_config or {}).get("cuped") or {}
