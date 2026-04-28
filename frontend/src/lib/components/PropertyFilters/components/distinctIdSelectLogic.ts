@@ -81,26 +81,35 @@ export const distinctIdSelectLogic = kea<distinctIdSelectLogicType>([
         ],
     })),
     selectors({
-        personOptions: [
-            (s) => [s.persons],
-            (persons: PersonType[]): { key: string; label: string; person: PersonType }[] => {
+        mergedOptions: [
+            (s, p) => [s.persons, s.resolvedNames, p.value],
+            (
+                persons: PersonType[],
+                resolvedNames: Record<string, string>,
+                value: string[]
+            ): { key: string; label: string }[] => {
                 // Emit one option per (person, distinct_id) so the user can see and pick any of
                 // a person's identifiers. Flag evaluation matches against the literal distinct_id
                 // the SDK passes — picking the right one (or several) matters when a person
                 // owns both an anonymous UUID and an identified email-style id.
-                const options: { key: string; label: string; person: PersonType }[] = []
-                const seen = new Set<string>()
+                const optionMap = new Map<string, { key: string; label: string }>()
                 for (const person of persons) {
                     const label = asDisplay(person)
                     for (const distinctId of person.distinct_ids ?? []) {
-                        if (!distinctId || seen.has(distinctId)) {
+                        if (!distinctId || optionMap.has(distinctId)) {
                             continue
                         }
-                        seen.add(distinctId)
-                        options.push({ key: distinctId, label, person })
+                        optionMap.set(distinctId, { key: distinctId, label })
                     }
                 }
-                return options
+                // Make sure already-selected distinct_ids stay rendered even when they fall outside
+                // the current search results, falling back to a resolved display name when we have one.
+                for (const v of value) {
+                    if (!optionMap.has(v)) {
+                        optionMap.set(v, { key: v, label: resolvedNames[v] ?? v })
+                    }
+                }
+                return Array.from(optionMap.values())
             },
         ],
     }),

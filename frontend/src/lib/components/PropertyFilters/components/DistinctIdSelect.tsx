@@ -32,31 +32,9 @@ export function DistinctIdSelect({
     )
 
     const logic = distinctIdSelectLogic({ instanceKey, value: currentValues })
-    const { personOptions, personsLoading, resolvedNames, searchQuery } = useValues(logic)
+    const { mergedOptions, personsLoading, searchQuery } = useValues(logic)
     const { setSearchQuery } = useActions(logic)
     const isMultiSelect = forceSingleSelect ? false : operator && isOperatorMulti(operator)
-
-    const options = useMemo(() => {
-        const optionMap = new Map<string, { key: string; label: string; labelComponent?: JSX.Element }>()
-        for (const opt of personOptions) {
-            optionMap.set(opt.key, {
-                key: opt.key,
-                label: opt.label,
-                labelComponent: (
-                    <span className="flex flex-col">
-                        <span className="truncate">{opt.key}</span>
-                        {opt.label !== opt.key && <span className="text-muted text-xs truncate">{opt.label}</span>}
-                    </span>
-                ),
-            })
-        }
-        for (const v of currentValues) {
-            if (!optionMap.has(v)) {
-                optionMap.set(v, { key: v, label: resolvedNames[v] ?? v })
-            }
-        }
-        return Array.from(optionMap.values())
-    }, [personOptions, currentValues, resolvedNames])
 
     return (
         <LemonInputSelect
@@ -77,7 +55,16 @@ export function DistinctIdSelect({
             size={size}
             autoFocus={autoFocus}
             disableFiltering
-            options={options}
+            options={mergedOptions.map((opt) => ({
+                key: opt.key,
+                label: opt.label,
+                labelComponent: (
+                    <span className="flex flex-col">
+                        <span className="truncate">{opt.key}</span>
+                        {opt.label !== opt.key && <span className="text-muted text-xs truncate">{opt.label}</span>}
+                    </span>
+                ),
+            }))}
         />
     )
 }
