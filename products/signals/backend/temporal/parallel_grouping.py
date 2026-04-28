@@ -59,7 +59,6 @@ class SequentialPhaseResult:
     dropped: int
     promoted_reports: dict[str, tuple[SignalReportSummaryWorkflowInputs, int]]
     emitted_signals: list[tuple[str, AssignAndEmitSignalOutput]]
-    report_contexts: dict[str, ReportContext]
 
 
 def _would_be_candidate(
@@ -322,11 +321,9 @@ async def _process_parallel_batch(
 
     # Prepare coroutines for each signal in the batch
     coroutines = []
-    signal_ids: list[str] = []
     for idx in batch_indices:
         signal = batch[idx]
         signal_id = str(uuid.uuid4())
-        signal_ids.append(signal_id)
 
         # Augment CH candidates with all previously processed signals (from earlier batches)
         augmented_results = _augment_candidates_with_batch(
@@ -414,13 +411,10 @@ async def process_sequential_phase_parallel(
     Calls partition_into_parallel_batches, then iterates through each batch calling
     _process_parallel_batch, accumulating results across batches.
     """
-    # Extract raw embedding vectors for dependency analysis
-    raw_embeddings = signal_embeddings
-
     parallel_batches = partition_into_parallel_batches(
         per_signal_query_embeddings=per_signal_query_embeddings,
         per_signal_ch_results=per_signal_ch_results,
-        signal_embeddings=raw_embeddings,
+        signal_embeddings=signal_embeddings,
         limit=10,
     )
 
@@ -455,7 +449,7 @@ async def process_sequential_phase_parallel(
             per_signal_queries=per_signal_queries,
             per_signal_query_embeddings=per_signal_query_embeddings,
             per_signal_ch_results=per_signal_ch_results,
-            signal_embeddings=raw_embeddings,
+            signal_embeddings=signal_embeddings,
             processed_batch_signals=all_processed_signals,
             report_contexts=report_contexts,
         )
@@ -469,5 +463,4 @@ async def process_sequential_phase_parallel(
         dropped=total_dropped,
         promoted_reports=all_promoted_reports,
         emitted_signals=all_emitted_signals,
-        report_contexts=report_contexts,
     )

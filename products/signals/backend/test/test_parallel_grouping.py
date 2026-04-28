@@ -191,7 +191,7 @@ class TestComputeDependencies:
         emb = [1.0, 0.0]
         # Each signal has one query. Fewer than limit candidates → always dependent.
         per_signal_query_embs = [[[1.0, 0.0]], [[1.0, 0.0]]]
-        per_signal_ch = [[[]], [[]]]
+        per_signal_ch: list[list[list[SignalCandidate]]] = [[[]], [[]]]
         deps = _compute_dependencies(per_signal_query_embs, per_signal_ch, [emb, emb], limit=10)
         assert deps[0] == set()  # first signal has no earlier signals
         assert deps[1] == {0}
@@ -214,7 +214,7 @@ class TestComputeDependencies:
         """Signal 0 never depends on signal 1 (only earlier → later)."""
         emb = [1.0, 0.0]
         per_signal_query_embs = [[[1.0, 0.0]], [[1.0, 0.0]]]
-        per_signal_ch = [[[]], [[]]]
+        per_signal_ch: list[list[list[SignalCandidate]]] = [[[]], [[]]]
         deps = _compute_dependencies(per_signal_query_embs, per_signal_ch, [emb, emb], limit=10)
         assert 1 not in deps[0]
 
@@ -222,7 +222,7 @@ class TestComputeDependencies:
         """A chain: 3 similar signals with sparse candidates → 1 depends on 0, 2 depends on 0,1."""
         emb = [1.0, 0.0]
         per_signal_query_embs = [[[1.0, 0.0]], [[1.0, 0.0]], [[1.0, 0.0]]]
-        per_signal_ch = [[[]], [[]], [[]]]
+        per_signal_ch: list[list[list[SignalCandidate]]] = [[[]], [[]], [[]]]
         deps = _compute_dependencies(per_signal_query_embs, per_signal_ch, [emb, emb, emb], limit=10)
         assert deps[0] == set()
         assert deps[1] == {0}
