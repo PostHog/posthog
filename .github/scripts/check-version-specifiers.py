@@ -10,6 +10,8 @@ tooling (Dependabot, security scanners) that an update is in-range.
 Exemptions:
   - >= paired with an upper bound (< or <=) on the same requirement, e.g.
     "pkg>=1.0,<2.0" — that is an explicit bounded range, not a floor.
+  - Environment markers are ignored when checking for upper bounds, so
+    "pkg>=1.0; python_version<'3.12'" is correctly flagged as unbounded.
   - Comment lines and non-dependency fields (requires-python, etc.) are skipped.
 
 Usage:
@@ -32,16 +34,24 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 _HAS_GTE = re.compile(r">=")
 _HAS_UPPER = re.compile(r"[<]=?")
 
-# Matches a quoted dep string inside a TOML array line, e.g.  "foo>=1.0",
-_DEP_LINE = re.compile(r'"([^"]+)"')
+# Matches a dep string that is the first (and only significant) quoted value on
+# a TOML array line, i.e. lines like:    "somepackage>=1.0",
+_DEP_LINE = re.compile(r'^\s*"([^"]+)"')
 
 IN_GITHUB_ACTIONS = os.getenv("GITHUB_ACTIONS") == "true"
 
 
 def _is_unbounded_gte(spec: str) -> bool:
-    if not _HAS_GTE.search(spec):
+    """Return True if spec contains >= with no accompanying upper-bound operator.
+
+    Strips the environment marker (everything after the first ';') before
+    checking for upper bounds, so 'pkg>=1.0; python_version<"3.12"' is
+    correctly identified as unbounded.
+    """
+    version_part = spec.split(";", 1)[0]
+    if not _HAS_GTE.search(version_part):
         return False
-    return not _HAS_UPPER.search(spec)
+    return not _HAS_UPPER.search(version_part)
 
 
 def collect_deps(data: dict) -> list[str]:
@@ -54,6 +64,14 @@ def collect_deps(data: dict) -> list[str]:
         results.extend(deps)
 
     uv = data.get("tool", {}).get("uv", {})
+
+    # Flat list fields that accept PEP 508 strings
+    for field_name in ("dev-dependencies", "constraint-dependencies", "override-dependencies"):
+        field = uv.get(field_name, [])
+        if isinstance(field, list):
+            results.extend(d for d in field if isinstance(d, str))
+
+    # Grouped fields (dev, optional)
     for section_name in ("dev", "optional"):
         uv_section = uv.get(section_name, {})
         if isinstance(uv_section, list):
@@ -62,6 +80,7 @@ def collect_deps(data: dict) -> list[str]:
             for deps in uv_section.values():
                 results.extend(deps)
 
+    # dependency-groups (PEP 735)
     for deps in data.get("dependency-groups", {}).values():
         results.extend(d for d in deps if isinstance(d, str))
 
@@ -73,18 +92,22 @@ def find_line_numbers(bad_deps: set[str]) -> dict[str, int]:
     lines = PYPROJECT_PATH.read_text().splitlines()
     found: dict[str, int] = {}
     for lineno, line in enumerate(lines, start=1):
-        m = _DEP_LINE.search(line)
+        m = _DEP_LINE.match(line)
         if m and m.group(1) in bad_deps:
             found[m.group(1)] = lineno
     return found
 
 
-def annotate(dep: str, lineno: int) -> None:
+def annotate(dep: str, lineno: int | None) -> None:
     msg = f"Prefer ~= over >=: {dep!r} uses an unbounded floor. Use ~=X.Y or >=X,<Y instead."
     if IN_GITHUB_ACTIONS:
-        print(f"::error file=pyproject.toml,line={lineno},title=Version specifier::{msg}")
+        if lineno is not None:
+            print(f"::error file=pyproject.toml,line={lineno},title=Version specifier::{msg}")
+        else:
+            print(f"::error file=pyproject.toml,title=Version specifier::{msg}")
     else:
-        print(f"  pyproject.toml:{lineno}: {msg}")
+        loc = f"pyproject.toml:{lineno}" if lineno is not None else "pyproject.toml"
+        print(f"  {loc}: {msg}")
 
 
 def main() -> int:
@@ -109,8 +132,7 @@ def main() -> int:
         print()
 
     for dep in violations:
-        lineno = line_numbers.get(dep, 1)
-        annotate(dep, lineno)
+        annotate(dep, line_numbers.get(dep))
 
     if not IN_GITHUB_ACTIONS:
         print()
