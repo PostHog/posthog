@@ -263,7 +263,7 @@ export interface FunctionContentItem {
     id?: string
     function: {
         name: string
-        arguments: string | Record<string, unknown>
+        arguments: string | Record<string, unknown> | null
     }
 }
 
