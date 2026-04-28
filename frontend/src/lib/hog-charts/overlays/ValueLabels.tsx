@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react'
 
-import { useChart } from '../core/chart-context'
+import { useChartLayout } from '../core/chart-context'
 import { DEFAULT_Y_AXIS_ID } from '../core/types'
-import type { ChartScales, Series } from '../core/types'
+import type { ChartScales, ResolveValueFn, Series } from '../core/types'
 
 export interface ValueLabelsProps {
     /** Formats the value shown on each label. Defaults to `value.toLocaleString()`. */
@@ -15,8 +15,8 @@ export interface ValueLabelsProps {
 }
 
 const LABEL_FONT =
-    '500 11px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
-const LABEL_VERTICAL_OFFSET = 8
+    '600 12px -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif'
+const LABEL_VERTICAL_OFFSET = 0
 
 let measureCtx: CanvasRenderingContext2D | null = null
 function getMeasureCtx(): CanvasRenderingContext2D | null {
@@ -25,6 +25,8 @@ function getMeasureCtx(): CanvasRenderingContext2D | null {
     }
     return measureCtx
 }
+
+const LABEL_HEIGHT = 22
 
 interface Candidate {
     key: string
@@ -46,6 +48,7 @@ function buildCandidates(
     series: Series[],
     labels: string[],
     scales: ChartScales,
+    resolveValue: ResolveValueFn,
     valueFormatter: ValueLabelsProps['valueFormatter'],
     maxPointsPerSeries: number
 ): Candidate[] {
@@ -58,7 +61,7 @@ function buildCandidates(
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
-        if (s.hidden) {
+        if (s.visibility?.excluded || s.visibility?.fromValueLabels) {
             continue
         }
         if (s.data.length > maxPointsPerSeries) {
@@ -67,19 +70,23 @@ function buildCandidates(
         const yScale = resolveYScale(s, scales)
 
         for (let dIdx = 0; dIdx < s.data.length && dIdx < labels.length; dIdx++) {
-            const value = s.data[dIdx]
-            if (typeof value !== 'number' || value === 0 || !isFinite(value)) {
+            const rawValue = s.data[dIdx]
+            if (typeof rawValue !== 'number' || !isFinite(rawValue)) {
+                continue
+            }
+            const yValue = resolveValue(s, dIdx)
+            if (typeof yValue !== 'number' || !isFinite(yValue)) {
                 continue
             }
             const x = scales.x(labels[dIdx])
             if (x == null || !isFinite(x)) {
                 continue
             }
-            const y = yScale(value)
+            const y = yScale(yValue)
             if (!isFinite(y)) {
                 continue
             }
-            const text = valueFormatter ? valueFormatter(value, sIdx, dIdx) : value.toLocaleString()
+            const text = valueFormatter ? valueFormatter(rawValue, sIdx, dIdx) : rawValue.toLocaleString()
             const width = ctx ? ctx.measureText(text).width : text.length * 6
             candidates.push({
                 key: `${s.key}-${dIdx}`,
@@ -89,7 +96,7 @@ function buildCandidates(
                 y,
                 width,
                 color: s.color,
-                above: value >= 0,
+                above: yValue >= 0,
             })
         }
     }
@@ -97,12 +104,26 @@ function buildCandidates(
     return candidates
 }
 
+function labelRect(c: Candidate): { left: number; right: number; top: number; bottom: number } {
+    const halfW = c.width / 2
+    const top = c.above ? c.y - LABEL_HEIGHT : c.y
+    return { left: c.x - halfW, right: c.x + halfW, top, bottom: top + LABEL_HEIGHT }
+}
+
+function rectsOverlap(
+    a: { left: number; right: number; top: number; bottom: number },
+    b: { left: number; right: number; top: number; bottom: number },
+    gap: number
+): boolean {
+    return a.left < b.right + gap && a.right + gap > b.left && a.top < b.bottom + gap && a.bottom + gap > b.top
+}
+
 function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candidate[] {
     if (candidates.length === 0) {
         return candidates
     }
-    // Collision is tracked per-series so labels from different series at the same x
-    // can both appear — mirrors the legacy chartjs-plugin-datalabels per-dataset behavior.
+
+    // First pass: per-series horizontal dedup
     const bySeries: Map<number, Candidate[]> = new Map()
     for (const c of candidates) {
         const bucket = bySeries.get(c.seriesIndex)
@@ -113,7 +134,7 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candi
         }
     }
 
-    const visible: Candidate[] = []
+    const afterHorizontal: Candidate[] = []
     for (const group of bySeries.values()) {
         group.sort((a, b) => a.x - b.x)
         let lastRightEdge = -Infinity
@@ -121,9 +142,21 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candi
             const halfWidth = c.width / 2
             const leftEdge = c.x - halfWidth
             if (leftEdge >= lastRightEdge + minGap) {
-                visible.push(c)
+                afterHorizontal.push(c)
                 lastRightEdge = c.x + halfWidth
             }
+        }
+    }
+
+    // Second pass: cross-series 2D overlap removal (earlier series win)
+    const visible: Candidate[] = []
+    const placedRects: { left: number; right: number; top: number; bottom: number }[] = []
+    for (const c of afterHorizontal) {
+        const rect = labelRect(c)
+        const overlaps = placedRects.some((placed) => rectsOverlap(rect, placed, minGap))
+        if (!overlaps) {
+            visible.push(c)
+            placedRects.push(rect)
         }
     }
     return visible
@@ -132,12 +165,13 @@ function applyCollisionAvoidance(candidates: Candidate[], minGap: number): Candi
 const LABEL_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
     color: 'white',
-    fontSize: 11,
-    fontWeight: 500,
+    fontSize: 12,
+    fontWeight: 600,
     lineHeight: 1.2,
-    padding: '1px 6px',
+    padding: '2px 4px',
     borderRadius: 4,
-    border: '2px solid white',
+    borderWidth: 2,
+    borderStyle: 'solid',
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
 }
@@ -147,16 +181,18 @@ export function ValueLabels({
     minGap = 4,
     maxPointsPerSeries = 100,
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels } = useChart()
+    const { series, scales, labels, theme, resolveValue } = useChartLayout()
 
     const visible = useMemo(() => {
-        const candidates = buildCandidates(series, labels, scales, valueFormatter, maxPointsPerSeries)
+        const candidates = buildCandidates(series, labels, scales, resolveValue, valueFormatter, maxPointsPerSeries)
         return applyCollisionAvoidance(candidates, minGap)
-    }, [series, labels, scales, valueFormatter, minGap, maxPointsPerSeries])
+    }, [series, labels, scales, resolveValue, valueFormatter, minGap, maxPointsPerSeries])
 
     if (visible.length === 0) {
         return null
     }
+
+    const borderColor = theme.backgroundColor ?? 'white'
 
     return (
         <>
@@ -164,8 +200,9 @@ export function ValueLabels({
                 const style: React.CSSProperties = {
                     ...LABEL_STYLE_BASE,
                     backgroundColor: c.color,
-                    left: c.x,
-                    top: c.above ? c.y : c.y + LABEL_VERTICAL_OFFSET,
+                    borderColor,
+                    left: Math.round(c.x),
+                    top: Math.round(c.above ? c.y : c.y + LABEL_VERTICAL_OFFSET),
                     transform: c.above
                         ? `translate(-50%, calc(-100% - ${LABEL_VERTICAL_OFFSET}px))`
                         : 'translateX(-50%)',

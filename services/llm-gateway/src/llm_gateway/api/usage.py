@@ -48,7 +48,7 @@ async def get_usage(
     user: Annotated[AuthenticatedUser, Depends(get_authenticated_user)],
 ) -> UsageResponse:
     runner: ThrottleRunner = request.app.state.throttle_runner
-    plan_info = await resolve_plan_info(request, user.user_id, product)
+    plan_info = await resolve_plan_info(request, user.user_id, product, team_id=user.team_id)
 
     context = ThrottleContext(
         user=user,
@@ -91,5 +91,5 @@ async def invalidate_plan_cache(
     if product != POSTHOG_CODE_PRODUCT:
         raise HTTPException(status_code=404, detail="Plan cache not available for this product")
     plan_resolver: PlanResolver = request.app.state.plan_resolver
-    await plan_resolver.invalidate(user.user_id)
+    await plan_resolver.invalidate(user.user_id, team_id=user.team_id)
     return {"ok": True}

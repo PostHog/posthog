@@ -10,7 +10,10 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
-import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
+import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '../config/kafka-topics'
+import { APP_METRICS_OUTPUT, AppMetricsOutput } from '../ingestion/common/outputs'
+import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { parseJSON } from '../utils/json-parse'
 import { LogRecord, encodeLogRecords } from './log-record-avro'
 import {
@@ -25,6 +28,7 @@ import {
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
 } from './logs-ingestion-consumer'
+import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { BASE_REDIS_KEY } from './services/logs-rate-limiter.service'
 
 const DEFAULT_TEST_TIMEOUT = 5000
@@ -113,7 +117,24 @@ describe('LogsIngestionConsumer', () => {
     const createLogsIngestionConsumer = async (hub: Hub, overrides: any = {}) => {
         const consumer = new LogsIngestionConsumer(
             hub,
-            { ...hub, kafkaProducer: mockProducer, mskProducer: mockProducer },
+            {
+                ...hub,
+                outputs: new IngestionOutputs<AppMetricsOutput | LogsOutput | LogsDlqOutput>({
+                    [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
+                        APP_METRICS_OUTPUT,
+                        KAFKA_APP_METRICS_2,
+                        mockProducer,
+                        'test'
+                    ),
+                    [LOGS_OUTPUT]: new SingleIngestionOutput(LOGS_OUTPUT, KAFKA_LOGS_CLICKHOUSE, mockProducer, 'test'),
+                    [LOGS_DLQ_OUTPUT]: new SingleIngestionOutput(
+                        LOGS_DLQ_OUTPUT,
+                        KAFKA_LOGS_INGESTION_DLQ,
+                        mockProducer,
+                        'test'
+                    ),
+                }),
+            },
             overrides
         )
         // NOTE: We don't actually use kafka so we skip instantiation for faster tests
@@ -199,22 +220,17 @@ describe('LogsIngestionConsumer', () => {
             expect(consumer['name']).toEqual('LogsIngestionConsumer')
             expect(consumer['groupId']).toEqual('ingestion-logs')
             expect(consumer['topic']).toEqual('logs_ingestion_test')
-            expect(consumer['clickhouseTopic']).toEqual('clickhouse_logs_test')
-            expect(consumer['overflowTopic']).toEqual('logs_ingestion_overflow_test')
-            expect(consumer['dlqTopic']).toEqual('logs_ingestion_dlq_test')
         })
 
         it('should allow config overrides', async () => {
             const overrides = {
                 LOGS_INGESTION_CONSUMER_GROUP_ID: 'custom-group',
                 LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: 'custom-topic',
-                LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: 'custom-clickhouse-topic',
             }
             const customConsumer = await createLogsIngestionConsumer(hub, overrides)
 
             expect(customConsumer['groupId']).toBe('custom-group')
             expect(customConsumer['topic']).toBe('custom-topic')
-            expect(customConsumer['clickhouseTopic']).toBe('custom-clickhouse-topic')
 
             await customConsumer.stop()
         })
@@ -441,18 +457,21 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
             })
 
-            // Mock producer to throw an error
-            const originalProduce = consumer['kafkaProducer']!.produce
-            consumer['kafkaProducer']!.produce = jest.fn().mockRejectedValue(new Error('Producer error'))
+            // Mock producer's batched-write path to throw — this is what
+            // SingleIngestionOutput.queueMessages drives under the hood.
+            const originalQueueMessages = mockProducer.queueMessages
+            const queueSpy = jest.fn().mockRejectedValue(new Error('Producer error'))
+            mockProducer.queueMessages = queueSpy
 
-            // Producer errors are caught and logged, not thrown
-            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            try {
+                // Producer errors are caught and logged, not thrown
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
-            // Verify the producer was called and would have failed
-            expect(consumer['kafkaProducer']!.produce).toHaveBeenCalled()
-
-            // Restore original method
-            consumer['kafkaProducer']!.produce = originalProduce
+                // Verify the producer was called and would have failed
+                expect(queueSpy).toHaveBeenCalled()
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
+            }
         })
 
         it('should send failed messages to DLQ', async () => {
@@ -463,35 +482,43 @@ describe('LogsIngestionConsumer', () => {
 
             const logMessageDlqCounterSpy = jest.spyOn(logMessageDlqCounter, 'inc')
 
-            // Mock the produce method to throw an error for main topic but succeed for DLQ
-            const originalProduce = consumer['kafkaProducer']!.produce
-            const produceSpy = jest.fn().mockImplementation((args) => {
-                if (args.topic === 'clickhouse_logs_test') {
+            // Throw for the main logs topic but pass through to the real mock producer for the DLQ.
+            const originalQueueMessages = mockProducer.queueMessages
+            const passthrough = originalQueueMessages.bind(mockProducer)
+            const queueSpy = jest.fn().mockImplementation((topicMessages) => {
+                const t = Array.isArray(topicMessages) ? topicMessages[0]?.topic : topicMessages.topic
+                if (t === 'clickhouse_logs_test') {
                     throw new Error('Producer error')
                 }
-                return originalProduce(args)
+                return passthrough(topicMessages)
             })
-            consumer['kafkaProducer']!.produce = produceSpy
+            mockProducer.queueMessages = queueSpy
 
-            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            try {
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
-            // Check that DLQ counter was incremented with team_id
-            expect(logMessageDlqCounterSpy).toHaveBeenCalledWith({ reason: 'Error', team_id: team.id.toString() })
+                // Check that DLQ counter was incremented with team_id
+                expect(logMessageDlqCounterSpy).toHaveBeenCalledWith({
+                    reason: 'Error',
+                    team_id: team.id.toString(),
+                })
 
-            // Check that a message was produced to the DLQ topic
-            const dlqMessages = produceSpy.mock.calls.filter((call) => call[0].topic === 'logs_ingestion_dlq_test')
-            expect(dlqMessages.length).toBeGreaterThan(0)
+                // Check that a message was produced to the DLQ topic
+                const dlqCalls = queueSpy.mock.calls.filter((call) => {
+                    const t = Array.isArray(call[0]) ? call[0][0]?.topic : call[0].topic
+                    return t === 'logs_ingestion_dlq_test'
+                })
+                expect(dlqCalls.length).toBeGreaterThan(0)
 
-            // Verify DLQ message has error metadata in headers
-            if (dlqMessages.length > 0) {
-                const dlqMessage = dlqMessages[0][0]
+                // Verify DLQ message has error metadata in headers
+                const dlqArg = dlqCalls[0][0]
+                const dlqMessage = (Array.isArray(dlqArg) ? dlqArg[0] : dlqArg).messages[0]
                 expect(dlqMessage.headers).toHaveProperty('error_message')
                 expect(dlqMessage.headers).toHaveProperty('error_name')
                 expect(dlqMessage.headers).toHaveProperty('failed_at')
+            } finally {
+                mockProducer.queueMessages = originalQueueMessages
             }
-
-            // Restore original method
-            consumer['kafkaProducer']!.produce = originalProduce
         })
     })
 
@@ -1034,7 +1061,7 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
-    describe('produceUsageMetric', () => {
+    describe('queueUsageMetric', () => {
         const parseMetricValue = (value: any): any => {
             if (Buffer.isBuffer(value)) {
                 return parseJSON(value.toString())
@@ -1044,8 +1071,10 @@ describe('LogsIngestionConsumer', () => {
             }
             return value
         }
-        it('should produce metric with correct structure', async () => {
-            await consumer['produceUsageMetric'](123, 'test_metric', 500, '2025-01-01 00:00:00.000')
+
+        it('should queue + flush metric with correct structure', async () => {
+            consumer['queueUsageMetric'](123, 'test_metric', 500)
+            await consumer['appMetricsAggregator'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
@@ -1058,11 +1087,13 @@ describe('LogsIngestionConsumer', () => {
             expect(value?.metric_kind).toBe('usage')
             expect(value?.metric_name).toBe('test_metric')
             expect(value?.count).toBe(500)
-            expect(value?.timestamp).toBe('2025-01-01 00:00:00.000')
+            // timestamp is now set at flush time, not by the caller
+            expect(typeof value?.timestamp).toBe('string')
         })
 
-        it('should not produce metric when count is zero', async () => {
-            await consumer['produceUsageMetric'](123, 'test_metric', 0, '2025-01-01 00:00:00.000')
+        it('should not queue metric when count is zero', async () => {
+            consumer['queueUsageMetric'](123, 'test_metric', 0)
+            await consumer['appMetricsAggregator'].flush()
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
@@ -1405,6 +1436,62 @@ describe('LogsIngestionConsumer', () => {
             })
 
             expect(droppedMetrics).toHaveLength(0)
+        })
+    })
+
+    describe('thread relief', () => {
+        jest.setTimeout(30000)
+
+        beforeEach(async () => {
+            // Parent beforeEach mocks Date.now/toISOString — restore for real-time tracking.
+            jest.spyOn(Date, 'now').mockRestore()
+            jest.spyOn(Date.prototype, 'toISOString').mockRestore()
+
+            // Enable PII scrub + JSON parse so processLogMessageBuffer does real CPU work
+            // (without these settings it short-circuits and never decodes the buffer).
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_team SET logs_settings = $1 WHERE id = $2`,
+                [JSON.stringify({ pii_scrub_logs: true, json_parse_logs: true }), team.id],
+                'updateTeamLogsForThreadRelief'
+            )
+            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
+        })
+
+        it('should process large batches without blocking the main thread', async () => {
+            // Body large enough that JSON parse + PII scrub do meaningful sync work per message.
+            const body = JSON.stringify({
+                user_id: 'usr_abc123',
+                email: 'jane.doe@example.com',
+                nested: { a: 1, b: 'two', c: [1, 2, 3, 4, 5] },
+                message: 'A long log message ' + 'x'.repeat(500),
+            })
+
+            const numberToTest = 2000
+            const messages = await createKafkaMessages(
+                Array.from({ length: numberToTest }, () => ({ message: body })),
+                { token: team.api_token }
+            )
+
+            // Track event-loop lag only during the consumer's processing.
+            let lastCheck = Date.now()
+            let longestDelay = 0
+            const interval = setInterval(() => {
+                longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
+                lastCheck = Date.now()
+            }, 0)
+
+            try {
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            } finally {
+                clearInterval(interval)
+            }
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(numberToTest)
+
+            console.log(`[thread-relief] longestDelay = ${longestDelay}ms`)
+            expect(longestDelay).toBeLessThan(120)
         })
     })
 })

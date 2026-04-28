@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { handleToken } from '@/handlers/token'
+import { hashKey } from '@/lib/kv'
 
 import { createMockKV, mockKVGet, mockKVGetValue } from './helpers'
 
@@ -12,8 +13,9 @@ beforeEach(() => {
 
 describe('handleToken', () => {
     it('proxies to the correct region when region is stored in KV by client_id', async () => {
+        const clientHash = await hashKey('proxy_client_123')
         mockKVGet(mockKV, (key: string, type?: unknown) => {
-            if (key === 'region:proxy_client_123') {
+            if (key === `region:${clientHash}`) {
                 return Promise.resolve('us')
             }
             if (key === 'client:proxy_client_123' && type === 'json') {
@@ -56,11 +58,12 @@ describe('handleToken', () => {
     })
 
     it('rewrites redirect_uri when callback was intercepted by the proxy', async () => {
+        const clientHash = await hashKey('proxy_client_456')
         mockKVGet(mockKV, (key: string, type?: unknown) => {
-            if (key === 'region:proxy_client_456') {
+            if (key === `region:${clientHash}`) {
                 return Promise.resolve('eu')
             }
-            if (key === 'callback:proxy_client_456') {
+            if (key === `callback:${clientHash}`) {
                 return Promise.resolve('http://localhost:3000/callback')
             }
             if (key === 'client:proxy_client_456' && type === 'json') {
@@ -102,11 +105,12 @@ describe('handleToken', () => {
     })
 
     it('rewrites client_secret for confidential clients', async () => {
+        const clientHash = await hashKey('proxy_client_789')
         mockKVGet(mockKV, (key: string, type?: unknown) => {
-            if (key === 'region:proxy_client_789') {
+            if (key === `region:${clientHash}`) {
                 return Promise.resolve('eu')
             }
-            if (key === 'callback:proxy_client_789') {
+            if (key === `callback:${clientHash}`) {
                 return Promise.resolve('https://claude.ai/api/mcp/auth_callback')
             }
             if (key === 'client:proxy_client_789' && type === 'json') {

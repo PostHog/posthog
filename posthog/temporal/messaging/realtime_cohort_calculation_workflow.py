@@ -229,7 +229,7 @@ def _batch_update_cohort_metrics(cohort_durations: dict[int, int]) -> int:
     """Batch update cohort durations and last backfill timestamp.
 
     Only updates duration_ms when it changed by more than DURATION_UPDATE_RELATIVE_THRESHOLD from the previous value.
-    Always updates last_backfill_person_properties_at for all processed cohorts.
+    Always updates last_backfill_person_properties_at and last_realtime_cohort_calculation_at for all processed cohorts.
 
     Returns count of cohorts that had their duration updated.
     """
@@ -242,6 +242,7 @@ def _batch_update_cohort_metrics(cohort_durations: dict[int, int]) -> int:
 
     for cohort in all_cohorts:
         cohort.last_backfill_person_properties_at = now
+        cohort.last_realtime_cohort_calculation_at = now
 
         new_duration = cohort_durations[cohort.pk]
         previous_duration = cohort.last_calculation_duration_ms or 0
@@ -258,9 +259,16 @@ def _batch_update_cohort_metrics(cohort_durations: dict[int, int]) -> int:
             cohort.last_calculation_duration_ms = new_duration
             duration_updates_count += 1
 
-    # Single bulk_update for all cohorts — updates both last_backfill_person_properties_at and last_calculation_duration_ms
+    # Single bulk_update for all cohorts — updates last_backfill_person_properties_at, last_realtime_cohort_calculation_at, and last_calculation_duration_ms
     if all_cohorts:
-        Cohort.objects.bulk_update(all_cohorts, ["last_backfill_person_properties_at", "last_calculation_duration_ms"])
+        Cohort.objects.bulk_update(
+            all_cohorts,
+            [
+                "last_backfill_person_properties_at",
+                "last_realtime_cohort_calculation_at",
+                "last_calculation_duration_ms",
+            ],
+        )
 
     return duration_updates_count
 

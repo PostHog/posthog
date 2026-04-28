@@ -23,6 +23,7 @@ from posthog.kafka_client.routing import (
 from posthog.kafka_client.topics import (
     KAFKA_APP_METRICS2,
     KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+    KAFKA_DEAD_LETTER_QUEUE,
     KAFKA_DWH_CDP_RAW_TABLE,
     KAFKA_EVENTS_JSON,
     KAFKA_WAREHOUSE_SOURCES_JOBS,
@@ -111,8 +112,8 @@ class CurrentTopicRoutingTest(TestCase):
             mapping = current_topic_routing()
         self.assertEqual(mapping.get(KAFKA_WAREHOUSE_SOURCES_JOBS), KafkaClusterProfile.WAREHOUSE_SOURCES)
         self.assertEqual(mapping.get(KAFKA_DWH_CDP_RAW_TABLE), KafkaClusterProfile.CYCLOTRON)
-        # All Django-produced topics are now explicitly listed; DEFAULT topics resolve to DEFAULT.
-        self.assertEqual(mapping.get(KAFKA_APP_METRICS2), KafkaClusterProfile.DEFAULT)
+        # KAFKA_APP_METRICS2 is routed to the INGESTION cluster.
+        self.assertEqual(mapping.get(KAFKA_APP_METRICS2), KafkaClusterProfile.INGESTION)
 
     def test_env_overrides_add_new_topic(self):
         with override_settings(
@@ -141,7 +142,7 @@ class ResolveAndGetProducerTest(TestCase):
 
     def test_topic_not_in_map_resolves_to_default(self):
         with _mock_kafka_backend() as (sync_build, _):
-            producer = get_producer(topic=KAFKA_EVENTS_JSON)
+            producer = get_producer(topic=KAFKA_DEAD_LETTER_QUEUE)
             # Same call via the profile should reuse the cached producer.
             self.assertIs(producer, get_producer(profile=KafkaClusterProfile.DEFAULT))
         sync_build.assert_called_once_with(KafkaClusterProfile.DEFAULT)
@@ -251,10 +252,12 @@ class AsyncProducerScopeTest(TestCase):
 
 class NewAsyncProducerTest(TestCase):
     def test_returns_fresh_instance_per_call(self):
+        import asyncio
+
         with _mock_kafka_backend() as (_, async_build):
             async_build.side_effect = lambda profile: MagicMock(name=f"fresh[{profile}]")
-            first = new_async_producer(profile=KafkaClusterProfile.DEFAULT)
-            second = new_async_producer(profile=KafkaClusterProfile.DEFAULT)
+            first = asyncio.run(new_async_producer(profile=KafkaClusterProfile.DEFAULT))
+            second = asyncio.run(new_async_producer(profile=KafkaClusterProfile.DEFAULT))
         self.assertIsNot(first, second)
         self.assertEqual(async_build.call_count, 2)
 

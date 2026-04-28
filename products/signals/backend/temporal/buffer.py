@@ -11,7 +11,7 @@ import structlog
 import temporalio
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
+from temporalio.common import MetricCounter, RetryPolicy
 
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
@@ -117,6 +117,7 @@ class BufferSignalsWorkflow:
 
     def __init__(self) -> None:
         self._signal_buffer: list[EmitSignalInputs] = []
+        self._signals_emitted_counters: dict[tuple[str, str], MetricCounter] = {}
 
     @staticmethod
     def workflow_id_for(team_id: int) -> str:
@@ -126,8 +127,25 @@ class BufferSignalsWorkflow:
     def get_buffer_size(self) -> int:
         return len(self._signal_buffer)
 
+    def _get_emitted_counter(self, team_id: int, source_product: str, source_type: str) -> MetricCounter:
+        key = (source_product, source_type)
+        if key not in self._signals_emitted_counters:
+            meter = workflow.metric_meter().with_additional_attributes(
+                {
+                    "team_id": str(team_id),
+                    "source_product": source_product,
+                    "source_type": source_type,
+                }
+            )
+            self._signals_emitted_counters[key] = meter.create_counter(
+                "signals_emitted",
+                "Number of signals emitted",
+            )
+        return self._signals_emitted_counters[key]
+
     @temporalio.workflow.signal
     async def submit_signal(self, signal: EmitSignalInputs) -> None:
+        self._get_emitted_counter(signal.team_id, signal.source_product, signal.source_type).add(1)
         self._signal_buffer.append(signal)
 
     @temporalio.workflow.run
