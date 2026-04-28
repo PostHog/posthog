@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -12,11 +15,19 @@ import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
  * `bias_risk` when all three conditions hold, so presence of the field is the gate.
  */
 export function MultiVariantBiasWarning(): JSX.Element | null {
-    const { exposures, exposureCriteria } = useValues(experimentLogic)
+    const { experiment, exposures, exposureCriteria } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const { openDistributionModal } = useActions(modalsLogic)
+    const { reportExperimentBiasWarningShown } = useActions(eventUsageLogic)
 
     const risk = exposures?.bias_risk
+
+    useEffect(() => {
+        if (risk) {
+            reportExperimentBiasWarningShown(experiment)
+        }
+    }, [reportExperimentBiasWarningShown, risk, experiment])
+
     if (!risk) {
         return null
     }
