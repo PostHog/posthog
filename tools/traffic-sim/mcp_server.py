@@ -43,9 +43,15 @@ mcp = FastMCP(
 def _summarize_visits(results: list[cli.VisitResult]) -> dict[str, Any]:
     network_events: list[str] = []
     console_events: list[str] = []
+    visits_with_pageview = 0
     for r in results:
-        network_events.extend(e for req in r.posthog_requests for e in req.events)
-        console_events.extend(cli.extract_posthog_events_from_console(r.console_lines))
+        visit_network = [e for req in r.posthog_requests for e in req.events]
+        visit_console = cli.extract_posthog_events_from_console(r.console_lines)
+        network_events.extend(visit_network)
+        console_events.extend(visit_console)
+        visit_events = visit_network or visit_console
+        if "$pageview" in visit_events:
+            visits_with_pageview += 1
     events = network_events or console_events
     counts = Counter(events)
     success = sum(sum(1 for req in r.posthog_requests if req.status in (200, 204)) for r in results)
@@ -58,7 +64,8 @@ def _summarize_visits(results: list[cli.VisitResult]) -> dict[str, Any]:
         "events_by_type": dict(sorted(counts.items())),
         "pageviews": counts.get("$pageview", 0),
         "errors": errors,
-        "verified": counts.get("$pageview", 0) > 0 and not errors,
+        # verified: every visit captured at least one $pageview, and none errored.
+        "verified": bool(results) and visits_with_pageview == len(results) and not errors,
     }
 
 
@@ -158,7 +165,7 @@ async def check_posthog_loading(
         return {"error": "Provide at least one URL."}
     run_id = uuid.uuid4().hex[:8]
     posthog_domains = cli.resolve_posthog_domains(posthog_host)
-    report_path = await cli.run_check_loading(
+    pages = await cli.run_check_loading(
         urls=urls,
         headless=True,
         verbose=verbose,
@@ -167,14 +174,11 @@ async def check_posthog_loading(
         run_id=run_id,
         posthog_domains=posthog_domains,
     )
-    import json
-
-    report = json.loads(Path(report_path).read_text())
     loaded: list[str] = []
     not_loaded: list[str] = []
     errors: list[dict[str, str]] = []
     load_methods: Counter[str] = Counter()
-    for path, page in report["pages"].items():
+    for path, page in pages.items():
         if page.get("error"):
             errors.append({"path": path, "error": page["error"]})
             continue
@@ -189,7 +193,7 @@ async def check_posthog_loading(
         "errors": errors,
         "load_methods": dict(load_methods),
     }
-    return {"run_id": run_id, "summary": summary, "pages": report["pages"]}
+    return {"run_id": run_id, "summary": summary, "pages": pages}
 
 
 if __name__ == "__main__":

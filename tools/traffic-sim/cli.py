@@ -162,7 +162,9 @@ class AnalyticsCapture:
         self.verbose = verbose
         self.posthog_requests: list[AnalyticsRequest] = []
         self.console_lines: list[ConsoleLine] = []
-        self._pending: dict[str, AnalyticsRequest] = {}
+        # Keyed by id(request) so concurrent in-flight requests to the same
+        # URL (e.g. successive /batch/ flushes) don't overwrite each other.
+        self._pending: dict[int, AnalyticsRequest] = {}
 
     def attach(self, page: Page) -> None:
         page.on("request", self._on_request)
@@ -189,7 +191,7 @@ class AnalyticsCapture:
                     req.events = [data["event"]]
             except (json.JSONDecodeError, TypeError):
                 pass
-        self._pending[request.url] = req
+        self._pending[id(request)] = req
         if self.verbose:
             tags = ", ".join(req.events) or "unknown"
             print(f"    [PostHog] {request.method} {_short_url(request.url)} events=[{tags}]")
@@ -197,7 +199,7 @@ class AnalyticsCapture:
     def _on_response(self, response) -> None:
         if not self._is_posthog(response.url):
             return
-        req = self._pending.pop(response.url, None)
+        req = self._pending.pop(id(response.request), None)
         if req is None:
             return
         req.status = response.status
@@ -470,7 +472,7 @@ async def run_check_loading(
     timeout_ms: int,
     run_id: str,
     posthog_domains: tuple[str, ...],
-) -> Path:
+) -> dict[str, dict]:
     pages: dict[str, dict] = {}
     async with async_playwright() as p:
         browser = await _launch(p, cloud=cloud, headless=headless)
@@ -508,7 +510,7 @@ async def run_check_loading(
             await context.close()
             await browser.close()
     _print_check_loading_table(pages)
-    return _save_check_loading_report(pages, run_id)
+    return pages
 
 
 def _print_check_loading_table(pages: dict[str, dict]) -> None:
@@ -707,7 +709,7 @@ async def main_async(argv: list[str] | None = None) -> int:
     print("=" * 60)
 
     if args.scenario == "check-loading":
-        await run_check_loading(
+        pages = await run_check_loading(
             urls=urls,
             headless=headless,
             verbose=args.verbose,
@@ -716,6 +718,7 @@ async def main_async(argv: list[str] | None = None) -> int:
             run_id=run_id,
             posthog_domains=posthog_domains,
         )
+        _save_check_loading_report(pages, run_id)
         return 0
 
     if args.scenario == "new-user":

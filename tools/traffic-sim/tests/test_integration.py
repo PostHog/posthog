@@ -9,7 +9,6 @@ import asyncio
 import threading
 import http.server
 import socketserver
-from pathlib import Path
 
 import pytest
 
@@ -64,7 +63,7 @@ def fixture_server(tmp_path):
 @pytest.mark.integration
 def test_check_loading_detects_stubbed_posthog(fixture_server):
     """check-loading against a fixture page reports posthog as loaded."""
-    report_path = asyncio.run(
+    pages = asyncio.run(
         cli.run_check_loading(
             urls=[fixture_server],
             headless=True,
@@ -75,11 +74,8 @@ def test_check_loading_detects_stubbed_posthog(fixture_server):
             posthog_domains=cli.DEFAULT_POSTHOG_DOMAINS,
         )
     )
-    import json
-
-    report = json.loads(Path(report_path).read_text())
-    assert report["total_urls"] == 1
-    page_data = next(iter(report["pages"].values()))
+    assert len(pages) == 1
+    page_data = next(iter(pages.values()))
     assert page_data.get("error") is None
     assert page_data["runtime_state"]["loaded"] is True
     # The stub uses #posthog-init script tag, which we treat as head_snippet.
