@@ -13,13 +13,14 @@ the environment and prints a single-line `Decision` JSON on stdout:
 The two booleans are orthogonal so each downstream workflow job gates on
 exactly the question it owns: the `dismiss` job reads `dismiss_approval`,
 the `review` job reads `run_review`. Decisions are constructed only via
-`_retain`, `_dismiss_and_review`, `_no_op`, and `_error` — together they
-cover every legitimate combination, and the impossible "dismiss the
-approval but skip re-review" case is unrepresentable.
+`Decision.retain`, `Decision.dismiss_and_review`, `Decision.no_op`, and
+`Decision.error` — together they cover every legitimate combination, and
+the impossible "dismiss the approval but skip re-review" case is
+unrepresentable.
 
 Anything ambiguous (force-push, mixed paths, fetch error, foreign-branch
-merge) falls through to `_dismiss_and_review`. The bias is correctness,
-not retention.
+merge) falls through to `Decision.dismiss_and_review`. The bias is
+correctness, not retention.
 """
 
 import os
@@ -37,8 +38,8 @@ BOT_LOGIN = "github-actions[bot]"
 class Reason(StrEnum):
     """Why the decision was made. Plumbed into the dismissal message and PR comment.
 
-    `error:<ExcName>` is constructed dynamically in `_error()` for unhandled
-    exceptions and is intentionally not enumerated here.
+    `error:<ExcName>` is constructed dynamically in `Decision.error` for
+    unhandled exceptions and is intentionally not enumerated here.
     """
 
     TRIVIAL_PATHS = "trivial_paths"
@@ -62,9 +63,8 @@ class CommitClass(StrEnum):
 class Decision:
     """Wire format consumed by .github/workflows/pr-approval-agent.yml.
 
-    Construct only via the `_retain`, `_dismiss_and_review`, `_review_only`,
-    and `_error` helpers below — together they enumerate every legitimate
-    combination of the two booleans.
+    Construct only via the four classmethod factories — together they
+    enumerate every legitimate combination of the two booleans.
     """
 
     dismiss_approval: bool
@@ -72,28 +72,28 @@ class Decision:
     reason: str
     last_approved_sha: str | None = None
 
+    @classmethod
+    def retain(cls, reason: Reason) -> "Decision":
+        """Trivial delta with a prior approval — leave both the approval and the review alone."""
+        return cls(dismiss_approval=False, run_review=False, reason=reason)
 
-def _retain(reason: Reason) -> Decision:
-    """Trivial delta with a prior approval — leave both the approval and the review alone."""
-    return Decision(dismiss_approval=False, run_review=False, reason=reason)
+    @classmethod
+    def dismiss_and_review(cls, reason: Reason | str) -> "Decision":
+        """Non-trivial delta (or ambiguous fallback) — clear the prior approval and re-run review."""
+        return cls(dismiss_approval=True, run_review=True, reason=str(reason))
 
+    @classmethod
+    def no_op(cls, reason: Reason) -> "Decision":
+        """No prior approval to act on — nothing to do; the original `labeled`
+        event already fired a review, and the label-strip on non-APPROVED is
+        the canonical kill-switch. If a human dismissed the bot approval and
+        kept the label, they can re-label to request a fresh review."""
+        return cls(dismiss_approval=False, run_review=False, reason=reason)
 
-def _dismiss_and_review(reason: Reason | str) -> Decision:
-    """Non-trivial delta (or ambiguous fallback) — clear the prior approval and re-run review."""
-    return Decision(dismiss_approval=True, run_review=True, reason=str(reason))
-
-
-def _no_op(reason: Reason) -> Decision:
-    """No prior approval to act on — nothing to do; the original `labeled`
-    event already fired a review, and the label-strip on non-APPROVED is
-    the canonical kill-switch. If a human dismissed the bot approval and
-    kept the label, they can re-label to request a fresh review."""
-    return Decision(dismiss_approval=False, run_review=False, reason=reason)
-
-
-def _error(exc: Exception) -> Decision:
-    """Defense-in-depth fallback when the script itself crashes."""
-    return _dismiss_and_review(f"error:{type(exc).__name__}")
+    @classmethod
+    def error(cls, exc: Exception) -> "Decision":
+        """Defense-in-depth fallback when the script itself crashes."""
+        return cls.dismiss_and_review(f"error:{type(exc).__name__}")
 
 
 def _run(*args: str, cwd: Path | None = None) -> str:
@@ -171,26 +171,26 @@ def evaluate_delta(last_approved_sha: str, head_sha: str, cwd: Path, base_ref: s
     individually and almost always classify as non-trivial.
     """
     if not _is_ancestor(last_approved_sha, head_sha, cwd):
-        return _dismiss_and_review(Reason.NON_LINEAR_HISTORY)
+        return Decision.dismiss_and_review(Reason.NON_LINEAR_HISTORY)
 
     commits = _first_parent_commits_between(last_approved_sha, head_sha, cwd)
     if not commits:
-        return _retain(Reason.EMPTY_DELTA)
+        return Decision.retain(Reason.EMPTY_DELTA)
 
     classes = [_classify_commit(c, cwd, base_ref) for c in commits]
     if CommitClass.NON_TRIVIAL in classes:
-        return _dismiss_and_review(Reason.NON_TRIVIAL_DELTA)
+        return Decision.dismiss_and_review(Reason.NON_TRIVIAL_DELTA)
     if CommitClass.MERGE in classes and CommitClass.TRIVIAL in classes:
-        return _retain(Reason.MIXED_TRIVIAL)
+        return Decision.retain(Reason.MIXED_TRIVIAL)
     if CommitClass.MERGE in classes:
-        return _retain(Reason.MERGE_ONLY)
-    return _retain(Reason.TRIVIAL_PATHS)
+        return Decision.retain(Reason.MERGE_ONLY)
+    return Decision.retain(Reason.TRIVIAL_PATHS)
 
 
 def decide(repo: str, pr_number: int, head_sha: str, cwd: Path, base_ref: str = "origin/master") -> Decision:
     last_approved_sha = find_last_approved_sha(repo, pr_number)
     if last_approved_sha is None:
-        return _no_op(Reason.NO_PRIOR_APPROVAL)
+        return Decision.no_op(Reason.NO_PRIOR_APPROVAL)
     return replace(
         evaluate_delta(last_approved_sha, head_sha, cwd, base_ref),
         last_approved_sha=last_approved_sha,
@@ -207,7 +207,7 @@ def main() -> None:
             base_ref=os.environ.get("BASE_REF", "origin/master"),
         )
     except Exception as e:
-        decision = _error(e)
+        decision = Decision.error(e)
     print(json.dumps(asdict(decision)))
 
 
