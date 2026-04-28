@@ -1,10 +1,14 @@
 import { JSONContent } from '@tiptap/core'
+import equal from 'fast-deep-equal'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
+import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -12,10 +16,19 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    InsightQueryNode,
+    InsightVizNode,
+    NodeKind,
+    QuerySchema,
+} from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
+    convertDataTableNodeToDataVisualizationNode,
     isActorsQuery,
+    isDataVisualizationNode,
     isDataTableNode,
     isEventsQuery,
     isHogQLQuery,
@@ -23,7 +36,7 @@ import {
     isNodeWithSource,
     isSavedInsightNode,
 } from '~/queries/utils'
-import { InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, InsightLogicProps, InsightShortId } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -38,6 +51,128 @@ export const DEFAULT_QUERY: QuerySchema = {
         after: '-24h',
         limit: 100,
     },
+}
+
+const getNotebookSqlEditorTabId = (nodeId: string | null | undefined): string => `notebook-sql-${nodeId ?? 'new'}`
+
+const getSqlEditorSourceQuery = (query: QuerySchema): DataVisualizationNode | null => {
+    const convertedQuery = convertDataTableNodeToDataVisualizationNode(query)
+
+    if (isDataVisualizationNode(convertedQuery) && isHogQLQuery(convertedQuery.source)) {
+        return convertedQuery
+    }
+
+    if (isHogQLQuery(query)) {
+        return {
+            kind: NodeKind.DataVisualizationNode,
+            source: query,
+            display: ChartDisplayType.ActionsTable,
+        }
+    }
+
+    return null
+}
+
+function useNotebookSQLEditorSync({
+    attributes,
+    updateAttributes,
+    tabId,
+}: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes> & { tabId: string }): DataVisualizationNode | null {
+    const editorSourceQuery = useMemo(() => getSqlEditorSourceQuery(attributes.query), [attributes.query])
+    const logic = sqlEditorLogic({ tabId, mode: SQLEditorMode.Embedded })
+    const { queryInput, sourceQuery } = useValues(logic)
+    const { initialize, runQuery, setQueryInput, setSourceQuery } = useActions(logic)
+
+    useEffect(() => {
+        initialize()
+    }, [initialize])
+
+    useEffect(() => {
+        if (!editorSourceQuery || queryInput !== null) {
+            return
+        }
+
+        setQueryInput(editorSourceQuery.source.query)
+        setSourceQuery(editorSourceQuery)
+        runQuery(editorSourceQuery.source.query)
+    }, [editorSourceQuery, queryInput, runQuery, setQueryInput, setSourceQuery])
+
+    useEffect(() => {
+        if (!editorSourceQuery || queryInput === null) {
+            return
+        }
+
+        const nextQuery: DataVisualizationNode = {
+            ...sourceQuery,
+            source: {
+                ...sourceQuery.source,
+                query: queryInput,
+            },
+            display: sourceQuery.display ?? editorSourceQuery.display ?? ChartDisplayType.ActionsTable,
+        }
+
+        if (!equal(nextQuery, editorSourceQuery)) {
+            updateAttributes({ query: nextQuery })
+        }
+    }, [editorSourceQuery, queryInput, sourceQuery, updateAttributes])
+
+    return editorSourceQuery
+}
+
+function NotebookSQLEditorOutput({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodeQueryAttributes>): JSX.Element | null {
+    const tabId = useMemo(() => getNotebookSqlEditorTabId(attributes.nodeId), [attributes.nodeId])
+    const editorSourceQuery = useNotebookSQLEditorSync({ attributes, updateAttributes, tabId })
+
+    if (!editorSourceQuery) {
+        return null
+    }
+
+    return (
+        <div
+            className="flex h-full min-h-0 flex-col"
+            onMouseDown={(event) => event.stopPropagation()}
+            onDragStart={(event) => event.stopPropagation()}
+        >
+            <SQLEditor
+                tabId={tabId}
+                mode={SQLEditorMode.Embedded}
+                panel={SQLEditorPanel.Output}
+                defaultShowDatabaseTree={false}
+            />
+        </div>
+    )
+}
+
+function NotebookSQLEditorSettings({
+    attributes,
+    updateAttributes,
+}: NotebookNodeAttributeProperties<NotebookNodeQueryAttributes>): JSX.Element {
+    const tabId = useMemo(() => getNotebookSqlEditorTabId(attributes.nodeId), [attributes.nodeId])
+    const editorSourceQuery = useNotebookSQLEditorSync({ attributes, updateAttributes, tabId })
+
+    if (!editorSourceQuery) {
+        return <></>
+    }
+
+    return (
+        <div
+            className="p-3"
+            onMouseDown={(event) => event.stopPropagation()}
+            onDragStart={(event) => event.stopPropagation()}
+        >
+            <div className="h-96 min-h-72 overflow-hidden rounded border">
+                <SQLEditor
+                    tabId={tabId}
+                    mode={SQLEditorMode.Embedded}
+                    panel={SQLEditorPanel.Query}
+                    defaultShowDatabaseTree={false}
+                />
+            </div>
+        </div>
+    )
 }
 
 const Component = ({
@@ -117,6 +252,14 @@ const Component = ({
 
     if (!expanded) {
         return null
+    }
+
+    if (getSqlEditorSourceQuery(query)) {
+        return (
+            <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
+                <NotebookSQLEditorOutput attributes={attributes} updateAttributes={updateAttributes} />
+            </div>
+        )
     }
 
     const isInsightViz = isInsightVizNode(modifiedQuery) || isSavedInsightNode(modifiedQuery)
@@ -229,6 +372,8 @@ export const Settings = ({
         }
     }
 
+    const isSqlEditorQuery = !!getSqlEditorSourceQuery(query)
+
     return isSavedInsightNode(attributes.query) ? (
         <div className="p-3 deprecated-space-y-2">
             <div className="text-lg font-semibold">Insight created outside of this notebook</div>
@@ -258,6 +403,8 @@ export const Settings = ({
                 </LemonButton>
             </div>
         </div>
+    ) : isSqlEditorQuery ? (
+        <NotebookSQLEditorSettings attributes={attributes} updateAttributes={updateAttributes} />
     ) : (
         <div className="p-3">
             <Query
