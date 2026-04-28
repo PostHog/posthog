@@ -34,7 +34,7 @@ class TestDatabaseHealthcheck(TestCase):
 
             self.healthcheck.is_postgres_connected_check.reset_mock()
             # 30 seconds later
-            frozen_time.tick(delta=30)  # type: ignore
+            frozen_time.tick(delta=30)
 
             self.assertTrue(self.healthcheck.is_connected())
             self.healthcheck.is_postgres_connected_check.assert_called_once()
@@ -43,7 +43,7 @@ class TestDatabaseHealthcheck(TestCase):
             self.assertEqual(self.healthcheck.last_check, 53648641)
 
             # 30 seconds later
-            frozen_time.tick(delta=30)  # type: ignore
+            frozen_time.tick(delta=30)
             self.healthcheck.is_postgres_connected_check = mock.MagicMock(return_value=False)  # type: ignore
 
             self.assertFalse(self.healthcheck.is_connected())
@@ -72,7 +72,7 @@ class TestDatabaseHealthcheck(TestCase):
             self.assertEqual(self.healthcheck.last_check, 53648640)
 
             # 30 seconds later
-            frozen_time.tick(delta=30)  # type: ignore
+            frozen_time.tick(delta=30)
 
             self.assertTrue(self.healthcheck.is_connected())
             self.healthcheck.is_postgres_connected_check.assert_called_once()

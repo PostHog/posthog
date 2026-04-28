@@ -1,5 +1,4 @@
 *
-!.github/clickhouse-versions.json
 !Dockerfile.recording-rasterizer
 !.devcontainer
 !.kearc
@@ -12,6 +11,7 @@
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !common/tailwind
+!packages/quill
 !dags
 !docs/onboarding
 !ee
@@ -60,6 +60,8 @@ common/*/*/node_modules
 common/*/node_modules
 common/*/*/dist
 common/*/dist
+packages/quill/**/node_modules
+packages/quill/**/dist
 products/**/node_modules
 nodejs/node_modules
 ee/**/node_modules

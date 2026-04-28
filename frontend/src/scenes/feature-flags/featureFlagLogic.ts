@@ -154,6 +154,26 @@ export function describeCron(expr: string | null): string | null {
     }
 }
 
+/**
+ * Schedule pickers operate on the browser's wall clock, but users expect the time they enter
+ * to be interpreted in the project's timezone (shown via `ScheduleTimezoneHint`).
+ *
+ * These helpers convert between the browser-local Dayjs used by the calendar and the
+ * project-timezone UTC ISO string stored on the backend, keeping the displayed wall clock
+ * identical in both directions.
+ */
+export function scheduleDateToProjectTzISO(localDayjs: Dayjs, timezone: string): string {
+    // Reinterpret the wall clock as being in the project timezone, then emit as UTC.
+    return localDayjs.tz(timezone, true).toISOString()
+}
+
+export function scheduleDateFromStoredISO(isoString: string, timezone: string): Dayjs {
+    // Convert the stored UTC moment to the project timezone, then present that wall clock
+    // as a browser-local Dayjs so the calendar renders the same values the user picked.
+    // Sub-second precision is preserved so end-of-day sentinels (.999 ms) round-trip unchanged.
+    return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
+}
+
 export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {
     business_hours: {
         label: 'Business hours',
@@ -579,6 +599,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         enrichUsageDashboard: true,
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setCopySchedule: (copySchedule: boolean) => ({ copySchedule }),
+        setDisableCopiedFlag: (disableCopiedFlag: boolean) => ({ disableCopiedFlag }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
@@ -914,6 +935,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             false as boolean,
             {
                 setCopySchedule: (_, { copySchedule }) => copySchedule,
+            },
+        ],
+        disableCopiedFlag: [
+            false as boolean,
+            {
+                setDisableCopiedFlag: (_, { disableCopiedFlag }) => disableCopiedFlag,
             },
         ],
         scheduleDateMarker: [
@@ -1488,7 +1515,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             copyFlag: async () => {
                 const orgId = values.currentOrganizationId
                 const featureFlagKey = values.featureFlag.key
-                const { copyDestinationProject, currentProjectId, copySchedule } = values
+                const { copyDestinationProject, currentProjectId, copySchedule, disableCopiedFlag } = values
 
                 if (currentProjectId && copyDestinationProject) {
                     return await api.organizationFeatureFlags.copy(orgId, {
@@ -1496,6 +1523,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         from_project: currentProjectId,
                         target_project_ids: [copyDestinationProject],
                         copy_schedule: copySchedule,
+                        disable_copied_flag: disableCopiedFlag,
                     })
                 }
             },
@@ -1536,6 +1564,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         payloadValue = schedulePayload[fields[scheduledChangeOperation]]
                     }
 
+                    const timezone = values.currentTeam?.timezone || 'UTC'
                     const data = {
                         record_id: values.featureFlag.id,
                         model_name: 'FeatureFlag',
@@ -1543,18 +1572,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             operation: scheduledChangeOperation,
                             value: payloadValue,
                         },
-                        scheduled_at: scheduleDateMarker.toISOString(),
+                        // The calendar emits a browser-local Dayjs; reinterpret the wall clock
+                        // in the project's timezone so everyone sees the same scheduled moment.
+                        scheduled_at: scheduleDateToProjectTzISO(scheduleDateMarker, timezone),
                         is_recurring: values.isRecurring,
                         recurrence_interval: values.recurrenceInterval,
                         cron_expression: values.cronExpression,
                         // Use end-of-day in project timezone to ensure consistent behavior
                         // across all users in the project
-                        end_date: values.endDate
-                            ? values.endDate
-                                  .tz(values.currentTeam?.timezone || 'UTC')
-                                  .endOf('day')
-                                  .toISOString()
-                            : null,
+                        end_date: values.endDate ? values.endDate.tz(timezone, true).endOf('day').toISOString() : null,
                     }
 
                     return await api.featureFlags.createScheduledChange(currentProjectId, data)
@@ -1613,12 +1639,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
             try {
-                const baseDate = values.scheduleDateMarker?.toDate() ?? new Date()
+                const timezone = values.currentTeam?.timezone || 'UTC'
+                // scheduleDateMarker is a browser-local Dayjs whose wall clock matches the
+                // project timezone. Reinterpret it in the project timezone before passing to
+                // cron-parser so the cron fields (e.g. "0 9") are evaluated in the project's
+                // timezone rather than the browser's.
+                const baseDate = values.scheduleDateMarker?.tz(timezone, true).toDate() ?? new Date()
                 const interval = CronExpressionParser.parse(cronExpression, {
                     currentDate: baseDate,
+                    tz: timezone,
                 })
                 const nextDate = interval.next().toDate()
-                actions.setScheduleDateMarker(dayjs(nextDate))
+                actions.setScheduleDateMarker(scheduleDateFromStoredISO(nextDate.toISOString(), timezone))
             } catch {
                 // Invalid expression — don't update the date picker
             }
@@ -1682,23 +1714,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 disableCron = def.disableCron
             }
 
+            const timezone = values.currentTeam?.timezone || 'UTC'
             const basePayload = {
                 record_id: values.featureFlag.id,
                 model_name: 'FeatureFlag',
                 is_recurring: true,
                 recurrence_interval: null,
-                end_date: values.endDate
-                    ? values.endDate
-                          .tz(values.currentTeam?.timezone || 'UTC')
-                          .endOf('day')
-                          .toISOString()
-                    : null,
+                end_date: values.endDate ? values.endDate.tz(timezone, true).endOf('day').toISOString() : null,
             }
 
-            // Compute scheduled_at from the enable cron's next run
+            // Compute scheduled_at from the enable cron's next run, evaluated in project timezone.
             let enableScheduledAt: string
             try {
-                const interval = CronExpressionParser.parse(enableCron, { currentDate: new Date() })
+                const interval = CronExpressionParser.parse(enableCron, { currentDate: new Date(), tz: timezone })
                 enableScheduledAt = interval.next().toDate().toISOString()
             } catch {
                 lemonToast.error('Invalid enable cron expression')
@@ -1707,7 +1735,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             let disableScheduledAt: string
             try {
-                const interval = CronExpressionParser.parse(disableCron, { currentDate: new Date() })
+                const interval = CronExpressionParser.parse(disableCron, { currentDate: new Date(), tz: timezone })
                 disableScheduledAt = interval.next().toDate().toISOString()
             } catch {
                 lemonToast.error('Invalid disable cron expression')
@@ -1930,6 +1958,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.loadProjectsWithCurrentFlag()
             actions.setCopyDestinationProject(null)
             actions.setCopySchedule(false)
+            actions.setDisableCopiedFlag(false)
         },
         createStaticCohortSuccess: ({ newCohort }) => {
             if (newCohort) {

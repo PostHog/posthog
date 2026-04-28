@@ -1131,7 +1131,11 @@ export const sceneLogic = kea<sceneLogicType>([
 
             const unmount = cache.mountedTabLogic[tabId]
             if (unmount) {
-                window.setTimeout(unmount, 50)
+                try {
+                    unmount()
+                } catch (error) {
+                    console.error('Error unmounting previous tab logic:', error)
+                }
                 delete cache.mountedTabLogic[tabId]
             }
             if (exportedScene?.logic) {

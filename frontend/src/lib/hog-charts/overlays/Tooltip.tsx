@@ -48,7 +48,7 @@ export function Tooltip<Meta = unknown>({ context, renderTooltip }: TooltipProps
             // inside the tooltip (e.g. scrollable long content) from chart/page scrolls,
             // which should dismiss a pinned tooltip.
             data-hog-charts-tooltip=""
-            className={context.isPinned ? 'InsightTooltipWrapper--pinned' : undefined}
+            className={context.isPinned ? 'hog-charts-tooltip--pinned' : undefined}
             style={{
                 ...floatingStyles,
                 pointerEvents: context.isPinned ? 'auto' : 'none',

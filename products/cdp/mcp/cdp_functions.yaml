@@ -9,36 +9,6 @@ feature: hog_functions
 url_prefix: /pipeline
 ui_apps: {}
 tools:
-    cdp-functions-list:
-        operation: hog_functions_list
-        enabled: true
-        scopes:
-            - hog_function:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List functions
-        description: >
-            List all functions (destinations, transformations, site apps, and source webhooks) in the project. Returns
-            each function's name, type, enabled status, execution order, and template info. Filter by type (destination,
-            site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation)
-            and enabled status via query parameters.
-        response:
-            include:
-                - id
-                - type
-                - name
-                - description
-                - enabled
-                - execution_order
-                - icon_url
-                - template.id
-                - status
-                - created_at
-                - updated_at
-                - created_by
     cdp-functions-create:
         operation: hog_functions_create
         enabled: true
@@ -106,8 +76,45 @@ tools:
                 description: >
                     Execution priority for transformation functions (lower runs first). Only applies to
                     type=transformation. If omitted, the function is appended at the end.
-    cdp-functions-retrieve:
-        operation: hog_functions_retrieve
+    cdp-functions-delete:
+        operation: hog_functions_destroy
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete function
+        description: >
+            Delete a function by ID (soft delete). The function will no longer appear in lists or process events, but
+            historical data is preserved.
+        soft_delete: true
+    cdp-functions-enable-backfills-create:
+        operation: hog_functions_enable_backfills_create
+        enabled: false
+    cdp-functions-icon-retrieve:
+        operation: hog_functions_icon_retrieve
+        enabled: false
+    cdp-functions-icons-retrieve:
+        operation: hog_functions_icons_retrieve
+        enabled: false
+    cdp-functions-invocations-create:
+        operation: hog_functions_invocations_create
+        enabled: true
+        scopes:
+            - hog_function:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Test-invoke function
+        description: >
+            Test-invoke a function with a mock event payload. Sends the function configuration and test data to the
+            plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to
+            simulate external calls like fetch() without making real HTTP requests.
+    cdp-functions-list:
+        operation: hog_functions_list
         enabled: true
         scopes:
             - hog_function:read
@@ -115,12 +122,59 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get function
+        list: true
+        title: List functions
         description: >
-            Get a specific function by ID. Returns the full configuration including source code, inputs schema, input
-            values (secrets are masked), filters, mappings, masking config, and runtime status.
-    cdp-functions-update:
-        operation: hog_functions_update
+            List all functions (destinations, transformations, site apps, and source webhooks) in the project. Returns
+            each function's name, type, enabled status, execution order, and template info. Filter by type (destination,
+            site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation)
+            and enabled status via query parameters.
+        response:
+            include:
+                - id
+                - type
+                - name
+                - description
+                - enabled
+                - execution_order
+                - icon_url
+                - template.id
+                - status
+                - created_at
+                - updated_at
+                - created_by
+    cdp-functions-logs-retrieve:
+        operation: hog_functions_logs_retrieve
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get function logs
+        description: >
+            Retrieve execution logs for a specific CDP function by ID. Returns log entries with timestamp, level (DEBUG,
+            LOG, INFO, WARN, ERROR), and message. Use to debug why a destination or transformation is failing or not
+            producing expected results. Supports filtering by log level, text search, time range (after/before), and
+            pagination via limit.
+    cdp-functions-metrics-retrieve:
+        operation: hog_functions_metrics_retrieve
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get function metrics
+        description: >
+            Retrieve execution metrics for a specific CDP function by ID. Returns time-series data showing success and
+            failure counts over a configurable interval (hour, day, or week). Use to understand function health,
+            identify failure spikes, and monitor delivery reliability. Supports breakdown by metric kind
+            (success/failure) or name, and time range filtering.
+    cdp-functions-metrics-totals-retrieve:
+        operation: hog_functions_metrics_totals_retrieve
         enabled: false
     cdp-functions-partial-update:
         operation: hog_functions_partial_update
@@ -171,76 +225,6 @@ tools:
         param_overrides:
             enabled:
                 description: Set to true to activate or false to deactivate the function.
-    cdp-functions-delete:
-        operation: hog_functions_destroy
-        enabled: true
-        scopes:
-            - hog_function:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Delete function
-        description: >
-            Delete a function by ID (soft delete). The function will no longer appear in lists or process events, but
-            historical data is preserved.
-        soft_delete: true
-    cdp-functions-enable-backfills-create:
-        operation: hog_functions_enable_backfills_create
-        enabled: false
-    cdp-functions-invocations-create:
-        operation: hog_functions_invocations_create
-        enabled: true
-        scopes:
-            - hog_function:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Test-invoke function
-        description: >
-            Test-invoke a function with a mock event payload. Sends the function configuration and test data to the
-            plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to
-            simulate external calls like fetch() without making real HTTP requests.
-    cdp-functions-logs-retrieve:
-        operation: hog_functions_logs_retrieve
-        enabled: true
-        scopes:
-            - hog_function:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get function logs
-        description: >
-            Retrieve execution logs for a specific CDP function by ID. Returns log entries with timestamp,
-            level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a destination or
-            transformation is failing or not producing expected results. Supports filtering by log level,
-            text search, time range (after/before), and pagination via limit.
-    cdp-functions-metrics-retrieve:
-        operation: hog_functions_metrics_retrieve
-        enabled: true
-        scopes:
-            - hog_function:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get function metrics
-        description: >
-            Retrieve execution metrics for a specific CDP function by ID. Returns time-series data showing
-            success and failure counts over a configurable interval (hour, day, or week). Use to understand
-            function health, identify failure spikes, and monitor delivery reliability. Supports breakdown
-            by metric kind (success/failure) or name, and time range filtering.
-    cdp-functions-metrics-totals-retrieve:
-        operation: hog_functions_metrics_totals_retrieve
-        enabled: false
-    cdp-functions-icon-retrieve:
-        operation: hog_functions_icon_retrieve
-        enabled: false
-    cdp-functions-icons-retrieve:
-        operation: hog_functions_icons_retrieve
-        enabled: false
     cdp-functions-rearrange-partial-update:
         operation: hog_functions_rearrange_partial_update
         enabled: true
@@ -255,3 +239,19 @@ tools:
             Update the execution order of transformation functions. Send an 'orders' object mapping function UUIDs to
             their new execution_order integer values. Only applies to functions with type=transformation. Returns the
             updated list of transformations.
+    cdp-functions-retrieve:
+        operation: hog_functions_retrieve
+        enabled: true
+        scopes:
+            - hog_function:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get function
+        description: >
+            Get a specific function by ID. Returns the full configuration including source code, inputs schema, input
+            values (secrets are masked), filters, mappings, masking config, and runtime status.
+    cdp-functions-update:
+        operation: hog_functions_update
+        enabled: false
