@@ -795,3 +795,6 @@ tools:
     users-verify-email-create:
         operation: users_verify_email_create
         enabled: false
+    event-definitions-promoted-properties-retrieve:
+        operation: event_definitions_promoted_properties_retrieve
+        enabled: false
