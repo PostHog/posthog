@@ -570,7 +570,24 @@ class TestIntegrationAPIKeyAccess:
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["kind"] == "github"
 
-    def test_list_integrations_only_shows_github_for_api_keys(self, client: HttpClient):
+    @patch(
+        "posthog.models.integration.get_instance_settings",
+        return_value={
+            "SLACK_APP_CLIENT_ID": "test-client-id",
+            "SLACK_APP_CLIENT_SECRET": "test-client-secret",
+            "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
+        },
+    )
+    def test_list_integrations_only_shows_github_and_slack_for_api_keys(self, _mock_settings, client: HttpClient):
+        Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_LIST",
+            config={"authed_user": {"id": "test_user_id"}, "team": {"name": "Test Workspace"}},
+            sensitive_config={"access_token": "test-token"},
+            created_by=self.user,
+        )
+
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -586,9 +603,8 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        assert len(results) == 1
-        assert results[0]["kind"] == "github"
-        assert all(integration["kind"] == "github" for integration in results)
+        kinds = {integration["kind"] for integration in results}
+        assert kinds == {"github", "slack"}
 
     def test_retrieve_github_integration_with_scope_succeeds(self, client: HttpClient):
         key_value = "test_key_123"
@@ -847,6 +863,71 @@ class TestIntegrationAPIKeyAccess:
 
         response = client.get(
             f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "integration:read" in response.json()["detail"]
+
+    def test_channels_is_mapped_as_read_action(self):
+        assert "channels" in IntegrationViewSet.scope_object_read_actions
+
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_with_scope_succeeds(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_SCOPE_SUCCESS",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_channels.return_value = [
+            {"id": "C1", "name": "general", "is_private": False, "is_member": True, "is_ext_shared": False},
+            {"id": "C2", "name": "random", "is_private": False, "is_member": True, "is_ext_shared": False},
+        ]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_channels"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert len(data["channels"]) == 2
+        assert data["channels"][0]["id"] == "C1"
+        assert data["channels"][0]["name"] == "general"
+
+    def test_channels_without_scope_fails(self, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_SCOPE_FAIL",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+
+        key_value = "test_key_channels_no_scope"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["feature_flag:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/",
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
 

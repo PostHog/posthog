@@ -442,6 +442,7 @@ class IntegrationViewSet(
     scope_object_read_actions = [
         "list",
         "retrieve",
+        "channels",
         "github_repos",
         "github_branches",
     ]
@@ -480,7 +481,11 @@ class IntegrationViewSet(
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
             self.request.successful_authenticator, OAuthAccessTokenAuthentication
         ):
-            return defer_repository_cache_fields(queryset.filter(kind="github"))
+            # Slack is exposed alongside GitHub so MCP / API-key callers can list the workspace's
+            # channels for downstream HogFunction wiring (alert delivery, workflow destinations).
+            # Only id, kind, config, errors, and display metadata are returned via the serializer —
+            # access tokens stay in sensitive_config and are not exposed.
+            return defer_repository_cache_fields(queryset.filter(kind__in=["github", "slack"]))
         return queryset
 
     @action(methods=["GET"], detail=False)
