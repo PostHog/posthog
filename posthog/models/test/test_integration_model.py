@@ -18,11 +18,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.github_integration_base import (
-    GITHUB_BRANCH_CACHE_TTL_SECONDS,
-    GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
-    GitHubIntegrationError,
-)
+from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
     MISSING_CERT_PATH,
@@ -33,6 +29,7 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     EmailIntegration,
     GitHubIntegration,
+    GitHubIntegrationError,
     GitHubRateLimitError,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,

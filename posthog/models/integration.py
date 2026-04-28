@@ -37,7 +37,7 @@ from stripe import StripeClient
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
@@ -2056,10 +2056,6 @@ class GitHubUserAuthorization:
     refresh_token: str | None
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
-
-
-class GitHubIntegrationError(Exception):
-    pass
 
 
 class GitHubRateLimitError(GitHubIntegrationError):
