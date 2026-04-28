@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import cast
 
 from django.conf import settings
+from django.db.models import Prefetch
 
 import structlog
 from loginas.utils import is_impersonated_session
@@ -28,19 +29,48 @@ class PersonProfileDeletionResult:
     errors: list[uuid_lib.UUID] = field(default_factory=list)
 
 
+# Columns required by the deletion path:
+# - id, team_id: Person.delete() WHERE clause (single-partition delete on posthog_person_new)
+# - uuid: ClickHouse tombstone, AsyncDeletion key, recording workflow id, activity log
+# - version, created_at: delete_person() -> _delete_person() (Kafka tombstone payload)
+# Everything else (notably ``properties``, a large JSONB) is excluded to keep row size small.
+_PERSON_DELETION_COLUMNS = ("id", "team_id", "uuid", "version", "created_at")
+
+
 def resolve_persons_for_deletion(
     team_id: int,
     uuids: builtins.list[str] | None,
     distinct_ids: builtins.list[str] | None,
 ) -> builtins.list[Person]:
-    """Materialize Persons matching either uuids or distinct_ids (or both)."""
+    """Materialize Persons matching either uuids or distinct_ids.
+
+    The ``persondistinctid_set`` prefetch must pass a ``team_id``-filtered queryset:
+    ``posthog_persondistinctid`` is partitioned by ``team_id``, and a bare
+    ``Prefetch("persondistinctid_set", to_attr=...)`` produces a query without
+    ``WHERE team_id = X`` that scans every partition across every team. Pattern
+    copied from ``PersonViewSet.safely_get_queryset`` in ``posthog/api/person.py``.
+    """
+
+    persons_queryset = (
+        Person.objects.filter(team_id=team_id)
+        .only(*_PERSON_DELETION_COLUMNS)
+        .prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=team_id).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
+    )
     if uuids:
-        persons_queryset = Person.objects.filter(uuid__in=uuids, team_id=team_id).defer("properties")
-    if distinct_ids:
+        persons_queryset = persons_queryset.filter(uuid__in=uuids)
+    elif distinct_ids:
         person_ids = PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).values_list(
             "person_id", flat=True
         )
-        persons_queryset = Person.objects.filter(id__in=person_ids, team_id=team_id).defer("properties")
+        persons_queryset = persons_queryset.filter(id__in=person_ids)
+    else:
+        return []
     return list(persons_queryset)
 
 
