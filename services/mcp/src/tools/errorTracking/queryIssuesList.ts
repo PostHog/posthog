@@ -33,7 +33,7 @@ const schema = z.object({
         .string()
         .max(500)
         .optional()
-        .describe('Free-text search across exception type, message, stack frames, and email fields.'),
+        .describe('Free-text search across exception types, values, stack frames, and email fields.'),
     filterGroup: z
         .array(propertyFilterSchema)
         .default([])

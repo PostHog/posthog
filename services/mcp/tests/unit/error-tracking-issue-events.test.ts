@@ -24,7 +24,8 @@ describe('query-error-tracking-issue-events', () => {
                 'uuid',
                 'timestamp',
                 'distinct_id',
-                'properties.$exception_type',
+                'properties.$exception_types',
+                'properties.$exception_values',
                 'properties.$exception_list',
                 'properties.$session_id',
                 'properties.$current_url',
@@ -34,7 +35,8 @@ describe('query-error-tracking-issue-events', () => {
                     'event-uuid',
                     '2026-04-24T12:00:00Z',
                     'user-1',
-                    'TypeError',
+                    JSON.stringify(['TypeError']),
+                    JSON.stringify(['Cannot read properties of undefined']),
                     JSON.stringify([
                         {
                             type: 'TypeError',
@@ -83,9 +85,12 @@ describe('query-error-tracking-issue-events', () => {
             tags: { productKey: 'error_tracking' },
         })
         expect(query.properties).toEqual(filterGroup)
+        expect(query.select).toContain('properties.$exception_types')
+        expect(query.select).toContain('properties.$exception_values')
         expect(query.select).toContain('properties.$exception_list')
         expect(query.select).toContain('properties.$session_id')
         expect(query.where[0]).toContain(`issue_id = '${issueId}'`)
+        expect(query.where[1]).toContain('properties.$exception_values')
         expect(query.where[1]).toContain("can\\'t\\\\_load\\\\%\\\\_\\\\\\\\path")
         expect(result).toEqual({
             results: [
@@ -94,7 +99,8 @@ describe('query-error-tracking-issue-events', () => {
                     timestamp: '2026-04-24T12:00:00Z',
                     distinct_id: 'user-1',
                     properties: {
-                        $exception_type: 'TypeError',
+                        $exception_types: ['TypeError'],
+                        $exception_values: ['Cannot read properties of undefined'],
                         $exception_list: [
                             {
                                 type: 'TypeError',
@@ -124,11 +130,11 @@ describe('query-error-tracking-issue-events', () => {
     it('truncates long exception text outside raw mode', async () => {
         const longText = 'x'.repeat(1200)
         const runQuery = vi.fn().mockResolvedValue({
-            columns: ['uuid', 'properties.$exception_value', 'properties.$exception_list'],
+            columns: ['uuid', 'properties.$exception_values', 'properties.$exception_list'],
             results: [
                 [
                     'event-uuid',
-                    longText,
+                    JSON.stringify([longText]),
                     JSON.stringify([
                         {
                             type: 'Error',
@@ -146,12 +152,12 @@ describe('query-error-tracking-issue-events', () => {
         const stackResult = (await tool.handler(context, { issueId, verbosity: 'stack' })) as any
         const rawResult = (await tool.handler(context, { issueId, verbosity: 'raw' })) as any
 
-        const truncatedValue = summaryResult.results[0].properties.$exception_value
+        const truncatedValue = summaryResult.results[0].properties.$exception_values[0]
         expect(truncatedValue).toContain('[truncated from 1200 chars]')
         expect(truncatedValue.length).toBeLessThanOrEqual(1000)
         expect(summaryResult.results[0].properties.$exception_list[0].value).toContain('[truncated from 1200 chars]')
         expect(stackResult.results[0].properties.$exception_list[0].value).toContain('[truncated from 1200 chars]')
-        expect(rawResult.results[0].properties.$exception_value).toBe(longText)
+        expect(rawResult.results[0].properties.$exception_values[0]).toBe(longText)
         expect(rawResult.results[0].properties.$exception_list[0].value).toBe(longText)
     })
 

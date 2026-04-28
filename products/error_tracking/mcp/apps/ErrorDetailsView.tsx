@@ -16,20 +16,26 @@ export interface ErrorDetailsData {
     _posthogUrl?: string
 }
 
+function stringArray(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+        return typeof value === 'string' ? [value] : []
+    }
+    return value.filter((item): item is string => typeof item === 'string')
+}
+
 function extractExceptions(properties: Record<string, unknown>): ExceptionData[] {
     // Primary source: $exception_list (structured exception data)
     if (Array.isArray(properties.$exception_list) && properties.$exception_list.length > 0) {
         return properties.$exception_list as ExceptionData[]
     }
 
-    // Fallback: construct from individual properties
-    const type = properties.$exception_type as string | undefined
-    const value = properties.$exception_value as string | undefined
-    if (type || value) {
-        return [{ type: type ?? 'Error', value: value ?? '' }]
-    }
-
-    return []
+    // Fallback: construct from flat exception arrays
+    const types = stringArray(properties.$exception_types)
+    const values = stringArray(properties.$exception_values)
+    return Array.from({ length: Math.max(types.length, values.length) }, (_, index) => ({
+        type: types[index] ?? 'Error',
+        value: values[index] ?? '',
+    }))
 }
 
 export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactElement {
@@ -51,8 +57,8 @@ export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactEle
     const properties = event.properties ?? {}
     const exceptions = extractExceptions(properties)
 
-    const exceptionType = (properties.$exception_type as string) ?? exceptions[0]?.type ?? 'Error'
-    const exceptionMessage = (properties.$exception_value as string) ?? exceptions[0]?.value ?? ''
+    const exceptionType = stringArray(properties.$exception_types)[0] ?? exceptions[0]?.type ?? 'Error'
+    const exceptionMessage = stringArray(properties.$exception_values)[0] ?? exceptions[0]?.value ?? ''
 
     return (
         <div className="p-4">

@@ -16,7 +16,7 @@ Sort by `occurrences`, `last_seen`, `first_seen`, `users`, or `sessions`. Defaul
 
 ## searchQuery
 
-Free-text search across exception type, message, and stack frames. Use this when the user names a specific error.
+Free-text search across exception types, values, and stack frames. Use this when the user names a specific error.
 
 ## Common filters
 
@@ -34,7 +34,7 @@ Prefer these typed fields over `filterGroup` when they fit:
 
 A flat list of property filters. Filters are combined with AND. Nested `AND`/`OR` filter groups are not accepted by this MCP tool; use one `exact` filter with multiple values when you need "any of these values" for the same property.
 
-Use `searchQuery` for exception text, type, message, and stack-frame searches. Use the typed fields above for common error-tracking filters. Use `filterGroup` only for less common structured event/person/session properties.
+Use `searchQuery` for exception text, types, values, and stack-frame searches. Use the typed fields above for common error-tracking filters. Use `filterGroup` only for less common structured event/person/session properties.
 
 Each filter has:
 

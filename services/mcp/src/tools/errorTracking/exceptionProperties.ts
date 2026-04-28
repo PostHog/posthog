@@ -1,7 +1,6 @@
 import { asRecord, compactObject } from './utils'
 
 const MAX_NORMALIZED_TEXT_CHARS = 1000
-const TRUNCATABLE_PROPERTY_NAMES = new Set(['$exception_value'])
 
 function truncateText(value: unknown, options: NormalizeOptions): unknown {
     if (options.verbosity === 'raw' || typeof value !== 'string' || value.length <= MAX_NORMALIZED_TEXT_CHARS) {
@@ -138,6 +137,15 @@ export function normalizeExceptionList(value: unknown, options: NormalizeOptions
         .filter((exception): exception is Record<string, unknown> => !!exception)
 }
 
+function normalizeStringArray(value: unknown, options: NormalizeOptions = {}, truncateItems = false): unknown {
+    const parsed = parseJsonish(value)
+    if (!Array.isArray(parsed)) {
+        return parsed
+    }
+
+    return truncateItems ? parsed.map((item) => truncateText(item, options)) : parsed
+}
+
 export function normalizeErrorTrackingProperty(name: string, value: unknown, options: NormalizeOptions = {}): unknown {
     if (name === '$exception_list') {
         return normalizeExceptionList(value, options)
@@ -145,8 +153,11 @@ export function normalizeErrorTrackingProperty(name: string, value: unknown, opt
     if (name === '$exception_releases') {
         return parseJsonish(value)
     }
-    if (TRUNCATABLE_PROPERTY_NAMES.has(name)) {
-        return truncateText(value, options)
+    if (name === '$exception_types') {
+        return normalizeStringArray(value)
+    }
+    if (name === '$exception_values') {
+        return normalizeStringArray(value, options, true)
     }
     return value
 }

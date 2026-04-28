@@ -332,7 +332,7 @@ describe('Error Tracking', { concurrent: false }, () => {
                             type: 'AND',
                             values: [
                                 {
-                                    key: '$exception_type',
+                                    key: '$exception_types',
                                     type: 'event',
                                     value: ['TypeError'],
                                     operator: 'exact',
@@ -378,7 +378,7 @@ describe('Error Tracking', { concurrent: false }, () => {
                             type: 'AND',
                             values: [
                                 {
-                                    key: '$exception_type',
+                                    key: '$exception_types',
                                     type: 'event',
                                     value: ['TypeError'],
                                     operator: 'exact',
@@ -433,7 +433,7 @@ describe('Error Tracking', { concurrent: false }, () => {
                             type: 'AND',
                             values: [
                                 {
-                                    key: '$exception_type',
+                                    key: '$exception_types',
                                     type: 'event',
                                     value: ['TypeError'],
                                     operator: 'exact',

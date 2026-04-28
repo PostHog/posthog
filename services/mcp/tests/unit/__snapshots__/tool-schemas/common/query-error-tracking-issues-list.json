@@ -191,7 +191,7 @@
             "type": "string"
         },
         "searchQuery": {
-            "description": "Free-text search across exception type, message, stack frames, and email fields.",
+            "description": "Free-text search across exception types, values, stack frames, and email fields.",
             "maxLength": 500,
             "type": "string"
         },

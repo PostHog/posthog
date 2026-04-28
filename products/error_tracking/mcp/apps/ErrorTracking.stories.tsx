@@ -227,8 +227,8 @@ const sampleErrorDetails: ErrorDetailsData = {
             timestamp: '2025-12-15T14:30:00Z',
             properties: {
                 $exception_list: [jsException],
-                $exception_type: 'TypeError',
-                $exception_value: 'Cannot read properties of undefined (reading "map")',
+                $exception_types: ['TypeError'],
+                $exception_values: ['Cannot read properties of undefined (reading "map")'],
                 $browser: 'Chrome',
                 $browser_version: '120.0',
                 $os: 'macOS',
