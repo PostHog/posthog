@@ -18,8 +18,6 @@ from posthog.utils import get_instance_realm
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
-from products.llm_analytics.backend.models.datasets import Dataset
-from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.surveys.backend.models import Survey
 
 
@@ -724,70 +722,40 @@ class TestProductIntent(BaseTest):
     def _make_ai_generation_event_definition(self) -> EventDefinition:
         return EventDefinition.objects.create(team=self.team, name="$ai_generation")
 
-    def _make_llm_evaluation(self, enabled: bool) -> Evaluation:
-        return Evaluation.objects.create(
+    def _make_llm_intent(self, contexts: dict) -> ProductIntent:
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.LLM_ANALYTICS).delete()
+        return ProductIntent.objects.create(
             team=self.team,
-            name="Test Evaluation",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "Test prompt"},
-            output_type="boolean",
-            output_config={},
-            enabled=enabled,
+            product_type=ProductKey.LLM_ANALYTICS,
+            contexts=contexts,
         )
 
-    def test_has_activated_llm_analytics_with_ingestion_and_dataset(self):
-        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
-        self.product_intent.save()
+    def test_has_activated_llm_analytics_with_ingestion_and_dashboard_viewed(self):
         self._make_ai_generation_event_definition()
-        Dataset.objects.create(team=self.team, name="Test dataset")
+        intent = self._make_llm_intent({"llm_analytics_viewed": 1})
 
-        assert self.product_intent.has_activated_llm_analytics() is True
+        assert intent.has_activated_llm_analytics() is True
 
-    def test_has_activated_llm_analytics_with_ingestion_and_enabled_evaluation(self):
-        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
-        self.product_intent.save()
+    def test_has_activated_llm_analytics_with_ingestion_and_trace_viewed(self):
         self._make_ai_generation_event_definition()
-        self._make_llm_evaluation(enabled=True)
+        intent = self._make_llm_intent({"llm_analytics_trace_viewed": 1})
 
-        assert self.product_intent.has_activated_llm_analytics() is True
+        assert intent.has_activated_llm_analytics() is True
 
     def test_has_not_activated_llm_analytics_without_ingestion(self):
-        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
-        self.product_intent.save()
-        Dataset.objects.create(team=self.team, name="Test dataset")
+        intent = self._make_llm_intent({"llm_analytics_viewed": 5})
 
-        assert self.product_intent.has_activated_llm_analytics() is False
+        assert intent.has_activated_llm_analytics() is False
 
-    def test_has_not_activated_llm_analytics_with_ingestion_but_no_dataset_or_evaluation(self):
-        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
-        self.product_intent.save()
+    def test_has_not_activated_llm_analytics_with_ingestion_but_no_engagement(self):
         self._make_ai_generation_event_definition()
+        intent = self._make_llm_intent({})
 
-        assert self.product_intent.has_activated_llm_analytics() is False
+        assert intent.has_activated_llm_analytics() is False
 
-    def test_has_not_activated_llm_analytics_with_disabled_evaluation_only(self):
-        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
-        self.product_intent.save()
+    def test_has_not_activated_llm_analytics_without_intent(self):
         self._make_ai_generation_event_definition()
-        self._make_llm_evaluation(enabled=False)
-
-        assert self.product_intent.has_activated_llm_analytics() is False
-
-    def test_has_not_activated_llm_analytics_with_soft_deleted_dataset_only(self):
-        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
-        self.product_intent.save()
-        self._make_ai_generation_event_definition()
-        Dataset.objects.create(team=self.team, name="Test dataset", deleted=True)
-
-        assert self.product_intent.has_activated_llm_analytics() is False
-
-    def test_has_not_activated_llm_analytics_with_enabled_but_soft_deleted_evaluation(self):
-        self.product_intent.product_type = ProductKey.LLM_ANALYTICS
-        self.product_intent.save()
-        self._make_ai_generation_event_definition()
-        evaluation = self._make_llm_evaluation(enabled=True)
-        evaluation.deleted = True
-        evaluation.save()
+        ProductIntent.objects.filter(team=self.team, product_type=ProductKey.LLM_ANALYTICS).delete()
 
         assert self.product_intent.has_activated_llm_analytics() is False
 

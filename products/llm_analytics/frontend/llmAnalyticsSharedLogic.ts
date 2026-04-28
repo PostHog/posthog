@@ -302,10 +302,12 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         return {
             [urls.llmAnalyticsDashboard()]: (_, searchParams) => {
                 applySearchParams(searchParams)
-                actions.addProductIntent({
-                    product_type: ProductKey.LLM_ANALYTICS,
-                    intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
-                })
+                setTimeout(() => {
+                    actions.addProductIntent({
+                        product_type: ProductKey.LLM_ANALYTICS,
+                        intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
+                    })
+                }, 15000)
             },
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsReviews()]: (_, searchParams) =>
@@ -367,12 +369,14 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         actions.loadAIEventDefinition()
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
 
-        // Track product intent when dashboard is viewed
+        // Track product intent when dashboard is viewed for at least 15 seconds
         if (values.activeTab === 'dashboard') {
-            actions.addProductIntent({
-                product_type: ProductKey.LLM_ANALYTICS,
-                intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
-            })
+            setTimeout(() => {
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
+                })
+            }, 15000)
         }
 
         const urlHasTestAccountsParam = 'filter_test_accounts' in router.values.searchParams

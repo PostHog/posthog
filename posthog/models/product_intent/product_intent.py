@@ -22,8 +22,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
-from products.llm_analytics.backend.models.datasets import Dataset
-from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
@@ -185,17 +183,22 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return self.team.ingested_event
 
     def has_activated_llm_analytics(self) -> bool:
-        # The team needs to have instrumented at least one LLM generation event
         has_ai_generation = EventDefinition.objects.filter(team=self.team, name="$ai_generation").exists()
         if not has_ai_generation:
             return False
 
-        # And have taken an action inside LLM analytics: created a dataset or enabled an evaluation
-        has_dataset = Dataset.objects.filter(team=self.team, deleted=False).exists()
-        if has_dataset:
-            return True
+        intent = ProductIntent.objects.filter(
+            team=self.team,
+            product_type="llm_analytics",
+        ).first()
 
-        return Evaluation.objects.filter(team=self.team, enabled=True, deleted=False).exists()
+        if not intent:
+            return False
+
+        contexts = intent.contexts or {}
+
+        # Activated when the user has engaged with the dashboard (15s dwell) or viewed a trace
+        return contexts.get("llm_analytics_viewed", 0) >= 1 or contexts.get("llm_analytics_trace_viewed", 0) >= 1
 
     def has_activated_workflows(self) -> bool:
         # At least one workflow needs to be active (not just drafted)
