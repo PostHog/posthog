@@ -178,7 +178,7 @@ export function EditSubscription({
                             </LemonField>
                             <LemonField name="enabled">
                                 <LemonCheckbox
-                                    checked={subscription?.enabled ?? true}
+                                    checked={subscription?.enabled}
                                     data-attr="subscription-enabled"
                                     fullWidth
                                     label="Enabled"

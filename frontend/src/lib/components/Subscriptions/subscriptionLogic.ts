@@ -97,6 +97,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
     forms(({ props, actions }) => ({
         subscription: {
+            // Keep in sync with NEW_SUBSCRIPTION.enabled — both paths feed the form's initial state.
             defaults: { enabled: true } as unknown as SubscriptionType,
             errors: ({
                 frequency,

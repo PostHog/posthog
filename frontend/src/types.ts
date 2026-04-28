@@ -5005,6 +5005,9 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
+// TODO: migrate to SubscriptionApi from frontend/src/generated/core/api.schemas.ts.
+// This hand-written interface predates the generated type and now requires
+// dual-maintenance for every backend field change.
 export interface SubscriptionType {
     id: number
     insight?: number
