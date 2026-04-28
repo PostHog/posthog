@@ -217,6 +217,76 @@ ALLOW_PATH_PATTERNS = [
     "__snapshots__/",
 ]
 
+# ── Dismiss-time allow-list ──────────────────────────────────────
+#
+# Stricter than ALLOW_PATH_PATTERNS / ALLOW_ONLY_EXTENSIONS. Used by
+# dismiss_check.py to decide whether to retain Stamphog's prior approval
+# after new commits land on a PR. At approve time the LLM also reviews;
+# at dismiss time the path alone is the only signal, so this list excludes
+# anything that could carry executable code into CI, prod, or the build
+# pipeline (workflows, configs, build files) even though those paths may
+# be allow-listed at approve time.
+
+DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset(
+    {
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "uv.lock",
+        "Cargo.lock",
+        "Pipfile.lock",
+        "poetry.lock",
+        "Gemfile.lock",
+        "composer.lock",
+    }
+)
+
+_DISMISS_TIME_TEST_RE = re.compile(
+    r"(?:^|/)(?:__tests__|tests?|fixtures)/"
+    r"|(?:^|/)test_[^/]+\.py$"
+    r"|_test\.(py|go)$"
+    r"|\.test\.(ts|tsx|js|jsx)$"
+    r"|\.spec\.(ts|tsx|js|jsx)$"
+    r"|(?:^|/)conftest\.py$",
+    re.IGNORECASE,
+)
+
+_DISMISS_TIME_GENERATED_RE = re.compile(
+    r"(?:^|/)generated/"
+    r"|\.gen\.(ts|tsx|js|py|go)$"
+    r"|\.generated\.(ts|tsx|js|py|go)$"
+    r"|^frontend/src/queries/schema/",
+    re.IGNORECASE,
+)
+
+
+def is_trivial_at_dismiss_time(path: str) -> bool:
+    """Return True if `path` alone is safe enough to retain a prior approval.
+
+    Strictly narrower than `is_allow_listed_only`: excludes `.github/**`,
+    bare `*.yaml`/`*.json` configs, `Dockerfile*`, `*.sh`, `Makefile`, and
+    anything else that can execute or alter build/CI behavior.
+    """
+    name = Path(path).name
+    if name in DISMISS_TIME_LOCKFILES:
+        return True
+
+    suffix = Path(path).suffix.lower()
+    if suffix in {".md", ".mdx", ".snap"}:
+        return True
+    if name.startswith(("README", "CHANGELOG")):
+        return True
+    if path.startswith("docs/") or "/docs/" in path:
+        return True
+    if "/__snapshots__/" in path or path.startswith("__snapshots__/"):
+        return True
+    if _DISMISS_TIME_TEST_RE.search(path):
+        return True
+    if _DISMISS_TIME_GENERATED_RE.search(path):
+        return True
+    return False
+
+
 CONVENTIONAL_RE = re.compile(r"^(\w+)(?:\(([^)]*)\))?!?:\s*(.+)")
 
 

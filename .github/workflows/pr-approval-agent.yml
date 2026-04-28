@@ -15,11 +15,16 @@ jobs:
     review:
         # Write access is required to apply the stamphog label, so no
         # additional author_association check is needed.
+        # On `synchronize` we only run when decide-delta classified the
+        # delta as non-trivial — otherwise the prior approval is retained.
+        needs: [decide-delta, dismiss]
         if: >-
-            !github.event.pull_request.draft
+            always()
+            && !github.event.pull_request.draft
             && (
               github.event.label.name == 'stamphog'
               || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
+              || needs.decide-delta.outputs.action == 'dismiss'
             )
         runs-on: ubuntu-latest
         timeout-minutes: 10
@@ -87,6 +92,9 @@ jobs:
                       --repo ${{ github.repository }}
                   fi
 
+                  # Non-APPROVED verdict removes the label, breaking the
+                  # auto-rerun loop until a human re-applies it after
+                  # addressing the feedback.
                   if [ "$VERDICT" != "APPROVED" ]; then
                     gh pr edit "$PR" --remove-label stamphog \
                       --repo ${{ github.repository }}
@@ -100,24 +108,95 @@ jobs:
                   path: /tmp/review.json
                   retention-days: 30
 
-    # Defense-in-depth: the master ruleset has dismiss_stale_reviews_on_push=false
-    # and require_last_push_approval=false, so without this job a PR could be
-    # approved while trivial and then receive malicious commits that inherit
-    # the stale github-actions[bot] approval. On every push to a PR we dismiss
-    # the bot's approval and drop the stamphog label if present, so a human
-    # must explicitly re-apply it to request re-review.
-    dismiss-on-push:
-        if: github.event.action == 'synchronize'
+    # Defense-in-depth: master ruleset has dismiss_stale_reviews_on_push=false
+    # and require_last_push_approval=false, so a stale bot approval could
+    # otherwise inherit malicious commits. Two-step gate: decide-delta
+    # classifies the new commits since the last bot approval, dismiss only
+    # runs when the delta is non-trivial. Trivial deltas (test/docs/lockfile
+    # /generated paths and clean merges from the base branch) retain the
+    # prior approval — a comment on the PR records the reason. The stamphog
+    # label stays sticky across pushes; the review job's existing
+    # non-APPROVED label-strip is the auto-loop's escape hatch.
+    decide-delta:
+        if: >-
+            github.event.action == 'synchronize'
+            && !github.event.pull_request.draft
+            && contains(github.event.pull_request.labels.*.name, 'stamphog')
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            action: ${{ steps.decide.outputs.action }}
+            reason: ${{ steps.decide.outputs.reason }}
+            last_approved_sha: ${{ steps.decide.outputs.last_approved_sha }}
+
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
+
+            - name: Checkout master (full history)
+              uses: actions/checkout@v6
+              with:
+                  token: ${{ steps.app-token.outputs.token }}
+                  ref: master
+                  filter: blob:none
+                  fetch-depth: 0
+
+            - name: Fetch PR head
+              run: git fetch --filter=blob:none origin pull/${{ github.event.pull_request.number }}/head
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
+
+            - name: Decide retain vs dismiss
+              id: decide
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  BASE_REF: origin/${{ github.event.pull_request.base.ref }}
+                  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+              run: |
+                  set -euo pipefail
+                  decision=$(uv run tools/pr-approval-agent/dismiss_check.py)
+                  echo "$decision"
+                  echo "action=$(echo "$decision" | jq -r .action)" >> "$GITHUB_OUTPUT"
+                  echo "reason=$(echo "$decision" | jq -r .reason)" >> "$GITHUB_OUTPUT"
+                  echo "last_approved_sha=$(echo "$decision" | jq -r '.last_approved_sha // ""')" >> "$GITHUB_OUTPUT"
+
+            - name: Note retained approval
+              if: steps.decide.outputs.action == 'retain'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PR: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+                  REASON: ${{ steps.decide.outputs.reason }}
+              run: |
+                  gh pr comment "$PR" --repo "$REPO" \
+                    --body "Retaining stamphog approval — delta since last review classified as \`$REASON\`."
+
+    dismiss:
+        needs: decide-delta
+        if: needs.decide-delta.outputs.action == 'dismiss'
         runs-on: ubuntu-latest
         timeout-minutes: 5
 
         steps:
-            - name: Dismiss stale bot approvals and remove stamphog label
+            - name: Dismiss stale bot approvals
               env:
                   # Same identity (github-actions[bot]) that posted the approval.
                   GH_TOKEN: ${{ github.token }}
                   PR: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
+                  REASON: ${{ needs.decide-delta.outputs.reason }}
               run: |
                   set -euo pipefail
 
@@ -131,10 +210,6 @@ jobs:
                   for id in "${REVIEW_IDS[@]}"; do
                       [ -z "$id" ] && continue
                       gh api -X PUT "repos/$REPO/pulls/$PR/reviews/$id/dismissals" \
-                        -f message="New commits pushed — stamphog approval dismissed. Re-apply the stamphog label to request a re-review." \
+                        -f message="New commits pushed (delta classified \`$REASON\`) — stamphog approval dismissed; re-review running automatically." \
                         -f event=DISMISS
                   done
-
-                  if gh api "repos/$REPO/issues/$PR/labels" --jq 'any(.name == "stamphog")' | grep -q true; then
-                      gh pr edit "$PR" --remove-label stamphog --repo "$REPO"
-                  fi
