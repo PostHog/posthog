@@ -135,13 +135,13 @@ export function VisualImageDiffViewer({
     const diffLabel = formatDiffPercentage(diffPercentage)
 
     const comparisonModes = useMemo(() => {
-        const modes: { value: ComparisonMode; label: string }[] = [
-            { value: 'sideBySide', label: 'Side by side' },
-            { value: 'blend', label: 'Blend' },
-            { value: 'split', label: 'Split' },
+        const modes: { value: ComparisonMode; label: string; 'data-attr': string }[] = [
+            { value: 'sideBySide', label: 'Side by side', 'data-attr': 'image-diff-mode-side-by-side' },
+            { value: 'blend', label: 'Blend', 'data-attr': 'image-diff-mode-blend' },
+            { value: 'split', label: 'Split', 'data-attr': 'image-diff-mode-split' },
         ]
         if (hasDiffImage) {
-            modes.push({ value: 'diff', label: 'Diff' })
+            modes.push({ value: 'diff', label: 'Diff', 'data-attr': 'image-diff-mode-diff' })
         }
         return modes
     }, [hasDiffImage])

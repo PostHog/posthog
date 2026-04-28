@@ -6,6 +6,7 @@ import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -51,6 +52,7 @@ function SnapshotThumbnail({
         <button
             type="button"
             onClick={onClick}
+            data-attr="visual-review-snapshot-thumbnail"
             className="relative flex flex-col items-center gap-1 shrink-0 rounded overflow-hidden p-1.5 transition-colors"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -208,6 +210,34 @@ export function VisualReviewRunScene(): JSX.Element {
         recomputeRun,
     } = useActions(visualReviewRunSceneLogic)
 
+    // Navigation — use changed snapshots when there are changes, otherwise all snapshots
+    const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
+    const currentIndex = selectedSnapshot
+        ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
+        : -1
+    const hasPrevious = currentIndex > 0
+    const hasNext = currentIndex >= 0 && currentIndex < navSnapshots.length - 1
+
+    const goToPrevious = (): void => {
+        if (hasPrevious) {
+            setSelectedSnapshotId(navSnapshots[currentIndex - 1].id)
+        }
+    }
+
+    const goToNext = (): void => {
+        if (hasNext) {
+            setSelectedSnapshotId(navSnapshots[currentIndex + 1].id)
+        }
+    }
+
+    useKeyboardHotkeys(
+        {
+            p: { action: goToPrevious, disabled: !hasPrevious },
+            n: { action: goToNext, disabled: !hasNext },
+        },
+        [hasPrevious, hasNext, currentIndex]
+    )
+
     if (runLoading || !run) {
         return (
             <SceneContent>
@@ -284,26 +314,6 @@ export function VisualReviewRunScene(): JSX.Element {
 
     const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
-    // Navigation — use changed snapshots when there are changes, otherwise all snapshots
-    const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
-    const currentIndex = selectedSnapshot
-        ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
-        : -1
-    const hasPrevious = currentIndex > 0
-    const hasNext = currentIndex >= 0 && currentIndex < navSnapshots.length - 1
-
-    const goToPrevious = (): void => {
-        if (hasPrevious) {
-            setSelectedSnapshotId(navSnapshots[currentIndex - 1].id)
-        }
-    }
-
-    const goToNext = (): void => {
-        if (hasNext) {
-            setSelectedSnapshotId(navSnapshots[currentIndex + 1].id)
-        }
-    }
-
     const handleApproveSnapshot = (): void => {
         if (selectedSnapshot) {
             approveSnapshot(selectedSnapshot)
@@ -319,7 +329,12 @@ export function VisualReviewRunScene(): JSX.Element {
                     !run.approved &&
                     !run.is_stale &&
                     (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
-                        <LemonButton type="primary" onClick={approveChanges} loading={isApproving}>
+                        <LemonButton
+                            type="primary"
+                            onClick={approveChanges}
+                            loading={isApproving}
+                            data-attr="visual-review-commit-baseline"
+                        >
                             {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
                         </LemonButton>
                     ) : undefined
@@ -345,6 +360,7 @@ export function VisualReviewRunScene(): JSX.Element {
                         children: 'Re-trigger CI',
                         loading: isRecomputing,
                         onClick: recomputeRun,
+                        'data-attr': 'visual-review-recompute-run',
                     }}
                 >
                     All changes are resolved — re-trigger to update the commit status and pass the gate.
@@ -424,6 +440,8 @@ export function VisualReviewRunScene(): JSX.Element {
                                 icon={<IconChevronLeft />}
                                 onClick={goToPrevious}
                                 disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
+                                tooltip="Previous (P)"
+                                data-attr="visual-review-snapshot-previous"
                             >
                                 Previous
                             </LemonButton>
@@ -437,6 +455,8 @@ export function VisualReviewRunScene(): JSX.Element {
                                 sideIcon={<IconChevronRight />}
                                 onClick={goToNext}
                                 disabledReason={!hasNext ? 'No next snapshot' : undefined}
+                                tooltip="Next (N)"
+                                data-attr="visual-review-snapshot-next"
                             >
                                 Next
                             </LemonButton>
