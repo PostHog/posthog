@@ -168,6 +168,7 @@ class RunSummary:
     new: int
     removed: int
     unchanged: int
+    unresolved: int = 0
     tolerated_matched: int = 0
 
 
@@ -204,6 +205,17 @@ class AutoApproveResult:
 
 
 @dataclass(frozen=True)
+class RecomputeResult:
+    """Result of re-evaluating quarantine/counts and optionally retriggering CI."""
+
+    run: Run
+    counts_changed: bool
+    unresolved: int
+    ci_rerun_triggered: bool
+    ci_rerun_error: str | None = None
+
+
+@dataclass(frozen=True)
 class ToleratedHashEntry:
     """A known tolerated alternate hash for a snapshot identifier."""
 
@@ -211,6 +223,7 @@ class ToleratedHashEntry:
     alternate_hash: str
     baseline_hash: str
     reason: str
+    diff_percentage: float | None
     created_at: datetime
     source_run_id: UUID | None
 

@@ -120,7 +120,8 @@
     border-radius: var(--radius-sm);
 
     &.SeriesDisplay__raw-name--event::before,
-    &.SeriesDisplay__raw-name--action::before {
+    &.SeriesDisplay__raw-name--action::before,
+    &.SeriesDisplay__raw-name--data-warehouse::before {
         display: flex;
         flex-shrink: 0;
         align-items: center;
@@ -145,6 +146,10 @@
 
     &.SeriesDisplay__raw-name--action::before {
         content: 'A';
+    }
+
+    &.SeriesDisplay__raw-name--data-warehouse::before {
+        content: 'D';
     }
 }
 

@@ -82,7 +82,7 @@ pub struct Config {
     pub heartbeat_interval_secs: u64,
 
     // ── Observability ─────────────────────────────────────────────────────
-    #[envconfig(default = "9102")]
+    #[envconfig(default = "9105")]
     pub metrics_port: u16,
 }
 
@@ -197,7 +197,7 @@ mod tests {
             max_retries: 3,
             retry_backoff_base_ms: 50,
             heartbeat_interval_secs: 10,
-            metrics_port: 9102,
+            metrics_port: 9105,
         }
     }
 

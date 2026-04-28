@@ -9,6 +9,7 @@ import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
 import { GENERATED_TOOLS as conversations } from './conversations'
 import { GENERATED_TOOLS as core } from './core'
+import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
@@ -29,6 +30,7 @@ import { GENERATED_TOOLS as prompts } from './prompts'
 import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as queryWrappers } from './query-wrappers'
 import { GENERATED_TOOLS as replay } from './replay'
+import { GENERATED_TOOLS as sdk_doctor } from './sdk_doctor'
 import { GENERATED_TOOLS as skills } from './skills'
 import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
@@ -43,6 +45,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...cohorts,
     ...conversations,
     ...core,
+    ...customer_analytics,
     ...dashboards,
     ...data_warehouse,
     ...early_access_features,
@@ -63,6 +66,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...proxyRecords,
     ...queryWrappers,
     ...replay,
+    ...sdk_doctor,
     ...skills,
     ...surveys,
     ...web_analytics,

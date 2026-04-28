@@ -10,9 +10,11 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema
+import stripe
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -25,6 +27,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
+    GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -45,9 +48,40 @@ from posthog.models.integration import (
     SlackIntegration,
     StripeIntegration,
     TwilioIntegration,
+    defer_repository_cache_fields,
 )
-from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    TeamMemberLightManagementPermission,
+    TeamMemberStrictManagementPermission,
+)
+from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+
+
+def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, install_signature: str) -> bool:
+    """Verify Stripe Apps marketplace install signature.
+
+    Stripe signs the redirect with HMAC over the JSON object {state, user_id, account_id}
+    in that exact key order using the app's signing secret. Without this check, a forged
+    callback URL could link an attacker's Stripe account onto a victim's PostHog team.
+
+    See: https://docs.stripe.com/stripe-apps/install-links-oauth
+    """
+    if not install_signature or not settings.STRIPE_SIGNING_SECRET:
+        return False
+    payload = json.dumps(
+        {"state": state, "user_id": user_id, "account_id": account_id},
+        separators=(",", ":"),
+    )
+    try:
+        # 300s tolerance matches the agentic-provisioning HMAC check at ee/api/agentic_provisioning/signature.py.
+        stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
+        return True
+    except stripe.SignatureVerificationError:
+        return False
 
 
 def _ensure_oauth_token_valid(instance: Integration) -> None:
@@ -89,6 +123,12 @@ class GitHubRepoSerializer(serializers.Serializer):
 
 
 class GitHubReposQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive repository name search query.",
+    )
     limit = serializers.IntegerField(
         required=False,
         default=100,
@@ -109,8 +149,18 @@ class GitHubReposResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="Whether more repositories are available beyond this page.")
 
 
+class GitHubReposRefreshResponseSerializer(serializers.Serializer):
+    repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
+
+
 class GitHubBranchesQuerySerializer(serializers.Serializer):
     repo = serializers.CharField(help_text="Repository in owner/repo format")
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive branch name search query.",
+    )
     limit = serializers.IntegerField(
         required=False, default=100, min_value=1, max_value=1000, help_text="Maximum number of branches to return"
     )
@@ -125,6 +175,7 @@ class GitHubBranchesResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="Whether more branches exist beyond the returned page")
 
 
+@extend_schema_serializer(component_name="IntegrationConfig")
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 
@@ -314,6 +365,51 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
+            # Stripe marketplace installs redirect to /integrations/stripe/callback without
+            # a PostHog-minted CSRF state token — Stripe drives the OAuth flow itself.
+            # Stripe's Connect-OAuth flow (used by stripe_api_access_type: oauth) does not
+            # include `install_signature` in the redirect; that param is only emitted for
+            # Stripe Apps install-link OAuth. If a signature is present we verify it; if
+            # absent we fall through to the conflict guard for defense-in-depth.
+            if validated_data["kind"] == "stripe":
+                config = validated_data["config"]
+                stripe_user_id = config.get("stripe_user_id")
+                state = config.get("state")
+                if stripe_user_id and not state:
+                    install_signature = config.get("install_signature")
+                    if install_signature:
+                        user_id = config.get("user_id") or ""
+                        account_id = config.get("account_id") or ""
+                        if not _verify_stripe_install_signature(
+                            state="",
+                            user_id=user_id,
+                            account_id=account_id,
+                            install_signature=install_signature,
+                        ):
+                            capture_exception(
+                                Exception("Stripe marketplace callback rejected: invalid install_signature"),
+                                {"team_id": team_id, "stripe_user_id": stripe_user_id},
+                            )
+                            raise ValidationError(
+                                "Stripe install signature could not be verified.",
+                                code="stripe_install_signature_invalid",
+                            )
+
+                    conflicting = (
+                        Integration.objects.filter(team_id=team_id, kind="stripe")
+                        .exclude(integration_id=stripe_user_id)
+                        .exists()
+                    )
+                    if conflicting:
+                        capture_exception(
+                            Exception("Stripe marketplace callback rejected: conflicting integration"),
+                            {"team_id": team_id, "stripe_user_id": stripe_user_id},
+                        )
+                        raise ValidationError(
+                            "A different Stripe account is already connected to this team. Disconnect it first.",
+                            code="stripe_integration_conflict",
+                        )
+
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
                     validated_data["kind"], team_id, request.user, validated_data["config"]
@@ -343,10 +439,32 @@ class IntegrationViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "integration"
-    scope_object_read_actions = ["list", "retrieve", "github_repos", "github_branches"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "github_repos",
+        "github_branches",
+    ]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "refresh_github_repos"]
     permission_classes = [TeamMemberStrictManagementPermission]
-    queryset = Integration.objects.all()
+    queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
+
+    def dangerously_get_permissions(self):
+        if self.action == "refresh_github_repos":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+                TeamMemberLightManagementPermission(),
+            ]
+        raise NotImplementedError()
+
+    def get_throttles(self):
+        if self.action == "refresh_github_repos":
+            return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
+        return super().get_throttles()
 
     def perform_destroy(self, instance) -> None:
         if instance.kind == "stripe":
@@ -362,18 +480,19 @@ class IntegrationViewSet(
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
             self.request.successful_authenticator, OAuthAccessTokenAuthentication
         ):
-            return queryset.filter(kind="github")
+            return defer_repository_cache_fields(queryset.filter(kind="github"))
         return queryset
 
     @action(methods=["GET"], detail=False)
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
+        is_sandbox = request.GET.get("is_sandbox", "").lower() in ("true", "1", "yes")
         token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token, is_sandbox=is_sandbox)
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
@@ -633,13 +752,24 @@ class IntegrationViewSet(
     def github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query_serializer = GitHubReposQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
+        search = query_serializer.validated_data["search"]
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
 
         github = GitHubIntegration(self.get_object())
-        repositories, has_more = github.list_repositories(limit=limit, offset=offset)
+        repositories, has_more = github.list_cached_repositories(search=search, limit=limit, offset=offset)
 
         return Response({"repositories": repositories, "has_more": has_more})
+
+    @extend_schema(request=None, responses={200: GitHubReposRefreshResponseSerializer})
+    @action(methods=["POST"], detail=True, url_path="github_repos/refresh")
+    def refresh_github_repos(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        github = GitHubIntegration(self.get_object())
+        repositories = github.sync_repository_cache(
+            min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
+        )
+
+        return Response({"repositories": repositories})
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],
@@ -651,6 +781,7 @@ class IntegrationViewSet(
         params.is_valid(raise_exception=True)
 
         repo: str = params.validated_data["repo"]
+        search: str = params.validated_data["search"]
         limit: int = params.validated_data["limit"]
         offset: int = params.validated_data["offset"]
 
@@ -665,20 +796,12 @@ class IntegrationViewSet(
             raise ValidationError("repo must be in owner/repo format")
 
         github = GitHubIntegration(self.get_object())
-        branches, has_more = github.list_branches(repo, limit=limit, offset=offset)
-
-        try:
-            default_branch = github.get_default_branch(repo)
-        except Exception:
-            default_branch = None
-
-        # The default branch is always shown first on page 1 and removed
-        # from all other pages to avoid duplicates.
-        if default_branch:
-            if default_branch in branches:
-                branches.remove(default_branch)
-            if offset == 0:
-                branches.insert(0, default_branch)
+        branches, default_branch, has_more = github.list_cached_branches(
+            repo,
+            search=search,
+            limit=limit,
+            offset=offset,
+        )
 
         return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
 

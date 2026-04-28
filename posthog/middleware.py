@@ -411,8 +411,12 @@ class CHQueries:
     def _get_param(self, request: HttpRequest, name: str):
         if name in request.GET:
             return request.GET[name]
-        if name in request.POST:
-            return request.POST[name]
+        try:
+            if name in request.POST:
+                return request.POST[name]
+        except (ValueError, RuntimeError):
+            # Django 5 ASGI: request stream may be closed when accessing POST
+            pass
         return None
 
 
@@ -658,7 +662,7 @@ class KnownLoginDeviceCookieMiddleware:
 
     def __call__(self, request: HttpRequest):
         response = self.get_response(request)
-        if request.session.accessed and request.user.is_authenticated and not is_impersonated_session(request):
+        if isinstance(request.user, User) and request.session.accessed and not is_impersonated_session(request):
             set_known_device_cookie(response, request.user)
         return response
 
@@ -1015,6 +1019,9 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
+    # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
+    # while Django's URL config accepts both via opt_slash_path — match both forms.
+    re.compile(r"^/logout/?$"),
 ]
 
 

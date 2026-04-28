@@ -29,12 +29,16 @@ describe('hog-charts interaction', () => {
             expect(findNearestIndex(999, ['a'], xScale)).toBe(0)
         })
 
-        it('falls back to x=0 for undefined xScale positions and still returns a valid index', () => {
-            // The implementation treats undefined xScale as 0 via `?? 0`, so positions are
-            // still finite and findNearestIndex returns the nearest index rather than -1.
+        it('returns -1 when every label has an undefined xScale position', () => {
             const xScale = (): number | undefined => undefined
-            const result = findNearestIndex(100, ['a', 'b'], xScale)
-            expect(result).toBeGreaterThanOrEqual(0)
+            expect(findNearestIndex(100, ['a', 'b'], xScale)).toBe(-1)
+        })
+
+        it('skips labels with undefined xScale positions instead of biasing them to x=0', () => {
+            // 'a' is unknown to the scale; 'b' is at x=200. A cursor at x=10 should pick 'b'
+            // because the unknown label is dropped — not pinned at the left edge.
+            const xScale = (label: string): number | undefined => (label === 'b' ? 200 : undefined)
+            expect(findNearestIndex(10, ['a', 'b'], xScale)).toBe(1)
         })
 
         it('returns the index of the closest label when mouseX is between two points', () => {
@@ -132,9 +136,9 @@ describe('hog-charts interaction', () => {
             expect(result?.dataIndex).toBe(1)
         })
 
-        it('excludes hidden series from seriesData', () => {
+        it('excludes visibility.excluded series from seriesData', () => {
             const visible = makeSeries({ key: 'v', data: [10] })
-            const hidden = makeSeries({ key: 'h', data: [20], hidden: true })
+            const hidden = makeSeries({ key: 'h', data: [20], visibility: { excluded: true } })
             const result = buildTooltipContext(
                 0,
                 [visible, hidden],
@@ -148,12 +152,12 @@ describe('hog-charts interaction', () => {
             expect(result?.seriesData[0].series.key).toBe('v')
         })
 
-        it('excludes hideFromTooltip series from seriesData but still uses their values for position.y', () => {
+        it('excludes visibility.fromTooltip series from seriesData but still uses their values for position.y', () => {
             const shown = makeSeries({ key: 'shown', data: [10] })
-            const hiddenFromTooltip = makeSeries({ key: 'hft', data: [50], hideFromTooltip: true })
+            const hiddenFromTooltip = makeSeries({ key: 'hft', data: [50], visibility: { fromTooltip: true } })
             const alsoShown = makeSeries({ key: 'also', data: [20] })
             // yScale: 10 -> 80, 20 -> 60, 50 -> 5. position.y is min(yPixels)
-            // — if the hideFromTooltip series contributes, result is 5; otherwise 60.
+            // — if the visibility.fromTooltip series contributes, result is 5; otherwise 60.
             const yScale = (v: number): number => ({ 10: 80, 20: 60, 50: 5 })[v] ?? 0
             const result = buildTooltipContext(
                 0,
@@ -256,8 +260,8 @@ describe('hog-charts interaction', () => {
             expect(buildPointClickData(index, series, ['a'], defaultResolveValue)).toBeNull()
         })
 
-        it('returns null when all series are hidden', () => {
-            const series = [makeSeries({ key: 's1', data: [10], hidden: true })]
+        it('returns null when all series have visibility.excluded', () => {
+            const series = [makeSeries({ key: 's1', data: [10], visibility: { excluded: true } })]
             expect(buildPointClickData(0, series, ['a'], defaultResolveValue)).toBeNull()
         })
 
@@ -273,7 +277,7 @@ describe('hog-charts interaction', () => {
         })
 
         it('uses the first visible series when multiple series are present', () => {
-            const hidden = makeSeries({ key: 'h', data: [1], hidden: true })
+            const hidden = makeSeries({ key: 'h', data: [1], visibility: { excluded: true } })
             const visible = makeSeries({ key: 'v', data: [2] })
             const result = buildPointClickData(0, [hidden, visible], ['a'], defaultResolveValue)
             expect(result?.series.key).toBe('v')
@@ -283,7 +287,7 @@ describe('hog-charts interaction', () => {
         it('includes all visible series in crossSeriesData', () => {
             const s1 = makeSeries({ key: 's1', data: [10] })
             const s2 = makeSeries({ key: 's2', data: [20] })
-            const hidden = makeSeries({ key: 'h', data: [30], hidden: true })
+            const hidden = makeSeries({ key: 'h', data: [30], visibility: { excluded: true } })
             const result = buildPointClickData(0, [s1, s2, hidden], ['a'], defaultResolveValue)
             expect(result?.crossSeriesData.length).toBe(2)
             expect(result?.crossSeriesData.map((d) => d.series.key)).toEqual(['s1', 's2'])

@@ -10,7 +10,8 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -31,10 +32,11 @@ from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
+from posthog.models import Cohort, InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
+from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.security.url_validation import is_url_allowed
@@ -480,6 +482,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(parameters=[OpenApiParameter("password_id", OpenApiTypes.STR, OpenApiParameter.PATH)])
     @action(detail=False, methods=["delete"], url_path="passwords/(?P<password_id>[^/.]+)")
     def delete_password(self, request: Request, password_id: str, *args: Any, **kwargs: Any) -> response.Response:
         """Delete a password from the sharing configuration."""
@@ -506,6 +509,20 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 def custom_404_response(request):
     """Returns a custom 404 page."""
     return render(request, "shared_resource_404.html", status=404)
+
+
+def _collect_cohorts_for_sharing(insights: list[Insight], team: Team) -> list[dict[str, Any]]:
+    # Shared viewers can't hit /api/cohorts/, so inline id+name for any referenced cohort.
+    cohort_ids: set[int] = set()
+    for insight in insights:
+        cohort_ids.update(InsightVisitor._extract_cohort_ids(insight.filters, insight.query))
+
+    if not cohort_ids:
+        return []
+
+    return list(
+        Cohort.objects.filter(id__in=cohort_ids, team__project_id=team.project_id, deleted=False).values("id", "name")
+    )
 
 
 class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -732,6 +749,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
+            exported_data.update({"cohorts": _collect_cohorts_for_sharing([resource.insight], resource.team)})
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
@@ -743,6 +761,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
+            dashboard_insights = [
+                tile.insight
+                for tile in resource.dashboard.tiles.select_related("insight").filter(insight__deleted=False)
+                if tile.insight is not None
+            ]
+            exported_data.update({"cohorts": _collect_cohorts_for_sharing(dashboard_insights, resource.team)})
         elif (
             isinstance(resource, ExportedAsset)
             and resource.export_context

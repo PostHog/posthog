@@ -493,7 +493,10 @@ class APIScopePermission(ScopeBasePermission):
 
         self.check_team_and_org_permissions(request, view)
 
-        if "*" in key_scopes:
+        # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets
+        # are programmatic-only and must not be reachable via user-consented tokens.
+        scope_object = self._get_scope_object(request, view)
+        if "*" in key_scopes and scope_object != "INTERNAL":
             return True
 
         for required_scope in required_scopes:
@@ -511,6 +514,16 @@ class APIScopePermission(ScopeBasePermission):
 
     def check_team_and_org_permissions(self, request, view) -> None:
         scope_object = self._get_scope_object(request, view)
+
+        # Guard runs above the `user` early return so the misconfig still trips
+        # if someone sets the flag on a `scope_object = "user"` viewset.
+        skip_team_and_org = getattr(view, "dangerously_skip_scoped_team_enforcement", False)
+        if skip_team_and_org and scope_object != "INTERNAL":
+            raise RuntimeError(
+                f"`dangerously_skip_scoped_team_enforcement = True` is only allowed on viewsets with "
+                f"`scope_object = 'INTERNAL'`; {type(view).__name__} declares `scope_object = {scope_object!r}`."
+            )
+
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
 
@@ -525,7 +538,12 @@ class APIScopePermission(ScopeBasePermission):
         else:
             raise ValueError("Unexpected authentication type")
 
-        if scoped_teams:
+        if scoped_teams and not skip_team_and_org:
+            # Views that aren't project-nested but still need to accept
+            # scoped_teams tokens can set `dangerously_skip_scoped_team_enforcement = True`
+            # and take on responsibility for their own per-team access. The
+            # flag is only honored on `scope_object = "INTERNAL"` views —
+            # anywhere else it's a config error and we fail loudly.
             try:
                 team = view.team
                 if team.id not in scoped_teams:
@@ -533,7 +551,9 @@ class APIScopePermission(ScopeBasePermission):
             except (KeyError, AttributeError):
                 raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")
 
-        if scoped_organizations:
+        if scoped_organizations and not skip_team_and_org:
+            # The flag also opts out of org enforcement — INTERNAL views aren't
+            # org-nested today, but adding nesting later must revisit the flag.
             try:
                 organization = get_organization_from_view(view)
                 if str(organization.id) not in scoped_organizations:

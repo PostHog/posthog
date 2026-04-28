@@ -610,7 +610,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
             # Enable materialization on v1
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-                {"is_materialized": True, "sync_frequency": "24hour"},
+                {"is_materialized": True, "data_freshness_seconds": 86400},
                 format="json",
             )
             self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
@@ -675,7 +675,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         with patch("products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"):
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/?version=1",
-                {"is_materialized": True, "sync_frequency": "24hour"},
+                {"is_materialized": True, "data_freshness_seconds": 86400},
                 format="json",
             )
             self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())

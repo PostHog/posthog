@@ -102,6 +102,14 @@ interface ResolvedOperation {
 }
 
 // ------------------------------------------------------------------
+// General helpers
+// ------------------------------------------------------------------
+
+function sortKeys<T extends Record<string, unknown>>(obj: T): T {
+    return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b))) as T
+}
+
+// ------------------------------------------------------------------
 // OpenAPI helpers
 // ------------------------------------------------------------------
 
@@ -1214,6 +1222,7 @@ function generateDefinitionsJson(
                 ...(toolConfig.feature_flag_behavior
                     ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
                     : {}),
+                ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
             }
         }
         // Include query wrappers defined in the same category file
@@ -1236,6 +1245,7 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.feature_flag_behavior
                     ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior }
                     : {}),
+                ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
             }
         }
     }
@@ -1412,6 +1422,7 @@ function generateQueryWrapperDefinitionsJson(
             },
             ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
+            ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
         }
     }
     return definitions
@@ -1531,13 +1542,14 @@ ${spreads}
     fs.writeFileSync(path.join(GENERATED_DIR, 'index.ts'), barrelCode)
 
     // Tool definitions JSON (merge OpenAPI-based + query wrapper definitions)
-    const definitions = { ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions }
+    // Sort keys so output is stable regardless of upstream OpenAPI iteration order.
+    const definitions = sortKeys({ ...generateDefinitionsJson(allCategories), ...queryWrapperDefinitions })
     fs.writeFileSync(DEFINITIONS_JSON_PATH, JSON.stringify(definitions, null, 4) + '\n')
 
     // Combined tool definitions for external consumers (docs site)
     const v1Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V1_PATH, 'utf-8'))
     const v2Definitions = JSON.parse(fs.readFileSync(TOOL_DEFINITIONS_V2_PATH, 'utf-8'))
-    const allDefinitions = { ...v1Definitions, ...v2Definitions, ...definitions }
+    const allDefinitions = sortKeys({ ...v1Definitions, ...v2Definitions, ...definitions })
     fs.writeFileSync(ALL_DEFINITIONS_JSON_PATH, JSON.stringify(allDefinitions, null, 4) + '\n')
 
     const totalTools = allCategories.reduce((sum, c) => sum + c.enabledTools.length, 0)
@@ -1567,6 +1579,8 @@ export {
     extractPathParams,
     generateCategoryFile,
     generateCustomSchemaToolCode,
+    generateDefinitionsJson,
+    generateQueryWrapperDefinitionsJson,
     generateQueryWrapperFile,
     generateToolCode,
 }

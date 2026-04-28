@@ -1,3 +1,5 @@
+import './styles/layers.css'
+
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './accordion'
 export { Badge, badgeVariants } from './badge'
 export { Button, buttonVariants, type ButtonProps } from './button'
@@ -72,10 +74,11 @@ export { Dot, dotVariants } from './dot'
 export {
     Drawer,
     DrawerPortal,
-    DrawerOverlay,
+    DrawerBackdrop,
     DrawerTrigger,
     DrawerClose,
     DrawerContent,
+    DrawerHandle,
     DrawerHeader,
     DrawerFooter,
     DrawerTitle,

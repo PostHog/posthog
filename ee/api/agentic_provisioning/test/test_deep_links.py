@@ -3,12 +3,12 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
 from ee.api.agentic_provisioning.views import DEEP_LINK_CACHE_PREFIX
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestDeepLinks(StripeProvisioningTestBase):
+class TestDeepLinks(ProvisioningTestBase):
     def test_deep_link_returns_url(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
@@ -37,9 +37,47 @@ class TestDeepLinks(StripeProvisioningTestBase):
         res = self._post_signed("/api/agentic/provisioning/deep_links", data={"purpose": "dashboard"})
         assert res.status_code == 401
 
+    def test_deep_link_denied_when_partner_not_allowed(self):
+        from posthog.models.oauth import OAuthApplication
+
+        from ee.api.agentic_provisioning.test.base import TEST_STRIPE_OAUTH_CLIENT_ID
+
+        token = self._get_bearer_token()
+        OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).update(
+            provisioning_can_issue_deep_links=False
+        )
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/deep_links",
+            data={"purpose": "dashboard"},
+            token=token,
+        )
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "deep_links_not_enabled"
+
+    def test_deep_link_requires_hmac_signature_for_hmac_partner(self):
+        from posthog.models.oauth import OAuthApplication
+
+        from ee.api.agentic_provisioning.test.base import TEST_STRIPE_OAUTH_CLIENT_ID
+
+        token = self._get_bearer_token()
+        OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).update(
+            provisioning_auth_method="hmac",
+            provisioning_active=True,
+            provisioning_can_provision_resources=True,
+        )
+        res = self.client.post(
+            "/api/agentic/provisioning/deep_links",
+            data={"purpose": "dashboard"},
+            content_type="application/json",
+            HTTP_API_VERSION="0.1d",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert res.status_code == 401
+        assert res.json()["error"]["code"] == "hmac_signature_required"
+
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestAgenticLogin(StripeProvisioningTestBase):
+class TestAgenticLogin(ProvisioningTestBase):
     def _create_deep_link_token(self) -> str:
         token = "test_deep_link_token"
         cache.set(

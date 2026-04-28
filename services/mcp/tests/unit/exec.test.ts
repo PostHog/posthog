@@ -1,6 +1,7 @@
 import guidelines from '@shared/guidelines.md'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
@@ -9,7 +10,7 @@ import { SessionManager } from '@/lib/SessionManager'
 import CLI_PROXY_COMMAND from '@/templates/cli-proxy-command.md'
 import CLI_PROXY_TOOL from '@/templates/cli-proxy-tool.md'
 import { getToolsFromContext } from '@/tools'
-import { createExecTool } from '@/tools/exec'
+import { createExecTool, type ExecInnerCallProperties } from '@/tools/exec'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import { POSTHOG_META_KEY, type Context, type Tool, type ZodObjectAny } from '@/tools/types'
 
@@ -31,10 +32,12 @@ function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObje
     }
 }
 
-const mockContext = {} as Context
+const mockContext = {
+    getDistinctId: async () => 'test-distinct-id',
+} as unknown as Context
 
-function createExec(tools: Tool<ZodObjectAny>[] = [makeMockTool()]): Tool<any> {
-    return createExecTool(tools, mockContext, 'test description', 'test command reference')
+function createExec(tools: Tool<ZodObjectAny>[] = [makeMockTool()], mcpConsumer?: string): Tool<any> {
+    return createExecTool(tools, mockContext, 'test description', 'test command reference', mcpConsumer)
 }
 
 describe('exec tool', () => {
@@ -97,6 +100,125 @@ describe('exec tool', () => {
             // Without the flag, output is TOON-formatted
             expect(result).toContain('tag:')
         })
+
+        it('propagates _meta.ui.resourceUri and structuredContent when the inner tool has a UI app and consumer is posthog-code', async () => {
+            const tool = makeMockTool({
+                _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
+            })
+            const exec = createExec([tool], 'posthog-code')
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {}' })) as {
+                content: { type: string; text: string }[]
+                structuredContent: { id: number; name: string; _analytics: { distinctId: string; toolName: string } }
+                _meta: { ui: { resourceUri: string }; [key: string]: unknown }
+                __execBuiltPayload?: true
+            }
+
+            // Text content still includes the TOON-formatted result for model context
+            expect(result.content[0]!.text).toContain('id: 1')
+            // structuredContent carries the raw object plus analytics for the UI app
+            expect(result.structuredContent.id).toBe(1)
+            expect(result.structuredContent._analytics).toEqual({
+                distinctId: 'test-distinct-id',
+                toolName: 'mock-tool',
+            })
+            // _meta on the response exposes the UI resource URI to clients that
+            // only see the `exec` tool registered (single-exec mode). Both the
+            // new nested key and the legacy flat key are emitted for
+            // compatibility with older MCP clients.
+            expect(result._meta.ui.resourceUri).toBe('ui://posthog/mock-app.html')
+            expect(result._meta['ui/resourceUri']).toBe('ui://posthog/mock-app.html')
+            // The nominal brand is what `MCP.registerTool` uses to pass the payload
+            // through unchanged; without it the outer wrapper would re-run
+            // buildToolResultPayload and object-rest-destructure the content.
+            expect(result.__execBuiltPayload).toBe(true)
+        })
+
+        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code']])(
+            'returns plain text (no UI payload) when consumer is %s even if the inner tool has a UI app',
+            async (consumer) => {
+                const tool = makeMockTool({
+                    _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
+                })
+                const exec = createExec([tool], consumer)
+                const result = await exec.handler(mockContext, { command: 'call mock-tool {}' })
+                expect(typeof result).toBe('string')
+            }
+        )
+
+        it('does not attach UI meta or structuredContent for tools without a UI app', async () => {
+            const exec = createExec()
+            const result = await exec.handler(mockContext, { command: 'call mock-tool {}' })
+            // Plain text fallback — no CallToolResult shape leaks out
+            expect(typeof result).toBe('string')
+        })
+
+        it('invokes the inner-call tracker on successful inner tool dispatch', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
+                calls.push({ toolName, properties })
+            }
+            const exec = createExecTool(
+                [makeMockTool()],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                tracker
+            )
+            await exec.handler(mockContext, { command: 'call --json mock-tool {}' })
+            expect(calls).toHaveLength(1)
+            expect(calls[0]!.toolName).toBe('mock-tool')
+            expect(calls[0]!.properties.success).toBe(true)
+            expect(calls[0]!.properties.output_format).toBe('json')
+            expect(typeof calls[0]!.properties.duration_ms).toBe('number')
+        })
+
+        it('invokes the inner-call tracker with success=false when the inner tool throws', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
+                calls.push({ toolName, properties })
+            }
+            const failing = makeMockTool({
+                handler: async () => {
+                    throw new Error('boom')
+                },
+            })
+            const exec = createExecTool(
+                [failing],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                tracker
+            )
+            await expect(exec.handler(mockContext, { command: 'call mock-tool {}' })).rejects.toThrow('boom')
+            expect(calls).toHaveLength(1)
+            expect(calls[0]!.properties.success).toBe(false)
+            expect(calls[0]!.properties.error_message).toBe('boom')
+            expect(calls[0]!.properties.output_format).toBe('text')
+        })
+    })
+
+    describe('deprecated tool redirects', () => {
+        it.each([
+            ['entity-search', 'execute-sql'],
+            ['event-definitions-list', 'read-data-schema'],
+            ['properties-list', 'read-data-schema'],
+            ['property-definitions', 'read-data-schema'],
+            ['query-generate-hogql-from-question', 'execute-sql'],
+            ['query-run', 'execute-sql'],
+        ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
+            const exec = createExec()
+            await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
+                new RegExp(`removed in MCP v2[\\s\\S]*${replacement}`)
+            )
+        })
+
+        it('lists available query-* tools when query-run is called', async () => {
+            const queryTrends = makeMockTool({ name: 'query-trends', description: 'Run a trends query' })
+            const exec = createExec([queryTrends])
+            await expect(exec.handler(mockContext, { command: 'call query-run {}' })).rejects.toThrow(/query-trends/)
+        })
     })
 
     describe('schema snapshot', () => {
@@ -118,6 +240,7 @@ describe('exec tool', () => {
                     getAiConsentGiven: async () => true,
                 } as any,
                 sessionManager: new SessionManager({} as any),
+                getDistinctId: async () => 'test-distinct-id',
             }
         }
 
@@ -131,8 +254,25 @@ describe('exec tool', () => {
                 name: t.name,
                 category: getToolDefinition(t.name, 2).category,
             }))
-            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, undefined, undefined, toolInfos)
-            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference)
+            const queryToolInfos = v2Tools
+                .filter((t) => t.name.startsWith('query-'))
+                .map((t) => {
+                    const def = getToolDefinition(t.name, 2)
+                    return {
+                        name: t.name,
+                        title: def.title,
+                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                    }
+                })
+            const commandReference = buildInstructionsV2(
+                CLI_PROXY_COMMAND,
+                guidelines,
+                undefined,
+                undefined,
+                toolInfos,
+                queryToolInfos
+            )
+            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
 
             expect(execTool.description.length).toBeLessThanOrEqual(2048)
         })
@@ -143,6 +283,11 @@ describe('exec tool', () => {
         // block. Because `buildToolDomainsBlock` relies on tool-name conventions
         // (CRUD suffixes, prefix actions, plural collapsing), this snapshot is the
         // canary for any drift in naming or in the domain-extraction logic.
+        //
+        // Snapshots the Codex (`supportsInstructions: false`) wiring, where every
+        // placeholder is filled. That's the only path where `{tool_domains}` and
+        // `{query_tools}` actually appear in the `command` parameter description,
+        // so the snapshot has to follow it to keep catching drift in those blocks.
         it('matches the full exec tool schema', async () => {
             const context = createSnapshotContext()
             const v2Tools = [...(await getToolsFromContext(context, { version: 2 }))].sort((a, b) =>
@@ -152,8 +297,25 @@ describe('exec tool', () => {
                 name: t.name,
                 category: getToolDefinition(t.name, 2).category,
             }))
-            const commandReference = buildInstructionsV2(CLI_PROXY_COMMAND, guidelines, undefined, undefined, toolInfos)
-            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference)
+            const queryToolInfos = v2Tools
+                .filter((t) => t.name.startsWith('query-'))
+                .map((t) => {
+                    const def = getToolDefinition(t.name, 2)
+                    return {
+                        name: t.name,
+                        title: def.title,
+                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
+                    }
+                })
+            const commandReference = buildInstructionsV2(
+                CLI_PROXY_COMMAND,
+                guidelines,
+                undefined,
+                undefined,
+                toolInfos,
+                queryToolInfos
+            )
+            const execTool = createExecTool(v2Tools, context, CLI_PROXY_TOOL, commandReference, undefined)
 
             const snapshot = {
                 name: execTool.name,
@@ -166,7 +328,16 @@ describe('exec tool', () => {
 
             const __dirname = path.dirname(fileURLToPath(import.meta.url))
             const snapshotPath = path.resolve(__dirname, '__snapshots__', 'exec-tool.json')
-            await expect(`${JSON.stringify(snapshot, null, 4)}\n`).toMatchFileSnapshot(snapshotPath)
+            // Format via oxfmt so the snapshot matches repo-wide formatting rules
+            // (lint-staged reformats *.json and would otherwise flip this file on save).
+            const content = `${JSON.stringify(snapshot, null, 4)}\n`
+            const result = await format(snapshotPath, content, { tabWidth: 4, printWidth: 120 })
+            if (result.errors.length > 0) {
+                throw new Error(
+                    `Failed formatting snapshot: ${result.errors.map((e) => e.message ?? 'unknown').join('; ')}`
+                )
+            }
+            await expect(result.code).toMatchFileSnapshot(snapshotPath)
         })
     })
 })

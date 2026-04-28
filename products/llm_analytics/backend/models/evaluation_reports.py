@@ -39,7 +39,7 @@ class EvaluationReport(UUIDTModel):
         related_name="reports",
     )
 
-    frequency = models.CharField(max_length=16, choices=Frequency.choices, default=Frequency.EVERY_N)
+    frequency = models.CharField(max_length=16, choices=Frequency, default=Frequency.EVERY_N)
     # RRULE string (RFC 5545). Empty for count-triggered reports. Must not contain DTSTART
     # (anchor is stored separately in starts_at); enforced by validate_rrule.
     rrule = models.TextField(blank=True, default="")
@@ -172,7 +172,7 @@ class EvaluationReportRun(UUIDTModel):
     period_end = models.DateTimeField()
     delivery_status = models.CharField(
         max_length=20,
-        choices=DeliveryStatus.choices,
+        choices=DeliveryStatus,
         default=DeliveryStatus.PENDING,
     )
     delivery_errors = models.JSONField(default=list)

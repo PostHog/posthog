@@ -32,7 +32,7 @@ from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailValidationHelper
+from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
@@ -128,6 +128,15 @@ class SignupSerializer(serializers.Serializer):
         if value is not None and value != "":
             password_validation.validate_password(value)
         return value
+
+    def validate_first_name(self, value: str) -> str:
+        return validate_display_name(value)
+
+    def validate_last_name(self, value: str) -> str:
+        return validate_display_name(value)
+
+    def validate_organization_name(self, value: str) -> str:
+        return validate_display_name(value)
 
     def validate(self, data):
         request = self.context.get("request")
@@ -372,6 +381,9 @@ class InviteSignupSerializer(serializers.Serializer):
         password_validation.validate_password(value)
         return value
 
+    def validate_first_name(self, value: str) -> str:
+        return validate_display_name(value)
+
     def to_representation(self, instance):
         data = UserBasicSerializer(instance=instance).data
         data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"])
@@ -603,6 +615,12 @@ class SocialSignupSerializer(serializers.Serializer):
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )
+
+    def validate_first_name(self, value: str) -> str:
+        return validate_display_name(value)
+
+    def validate_organization_name(self, value: str) -> str:
+        return validate_display_name(value)
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]
