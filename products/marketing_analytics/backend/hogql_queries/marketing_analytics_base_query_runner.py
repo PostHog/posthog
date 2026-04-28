@@ -525,7 +525,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         """Compute channel_type for adapter data using web analytics' classification."""
         modifiers = create_default_modifiers_for_team(self.team)
         # Map adapter-internal source aliases to entries that exist in channel_definition_dict.
-        # The Meta Ads adapter emits "meta", but the dict keys it under "facebook" (same Paid Social rule).
+        # The Meta Ads adapter emits "meta" (the company/network) as primarySource, but the
+        # dict keys are per-platform: "facebook", "instagram", "messenger", etc. We rewrite to
+        # "facebook" to land in the Paid Social bucket. This goes away when Meta Ads grows a
+        # publisher_platform breakdown (the adapter will emit the real per-platform source).
         source_field = ast.Field(chain=[self.config.source_field])
         normalized_source = ast.Call(
             name="if",
