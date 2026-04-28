@@ -219,6 +219,11 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         self.config: ConfigType = config
         self.logger = logger.bind(source_type=self.get_source_type(), team_id=self.team.pk if self.team else None)
         self.context = context
+        # Cache for `_table_has_column` lookups. Keyed by (id(table), column_name) so we
+        # don't re-introspect the warehouse table on each currency-conversion call (at AD
+        # level the same stats table is hit 3 times per query for cost / conversions /
+        # conversion_value).
+        self._table_column_cache: dict[tuple[int, str], bool] = {}
 
     @abstractmethod
     def get_source_type(self) -> str:
@@ -392,6 +397,22 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             return ast.Constant(value="")
         return self.get_campaign_match_field()
 
+    def _table_has_column(self, table: DataWarehouseTable, column_name: str) -> bool:
+        """Cached column-existence check for warehouse tables. Used by hot paths like
+        `_apply_currency_conversion` and `_build_actions_conversion_sum` (Meta) that
+        call into the same table multiple times per query."""
+        cache_key = (id(table), column_name)
+        cached = self._table_column_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        try:
+            columns = getattr(table, "columns", None)
+            present = bool(columns and hasattr(columns, "__contains__") and column_name in columns)
+        except (TypeError, AttributeError, KeyError):
+            present = False
+        self._table_column_cache[cache_key] = present
+        return present
+
     def _apply_currency_conversion(
         self,
         table: DataWarehouseTable,
@@ -404,21 +425,17 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         Returns toFloat(convertCurrency(coalesce(currency_col, base_currency), base_currency, value_expr))
         or None if the column doesn't exist or can't be checked.
         """
-        try:
-            columns = getattr(table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and currency_column in columns:
-                currency_field = ast.Field(chain=[table_name, currency_column])
-                currency_with_fallback = ast.Call(
-                    name="coalesce", args=[currency_field, ast.Constant(value=self.context.base_currency)]
-                )
-                converted = ast.Call(
-                    name="convertCurrency",
-                    args=[currency_with_fallback, ast.Constant(value=self.context.base_currency), value_expr],
-                )
-                return ast.Call(name="toFloat", args=[converted])
-        except (TypeError, AttributeError, KeyError):
-            pass
-        return None
+        if not self._table_has_column(table, currency_column):
+            return None
+        currency_field = ast.Field(chain=[table_name, currency_column])
+        currency_with_fallback = ast.Call(
+            name="coalesce", args=[currency_field, ast.Constant(value=self.context.base_currency)]
+        )
+        converted = ast.Call(
+            name="convertCurrency",
+            args=[currency_with_fallback, ast.Constant(value=self.context.base_currency), value_expr],
+        )
+        return ast.Call(name="toFloat", args=[converted])
 
     def _log_validation_errors(self, errors: list[str]):
         """Helper to log validation issues"""

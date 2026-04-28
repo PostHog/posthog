@@ -99,8 +99,9 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         if level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
             if not (self.config.adset_table and self.config.adset_stats_table):
                 raise ValueError(
-                    "MetaAdsAdapter._level_tables called at AD_GROUP without adset_table / "
-                    "adset_stats_table. supports_level(AD_GROUP) must gate this — call it first."
+                    "MetaAdsAdapter reached _level_tables at AD_GROUP without adset_table / "
+                    "adset_stats_table — this is a programming error. MarketingSourceFactory "
+                    "must skip this adapter via supports_level(AD_GROUP)."
                 )
             return _MetaLevelTables(
                 entity_table=self.config.adset_table,
@@ -113,8 +114,9 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         if level == MarketingAnalyticsDrillDownLevel.AD:
             if not (self.config.ad_table and self.config.ad_stats_table):
                 raise ValueError(
-                    "MetaAdsAdapter._level_tables called at AD without ad_table / "
-                    "ad_stats_table. supports_level(AD) must gate this — call it first."
+                    "MetaAdsAdapter reached _level_tables at AD without ad_table / "
+                    "ad_stats_table — this is a programming error. MarketingSourceFactory "
+                    "must skip this adapter via supports_level(AD)."
                 )
             return _MetaLevelTables(
                 entity_table=self.config.ad_table,
@@ -263,55 +265,50 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         stats_table = self._level_tables().stats_table
         stats_table_name = stats_table.name
 
-        try:
-            columns = getattr(stats_table, "columns", None)
-            if columns and hasattr(columns, "__contains__") and column_name in columns:
-                field = ast.Field(chain=[stats_table_name, column_name])
-                field_non_null = ast.Call(name="coalesce", args=[field, ast.Constant(value="[]")])
+        if not self._table_has_column(stats_table, column_name):
+            return ast.Constant(value=0)
 
-                omni_sum = self._build_array_sum_for_action_types(field_non_null, META_OMNI_ACTION_TYPES)
-                fallback_sum = self._build_array_sum_for_action_types(field_non_null, META_FALLBACK_ACTION_TYPES)
-                specific_sum = self._build_array_sum_for_action_types(field_non_null, META_SPECIFIC_ACTION_TYPES)
+        field = ast.Field(chain=[stats_table_name, column_name])
+        field_non_null = ast.Call(name="coalesce", args=[field, ast.Constant(value="[]")])
 
-                # 3-tier priority: omni > aggregated > specific
-                # if omni > 0 then omni
-                # else if aggregated > 0 then aggregated
-                # else specific
-                array_sum = ast.Call(
+        omni_sum = self._build_array_sum_for_action_types(field_non_null, META_OMNI_ACTION_TYPES)
+        fallback_sum = self._build_array_sum_for_action_types(field_non_null, META_FALLBACK_ACTION_TYPES)
+        specific_sum = self._build_array_sum_for_action_types(field_non_null, META_SPECIFIC_ACTION_TYPES)
+
+        # 3-tier priority: omni > aggregated > specific
+        # if omni > 0 then omni
+        # else if aggregated > 0 then aggregated
+        # else specific
+        array_sum = ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(
+                    left=omni_sum,
+                    op=ast.CompareOperationOp.Gt,
+                    right=ast.Constant(value=0),
+                ),
+                omni_sum,
+                ast.Call(
                     name="if",
                     args=[
                         ast.CompareOperation(
-                            left=omni_sum,
+                            left=fallback_sum,
                             op=ast.CompareOperationOp.Gt,
                             right=ast.Constant(value=0),
                         ),
-                        omni_sum,
-                        ast.Call(
-                            name="if",
-                            args=[
-                                ast.CompareOperation(
-                                    left=fallback_sum,
-                                    op=ast.CompareOperationOp.Gt,
-                                    right=ast.Constant(value=0),
-                                ),
-                                fallback_sum,
-                                specific_sum,
-                            ],
-                        ),
+                        fallback_sum,
+                        specific_sum,
                     ],
-                )
+                ),
+            ],
+        )
 
-                if apply_currency:
-                    converted = self._apply_currency_conversion(
-                        stats_table, stats_table_name, "account_currency", array_sum
-                    )
-                    if converted:
-                        return ast.Call(name="SUM", args=[converted])
+        if apply_currency:
+            converted = self._apply_currency_conversion(stats_table, stats_table_name, "account_currency", array_sum)
+            if converted:
+                return ast.Call(name="SUM", args=[converted])
 
-                return ast.Call(name="toFloat", args=[ast.Call(name="SUM", args=[array_sum])])
-        except (TypeError, AttributeError, KeyError):
-            pass
-        return ast.Constant(value=0)
+        return ast.Call(name="toFloat", args=[ast.Call(name="SUM", args=[array_sum])])
 
     def _get_reported_conversion_field(self) -> ast.Expr:
         return self._build_actions_conversion_sum("actions")

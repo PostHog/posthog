@@ -14,6 +14,7 @@ import {
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
     SourceMap,
+    getEffectiveExcludedColumns,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSettingsTab, ExternalDataSource } from '~/types'
 
@@ -63,6 +64,10 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
             (s) => [s.conversion_goals, s.drillDownLevel],
             (conversionGoals: ConversionGoalFilter[], drillDownLevel: MarketingAnalyticsDrillDownLevel) => {
                 const config = MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel]
+                // Hierarchy columns are auto-excluded outside AD_GROUP / AD — see
+                // getEffectiveExcludedColumns. Routing on the user-config (config.excludedBaseColumns)
+                // keeps CAMPAIGN on the natural-order path (preserves master's [ID, Campaign, Source, …]).
+                const effectiveExcluded = getEffectiveExcludedColumns(drillDownLevel)
 
                 // Dedupe in case the alias also appears in the filtered base columns
                 // (e.g. AD_GROUP / AD where the alias matches a base column that isn't
@@ -74,16 +79,18 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                               new Set([
                                   config.columnAlias,
                                   ...Object.values(MarketingAnalyticsBaseColumns).filter(
-                                      (col) => !config.excludedBaseColumns.includes(col)
+                                      (col) => !effectiveExcluded.has(col)
                                   ),
                               ])
                           )
-                        : Object.values(MarketingAnalyticsBaseColumns).map((column) => column.toString())
+                        : Object.values(MarketingAnalyticsBaseColumns)
+                              .filter((col) => !effectiveExcluded.has(col))
+                              .map((column) => column.toString())
 
                 // Cost per conversion only makes sense when the Cost metric exists at this level.
                 // At UTM drill-downs (medium/content/term) Cost is excluded because platform
                 // cost can't be attributed to a specific UTM value.
-                const costAvailable = !config.excludedBaseColumns.includes(MarketingAnalyticsBaseColumns.Cost)
+                const costAvailable = !effectiveExcluded.has(MarketingAnalyticsBaseColumns.Cost)
 
                 // At ad-group / ad levels, events can't be attributed to a specific ad so
                 // conversion goals are dropped entirely.

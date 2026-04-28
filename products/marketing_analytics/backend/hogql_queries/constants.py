@@ -303,6 +303,39 @@ BASE_COLUMN_MAPPING = {
 
 BASE_COLUMNS = [BASE_COLUMN_MAPPING[column] for column in MarketingAnalyticsBaseColumns]
 
+# Hierarchy columns are emitted by the campaign_costs CTE only at AD_GROUP / AD levels
+# (the adapters add ad_group_name / ad_group_id / ad_name / ad_id to their SELECT only
+# at those levels — see MarketingSourceAdapter._build_select_columns). At every other
+# level the CTE schema doesn't have them, so the runtime adds these to the excluded
+# set automatically. Keeping this in one place means level configs don't need to repeat
+# the four entries, and adding a new hierarchy column only requires updating this set
+# plus the adapter SELECT.
+HIERARCHY_BASE_COLUMNS: frozenset[MarketingAnalyticsBaseColumns] = frozenset(
+    {
+        MarketingAnalyticsBaseColumns.AD_GROUP,
+        MarketingAnalyticsBaseColumns.AD_GROUP_ID,
+        MarketingAnalyticsBaseColumns.AD,
+        MarketingAnalyticsBaseColumns.AD_ID,
+    }
+)
+
+# Levels that emit hierarchy columns from the CTE. Other levels exclude them automatically
+# via HIERARCHY_BASE_COLUMNS.
+HIERARCHY_DRILL_DOWN_LEVELS: frozenset[MarketingAnalyticsDrillDownLevel] = frozenset(
+    {MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD}
+)
+
+
+def get_effective_excluded_columns(
+    level: MarketingAnalyticsDrillDownLevel,
+) -> frozenset[MarketingAnalyticsBaseColumns]:
+    """Combine the level's user-facing excluded set with the hierarchy auto-exclusion.
+    Returns the full set of columns the runtime should not emit at this level."""
+    user_excluded = DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
+    if level in HIERARCHY_DRILL_DOWN_LEVELS:
+        return user_excluded
+    return user_excluded | HIERARCHY_BASE_COLUMNS
+
 
 class DrillDownLevelConfig(TypedDict, total=False):
     column_alias: str
@@ -313,7 +346,9 @@ class DrillDownLevelConfig(TypedDict, total=False):
     excludes_conversion_goals: bool
 
 
-# Centralized drill-down level configuration
+# Centralized drill-down level configuration. Hierarchy columns (ad_group / ad) are
+# auto-excluded by the runtime at non-hierarchy levels — see HIERARCHY_BASE_COLUMNS —
+# so they don't need to appear in `excluded_base_columns` for CHANNEL/SOURCE/CAMPAIGN/UTM.
 DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelConfig] = {
     MarketingAnalyticsDrillDownLevel.CHANNEL: {
         "column_alias": "Channel",
@@ -322,10 +357,6 @@ DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelCo
                 MarketingAnalyticsBaseColumns.ID,
                 MarketingAnalyticsBaseColumns.CAMPAIGN,
                 MarketingAnalyticsBaseColumns.SOURCE,
-                MarketingAnalyticsBaseColumns.AD_GROUP,
-                MarketingAnalyticsBaseColumns.AD_GROUP_ID,
-                MarketingAnalyticsBaseColumns.AD,
-                MarketingAnalyticsBaseColumns.AD_ID,
             }
         ),
     },
@@ -336,24 +367,14 @@ DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelCo
                 MarketingAnalyticsBaseColumns.ID,
                 MarketingAnalyticsBaseColumns.CAMPAIGN,
                 MarketingAnalyticsBaseColumns.SOURCE,
-                MarketingAnalyticsBaseColumns.AD_GROUP,
-                MarketingAnalyticsBaseColumns.AD_GROUP_ID,
-                MarketingAnalyticsBaseColumns.AD,
-                MarketingAnalyticsBaseColumns.AD_ID,
             }
         ),
     },
     MarketingAnalyticsDrillDownLevel.CAMPAIGN: {
         "column_alias": MarketingAnalyticsBaseColumns.CAMPAIGN,
-        "excluded_base_columns": frozenset(
-            {
-                # Ad-group / ad columns aren't emitted by the CTE at campaign level.
-                MarketingAnalyticsBaseColumns.AD_GROUP,
-                MarketingAnalyticsBaseColumns.AD_GROUP_ID,
-                MarketingAnalyticsBaseColumns.AD,
-                MarketingAnalyticsBaseColumns.AD_ID,
-            }
-        ),
+        # Empty user-config preserves master's natural enum order at CAMPAIGN —
+        # hierarchy columns are auto-excluded by the runtime.
+        "excluded_base_columns": frozenset(),
     },
     MarketingAnalyticsDrillDownLevel.AD_GROUP: {
         # Show parent context (Campaign + Source) plus the ad-group itself.
@@ -379,6 +400,9 @@ DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelCo
         ),
         "excludes_conversion_goals": True,
     },
+    # UTM levels: platform cost can't be attributed to a UTM value, so all base columns
+    # are stripped — only the grouping alias + conversion goal columns remain. The
+    # runtime hierarchy auto-exclusion is a no-op here (already in `frozenset(...)`).
     MarketingAnalyticsDrillDownLevel.MEDIUM: {
         "column_alias": "Medium",
         "excluded_base_columns": frozenset(MarketingAnalyticsBaseColumns),

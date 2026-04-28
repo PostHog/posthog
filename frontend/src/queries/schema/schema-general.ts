@@ -5286,6 +5286,24 @@ export type MarketingAnalyticsDrillDownConfig = {
     excludesConversionGoals?: boolean
 }
 
+// Hierarchy columns are emitted only at AD_GROUP / AD levels — at every other level
+// the runtime auto-excludes them via `getEffectiveExcludedColumns`. Keep this mirrored
+// with backend `HIERARCHY_BASE_COLUMNS` (products/marketing_analytics/backend/hogql_queries/constants.py).
+export const HIERARCHY_BASE_COLUMNS: ReadonlySet<MarketingAnalyticsBaseColumns> = new Set([
+    MarketingAnalyticsBaseColumns.AdGroup,
+    MarketingAnalyticsBaseColumns.AdGroupId,
+    MarketingAnalyticsBaseColumns.Ad,
+    MarketingAnalyticsBaseColumns.AdId,
+])
+
+export const HIERARCHY_DRILL_DOWN_LEVELS: ReadonlySet<MarketingAnalyticsDrillDownLevel> = new Set([
+    MarketingAnalyticsDrillDownLevel.AdGroup,
+    MarketingAnalyticsDrillDownLevel.Ad,
+])
+
+// Centralized drill-down level configuration. Hierarchy columns (ad_group / ad) are
+// auto-excluded by the runtime at non-hierarchy levels — see HIERARCHY_BASE_COLUMNS —
+// so they don't need to appear in `excludedBaseColumns` for CHANNEL/SOURCE/CAMPAIGN/UTM.
 export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsDrillDownConfig
@@ -5296,10 +5314,6 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
             MarketingAnalyticsBaseColumns.Id,
             MarketingAnalyticsBaseColumns.Campaign,
             MarketingAnalyticsBaseColumns.Source,
-            MarketingAnalyticsBaseColumns.AdGroup,
-            MarketingAnalyticsBaseColumns.AdGroupId,
-            MarketingAnalyticsBaseColumns.Ad,
-            MarketingAnalyticsBaseColumns.AdId,
         ],
     },
     [MarketingAnalyticsDrillDownLevel.Source]: {
@@ -5308,21 +5322,13 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
             MarketingAnalyticsBaseColumns.Id,
             MarketingAnalyticsBaseColumns.Campaign,
             MarketingAnalyticsBaseColumns.Source,
-            MarketingAnalyticsBaseColumns.AdGroup,
-            MarketingAnalyticsBaseColumns.AdGroupId,
-            MarketingAnalyticsBaseColumns.Ad,
-            MarketingAnalyticsBaseColumns.AdId,
         ],
     },
     [MarketingAnalyticsDrillDownLevel.Campaign]: {
         columnAlias: MarketingAnalyticsBaseColumns.Campaign,
-        // Ad-group / ad columns aren't emitted by the CTE at campaign level.
-        excludedBaseColumns: [
-            MarketingAnalyticsBaseColumns.AdGroup,
-            MarketingAnalyticsBaseColumns.AdGroupId,
-            MarketingAnalyticsBaseColumns.Ad,
-            MarketingAnalyticsBaseColumns.AdId,
-        ],
+        // Empty user-config preserves master's natural enum order at CAMPAIGN —
+        // hierarchy columns are auto-excluded by the runtime.
+        excludedBaseColumns: [],
     },
     [MarketingAnalyticsDrillDownLevel.AdGroup]: {
         // Show Campaign + Source as parent context, plus Ad group + ID. Hide Id (campaign id),
@@ -5354,6 +5360,19 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
         columnAlias: 'Term',
         excludedBaseColumns: Object.values(MarketingAnalyticsBaseColumns),
     },
+}
+
+/** Combine the level's user-facing excluded set with the hierarchy auto-exclusion.
+ * Mirror of backend `get_effective_excluded_columns`. */
+export function getEffectiveExcludedColumns(
+    level: MarketingAnalyticsDrillDownLevel
+): Set<MarketingAnalyticsBaseColumns> {
+    const userExcluded = new Set(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[level].excludedBaseColumns)
+    if (HIERARCHY_DRILL_DOWN_LEVELS.has(level)) {
+        return userExcluded
+    }
+    HIERARCHY_BASE_COLUMNS.forEach((col) => userExcluded.add(col))
+    return userExcluded
 }
 
 export enum MarketingAnalyticsConstants {

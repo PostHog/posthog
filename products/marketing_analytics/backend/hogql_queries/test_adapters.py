@@ -1232,6 +1232,34 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             f"be wrapped with coalesce — got {ast.dump(expr) if hasattr(ast, 'dump') else expr}"
         )
 
+    @parameterized.expand(
+        [
+            # (level, expected_match_key_is_empty)
+            # Levels with excludes_conversion_goals=True: AD_GROUP / AD only.
+            ("CHANNEL", MarketingAnalyticsDrillDownLevel.CHANNEL, False),
+            ("SOURCE", MarketingAnalyticsDrillDownLevel.SOURCE, False),
+            ("CAMPAIGN", MarketingAnalyticsDrillDownLevel.CAMPAIGN, False),
+            ("MEDIUM", MarketingAnalyticsDrillDownLevel.MEDIUM, False),
+            ("CONTENT", MarketingAnalyticsDrillDownLevel.CONTENT, False),
+            ("TERM", MarketingAnalyticsDrillDownLevel.TERM, False),
+            ("AD_GROUP", MarketingAnalyticsDrillDownLevel.AD_GROUP, True),
+            ("AD", MarketingAnalyticsDrillDownLevel.AD, True),
+        ]
+    )
+    def test_match_key_empty_at_excludes_conversion_goals_levels(self, _name, level, expected_empty):
+        """match_key is the join key against unified_conversion_goals. At drill-down levels
+        where that join is skipped (excludes_conversion_goals=True), the match key is unused
+        — emitting it as `''` rather than the campaign name avoids a confusing duplicate
+        column and saves wire bytes. The check lives in MarketingSourceAdapter base, so this
+        test covers the cross-cutting behavior without binding it to a specific adapter."""
+        adapter = self._build_meta_adapter_at_level(level)
+        match_key = adapter._get_match_key_expr()
+        is_empty_constant = isinstance(match_key, ast.Constant) and match_key.value == ""
+        assert is_empty_constant == expected_empty, (
+            f"At {level}, _get_match_key_expr() expected to be {'empty Constant' if expected_empty else 'a real expression'}, "
+            f"got {match_key!r}"
+        )
+
     def test_tiktok_ads_adapter_validation_consistency(self):
         campaign_table = self._create_mock_table("tiktokads_campaigns", "TikTokAds")
         stats_table = self._create_mock_table("tiktokads_campaign_report", "TikTokAds")

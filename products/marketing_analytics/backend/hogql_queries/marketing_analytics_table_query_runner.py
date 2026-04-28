@@ -26,6 +26,7 @@ from .constants import (
     DRILL_DOWN_LEVEL_CONFIG,
     PAGINATION_EXTRA,
     UNIFIED_CONVERSION_GOALS_CTE_ALIAS,
+    get_effective_excluded_columns,
     to_marketing_analytics_data,
 )
 from .conversion_goals_aggregator import ConversionGoalsAggregator
@@ -286,38 +287,32 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
     ) -> dict[str, ast.Expr]:
         """Build the column mapping for the drill-down level.
 
-        Routing decision: levels whose primary alias matches the natural primary base
-        column (CAMPAIGN) preserve the historical column order [ID, Campaign, Source,
-        Cost, …]. Every other level — virtual aliases like CHANNEL/MEDIUM, repurposed
-        SOURCE, hierarchy levels AD_GROUP/AD — needs the aggregated path that puts the
-        primary grouping column first and lets `excluded_base_columns` drop columns
-        that don't apply (e.g. ad-group columns at non-AD levels).
+        Routing decision (driven by the level's user-facing `excluded_base_columns`):
+        - Empty set → natural-order path: emit BASE_COLUMN_MAPPING in enum order. Used
+          by CAMPAIGN — preserves the historical [ID, Campaign, Source, …] order.
+        - Non-empty set → aggregated path via `_build_aggregated_level_columns`: places
+          the grouping alias first, then the surviving columns. Used by every other
+          level (synthetic aliases like CHANNEL/MEDIUM, hierarchy levels AD_GROUP/AD).
+
+        Hierarchy columns are stripped automatically at non-hierarchy levels via
+        `get_effective_excluded_columns`, so the level config doesn't have to repeat them.
         """
         level = self.config.drill_down_level
         level_config = DRILL_DOWN_LEVEL_CONFIG[level]
-        excluded = level_config["excluded_base_columns"]
-        column_alias = self.config.get_campaign_column_alias()
+        user_excluded = level_config["excluded_base_columns"]
+        effective_excluded = get_effective_excluded_columns(level)
 
         all_columns: dict[str, ast.Expr]
-        if column_alias == MarketingAnalyticsBaseColumns.CAMPAIGN.value:
-            # Natural-order path: alias matches the natural primary base column.
-            # Filtering by `excluded` lets us drop level-irrelevant columns (e.g. the
-            # AD_GROUP/AD hierarchy columns are excluded at CAMPAIGN level) without
-            # changing the order of the remaining columns.
-            all_columns = {str(k): v for k, v in BASE_COLUMN_MAPPING.items() if k not in excluded}
+        if not user_excluded:
+            all_columns = {str(k): v for k, v in BASE_COLUMN_MAPPING.items() if k not in effective_excluded}
         else:
-            all_columns = self._build_aggregated_level_columns(excluded)
+            all_columns = self._build_aggregated_level_columns(effective_excluded)
 
         # Add conversion goal columns using the aggregator.
-        # Two axes matter:
-        # - "Cost per <goal>" only makes sense when Cost is in the select at this level.
-        #   At UTM levels (medium/content/term) Cost is excluded, so cost-per-conversion
-        #   is hidden too.
-        # - At ad-group / ad levels, events can't be mapped to a specific ad, so
-        #   conversion goals are dropped entirely.
+        # At ad-group / ad levels, events can't be mapped to a specific ad, so
+        # conversion goals are dropped entirely.
         if conversion_aggregator and not level_config.get("excludes_conversion_goals"):
-            include_cost_per = MarketingAnalyticsBaseColumns.COST not in excluded
-            conversion_columns = conversion_aggregator.get_conversion_goal_columns(include_cost_per=include_cost_per)
+            conversion_columns = conversion_aggregator.get_conversion_goal_columns()
             all_columns.update(conversion_columns)
 
         return all_columns
@@ -348,30 +343,12 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         """Build the complete SELECT query with base columns and conversion goal columns"""
         level = self.config.drill_down_level
         level_config = DRILL_DOWN_LEVEL_CONFIG[level]
-        # Same invariant as _build_select_columns_mapping: if Cost is excluded at this level,
-        # joining campaign_costs buys us nothing but phantom rows from the FULL OUTER JOIN.
-        bypass_campaign_costs = MarketingAnalyticsBaseColumns.COST in level_config["excluded_base_columns"]
         # At AD_GROUP / AD level events can't be mapped to a specific ad, so drop
         # the conversion goals join entirely.
         skip_conversion_goals_join = level_config.get("excludes_conversion_goals", False)
 
         # Get conversion goal components
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
-
-        # Bypass campaign_costs when cost isn't computable at this level — select directly
-        # from unified conversions to avoid phantom rows.
-        if conversion_aggregator and bypass_campaign_costs:
-            coalesce_columns = conversion_aggregator.get_coalesce_fallback_columns(campaign_costs_joined=False)
-            for key, coalesce_col in coalesce_columns.items():
-                conversion_columns_mapping[key] = coalesce_col
-
-            return ast.SelectQuery(
-                select=list(conversion_columns_mapping.values()),
-                select_from=ast.JoinExpr(
-                    table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
-                    alias=self.config.unified_conversion_goals_cte_alias,
-                ),
-            )
 
         # Create the FROM clause with base table
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
@@ -382,6 +359,9 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             if level in (
                 MarketingAnalyticsDrillDownLevel.CHANNEL,
                 MarketingAnalyticsDrillDownLevel.SOURCE,
+                MarketingAnalyticsDrillDownLevel.MEDIUM,
+                MarketingAnalyticsDrillDownLevel.CONTENT,
+                MarketingAnalyticsDrillDownLevel.TERM,
             ):
                 join_type = "FULL OUTER JOIN"
                 join_constraint = ast.JoinConstraint(
