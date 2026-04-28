@@ -110,29 +110,18 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         "name": "PostHog data warehouse",
         "description": "Sync Slack messages and channels to PostHog data warehouse"
     },
-    "features": {
-        "bot_user": {
-            "display_name": "PostHog data warehouse",
-            "always_online": false
-        }
-    },
     "oauth_config": {
         "scopes": {
-            "bot": [
+            "user": [
                 "channels:history",
-                "channels:read",
-                "groups:history",
-                "groups:read",
-                "reactions:read",
-                "users:read",
-                "users:read.email"
+                "groups:history"
             ]
         }
     },
     "settings": {
         "event_subscriptions": {
             "request_url": "{webhook_url}",
-            "bot_events": [
+            "user_events": [
                 "message.channels",
                 "message.groups"
             ]
