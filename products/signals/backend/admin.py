@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from .models import SignalReport, SignalReportArtefact
+from .models import SignalAgentConfig, SignalAgentRun, SignalMemory, SignalReport, SignalReportArtefact
 
 
 class SignalReportArtefactInline(admin.TabularInline):
@@ -68,3 +68,85 @@ class SignalReportAdmin(admin.ModelAdmin):
     )
 
     inlines = [SignalReportArtefactInline]
+
+
+class SignalAgentConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "team_link", "enabled", "shadow_mode", "created_at", "updated_at")
+    list_display_links = ("id",)
+    list_filter = ("enabled", "shadow_mode")
+    search_fields = ("id", "team__name", "team__organization__name")
+    raw_id_fields = ("team", "created_by")
+    readonly_fields = ("id", "created_at", "updated_at")
+    list_select_related = ("team", "team__organization")
+    show_full_result_count = False
+
+    @admin.display(description="Team")
+    def team_link(self, config: SignalAgentConfig):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[config.team.pk]),
+            config.team.name,
+        )
+
+
+class SignalAgentRunAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "team_link",
+        "skill_name",
+        "skill_version",
+        "status",
+        "started_at",
+        "completed_at",
+    )
+    list_display_links = ("id",)
+    list_filter = ("status", "skill_name")
+    search_fields = ("id", "team__name", "team__organization__name", "skill_name", "summary")
+    raw_id_fields = ("team", "agent_config")
+    ordering = ("-started_at",)
+    readonly_fields = (
+        "id",
+        "team",
+        "agent_config",
+        "skill_name",
+        "skill_version",
+        "status",
+        "started_at",
+        "completed_at",
+        "summary",
+        "findings",
+        "hypotheses_considered",
+        "tool_call_log",
+        "budget_used",
+        "metadata",
+    )
+    list_select_related = ("team", "team__organization", "agent_config")
+    show_full_result_count = False
+
+    @admin.display(description="Team")
+    def team_link(self, run: SignalAgentRun):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[run.team.pk]),
+            run.team.name,
+        )
+
+
+class SignalMemoryAdmin(admin.ModelAdmin):
+    list_display = ("id", "team_link", "key", "authority", "created_at", "expires_at")
+    list_display_links = ("id",)
+    list_filter = ("authority",)
+    search_fields = ("id", "team__name", "team__organization__name", "key", "content")
+    raw_id_fields = ("team", "created_by_run")
+    ordering = ("-created_at",)
+    readonly_fields = ("id", "created_at", "updated_at")
+    list_select_related = ("team", "team__organization")
+    show_full_result_count = False
+
+    @admin.display(description="Team")
+    def team_link(self, memory: SignalMemory):
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[memory.team.pk]),
+            memory.team.name,
+        )

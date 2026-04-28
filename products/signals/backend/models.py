@@ -1,6 +1,7 @@
 import logging
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
 
@@ -368,3 +369,149 @@ class SignalReportTask(UUIDModel):
     class Meta:
         verbose_name = "Signal report task"
         verbose_name_plural = "Signal report tasks"
+
+
+# ── Signals agent (headless cross-source scout) ─────────────────────────────────
+#
+# Three tables back the v1 Signals agent:
+#   - SignalAgentConfig: per-team binding (one row per team).
+#   - SignalAgentRun:    run diary, one row per scheduled agent run.
+#   - SignalMemory:      durable learnings the agent reads in future runs.
+#
+# These are Postgres-only and never written by non-Django systems, so no
+# table-level DEFAULT clauses are needed for the jsonb columns with `default=list`
+# / `default=dict` (Django applies the default Python-side on every INSERT).
+
+
+class SignalAgentConfig(UUIDModel):
+    """Per-team binding for the headless Signals agent. One row per team."""
+
+    team = models.OneToOneField(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_agent_config",
+    )
+    enabled = models.BooleanField(default=False)
+    # When true, runs persist findings to `signal_agent_run.findings` but the emit
+    # adapter no-ops. Defaults to true so a freshly-bound team starts in shadow.
+    shadow_mode = models.BooleanField(default=True)
+    # null = run all `signals-agent-*` skills the team has access to. A list narrows
+    # the set; the harness still intersects with what's available in PHS.
+    enabled_skill_names = ArrayField(
+        base_field=models.CharField(max_length=200),
+        null=True,
+        blank=True,
+        default=None,
+    )
+    # Per-team overrides for harness `RunLimits` (max_runtime_s, max_findings).
+    # Defaults come from the harness when absent. Keys this dict doesn't set fall
+    # back to harness defaults; keys it sets that aren't recognised are ignored.
+    limit_overrides = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        verbose_name = "Signal agent config"
+        verbose_name_plural = "Signal agent configs"
+
+
+class SignalAgentRun(UUIDModel):
+    """Run diary — one row per scheduled agent run. Holds everything per-run."""
+
+    class Status(models.TextChoices):
+        SCHEDULED = "scheduled", "Scheduled"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        ABANDONED = "abandoned", "Abandoned"
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_agent_runs",
+    )
+    # SET_NULL so deleting a config row (e.g. recreating from scratch) doesn't
+    # destroy the run history we want for audit and dedupe.
+    agent_config = models.ForeignKey(
+        SignalAgentConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="runs",
+    )
+    skill_name = models.CharField(max_length=200)
+    skill_version = models.IntegerField()
+    status = models.CharField(max_length=20, choices=Status, default=Status.SCHEDULED)
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    # Prose: what I looked at, what I found, what I skipped. Used by future runs
+    # for best-effort dedupe via ILIKE search.
+    summary = models.TextField(default="", blank=True)
+    # Structured findings emitted via emit_signal during the run.
+    findings = models.JSONField(default=list, blank=True)
+    # Hypotheses considered (including the ones the agent decided not to chase),
+    # with reasoning.
+    hypotheses_considered = models.JSONField(default=list, blank=True)
+    # Measured quantities about how the run went, e.g. {"runtime_s": float, "findings": int}.
+    # Populated at finalize from real sources (timer, len(findings)). Token / cost data
+    # arrives later via the LLM analytics join — see metadata.task_run_id.
+    run_metrics = models.JSONField(default=dict, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        verbose_name = "Signal agent run"
+        verbose_name_plural = "Signal agent runs"
+        indexes = [
+            models.Index(fields=["team", "-started_at"], name="signal_agent_run_recent_idx"),
+            models.Index(fields=["team", "status"], name="signal_agent_run_status_idx"),
+        ]
+
+
+class SignalMemory(UUIDModel):
+    """Durable learnings the agent reads in future runs (known issues, false positives, team steering)."""
+
+    class Authority(models.TextChoices):
+        AGENT_INFERENCE = "agent_inference", "Agent inference"
+        HUMAN_CONFIRMED = "human_confirmed", "Human confirmed"
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="signal_memories",
+    )
+    # Semantic key, agent-chosen. Unique per team.
+    key = models.CharField(max_length=300)
+    # Prose for prompt injection — the agent reads this verbatim.
+    content = models.TextField()
+    authority = models.CharField(max_length=30, choices=Authority, default=Authority.AGENT_INFERENCE)
+    tags = ArrayField(base_field=models.CharField(max_length=100), default=list, blank=True)
+    # null = human-authored. Agent-written entries point back to the run that created them.
+    created_by_run = models.ForeignKey(
+        SignalAgentRun,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="memories_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # null = no expiry (only allowed for HUMAN_CONFIRMED entries; harness enforces).
+    expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Signal memory"
+        verbose_name_plural = "Signal memories"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "key"], name="signal_memory_unique_team_key"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "expires_at"], name="signal_memory_expiry_idx"),
+            GinIndex(fields=["tags"], name="signal_memory_tags_gin"),
+        ]
