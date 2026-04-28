@@ -35,17 +35,19 @@ def send_notifications_for_disabled_subscription(subscription: Subscription, rea
         recipient_count=len(targets),
     )
 
+    if subscription.title:
+        subject = f'PostHog subscription "{subscription.title}" has been disabled'
+    else:
+        subject = "Your PostHog subscription has been disabled"
     title = subscription.title or "your subscription"
-    subject = f'PostHog subscription "{title}" has been disabled'
     campaign_key = f"subscription-disabled-notification-{subscription.id}-{timezone.now().timestamp()}"
-    resource_url = subscription.url or ""
 
     message = EmailMessage(
         campaign_key=campaign_key,
         subject=subject,
         template_name="subscription_disabled",
         template_context={
-            "subscription_url": resource_url,
+            "subscription_url": subscription.url,
             "subscription_title": title,
             "reason": reason,
         },
