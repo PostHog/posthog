@@ -4,7 +4,15 @@ from unittest.mock import MagicMock
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import Breakdown, BreakdownFilter, BreakdownType, DataWarehouseNode, EventsNode, TrendsQuery
+from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
+    BreakdownType,
+    DataWarehouseNode,
+    EventsNode,
+    MultipleBreakdownType,
+    TrendsQuery,
+)
 
 from posthog.hogql_queries.insights.trends.trend_validation_rules import ValidateDataWarehouseBreakdown
 from posthog.hogql_queries.validation.validation import QueryValidationContext
@@ -100,6 +108,54 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
 
         self.assertIn(
             "Multi-breakdowns not supported for trends insights with a data warehouse series.",
+            str(context.exception),
+        )
+        self.assertEqual(
+            context.exception.get_codes(),
+            ["data_warehouse_series_unsupported_breakdown"],
+        )
+
+    def test_allows_single_item_multi_breakdown_with_data_warehouse_type(self) -> None:
+        query = TrendsQuery(
+            series=self._data_warehouse_series(),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        ValidateDataWarehouseBreakdown().validate(self._context(query))
+
+    @parameterized.expand(
+        [
+            (
+                "default_event_type",
+                Breakdown(property="$browser"),
+            ),
+            (
+                "explicit_event_type",
+                Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+            ),
+            (
+                "person_type",
+                Breakdown(property="$geoip_country_code", type=MultipleBreakdownType.PERSON),
+            ),
+            (
+                "data_warehouse_person_property_type",
+                Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY),
+            ),
+        ]
+    )
+    def test_disallows_unsupported_single_item_multi_breakdown(self, _name: str, breakdown: Breakdown) -> None:
+        query = TrendsQuery(
+            series=self._data_warehouse_series(),
+            breakdownFilter=BreakdownFilter(breakdowns=[breakdown]),
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            ValidateDataWarehouseBreakdown().validate(self._context(query))
+
+        self.assertIn(
+            "Event based breakdowns are not supported for trends insights with a data warehouse series.",
             str(context.exception),
         )
         self.assertEqual(

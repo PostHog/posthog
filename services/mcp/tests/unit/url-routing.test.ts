@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { parseMcpMode } from '@/lib/utils'
+
 function parseIdFromRequest(
     request: { headers: { get: (name: string) => string | null } },
     url: URL,
@@ -143,5 +145,79 @@ describe('URL Routing', () => {
                 expect(projectId).toBe(expectedProjectId)
             }
         )
+    })
+
+    describe('MCP mode parsing', () => {
+        const modeTests = [
+            {
+                description: 'undefined when neither header nor query param provided',
+                headers: {} as Record<string, string>,
+                params: '',
+                expected: undefined,
+            },
+            {
+                description: 'tools from header',
+                headers: { 'x-posthog-mcp-mode': 'tools' },
+                params: '',
+                expected: 'tools' as const,
+            },
+            {
+                description: 'cli from header',
+                headers: { 'x-posthog-mcp-mode': 'cli' },
+                params: '',
+                expected: 'cli' as const,
+            },
+            {
+                description: 'tools from query param',
+                headers: {},
+                params: '?mode=tools',
+                expected: 'tools' as const,
+            },
+            {
+                description: 'cli from query param',
+                headers: {},
+                params: '?mode=cli',
+                expected: 'cli' as const,
+            },
+            {
+                description: 'case-insensitive (CLI)',
+                headers: { 'x-posthog-mcp-mode': 'CLI' },
+                params: '',
+                expected: 'cli' as const,
+            },
+            {
+                description: 'whitespace-tolerant (" tools ")',
+                headers: { 'x-posthog-mcp-mode': ' tools ' },
+                params: '',
+                expected: 'tools' as const,
+            },
+            {
+                description: 'unknown value ignored',
+                headers: { 'x-posthog-mcp-mode': 'banana' },
+                params: '',
+                expected: undefined,
+            },
+            {
+                description: 'legacy exec value ignored (only tools or cli accepted)',
+                headers: { 'x-posthog-mcp-mode': 'exec' },
+                params: '',
+                expected: undefined,
+            },
+            {
+                description: 'header takes precedence over query param',
+                headers: { 'x-posthog-mcp-mode': 'cli' },
+                params: '?mode=tools',
+                expected: 'cli' as const,
+            },
+        ]
+
+        it.each(modeTests)('parses $description', ({ headers, params, expected }) => {
+            const url = new URL(`https://example.com/mcp${params}`)
+            const headerValue = headers['x-posthog-mcp-mode'] ?? null
+            const queryValue = url.searchParams.get('mode')
+
+            // Mirrors the merge order in `src/index.ts` — header wins over query param.
+            expect(parseMcpMode(headerValue || queryValue)).toBe(expected)
+        })
     })
 })

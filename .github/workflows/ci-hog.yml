@@ -152,7 +152,7 @@ jobs:
 
             - name: Check package version and detect an update
               id: check-package-version
-              uses: PostHog/check-package-version@138438a8fed9213fa112f841b1c89f9bd68f5cca # v2.1.0
+              uses: PostHog/check-package-version@f540540cb12d45ec3c58d42dbf1d60070ed2d268 # v2.1.1
               with:
                   path: common/hogvm/typescript
 
