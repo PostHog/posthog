@@ -208,6 +208,23 @@ Agent steps:
 - If no recordings exist, suggest enabling session replay or waiting for user traffic
 - If the variant count is unexpected, double-check the experiment configuration
 
+## Testing
+
+This skill has automated evaluations that validate:
+
+- **Filter construction**: Session replay filters are correctly structured with required events and properties for each variant
+- **Variant extraction**: Variants are extracted from the feature flag (not experiment parameters)
+- **Workflow completeness**: All workflow steps are executed (get experiment, get variants, build filters, retrieve recordings, analyze)
+- **Analysis quality**: Analysis is quantitatively accurate, grounded in data, provides qualitative insights, covers all variants, and delivers actionable recommendations
+
+To run the eval:
+
+```bash
+pytest ee/hogai/eval/ci/eval_analyzing_experiment_session_replays.py::eval_analyzing_experiment_session_replays
+```
+
+The eval tests diverse scenarios including 2-variant and multi-variant experiments, draft experiments, experiments with no recordings, date range filtering, single variant analysis, invalid experiment IDs, goal=decrease metrics, and friction analysis.
+
 ## Related tools
 
 - `filter_session_recordings`: Core tool for retrieving session recordings with filters
