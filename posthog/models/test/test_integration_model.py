@@ -33,7 +33,6 @@ from posthog.models.integration import (
     DatabricksIntegrationError,
     EmailIntegration,
     GitHubIntegration,
-    GitHubIntegrationError,
     GitHubRateLimitError,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -835,7 +834,7 @@ class TestGitHubIntegrationModel(BaseTest):
             ),
         ]
     )
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.github_integration_base.requests.get")
     def test_github_api_request_metrics_include_integration_and_rate_limit_headers(
         self,
         _name: str,
@@ -892,7 +891,7 @@ class TestGitHubIntegrationModel(BaseTest):
             == expected_reset
         )
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.github_integration_base.requests.get")
     def test_github_api_request_metrics_include_request_exceptions(self, mock_get):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
@@ -917,7 +916,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
 
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_refresh_access_token_metrics_include_request_exceptions(self, mock_client_request):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
@@ -938,7 +937,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
 
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_integration_refresh_token(self, mock_client_request):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
@@ -973,7 +972,7 @@ class TestGitHubIntegrationModel(BaseTest):
         }
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_refresh_access_token_handles_errors(self, mock_client_request, mock_reload):
         """Test that errors field is set if refresh_access_token fails"""
         integration = self.create_integration({"expires_at": 3600}, {"token": "REFRESH"})
@@ -990,7 +989,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.errors == "TOKEN_REFRESH_FAILED"
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_refresh_access_token_resets_errors(self, mock_client_request, mock_reload):
         """Test that errors field is reset to empty string after successful refresh_access_token"""
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
@@ -1009,7 +1008,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.github_integration_base.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1041,7 +1040,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is False
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.github_integration_base.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_raises_after_repeated_transient_non_json(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1064,7 +1063,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.github_integration_base.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_raises_when_follow_up_page_fails(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1610,7 +1609,7 @@ class TestGitHubIntegrationModel(BaseTest):
         github = GitHubIntegration(integration)
         assert github.get_access_token() == "valid-token"
 
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     @patch("posthog.models.integration.reload_integrations_on_workers")
     def test_get_access_token_refreshes_when_expired(self, mock_reload, mock_client_request):
         integration = self.create_integration(

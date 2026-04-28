@@ -2126,6 +2126,7 @@ class GitHubInstallationAccess:
 class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
 
+    @classmethod
     def integration_from_installation_id(
         cls, installation_id: str, team_id: int, created_by: User | None = None
     ) -> Integration:
@@ -2268,7 +2269,6 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not token:
             raise GitHubIntegrationError("Access token unavailable after refresh")
         return token
-
 
     def _on_token_refreshed(self) -> None:
         logger.info(f"Refreshed access token for {self}")

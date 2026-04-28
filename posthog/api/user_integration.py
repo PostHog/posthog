@@ -231,7 +231,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         summary="List personal GitHub integrations",
         responses={200: UserGitHubIntegrationListResponseSerializer},
     )
-    def list(self, request: Request) -> Response:
+    def list(self, request: Request, **_kwargs) -> Response:
         user = self._get_user()
         integrations = UserIntegration.objects.filter(user=user, kind="github").order_by("created_at")
         team_installation_ids = self._team_github_installation_ids(user)
