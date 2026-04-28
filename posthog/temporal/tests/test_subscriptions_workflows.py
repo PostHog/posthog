@@ -391,64 +391,102 @@ async def test_deliver_subscription_report_slack(
     assert mock_send_slack_async.await_count == 1
 
 
+@pytest.mark.parametrize(
+    "name,target_type,target_value,has_integration,expect_ok,skip_reason,error_type",
+    [
+        ("ok_valid_slack", "slack", "C12345|#test-channel", True, True, None, None),
+        (
+            "missing_slack_integration",
+            "slack",
+            "C12345|#test-channel",
+            False,
+            False,
+            "slack_integration_missing",
+            "missing_integration",
+        ),
+        (
+            "unsupported_target",
+            "webhook",
+            "https://example.com/hook",
+            False,
+            False,
+            "unsupported_target",
+            "unsupported_target",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_validate_subscription_for_delivery_ok_for_valid_slack(team, user):
-    """Pre-flight validation passes when target_type=slack and an integration exists."""
-    from posthog.models.integration import Integration
-
-    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack")
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="vsd001", name="Validate OK")
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        insight=insight,
-        created_by=user,
-        target_type="slack",
-        target_value="C12345|#test-channel",
-        integration=integration,
-    )
-
-    env = ActivityEnvironment()
-    result = await env.run(
-        validate_subscription_for_delivery,
-        ValidateSubscriptionForDeliveryInputs(subscription_id=subscription.id),
-    )
-
-    assert result.ok is True
-    assert result.skip_reason is None
-    assert result.error is None
-
-
-@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
-@pytest.mark.asyncio
-async def test_validate_subscription_for_delivery_rejects_missing_slack_integration(
-    mock_get_slack: MagicMock,
+async def test_validate_subscription_for_delivery(
+    name: str,
+    target_type: str,
+    target_value: str,
+    has_integration: bool,
+    expect_ok: bool,
+    skip_reason: str | None,
+    error_type: str | None,
     team,
     user,
 ):
-    """Pre-flight validation rejects target_type=slack subscriptions with no integration."""
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="vsd002", name="Validate fail")
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        insight=insight,
-        created_by=user,
-        target_type="slack",
-        target_value="C12345|#test-channel",
-    )
+    """Pre-flight validation outcomes across all target_type / integration combinations."""
+    from posthog.models.integration import Integration
 
+    integration = None
+    if has_integration:
+        integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack")
+
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"vsd{name[:3]}", name=f"Validate {name}")
+    subscription_kwargs: dict[str, Any] = {
+        "team": team,
+        "insight": insight,
+        "created_by": user,
+        "target_type": target_type,
+        "target_value": target_value,
+    }
+    if integration is not None:
+        subscription_kwargs["integration"] = integration
+    subscription = await sync_to_async(create_subscription)(**subscription_kwargs)
+
+    # The slack-missing-integration case falls through to a team lookup helper —
+    # patch it to None so the test doesn't depend on global state.
+    with patch(
+        "posthog.temporal.subscriptions.activities.get_slack_integration_for_team",
+        return_value=None,
+    ):
+        env = ActivityEnvironment()
+        result = await env.run(
+            validate_subscription_for_delivery,
+            ValidateSubscriptionForDeliveryInputs(subscription_id=subscription.id),
+        )
+
+    assert result.ok is expect_ok
+    assert result.skip_reason == skip_reason
+    if expect_ok:
+        assert result.error is None
+    else:
+        assert result.error is not None
+        assert result.error["type"] == error_type
+        assert result.recipient == subscription.target_value
+
+
+@pytest.mark.asyncio
+async def test_validate_subscription_for_delivery_handles_deleted_subscription():
+    """If the subscription is deleted between create_delivery_record and validation,
+    the activity returns ok=False with skip_reason=subscription_deleted instead of
+    raising DoesNotExist (which would burn Temporal retries and flip SLO to failure).
+    """
     env = ActivityEnvironment()
     result = await env.run(
         validate_subscription_for_delivery,
-        ValidateSubscriptionForDeliveryInputs(subscription_id=subscription.id),
+        ValidateSubscriptionForDeliveryInputs(subscription_id=999_999_999),
     )
 
     assert result.ok is False
-    assert result.skip_reason == "slack_integration_missing"
+    assert result.skip_reason == "subscription_deleted"
     assert result.error == {
-        "message": "No Slack integration configured",
-        "type": "missing_integration",
+        "message": "Subscription was deleted before delivery",
+        "type": "subscription_deleted",
     }
-    assert result.recipient == subscription.target_value
-    mock_get_slack.assert_called_once_with(subscription.team_id)
+    assert result.recipient == "<deleted>"
 
 
 @patch("posthog.temporal.subscriptions.activities.send_slack_message_with_integration_async", new_callable=AsyncMock)

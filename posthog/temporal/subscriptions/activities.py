@@ -305,10 +305,30 @@ async def validate_subscription_for_delivery(
     fan-out export work on subscriptions that cannot succeed without user
     intervention.
     """
-    subscription = await database_sync_to_async(
-        Subscription.objects.select_related("integration").get,
-        thread_sensitive=False,
-    )(pk=inputs.subscription_id)
+    try:
+        subscription = await database_sync_to_async(
+            Subscription.objects.select_related("integration").get,
+            thread_sensitive=False,
+        )(pk=inputs.subscription_id)
+    except Subscription.DoesNotExist:
+        # Subscription was deleted between create_delivery_record and validation.
+        # Returning ok=False here lets the workflow short-circuit cleanly instead
+        # of burning Temporal retries on a DoesNotExist that will never resolve —
+        # which would also flip the SLO outcome to `failure`, defeating the whole
+        # point of pre-flight validation.
+        await LOGGER.awarning(
+            "validate_subscription_for_delivery.subscription_deleted",
+            subscription_id=inputs.subscription_id,
+        )
+        return ValidateSubscriptionForDeliveryResult(
+            ok=False,
+            skip_reason="subscription_deleted",
+            error={
+                "message": "Subscription was deleted before delivery",
+                "type": "subscription_deleted",
+            },
+            recipient="<deleted>",
+        )
 
     if subscription.target_type not in SUPPORTED_TARGET_TYPES:
         await LOGGER.awarning(
