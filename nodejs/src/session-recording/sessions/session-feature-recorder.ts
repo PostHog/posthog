@@ -13,7 +13,7 @@ const POSTHOG_NETWORK_STATUS_KEY = 21
 
 export const MAX_UNIQUE_VALUES = 1000
 
-const md5Hex = (s: string): string => crypto.createHash('md5').update(s).digest('hex')
+export const md5Hex = (s: string): string => crypto.createHash('md5').update(s).digest('hex')
 
 interface RRWebEventData {
     type?: number
