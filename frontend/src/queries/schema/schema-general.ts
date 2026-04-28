@@ -1640,9 +1640,10 @@ export type RetentionFilter = {
     aggregationType?: 'count' | 'sum' | 'avg'
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
-    /** @description The type of property to aggregate on (event or person). Defaults to event.
+    /** @description The type of property to aggregate on. Defaults to event. Use `data_warehouse` to
+     * aggregate a column on the data warehouse table referenced by the start/returning entity.
      * @default event */
-    aggregationPropertyType?: 'event' | 'person'
+    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
     /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean
 

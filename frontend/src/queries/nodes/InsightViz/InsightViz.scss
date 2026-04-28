@@ -110,7 +110,10 @@
         flex: 1;
         flex-direction: column;
         height: 100%;
-        padding: 0.5rem;
+
+        &--empty-state {
+            padding: 0.5rem;
+        }
 
         &--with-legend {
             flex-direction: row;

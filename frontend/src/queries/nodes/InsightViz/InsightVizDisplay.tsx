@@ -448,6 +448,7 @@ export function InsightVizDisplay({
                         <div
                             className={clsx(
                                 'InsightVizDisplay__content',
+                                BlockingEmptyState && 'InsightVizDisplay__content--empty-state',
                                 supportsDisplay && showLegend && 'InsightVizDisplay__content--with-legend'
                             )}
                         >
