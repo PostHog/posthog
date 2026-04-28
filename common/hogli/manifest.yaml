@@ -783,3 +783,7 @@ environment:
         bin_script: warm-flags-cache
         description: 'Warm the feature-flags hypercache against the local dev environment (requires ./bin/start running)'
         hidden: true
+    flags:jumphost:
+        bin_script: rust-jumphost
+        description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
+        hidden: true
