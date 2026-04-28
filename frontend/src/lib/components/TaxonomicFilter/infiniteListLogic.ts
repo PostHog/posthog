@@ -30,7 +30,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
-import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { getCoreFilterDefinition, isCoreFilter } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { CohortType, EventDefinition, GroupTypeIndex, PropertyType } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
@@ -38,17 +39,9 @@ import { captureTimeToSeeData } from '../../internalMetrics'
 import { getItemGroup } from './InfiniteList'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
-const TAXONOMY_TRACKED_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
-    TaxonomicFilterGroupType.Events,
-    TaxonomicFilterGroupType.EventProperties,
-    TaxonomicFilterGroupType.NumericalEventProperties,
-    TaxonomicFilterGroupType.PersonProperties,
-    TaxonomicFilterGroupType.SessionProperties,
-])
-
-function shouldTrackMissingTaxonomy(listGroupType: TaxonomicFilterGroupType): boolean {
+function isTaxonomyTrackedListType(listGroupType: TaxonomicFilterGroupType): boolean {
     return (
-        TAXONOMY_TRACKED_GROUP_TYPES.has(listGroupType) ||
+        listGroupType in CORE_FILTER_DEFINITIONS_BY_GROUP ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
     )
 }
@@ -966,20 +959,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         infiniteListResultsReceived: () => {
             actions.reconcilePinnedRowState()
             const listGroupType = props.listGroupType
-            if (!shouldTrackMissingTaxonomy(listGroupType)) {
+            if (!isTaxonomyTrackedListType(listGroupType)) {
                 return
             }
             const group = values.group
             const missing: { name: string; groupType: TaxonomicFilterGroupType }[] = []
             for (const item of values.results) {
-                if (!item || isSkeletonItem(item) || isQuickFilterItem(item)) {
+                if (isSkeletonItem(item) || isQuickFilterItem(item)) {
                     continue
                 }
-                const name = group?.getName?.(item) ?? ('name' in item ? (item as { name?: string }).name : undefined)
+                const name = group?.getName?.(item) ?? ('name' in item ? item.name : undefined)
                 if (!name || !name.startsWith('$')) {
                     continue
                 }
-                if (getCoreFilterDefinition(name, listGroupType) !== null) {
+                if (getCoreFilterDefinition(name, listGroupType) !== null || isCoreFilter(name)) {
                     continue
                 }
                 missing.push({ name, groupType: listGroupType })
