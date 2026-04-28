@@ -2,6 +2,7 @@ import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCollapse } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { SURVEY_EVENT_TOKEN, SURVEY_STATUS_TOKEN } from 'scenes/surveys/surveyNotificationModalLogic'
 
 import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
@@ -14,6 +15,8 @@ export function SurveyResponseKeysReference({ questions }: { questions: SurveyQu
     const commonFields = [
         { label: 'Survey name', templateKey: "{event.properties['$survey_name']}" },
         { label: 'Survey ID', templateKey: "{event.properties['$survey_id']}" },
+        { label: 'Trigger event', templateKey: SURVEY_EVENT_TOKEN },
+        { label: 'Survey status', templateKey: SURVEY_STATUS_TOKEN },
         { label: 'Respondent name', templateKey: '{person.name}' },
         { label: 'Respondent email', templateKey: '{person.properties.email}' },
     ]
@@ -27,7 +30,8 @@ export function SurveyResponseKeysReference({ questions }: { questions: SurveyQu
                     content: (
                         <div className="flex flex-col gap-1.5">
                             <p className="text-xs text-muted m-0">
-                                Use these in notification message templates to include survey context and responses.
+                                Use these in notification message templates to include survey context, status, and
+                                responses.
                             </p>
                             {commonFields.map(({ label, templateKey }) => (
                                 <div

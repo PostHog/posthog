@@ -210,6 +210,7 @@ export function PageHeaderCustom(): JSX.Element {
     const {
         launchExperiment,
         archiveExperiment,
+        unarchiveExperiment,
         createExposureCohort,
         createExperimentDashboard,
         updateExperiment,
@@ -418,6 +419,15 @@ export function PageHeaderCustom(): JSX.Element {
                         {canArchive && (
                             <ButtonPrimitive menuItem data-attr="archive-experiment" onClick={handleArchive}>
                                 <IconArchive /> Archive experiment
+                            </ButtonPrimitive>
+                        )}
+                        {canEdit && experiment.archived && (
+                            <ButtonPrimitive
+                                menuItem
+                                data-attr="unarchive-experiment"
+                                onClick={() => unarchiveExperiment()}
+                            >
+                                <IconArchive /> Unarchive experiment
                             </ButtonPrimitive>
                         )}
 
