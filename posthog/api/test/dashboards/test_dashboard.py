@@ -21,6 +21,7 @@ from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import Filter, Insight, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.insight_variable import InsightVariable
@@ -662,6 +663,45 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertIsNone(group_type.detail_dashboard_id)
         self.assertIsNone(cache.get(cache_key))
         self.assertIsNone(cache.get(stale_cache_key))
+
+    def test_delete_dashboard_with_delete_insights_removes_file_system_entries(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test dashboard"})
+
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"name": "insight on dashboard", "dashboards": [dashboard_id], "saved": True}
+        )
+
+        insight = Insight.objects.get(id=insight_id)
+        fs_entry = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
+        assert fs_entry is not None, "Insight should have a FileSystem entry before deletion"
+
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards", {"delete_insights": True})
+
+        self.dashboard_api.get_insight(insight_id, self.team.id, expected_status=status.HTTP_404_NOT_FOUND)
+
+        fs_entry_after = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
+        assert fs_entry_after is None, "Insight FileSystem entry should be deleted when insight is deleted"
+
+    def test_restore_dashboard_restores_file_system_entries_for_insights(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test dashboard"})
+
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"name": "insight on dashboard", "dashboards": [dashboard_id], "saved": True}
+        )
+
+        insight = Insight.objects.get(id=insight_id)
+        fs_entry = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
+        assert fs_entry is not None, "Insight should have a FileSystem entry"
+
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards", {"delete_insights": True})
+
+        fs_entry_deleted = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
+        assert fs_entry_deleted is None, "Insight FileSystem entry should be deleted"
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"deleted": False})
+
+        fs_entry_restored = FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).first()
+        assert fs_entry_restored is not None, "Insight FileSystem entry should be restored when dashboard is restored"
 
     def test_dashboard_items(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
