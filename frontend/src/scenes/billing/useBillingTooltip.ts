@@ -1,44 +1,48 @@
 import { useCallback, useRef } from 'react'
-import { Root, createRoot } from 'react-dom/client'
+import { Root } from 'react-dom/client'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import {
+    SharedDomRootConfig,
+    createSharedDomRoot,
+    ensureSharedDomRoot,
+    resetSharedDomRoot,
+} from 'lib/utils/sharedDomRoot'
 
-let sharedBillingTooltipElement: HTMLElement | null = null
-let sharedBillingTooltipRoot: Root | null = null
-let sharedBillingTooltipOwner: string | null = null
+const sharedBillingTooltip = createSharedDomRoot()
 
-function ensureSharedBillingTooltip(ownerId: string): [Root, HTMLElement] {
-    if (!sharedBillingTooltipElement || !sharedBillingTooltipRoot) {
-        const element = document.createElement('div')
-        element.id = 'BillingTooltipWrapper'
+const sharedBillingTooltipConfig: SharedDomRootConfig = {
+    elementId: 'BillingTooltipWrapper',
+    setupElement: (element) => {
         element.className =
             'BillingTooltipWrapper hidden absolute z-10 p-2 bg-bg-light rounded shadow-md text-xs pointer-events-none border border-border'
-        document.body.appendChild(element)
-        sharedBillingTooltipElement = element
-        sharedBillingTooltipRoot = createRoot(element)
-    }
-    sharedBillingTooltipOwner = ownerId
-    return [sharedBillingTooltipRoot, sharedBillingTooltipElement]
+    },
+}
+
+function ensureSharedBillingTooltip(ownerId: string): [Root, HTMLElement] {
+    const result = ensureSharedDomRoot(sharedBillingTooltip, sharedBillingTooltipConfig)
+    sharedBillingTooltip.owner = ownerId
+    return result
 }
 
 function hideSharedBillingTooltipIfOwner(ownerId: string): void {
-    if (sharedBillingTooltipOwner !== ownerId || !sharedBillingTooltipElement) {
+    if (sharedBillingTooltip.owner !== ownerId || !sharedBillingTooltip.element) {
         return
     }
-    sharedBillingTooltipElement.classList.add('hidden')
-    sharedBillingTooltipElement.classList.remove('block')
+    sharedBillingTooltip.element.classList.add('hidden')
+    sharedBillingTooltip.element.classList.remove('block')
 }
 
 function cleanupSharedBillingTooltipIfOwner(ownerId: string): void {
-    if (sharedBillingTooltipOwner !== ownerId) {
+    if (sharedBillingTooltip.owner !== ownerId) {
         return
     }
-    sharedBillingTooltipOwner = null
-    if (sharedBillingTooltipElement) {
-        sharedBillingTooltipElement.classList.add('hidden')
-        sharedBillingTooltipElement.classList.remove('block')
+    sharedBillingTooltip.owner = null
+    if (sharedBillingTooltip.element) {
+        sharedBillingTooltip.element.classList.add('hidden')
+        sharedBillingTooltip.element.classList.remove('block')
     }
-    sharedBillingTooltipRoot?.render(null)
+    sharedBillingTooltip.root?.render(null)
 }
 
 export function useBillingTooltip(): {
@@ -64,9 +68,5 @@ export function useBillingTooltip(): {
 }
 
 export function __resetSharedBillingTooltipForTests(): void {
-    sharedBillingTooltipRoot?.unmount()
-    sharedBillingTooltipElement?.remove()
-    sharedBillingTooltipElement = null
-    sharedBillingTooltipRoot = null
-    sharedBillingTooltipOwner = null
+    resetSharedDomRoot(sharedBillingTooltip)
 }

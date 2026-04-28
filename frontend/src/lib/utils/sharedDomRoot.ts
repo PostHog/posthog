@@ -1,0 +1,36 @@
+import { Root, createRoot } from 'react-dom/client'
+
+export interface SharedDomRoot {
+    element: HTMLElement | null
+    root: Root | null
+    owner: string | null
+}
+
+export interface SharedDomRootConfig {
+    elementId: string
+    setupElement: (element: HTMLElement) => void
+}
+
+export function createSharedDomRoot(): SharedDomRoot {
+    return { element: null, root: null, owner: null }
+}
+
+export function ensureSharedDomRoot(target: SharedDomRoot, config: SharedDomRootConfig): [Root, HTMLElement] {
+    if (!target.element || !target.root) {
+        const element = document.createElement('div')
+        element.id = config.elementId
+        config.setupElement(element)
+        document.body.appendChild(element)
+        target.element = element
+        target.root = createRoot(element)
+    }
+    return [target.root, target.element]
+}
+
+export function resetSharedDomRoot(target: SharedDomRoot): void {
+    target.root?.unmount()
+    target.element?.remove()
+    target.element = null
+    target.root = null
+    target.owner = null
+}

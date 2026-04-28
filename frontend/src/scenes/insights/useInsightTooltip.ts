@@ -1,18 +1,20 @@
 import { ReactNode, useCallback, useRef } from 'react'
-import { Root, createRoot } from 'react-dom/client'
+import { Root } from 'react-dom/client'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import {
+    SharedDomRoot,
+    SharedDomRootConfig,
+    createSharedDomRoot,
+    ensureSharedDomRoot,
+    resetSharedDomRoot,
+} from 'lib/utils/sharedDomRoot'
 
 const INTERACTIVE_DELAY = 500
 const HIDE_DELAY = 100
 
-interface SharedTooltipBase {
-    element: HTMLElement | null
-    root: Root | null
-    owner: string | null
-}
-
-interface HoverTooltipState extends SharedTooltipBase {
+interface HoverTooltipState {
+    bag: SharedDomRoot
     isMouseOver: boolean
     hideTimeout: ReturnType<typeof setTimeout> | null
     interactiveTimeout: ReturnType<typeof setTimeout> | null
@@ -20,14 +22,13 @@ interface HoverTooltipState extends SharedTooltipBase {
     lastRenderedOwner: string | null
 }
 
-interface PinnedTooltipState extends SharedTooltipBase {
+interface PinnedTooltipState {
+    bag: SharedDomRoot
     onUnpin: (() => void) | null
 }
 
 const hover: HoverTooltipState = {
-    element: null,
-    root: null,
-    owner: null,
+    bag: createSharedDomRoot(),
     isMouseOver: false,
     hideTimeout: null,
     interactiveTimeout: null,
@@ -36,13 +37,35 @@ const hover: HoverTooltipState = {
 }
 
 const pinned: PinnedTooltipState = {
-    element: null,
-    root: null,
-    owner: null,
+    bag: createSharedDomRoot(),
     onUnpin: null,
 }
 
 let activeRenderId: string | null = null
+
+const hoverConfig: SharedDomRootConfig = {
+    elementId: 'InsightTooltipWrapper-hover',
+    setupElement: (element) => {
+        element.classList.add('InsightTooltipWrapper', 'ph-no-capture')
+        element.setAttribute('data-attr', 'insight-tooltip-wrapper')
+        element.style.pointerEvents = 'none'
+        element.style.opacity = '0'
+        element.style.position = 'absolute'
+        element.addEventListener('mouseenter', onHoverMouseEnter, { passive: true })
+        element.addEventListener('mouseleave', onHoverMouseLeave, { passive: true })
+    },
+}
+
+const pinnedConfig: SharedDomRootConfig = {
+    elementId: 'InsightTooltipWrapper-pinned',
+    setupElement: (element) => {
+        element.classList.add('InsightTooltipWrapper', 'ph-no-capture', 'InsightTooltipWrapper--pinned')
+        element.setAttribute('data-attr', 'insight-tooltip-wrapper-pinned')
+        element.style.pointerEvents = 'auto'
+        element.style.opacity = '0'
+        element.style.position = 'absolute'
+    },
+}
 
 function createHoverRootForCaller(callerId: string, suppressed: boolean): Root {
     return {
@@ -50,18 +73,18 @@ function createHoverRootForCaller(callerId: string, suppressed: boolean): Root {
             if (suppressed) {
                 return
             }
-            if (hover.owner !== callerId || activeRenderId !== callerId) {
+            if (hover.bag.owner !== callerId || activeRenderId !== callerId) {
                 console.error('[useInsightTooltip] dropped render — caller no longer owns the hover tooltip', {
                     callerId,
-                    hoverOwner: hover.owner,
+                    hoverOwner: hover.bag.owner,
                     activeRenderId,
-                    pinnedOwner: pinned.owner,
+                    pinnedOwner: pinned.bag.owner,
                 })
                 return
             }
             hover.lastRendered = children
             hover.lastRenderedOwner = callerId
-            hover.root?.render(children)
+            hover.bag.root?.render(children)
         },
         unmount: (): void => {
             // the shared hover root is never unmounted; cleanupTooltip clears state instead
@@ -84,8 +107,8 @@ function clearHoverInteractiveTimeout(): void {
 }
 
 function disableHoverInteractivity(): void {
-    if (hover.element) {
-        hover.element.style.pointerEvents = 'none'
+    if (hover.bag.element) {
+        hover.bag.element.style.pointerEvents = 'none'
     }
     clearHoverInteractiveTimeout()
 }
@@ -93,16 +116,16 @@ function disableHoverInteractivity(): void {
 function scheduleHoverInteractivity(): void {
     clearHoverInteractiveTimeout()
     hover.interactiveTimeout = setTimeout(() => {
-        if (hover.element) {
-            hover.element.style.pointerEvents = 'auto'
+        if (hover.bag.element) {
+            hover.bag.element.style.pointerEvents = 'auto'
         }
         hover.interactiveTimeout = null
     }, INTERACTIVE_DELAY)
 }
 
 function hideHoverNow(): void {
-    if (hover.element) {
-        hover.element.style.opacity = '0'
+    if (hover.bag.element) {
+        hover.bag.element.style.opacity = '0'
     }
     disableHoverInteractivity()
 }
@@ -123,59 +146,6 @@ function onHoverMouseLeave(): void {
     }, HIDE_DELAY)
 }
 
-interface SharedTooltipDomOptions {
-    id: string
-    extraClasses?: string[]
-    dataAttr: string
-    pointerEvents: 'none' | 'auto'
-    attachHoverHandlers: boolean
-}
-
-function createSharedTooltipElement(opts: SharedTooltipDomOptions): { element: HTMLElement; root: Root } {
-    const element = document.createElement('div')
-    element.id = opts.id
-    element.classList.add('InsightTooltipWrapper', 'ph-no-capture', ...(opts.extraClasses ?? []))
-    element.setAttribute('data-attr', opts.dataAttr)
-    element.style.pointerEvents = opts.pointerEvents
-    element.style.opacity = '0'
-    element.style.position = 'absolute'
-    document.body.appendChild(element)
-    if (opts.attachHoverHandlers) {
-        element.addEventListener('mouseenter', onHoverMouseEnter, { passive: true })
-        element.addEventListener('mouseleave', onHoverMouseLeave, { passive: true })
-    }
-    return { element, root: createRoot(element) }
-}
-
-function ensureHoverDom(): void {
-    if (hover.element) {
-        return
-    }
-    const { element, root } = createSharedTooltipElement({
-        id: 'InsightTooltipWrapper-hover',
-        dataAttr: 'insight-tooltip-wrapper',
-        pointerEvents: 'none',
-        attachHoverHandlers: true,
-    })
-    hover.element = element
-    hover.root = root
-}
-
-function ensurePinnedDom(): void {
-    if (pinned.element) {
-        return
-    }
-    const { element, root } = createSharedTooltipElement({
-        id: 'InsightTooltipWrapper-pinned',
-        extraClasses: ['InsightTooltipWrapper--pinned'],
-        dataAttr: 'insight-tooltip-wrapper-pinned',
-        pointerEvents: 'auto',
-        attachHoverHandlers: false,
-    })
-    pinned.element = element
-    pinned.root = root
-}
-
 let globalScrollEndListenerActive = false
 
 function initGlobalScrollEndListener(): void {
@@ -186,16 +156,16 @@ function initGlobalScrollEndListener(): void {
     document.addEventListener(
         'scrollend',
         (e) => {
-            if (pinned.owner && pinned.element) {
-                const scrolledInsidePinned = e.target instanceof Node && pinned.element.contains(e.target as Node)
+            if (pinned.bag.owner && pinned.bag.element) {
+                const scrolledInsidePinned = e.target instanceof Node && pinned.bag.element.contains(e.target as Node)
                 if (!scrolledInsidePinned) {
-                    unpinTooltip(pinned.owner)
+                    unpinTooltip(pinned.bag.owner)
                 }
             }
-            if (hover.owner && hover.element) {
-                const scrolledInsideHover = e.target instanceof Node && hover.element.contains(e.target as Node)
+            if (hover.bag.owner && hover.bag.element) {
+                const scrolledInsideHover = e.target instanceof Node && hover.bag.element.contains(e.target as Node)
                 if (!scrolledInsideHover) {
-                    hideTooltip(hover.owner)
+                    hideTooltip(hover.bag.owner)
                 }
             }
         },
@@ -213,13 +183,13 @@ function initGlobalUnpinListeners(): void {
     document.addEventListener(
         'click',
         (e) => {
-            if (!pinned.owner || !pinned.element) {
+            if (!pinned.bag.owner || !pinned.bag.element) {
                 return
             }
-            if (e.target instanceof Node && pinned.element.contains(e.target as Node)) {
+            if (e.target instanceof Node && pinned.bag.element.contains(e.target as Node)) {
                 return
             }
-            unpinTooltip(pinned.owner)
+            unpinTooltip(pinned.bag.owner)
         },
         { passive: true }
     )
@@ -227,8 +197,8 @@ function initGlobalUnpinListeners(): void {
     document.addEventListener(
         'keydown',
         (e) => {
-            if (e.key === 'Escape' && pinned.owner) {
-                unpinTooltip(pinned.owner)
+            if (e.key === 'Escape' && pinned.bag.owner) {
+                unpinTooltip(pinned.bag.owner)
             }
         },
         { passive: true }
@@ -236,31 +206,31 @@ function initGlobalUnpinListeners(): void {
 }
 
 export function ensureTooltip(id: string): [Root, HTMLElement] {
-    ensureHoverDom()
+    const [, element] = ensureSharedDomRoot(hover.bag, hoverConfig)
     clearHoverHideTimeout()
-    if (pinned.owner === id) {
+    if (pinned.bag.owner === id) {
         hideHoverNow()
         activeRenderId = null
-        return [createHoverRootForCaller(id, true), hover.element!]
+        return [createHoverRootForCaller(id, true), element]
     }
-    hover.owner = id
+    hover.bag.owner = id
     activeRenderId = id
-    return [createHoverRootForCaller(id, false), hover.element!]
+    return [createHoverRootForCaller(id, false), element]
 }
 
 export function showTooltip(id: string): void {
-    if (activeRenderId !== id || !hover.element) {
+    if (activeRenderId !== id || !hover.bag.element) {
         return
     }
     clearHoverHideTimeout()
-    hover.element.style.opacity = '1'
+    hover.bag.element.style.opacity = '1'
 }
 
 export function hideTooltip(id?: string): void {
     if (id && activeRenderId !== id) {
         return
     }
-    if (!hover.element) {
+    if (!hover.bag.element) {
         return
     }
     clearHoverHideTimeout()
@@ -275,67 +245,67 @@ export function hideTooltip(id?: string): void {
 }
 
 export function pinTooltip(id: string, onUnpin?: () => void): void {
-    if (!hover.element) {
+    if (!hover.bag.element) {
         return
     }
     if (hover.lastRenderedOwner !== id || hover.lastRendered === null) {
         return
     }
-    ensurePinnedDom()
-    if (pinned.owner && pinned.owner !== id) {
+    ensureSharedDomRoot(pinned.bag, pinnedConfig)
+    if (pinned.bag.owner && pinned.bag.owner !== id) {
         const previousOnUnpin = pinned.onUnpin
         pinned.onUnpin = null
         previousOnUnpin?.()
     }
-    pinned.root?.render(hover.lastRendered)
-    if (pinned.element) {
-        pinned.element.style.left = hover.element.style.left
-        pinned.element.style.top = hover.element.style.top
-        pinned.element.style.opacity = '1'
-        pinned.element.style.pointerEvents = 'auto'
+    pinned.bag.root?.render(hover.lastRendered)
+    if (pinned.bag.element) {
+        pinned.bag.element.style.left = hover.bag.element.style.left
+        pinned.bag.element.style.top = hover.bag.element.style.top
+        pinned.bag.element.style.opacity = '1'
+        pinned.bag.element.style.pointerEvents = 'auto'
     }
-    pinned.owner = id
+    pinned.bag.owner = id
     pinned.onUnpin = onUnpin ?? null
 
     hideHoverNow()
-    if (hover.owner === id) {
-        hover.owner = null
+    if (hover.bag.owner === id) {
+        hover.bag.owner = null
     }
     activeRenderId = null
 }
 
 export function unpinTooltip(id: string): void {
-    if (pinned.owner !== id) {
+    if (pinned.bag.owner !== id) {
         return
     }
     const callback = pinned.onUnpin
     pinned.onUnpin = null
-    pinned.owner = null
-    pinned.root?.render(null)
-    if (pinned.element) {
-        pinned.element.style.opacity = '0'
-        pinned.element.style.pointerEvents = 'none'
+    pinned.bag.owner = null
+    pinned.bag.root?.render(null)
+    if (pinned.bag.element) {
+        pinned.bag.element.style.opacity = '0'
+        pinned.bag.element.style.pointerEvents = 'none'
     }
     callback?.()
 }
 
 export function cleanupTooltip(id: string): void {
-    if (hover.owner !== id && pinned.owner !== id) {
+    if (hover.bag.owner !== id && pinned.bag.owner !== id) {
         return
     }
-    if (hover.owner === id) {
-        hover.owner = null
+    if (hover.bag.owner === id) {
+        hover.bag.owner = null
         if (activeRenderId === id) {
             activeRenderId = null
         }
         if (hover.lastRenderedOwner === id) {
             hover.lastRendered = null
             hover.lastRenderedOwner = null
-            hover.root?.render(null)
+            hover.bag.root?.render(null)
         }
         hideHoverNow()
     }
-    if (pinned.owner === id) {
+    if (pinned.bag.owner === id) {
         unpinTooltip(id)
     }
 }
@@ -370,27 +340,27 @@ function applyPosition(
 }
 
 export function positionTooltipAt(id: string, left: number, top: number): void {
-    if (activeRenderId !== id || !hover.element) {
+    if (activeRenderId !== id || !hover.bag.element) {
         return
     }
-    hover.element.style.position = 'absolute'
-    hover.element.style.left = `${left}px`
-    hover.element.style.top = `${top}px`
+    hover.bag.element.style.position = 'absolute'
+    hover.bag.element.style.left = `${left}px`
+    hover.bag.element.style.top = `${top}px`
 }
 
 export function resetTooltipPosition(id: string): void {
-    if (activeRenderId !== id || !hover.element) {
+    if (activeRenderId !== id || !hover.bag.element) {
         return
     }
-    hover.element.style.left = ''
-    hover.element.style.top = ''
+    hover.bag.element.style.left = ''
+    hover.bag.element.style.top = ''
 }
 
 export function measureTooltip(id: string): DOMRect | null {
-    if (activeRenderId !== id || !hover.element) {
+    if (activeRenderId !== id || !hover.bag.element) {
         return null
     }
-    return hover.element.getBoundingClientRect()
+    return hover.bag.element.getBoundingClientRect()
 }
 
 export function positionTooltip(
@@ -400,7 +370,7 @@ export function positionTooltip(
     caretY: number,
     centerVertically = false
 ): void {
-    if (tooltipEl !== hover.element) {
+    if (tooltipEl !== hover.bag.element) {
         return
     }
     if (activeRenderId === null) {
@@ -420,6 +390,26 @@ export function positionTooltip(
             applyPosition(tooltipEl, canvasBounds, caretX, caretY, centerVertically)
         })
     }
+}
+
+export function __resetUseInsightTooltipForTests(): void {
+    if (hover.hideTimeout) {
+        clearTimeout(hover.hideTimeout)
+    }
+    if (hover.interactiveTimeout) {
+        clearTimeout(hover.interactiveTimeout)
+    }
+    resetSharedDomRoot(hover.bag)
+    hover.isMouseOver = false
+    hover.hideTimeout = null
+    hover.interactiveTimeout = null
+    hover.lastRendered = null
+    hover.lastRenderedOwner = null
+
+    resetSharedDomRoot(pinned.bag)
+    pinned.onUnpin = null
+
+    activeRenderId = null
 }
 
 export function useInsightTooltip(options?: { isPinnable?: boolean }): {
