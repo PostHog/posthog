@@ -318,6 +318,29 @@ https://mcp.posthog.com/mcp?features=flags&tools=dashboard-get
 
 The example above exposes all flag tools plus `dashboard-get`.
 
+### Server mode (tool-based vs exec-based)
+
+The MCP server can register either every PostHog tool individually (**tool-based**, the default for most clients) or wrap them all behind a single `posthog` CLI-like tool (**exec-based**, used for token-constrained coding agents). When the caller does not say which mode they want, the server picks one automatically based on the client (coding agents get the exec-based mode when the rollout flag is enabled).
+
+You can pin the choice yourself with either a query parameter or a header:
+
+```text
+https://mcp.posthog.com/mcp?mode=exec
+https://mcp.posthog.com/mcp?mode=tools
+```
+
+```http
+x-posthog-mcp-mode: exec
+x-posthog-mcp-mode: tools
+```
+
+| Value                  | Behavior                                                       |
+| ---------------------- | -------------------------------------------------------------- |
+| `tools` / `tool`       | Force tool-based mode (one MCP tool per PostHog tool).         |
+| `exec` / `single-exec` | Force exec-based mode (single `posthog` tool wraps all tools). |
+
+The header wins when both the header and the query parameter are set. Any other value is ignored and the auto-detection takes over.
+
 ### Data processing
 
 The MCP server is hosted on a Cloudflare worker which can be located outside of the EU / US, for this reason the MCP server does not store any sensitive data outside of your cloud region.

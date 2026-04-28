@@ -329,7 +329,20 @@ const handleRequest = async (
     const readOnlyRaw = request.headers.get('x-posthog-readonly') || url.searchParams.get('readonly')
     const readOnly = readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined
 
-    const extraContextProps = { features, tools, region: regionParam, version, readOnly }
+    // Explicit selection between the tool-based MCP (each PostHog tool registered
+    // individually) and the exec-based MCP (a single `posthog` CLI-like tool that
+    // wraps all tools). When unset, falls back to the existing flag + client
+    // detection logic in `MCP.init()`. Accepts `tools` / `tool` and `exec` /
+    // `single-exec`; anything else is ignored.
+    const modeRaw = (request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))?.trim().toLowerCase()
+    let mode: 'tools' | 'exec' | undefined
+    if (modeRaw === 'tools' || modeRaw === 'tool') {
+        mode = 'tools'
+    } else if (modeRaw === 'exec' || modeRaw === 'single-exec') {
+        mode = 'exec'
+    }
+
+    const extraContextProps = { features, tools, region: regionParam, version, readOnly, mode }
     Object.assign(ctx.props, extraContextProps)
     log.extend(extraContextProps)
     if (mcpConsumer) {
