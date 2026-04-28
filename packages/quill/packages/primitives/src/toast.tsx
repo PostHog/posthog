@@ -5,6 +5,7 @@ import * as React from 'react'
 import { Button } from './button'
 import { cn } from './lib/utils'
 import { Spinner } from './spinner'
+import './toast.css'
 
 // ── Global manager ────────────────────────────────────────────────────
 type ToastActionData = {
@@ -34,11 +35,11 @@ type ToastOptions = {
 
 // ── Icon map ──────────────────────────────────────────────────────────
 const toastIconMap: Record<ToastType, React.ReactNode> = {
-    success: <CircleCheckIcon className="size-6 bg-success/50 text-success-foreground p-1 rounded-sm" />,
-    info: <InfoIcon className="size-6 bg-info/50 text-info-foreground p-1 rounded-sm" />,
-    warning: <TriangleAlertIcon className="size-6 bg-warning/50 text-warning-foreground p-1 rounded-sm" />,
-    error: <XIcon className="size-6 bg-destructive/50 text-destructive-foreground p-1 rounded-sm" />,
-    loading: <Spinner className="size-6 text-foreground/60 p-1 rounded-sm" />,
+    success: <CircleCheckIcon className="quill-toast-card__icon--success size-6" />,
+    info: <InfoIcon className="quill-toast-card__icon--info size-6" />,
+    warning: <TriangleAlertIcon className="quill-toast-card__icon--warning size-6" />,
+    error: <XIcon className="quill-toast-card__icon--error size-6" />,
+    loading: <Spinner className="quill-toast-card__icon--loading size-6" />,
 }
 
 // ── ToastCard ─────────────────────────────────────────────────────────
@@ -61,16 +62,7 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
         const onlyTitle = toastTitle !== undefined && toastDescription === undefined
         const onlyDescription = toastDescription !== undefined && toastTitle === undefined
         return (
-            <div
-                ref={ref}
-                className={cn(
-                    'box-border select-none cursor-default relative',
-                    'rounded-sm border border-border bg-popover text-popover-foreground p-2 px-3',
-                    'bg-clip-padding',
-                    className
-                )}
-                {...props}
-            >
+            <div ref={ref} className={cn('quill-toast-card', className)} {...props}>
                 {showGapHitArea && (
                     <span
                         className="pointer-events-auto absolute left-0 top-full w-full"
@@ -84,20 +76,16 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                         </span>
                     )}
                     <div className="flex-1 min-w-0">
-                        {toastTitle && <div className="text-xs font-medium leading-snug">{toastTitle}</div>}
-                        {toastDescription && <div className="text-xs text-muted-foreground">{toastDescription}</div>}
+                        {toastTitle && <div className="quill-toast-card__title">{toastTitle}</div>}
+                        {toastDescription && <div className="quill-toast-card__description">{toastDescription}</div>}
                     </div>
                 </div>
                 {action && (
-                    <div className="flex items-center gap-1.5 mt-2">
+                    <div className="flex items-center gap-3 mt-2">
                         {icon && <span className="size-6 shrink-0" />}
-                        <button
-                            type="button"
-                            className="rounded-sm border border-border bg-popover px-2 py-1 text-xs font-medium hover:bg-accent transition-colors"
-                            onClick={action.onClick}
-                        >
+                        <Button variant="outline" size="sm" className="quill-toast-card__action" onClick={action.onClick}>
                             {action.label}
-                        </button>
+                        </Button>
                     </div>
                 )}
                 {onDismiss && (
@@ -105,7 +93,7 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                         size="icon-sm"
                         className={cn(
                             'absolute right-2',
-                            (onlyTitle && 'top-1.5') || (onlyDescription && 'top-1.5') || 'top-2'
+                            (onlyTitle && 'top-1') || (onlyDescription && 'top-1') || 'top-2'
                         )}
                         onClick={onDismiss}
                     >
@@ -166,7 +154,7 @@ function ToastViewport(): React.ReactElement {
 
     return (
         <Toast.Portal>
-            <Toast.Viewport data-quill className="fixed bottom-4 right-4 z-[100] w-[360px]">
+            <Toast.Viewport data-quill data-quill-portal="toast" className="fixed bottom-4 right-4 w-[360px]">
                 {manager.toasts.map((t) => {
                     const toastType = t.type as ToastType | undefined
 
@@ -218,7 +206,7 @@ function AnchoredToastViewport(): React.ReactElement {
 
     return (
         <Toast.Portal>
-            <Toast.Viewport data-quill className="fixed z-[100]">
+            <Toast.Viewport data-quill data-quill-portal="toast" className="fixed">
                 {manager.toasts.map((t) => {
                     return (
                         <Toast.Positioner key={t.id} toast={t} side="top" sideOffset={8}>

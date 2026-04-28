@@ -13,7 +13,7 @@ import posthoganalytics
 from dateutil import parser as dateutil_parser
 from redis import Redis
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.schema import ReplayInactivityPeriod
@@ -25,6 +25,7 @@ from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 from posthog.temporal.session_replay.session_summary.activities import (
     CaptureTimingInputs,
@@ -561,6 +562,12 @@ async def ensure_llm_single_session_summary(
             retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             execution_timeout=timedelta(minutes=30),
+            search_attributes=TypedSearchAttributes(
+                search_attributes=[
+                    SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=video_inputs.team_id),
+                    SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=video_inputs.session_id),
+                ]
+            ),
         )
 
     # Activity 2: Upload full video to Gemini (single upload)
@@ -671,7 +678,7 @@ async def ensure_llm_single_session_summary(
                 ),
                 temporalio.workflow.execute_activity(
                     store_video_session_summary_activity,
-                    args=(video_inputs, consolidated_analysis),
+                    args=(video_inputs, consolidated_analysis, export_result.team_api_token),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=retry_policy,
                 ),
@@ -699,7 +706,7 @@ async def ensure_llm_single_session_summary(
             )
             await temporalio.workflow.execute_activity(
                 store_video_session_summary_activity,
-                args=(video_inputs, consolidated_analysis),
+                args=(video_inputs, consolidated_analysis, export_result.team_api_token),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=retry_policy,
             )
@@ -738,6 +745,9 @@ async def _start_video_summary_workflow(inputs: SingleSessionSummaryInputs, work
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         retry_policy=retry_policy,
+        search_attributes=TypedSearchAttributes(
+            search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id)]
+        ),
     )
     return handle
 
@@ -753,6 +763,9 @@ async def _execute_single_session_summary_workflow(inputs: SingleSessionSummaryI
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
         task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
         retry_policy=retry_policy,
+        search_attributes=TypedSearchAttributes(
+            search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id)]
+        ),
     )
 
 

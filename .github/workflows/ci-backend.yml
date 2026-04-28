@@ -25,6 +25,14 @@ env:
     CLICKHOUSE_HOST: 'localhost'
     CLICKHOUSE_SECURE: 'False'
     CLICKHOUSE_VERIFY: 'False'
+    # Restricted `autoresearch` user defined in docker/clickhouse/users-dev.xml,
+    # pointed at the CI test DB (posthog_test, not `default` as in regular dev).
+    CLICKHOUSE_TEST_CLUSTER_HOST: 'localhost'
+    CLICKHOUSE_TEST_CLUSTER_DATABASE: 'posthog_test'
+    CLICKHOUSE_TEST_CLUSTER_USER: 'autoresearch'
+    CLICKHOUSE_TEST_CLUSTER_PASSWORD: 'autoresearchpass'
+    CLICKHOUSE_TEST_CLUSTER_SECURE: 'False'
+    CLICKHOUSE_TEST_CLUSTER_VERIFY: 'False'
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
@@ -75,7 +83,7 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -133,8 +141,8 @@ jobs:
                         - 'docker/clickhouse/**'
                       legacy:
                         # Non-product backend code — when only products/ change,
-                        # turbo-discover diffs backend:test vs backend:contract-check
-                        # to detect isolated products and decide whether Django runs.
+                        # turbo-discover uses Turbo query affectedness to detect changed
+                        # products and decide whether Django runs.
                         # Everything from backend: EXCEPT products/**/backend/**/*
                         - 'ee/**/*'
                         - 'common/__init__.py'
@@ -236,7 +244,7 @@ jobs:
 
     # Fast pre-job: determines which products need testing and if Django should run
     # Only needs pnpm + node — no Python, Docker, or services
-    # Runs on depot for turbo remote cache access (cache status drives Django gating)
+    # Runs on depot to match the product-test runner environment
     turbo-discover:
         needs: changes
         if: needs.changes.outputs.backend == 'true'
@@ -249,9 +257,18 @@ jobs:
 
         steps:
             - uses: actions/checkout@v6
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Fetch current PR base for Turbo affected diff
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -271,17 +288,16 @@ jobs:
                   # On pushes to master, always run everything.
                   # On PRs, use the path filter to detect legacy changes.
                   LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
+                  TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
+                  TURBO_SCM_HEAD: ${{ github.sha }}
               run: |
-                  # turbo-discover.js diffs backend:test vs backend:contract-check
-                  # to detect isolated products. Non-isolated product changes trigger
-                  # the full suite (all products + Django).
+                  # turbo-discover.js uses Turbo's Git affectedness to detect
+                  # changed products. Non-isolated product changes trigger the
+                  # full suite (all products + Django).
                   RESULT=$(node .github/scripts/turbo-discover.js)
                   echo "Result: $RESULT"
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
-
-                  # Keep contract-check remote cache warm for future runs
-                  ./node_modules/.bin/turbo run backend:contract-check --output-logs=errors-only 2>/dev/null || true
 
     # Runs product tests in parallel — one matrix job per group
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
@@ -324,7 +340,7 @@ jobs:
                     temporal elasticsearch objectstorage-azure
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -364,7 +380,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -547,7 +563,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -854,7 +870,7 @@ jobs:
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
             - name: Install pnpm
-              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -1130,7 +1146,7 @@ jobs:
 
             - name: Cache Rust dependencies
               if: needs.changes.outputs.backend == 'true'
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust
@@ -1438,7 +1454,7 @@ jobs:
                   echo "Using $compat_shards shard(s) per compat version"
 
                   # Oldest supported version for main Django tests (for max compatibility, as JSON array for matrix)
-                  oldest_supported=$(jq -r '.versions.oldest_supported' .github/clickhouse-versions.json)
+                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
                     echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1
@@ -1448,7 +1464,7 @@ jobs:
                   echo "Oldest supported version for Django tests: $oldest_supported"
 
                   # Read all unique versions so we can derive compat coverage.
-                  all=$(jq -c '[.versions[]] | unique' .github/clickhouse-versions.json)
+                  all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
                   if [ "$all" = "[]" ] || [ -z "$all" ]; then
                     echo "::error::No versions found in .github/clickhouse-versions.json"
                     exit 1
@@ -1456,7 +1472,7 @@ jobs:
                   echo "All CH versions found: $all"
 
                   # Compat coverage is only needed for non-oldest versions.
-                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.versions[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
+                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
                   echo "Compat versions (excluding oldest): $compat_versions"
 
                   compat_count=$(jq -r 'length' <<< "$compat_versions")
@@ -1671,7 +1687,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-backend'
                   workspaces: rust

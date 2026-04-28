@@ -8,6 +8,8 @@ schema <tool_name> [field_path]          — drill into a specific field schema 
 call [--json] <tool_name> <json_input>   — call a tool with JSON input (--json returns raw JSON instead of formatted text. Use raw JSON for scripts.)
 ```
 
+**Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
+
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
 The `info` command may return the full schema (for simple tools) or a top-level summary
@@ -182,13 +184,7 @@ Only reach for `execute-sql` when a wrapper cannot express the question — arbi
 
 #### Available insight query tools
 
-`query-trends` | Time series, aggregations, formulas, comparisons | Default: last 30d, supports multiple series
-`query-funnel` | Conversion rates, drop-off analysis, time to convert | Requires at least 2 steps
-`query-retention` | User return patterns over time | Requires target (start) and returning events
-`query-stickiness` | Engagement frequency (how many days users do X) | No breakdowns supported
-`query-paths` | User navigation flows and sequences | Specify includeEventTypes
-`query-lifecycle` | New, returning, resurrecting, dormant user composition | Single event only, no math aggregation
-`query-llm-traces-list` | LLM/AI trace listing and inspection | For AI observability data
+{query_tools}
 
 #### Choosing the right query tool
 
@@ -223,7 +219,7 @@ If the required events or properties don't exist, tell the user instead of runni
 
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
 
-Defined group types: {defined_groups}
+{defined_groups}
 
 {metadata}
 

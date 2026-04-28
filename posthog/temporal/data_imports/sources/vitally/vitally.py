@@ -284,7 +284,12 @@ class VitallyPaginator(BasePaginator):
             return
 
         if self._should_use_incremental_field and self._incremental_start_value is not None:
-            updated_at_str = res["results"][0]["updatedAt"]
+            results = res.get("results")
+            if not results:
+                self._has_next_page = False
+                return
+
+            updated_at_str = results[0]["updatedAt"]
             updated_at = parser.parse(updated_at_str).timestamp()
             if isinstance(self._incremental_start_value, str):
                 start_value = parser.parse(self._incremental_start_value).timestamp()
