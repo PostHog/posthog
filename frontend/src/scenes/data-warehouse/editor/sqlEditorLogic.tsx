@@ -136,9 +136,18 @@ function renderQueryOutline(editorInstance: editor.IStandaloneCodeEditor, node: 
         if (startVis.top < minTop) {
             minTop = startVis.top
         }
-        const bottom = startVis.top + startVis.height
-        if (bottom > maxBottom) {
-            maxBottom = bottom
+        // With wordWrap on, a single model line can span multiple visual rows: `endVis`
+        // sits on a later row than `startVis`. Take the max bottom of both so the outline
+        // covers the wrapped tail. Width on wrapped lines is still approximate — the
+        // mid-rows could extend past either anchor — but the bottom must be correct or
+        // wrapped queries get clipped vertically.
+        const startBottom = startVis.top + startVis.height
+        const endBottom = endVis.top + endVis.height
+        if (startBottom > maxBottom) {
+            maxBottom = startBottom
+        }
+        if (endBottom > maxBottom) {
+            maxBottom = endBottom
         }
     }
 
@@ -548,7 +557,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const outlineNode = document.createElement('div')
             outlineNode.className = 'active-query-outline'
             outlineNode.style.position = 'absolute'
-            outlineNode.style.pointerEvents = 'none'
             outlineNode.style.display = 'none'
             const outlineWidget: editor.IOverlayWidget = {
                 getId: () => 'sql-editor.active-query-outline',
@@ -2816,7 +2824,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         if (cache.queryOutlineWidget && props.editor) {
             try {
                 props.editor.removeOverlayWidget(cache.queryOutlineWidget)
-            } catch {}
+            } catch (e) {
+                console.warn('[sqlEditorLogic] failed to remove outline overlay widget', e)
+            }
         }
         cache.queryOutlineWidget = null
         cache.queryOutlineNode = null

@@ -7,6 +7,7 @@
 }
 
 .active-query-outline {
+    box-sizing: border-box;
     pointer-events: none;
     border: 1px solid rgb(54 130 246 / 45%);
     border-radius: 3px;
