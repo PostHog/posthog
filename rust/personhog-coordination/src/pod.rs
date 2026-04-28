@@ -135,7 +135,19 @@ impl PodHandle {
         // handoff watch the sole source of ownership transitions — assignment
         // changes only ever happen atomically with a handoff Complete event,
         // so there's no need to watch assignments separately.
-        let result = self.watch_handoff_loop(cancel.clone()).await;
+        //
+        // The outer `select!` against the cancel token is what guarantees we
+        // exit promptly even when `watch_handoff_loop` is parked inside a
+        // `handle_handoff_event` call. The loop's own `select!` only checks
+        // the cancel token between iterations; if a phase handler (e.g.
+        // `warm_partition`) blocks indefinitely, the inner check is never
+        // re-polled. Racing the cancel token at this level drops the
+        // in-flight loop future via cancel-by-drop, unwinding any stuck
+        // handler and letting the pod proceed to drain + lease revoke.
+        let result = tokio::select! {
+            r = self.watch_handoff_loop(cancel.clone()) => r,
+            _ = cancel.cancelled() => Ok(()),
+        };
 
         // Phase 2: If cancelled externally (SIGTERM), drain gracefully
         if cancel.is_cancelled() {
