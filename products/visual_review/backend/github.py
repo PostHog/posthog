@@ -89,7 +89,7 @@ def _check_rate_limit_response(response: requests.Response, method: str, url: st
     try:
         raise_if_github_rate_limited(response)
     except GitHubRateLimitError as e:
-        logger.exception(
+        logger.error(  # noqa: TRY400 — rate limiting is expected; no traceback needed
             "visual_review.github_rate_limit_exceeded",
             method=method,
             url=_sanitize_url(url),
