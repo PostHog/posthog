@@ -59,7 +59,8 @@ def is_pr_triggered(triggers: object) -> bool:
     return False
 
 
-def check_concurrency() -> tuple[list[str], list[str]]:
+def check_concurrency() -> tuple[list[str], list[str], list[str]]:
+    parse_errors: list[str] = []
     missing: list[str] = []
     bad_group: list[str] = []
     for workflow_file in sorted(WORKFLOWS_DIR.glob("*.y*ml")):
@@ -67,7 +68,7 @@ def check_concurrency() -> tuple[list[str], list[str]]:
             try:
                 data = yaml.safe_load(f)
             except yaml.YAMLError as e:
-                missing.append(f"{workflow_file.name}: failed to parse YAML: {e}")
+                parse_errors.append(f"{workflow_file.name}: failed to parse YAML: {e}")
                 continue
 
         if not isinstance(data, dict):
@@ -90,12 +91,19 @@ def check_concurrency() -> tuple[list[str], list[str]]:
         if workflow_file.name.startswith("ci-") and workflow_file.name not in SKIP and concurrency is None:
             missing.append(f"{workflow_file.name}: missing top-level concurrency block")
 
-    return missing, bad_group
+    return parse_errors, missing, bad_group
 
 
 def main() -> None:
-    missing, bad_group = check_concurrency()
+    parse_errors, missing, bad_group = check_concurrency()
     failed = False
+
+    if parse_errors:
+        failed = True
+        print(f"Found {len(parse_errors)} workflow file(s) with YAML parse errors:\n")
+        for error in parse_errors:
+            print(f"  - {error}")
+        print()
 
     if bad_group:
         failed = True
