@@ -56,6 +56,9 @@ def set_delegated_state(*, locked_user: User, invite: OrganizationInvite, organi
     would become orphaned: still live (granting admin on accept) but no longer tracked in
     `onboarding_delegated_to_invite`, and therefore invisible to `pre_delete`'s un-suppress
     receiver and to the "waiting for teammate" UI.
+
+    Also pre-populates the delegator's sidebar with all released products on the team they
+    land on after delegating, so the post-delegation home page isn't empty.
     """
     if (
         locked_user.onboarding_delegated_to_invite_id is not None
@@ -82,6 +85,8 @@ def set_delegated_state(*, locked_user: User, invite: OrganizationInvite, organi
             "onboarding_delegation_accepted_at",
         ]
     )
+    _seed_sidebar_for_delegator(locked_user=locked_user, organization_id=organization_id)
+
     # Forensic trail for delegation state transitions. The generic User activity-log path
     # doesn't cover onboarding_delegated_to_invite (see posthog/models/activity_logging/
     # activity_log.py); logging here lets ops trace "who delegated what, when" via structlog.
@@ -91,6 +96,35 @@ def set_delegated_state(*, locked_user: User, invite: OrganizationInvite, organi
         invite_id=str(invite.id),
         organization_id=str(organization_id),
     )
+
+
+def _seed_sidebar_for_delegator(*, locked_user: User, organization_id: UUID | str) -> None:
+    """Enable all released products on the delegator's sidebar for the delegated org.
+
+    The post-delegation home page would otherwise be empty (no product intents recorded
+    during a skipped onboarding). We seed against the user's current_team if it's in the
+    delegated org; otherwise pick any team in the org they have access to. A failure here
+    must not block the delegation itself, so we swallow exceptions after capturing them.
+    """
+    from posthog.models.file_system.user_product_list import UserProductList
+    from posthog.models.team.team import Team
+
+    try:
+        team = None
+        current_team = locked_user.current_team
+        if current_team is not None and str(current_team.organization_id) == str(organization_id):
+            team = current_team
+        else:
+            team = Team.objects.filter(organization_id=organization_id).order_by("id").first()
+        if team is None:
+            return
+        UserProductList.enable_all_for_user(
+            user=locked_user,
+            team=team,
+            reason=UserProductList.Reason.ONBOARDING_DELEGATED,
+        )
+    except Exception as exc:  # noqa: BLE001 - sidebar seeding must never block delegation
+        capture_exception(exc)
 
 
 def cancel_pending_delegation(*, locked_user: User) -> None:

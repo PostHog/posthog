@@ -1578,7 +1578,7 @@ class TestOnboardingSkipAPI(APIBaseTest):
 
     def test_skip_clears_stale_delegation_fk(self):
         # If a user previously delegated but then changes their mind to "later",
-        # clear the stale delegation link so the waiting-for-teammate UI goes away.
+        # clear the stale delegation link so the redirect-suppression state stays consistent.
         invite = OrganizationInvite.objects.create(
             organization=self.organization,
             created_by=self.user,

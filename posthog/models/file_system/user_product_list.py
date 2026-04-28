@@ -24,9 +24,14 @@ def get_user_product_list_count(team: "Team") -> list[dict[str, Any]]:
     """
     Get product counts for all items in a team, ranked by popularity.
     Returns a list of dicts with 'product_path' and 'colleague_count' keys, ordered by count descending.
+
+    Excludes rows seeded by onboarding-delegation: those are an "explore everything" default
+    for the delegator only and shouldn't drive what subsequent teammates see in their sidebar.
+    The actual setup person's choices (ONBOARDING / PRODUCT_INTENT) remain the colleague signal.
     """
     return list[dict[str, Any]](
         UserProductList.objects.filter(team=team, enabled=True)
+        .exclude(reason=UserProductList.Reason.ONBOARDING_DELEGATED)
         .values("product_path")
         .annotate(colleague_count=Count("user", distinct=True))
         .order_by("-colleague_count")
@@ -78,6 +83,10 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         # Sales team can go in and automatically add a product to someone's sidebar
         SALES_LED = "sales_led", "Sales Led"
 
+        # User delegated onboarding setup to a teammate; we pre-populate their sidebar so
+        # the post-delegation home page isn't empty.
+        ONBOARDING_DELEGATED = "onboarding_delegated", "Onboarding Delegated"
+
     # When the system suggests a product to the user, we store the reason why we suggested it in here
     # And and optional freeform text field to be displayed to the user on hover
     reason: models.CharField = models.CharField(max_length=32, choices=Reason, null=True)
@@ -99,6 +108,39 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         ]
         verbose_name = "User Product List"
         verbose_name_plural = "User Product Lists"
+
+    @staticmethod
+    def enable_all_for_user(
+        user: "User",
+        team: "Team",
+        reason: "UserProductList.Reason",
+    ) -> "list[UserProductList]":
+        """Enable every released product in the sidebar for a user on a given team.
+
+        Skips Unreleased/alpha products — those are intentionally opt-in (mirroring the
+        EditCustomProductsModal "Unreleased" group, which the user must enable one-by-one).
+        Re-enables rows the user previously disabled.
+        """
+        target_paths = [
+            product.path for product in Products.products() if product.category != ProductItemCategory.UNRELEASED
+        ]
+        if not target_paths:
+            return []
+
+        affected: list[UserProductList] = []
+        for product_path in target_paths:
+            item, created = UserProductList.objects.get_or_create(
+                user=user,
+                team=team,
+                product_path=product_path,
+                defaults={"enabled": True, "reason": reason},
+            )
+            if not created and not item.enabled:
+                item.enabled = True
+                item.reason = reason
+                item.save(update_fields=["enabled", "reason", "updated_at"])
+            affected.append(item)
+        return affected
 
     @staticmethod
     def create_from_product_intent(product_intent: "ProductIntent", user: "User") -> "list[UserProductList]":
@@ -207,11 +249,13 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         user_organizations = user.organization_memberships.values_list("organization_id", flat=True)
         other_teams = Team.objects.filter(organization_id__in=user_organizations).exclude(id=team.id)
 
-        # Get all product paths the user has enabled in other teams
+        # Get all product paths the user has enabled in other teams. Skip rows seeded by
+        # onboarding-delegation — those represent a one-off "explore everything" state for
+        # the delegator and shouldn't propagate when they later join another team.
         user_product_paths = set(
-            UserProductList.objects.filter(user=user, team__in=other_teams, enabled=True).values_list(
-                "product_path", flat=True
-            )
+            UserProductList.objects.filter(user=user, team__in=other_teams, enabled=True)
+            .exclude(reason=UserProductList.Reason.ONBOARDING_DELEGATED)
+            .values_list("product_path", flat=True)
         )
 
         # Create UserProductList entries for the missing products
