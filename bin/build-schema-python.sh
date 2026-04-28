@@ -13,6 +13,12 @@ datamodel-codegen \
     --set-default-enum-member --capitalise-enum-members \
     --wrap-string-literal
 
+# Add Pydantic discriminators for entity-node series/nodes unions. The pinned
+# datamodel-code-generator drops the JSON-schema `discriminator` keyword when
+# `--collapse-root-models` collapses inline list-item unions, so we restore it
+# here. See bin/postprocess-schema-python.py for details.
+python3 bin/postprocess-schema-python.py
+
 # Format and lint
 ruff format posthog/schema.py
 ruff check --fix posthog/schema.py

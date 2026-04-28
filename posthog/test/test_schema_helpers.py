@@ -3,7 +3,7 @@ from typing import Any
 from django.test.testcases import TestCase
 
 from parameterized import parameterized
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from posthog.schema import (
     BaseMathType,
@@ -326,3 +326,30 @@ class TestSchemaHelpers(TestCase):
         q2 = TrendsQuery(series=[EventsNode(name="$pageview", version=2)], version=2)
 
         self.assertEqual(to_dict(q1), to_dict(q2))
+
+    def test_trends_series_is_discriminated_on_kind(self):
+        # Bad math value on a kind=EventsNode entry. Without the discriminator,
+        # Pydantic walks every variant and the leading error misleadingly
+        # claims the input should be a GroupNode. With the discriminator in
+        # place, every error must be scoped to the EventsNode branch.
+        with self.assertRaises(ValidationError) as ctx:
+            TrendsQuery(series=[{"kind": "EventsNode", "event": "$pageview", "math": "not_a_real_math"}])
+        errors = ctx.exception.errors()
+        self.assertTrue(errors, "expected at least one validation error")
+        for err in errors:
+            self.assertEqual(err["loc"][:3], ("series", 0, "EventsNode"))
+
+        # An unknown `kind` should produce a single targeted error that
+        # enumerates the valid kinds, instead of one error per branch.
+        with self.assertRaises(ValidationError) as ctx:
+            TrendsQuery(series=[{"kind": "NotAValidKind"}])
+        errors = ctx.exception.errors()
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["loc"], ("series", 0))
+        self.assertIn("does not match any of the expected tags", errors[0]["msg"])
+
+    def test_funnels_series_is_discriminated_on_kind(self):
+        with self.assertRaises(ValidationError) as ctx:
+            FunnelsQuery(series=[{"kind": "EventsNode", "event": "$pageview", "math": "not_a_real_math"}])
+        for err in ctx.exception.errors():
+            self.assertEqual(err["loc"][:3], ("series", 0, "EventsNode"))

@@ -698,19 +698,6 @@
                 }
             ]
         },
-        "AnyEntityNode<FunnelsDataWarehouseNode>": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
-                }
-            ]
-        },
         "AnyEntityNode<LifecycleDataWarehouseNode>": {
             "anyOf": [
                 {
@@ -19525,14 +19512,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
-                            },
-                            {
-                                "$ref": "#/definitions/GroupNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/FunnelsSeriesNode"
                     },
                     "type": "array"
                 },
@@ -19581,6 +19561,28 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "FunnelsSeriesNode": {
+            "description": "Series entries for FunnelsQuery — discriminated on `kind` for the same reason as `TrendsSeriesNode`.",
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/GroupNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "GenericCachedQueryResponse": {
@@ -37441,14 +37443,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AnyEntityNode"
-                            },
-                            {
-                                "$ref": "#/definitions/GroupNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/TrendsSeriesNode"
                     },
                     "type": "array"
                 },
@@ -37517,6 +37512,28 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "TrendsSeriesNode": {
+            "description": "Series entries for TrendsQuery — discriminated on `kind` so backend validation reports a single targeted error instead of stacking one error per union variant when a series entry is malformed.",
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/GroupNode"
+                }
+            ],
+            "required": ["kind"],
             "type": "object"
         },
         "UsageMetric": {

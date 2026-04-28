@@ -824,6 +824,23 @@ export interface GroupNode<WarehouseNode = DataWarehouseNode> extends EntityNode
     orderBy?: string[]
 }
 
+/**
+ * Series entries for TrendsQuery — discriminated on `kind` so backend
+ * validation reports a single targeted error instead of stacking one error
+ * per union variant when a series entry is malformed.
+ *
+ * @discriminator kind
+ */
+export type TrendsSeriesNode = EventsNode | ActionsNode | DataWarehouseNode | GroupNode
+
+/**
+ * Series entries for FunnelsQuery — discriminated on `kind` for the same
+ * reason as `TrendsSeriesNode`.
+ *
+ * @discriminator kind
+ */
+export type FunnelsSeriesNode = EventsNode | ActionsNode | FunnelsDataWarehouseNode | GroupNode
+
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
     k: string
@@ -1473,7 +1490,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode | GroupNode)[]
+    series: TrendsSeriesNode[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
@@ -1592,7 +1609,7 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode<FunnelsDataWarehouseNode> | GroupNode)[]
+    series: FunnelsSeriesNode[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
