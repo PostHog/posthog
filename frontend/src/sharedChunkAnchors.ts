@@ -3,8 +3,13 @@
 // shared chunk, keeping the largest chunk under CloudFront's 10 MB cap.
 
 import * as BaseUiReact from '@base-ui/react'
+import * as DndKitCore from '@dnd-kit/core'
 import * as TiptapCore from '@tiptap/core'
-import * as HighlightJs from 'highlight.js'
+import * as XyflowReact from '@xyflow/react'
+// Just the core engine. Importing the package barrel pulls every language
+// module via highlight.js/lib/index.js's registerLanguage() side effects,
+// adding ~1 MB of unused languages to disk.
+import * as HighlightJsCore from 'highlight.js/lib/core'
 import * as Kea from 'kea'
 import * as KeaForms from 'kea-forms'
 import * as KeaLoaders from 'kea-loaders'
@@ -12,6 +17,8 @@ import * as KeaLocalstorage from 'kea-localstorage'
 import * as KeaRouter from 'kea-router'
 import * as KeaSubscriptions from 'kea-subscriptions'
 import * as KeaWindowValues from 'kea-window-values'
+import * as Liquidjs from 'liquidjs'
+import * as Marked from 'marked'
 import * as PosthogJs from 'posthog-js'
 import * as Re2Js from 're2js'
 import * as React from 'react'
@@ -27,7 +34,8 @@ import * as Chart from 'lib/Chart'
 export const __chunkAnchors = {
     BaseUiReact,
     Chart,
-    HighlightJs,
+    DndKitCore,
+    HighlightJsCore,
     Kea,
     KeaForms,
     KeaLoaders,
@@ -35,6 +43,8 @@ export const __chunkAnchors = {
     KeaRouter,
     KeaSubscriptions,
     KeaWindowValues,
+    Liquidjs,
+    Marked,
     PosthogIcons,
     PosthogJs,
     PosthogRrweb,
@@ -43,5 +53,6 @@ export const __chunkAnchors = {
     ReactDomClient,
     Re2Js,
     TiptapCore,
+    XyflowReact,
     Zod,
 }
