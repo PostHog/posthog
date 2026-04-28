@@ -167,11 +167,11 @@ function hasOptimisticSchemaChanges(
     })
 }
 
-const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
-    return field.type === 'password' || field.name === 'private_key'
+export const isSensitiveCredentialField = (field: SourceFieldConfig): boolean => {
+    return ('secret' in field && !!field.secret) || field.type === 'password'
 }
 
-const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {
+export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj: Record<string, any>): void => {
     for (const field of fields) {
         if (field.type === 'switch-group') {
             const groupValue = valueObj[field.name]

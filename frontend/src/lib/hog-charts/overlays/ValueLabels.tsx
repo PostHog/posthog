@@ -61,7 +61,7 @@ function buildCandidates(
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
-        if (s.hidden || s.hideValueLabels) {
+        if (s.visibility?.excluded || s.visibility?.fromValueLabels) {
             continue
         }
         if (s.data.length > maxPointsPerSeries) {

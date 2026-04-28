@@ -79,7 +79,9 @@ export function Chart<Meta = unknown>({
     } = config ?? {}
 
     const hasMultipleAxes = useMemo(() => {
-        const axisIds = new Set(series.filter((s) => !s.hidden).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
+        const axisIds = new Set(
+            series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID)
+        )
         return axisIds.size > 1
     }, [series])
 
@@ -214,7 +216,7 @@ export function Chart<Meta = unknown>({
                         <canvas
                             ref={canvasRef}
                             role="img"
-                            aria-label={`Chart with ${coloredSeries.reduce((n, s) => n + (s.hidden ? 0 : 1), 0)} data series`}
+                            aria-label={`Chart with ${coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)} data series`}
                             style={{
                                 position: 'absolute',
                                 top: 0,
