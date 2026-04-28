@@ -229,6 +229,7 @@ async def SandboxedEval(
                 "last_message": last_message,
                 "messages": messages,
                 "raw_log": result.raw_log,
+                "prompt": eval_case.prompt,
             }
         except Exception as e:
             logger.exception("Eval task failed for '%s'", input.get("name", "?"))

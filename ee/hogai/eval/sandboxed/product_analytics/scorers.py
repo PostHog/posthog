@@ -13,7 +13,6 @@ and only then runs the actual query tool.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from typing import Any
 
@@ -21,19 +20,13 @@ from autoevals.llm import LLMClassifier
 from braintrust import Score
 from braintrust_core.score import Scorer
 
-from ee.hogai.eval.sandboxed.scorers import iter_successful_tool_calls, normalize_tool_name
+from ee.hogai.eval.sandboxed.log_parser import INFO_SYNTHETIC_PREFIX, LogParser, ToolCall
 
 QUERY_TRENDS_TOOL_NAME = "query-trends"
 QUERY_RETENTION_TOOL_NAME = "query-retention"
 QUERY_FUNNEL_TOOL_NAME = "query-funnel"
 READ_DATA_SCHEMA_TOOL_NAME = "read-data-schema"
 TOOL_SEARCH_TOOL_NAME = "ToolSearch"
-EXEC_TOOL_NAME = "exec"
-# Synthetic prefix assigned to `mcp__posthog__exec {command: "info <tool>"}` so
-# the scorer can treat the exec-wrapped ``info`` command and the per-tool
-# ``ToolSearch(select:mcp__posthog__<tool>)`` as interchangeable "tool schema
-# loaded" signals.
-_INFO_SYNTHETIC_PREFIX = "__info__:"
 
 BINARY_CHOICE_SCORES = {"yes": 1.0, "no": 0.0}
 
@@ -88,6 +81,36 @@ class _JudgedScorer(LLMClassifier):
         raise NotImplementedError
 
 
+def _parser_for(output: dict[str, Any] | None) -> LogParser | None:
+    if not output:
+        return None
+    raw_log = output.get("raw_log")
+    if not raw_log:
+        return None
+    return LogParser(raw_log, initial_prompt=output.get("prompt", "") or "")
+
+
+def _extract_last_successful_input(parser: LogParser | None, tool_name: str) -> dict[str, Any] | None:
+    if parser is None:
+        return None
+    successful = [c for c in parser.get_tool_calls(tool_name) if not c.is_error]
+    if not successful:
+        return None
+    return successful[-1].input
+
+
+def _user_prompt(output: dict[str, Any] | None) -> str:
+    """Return the original user prompt from the eval output dict."""
+    parser = _parser_for(output)
+    if parser is not None:
+        return parser.get_user_prompt()
+    if output:
+        prompt = output.get("prompt")
+        if isinstance(prompt, str):
+            return prompt
+    return ""
+
+
 def extract_last_query_retention_input(output: dict[str, Any] | None) -> dict[str, Any] | None:
     """Return the input dict of the most recent successful ``query-retention`` call.
 
@@ -95,20 +118,7 @@ def extract_last_query_retention_input(output: dict[str, Any] | None) -> dict[st
     that depend on this should short-circuit with ``score=None`` in that case
     rather than counting it as an incorrect retention query.
     """
-    if not output:
-        return None
-    messages = output.get("messages")
-    if not messages:
-        return None
-
-    last_input: dict[str, Any] | None = None
-    for tool_use, _ in iter_successful_tool_calls(messages):
-        if normalize_tool_name(tool_use.get("name")) != QUERY_RETENTION_TOOL_NAME:
-            continue
-        tool_input = tool_use.get("input")
-        if isinstance(tool_input, dict):
-            last_input = tool_input
-    return last_input
+    return _extract_last_successful_input(_parser_for(output), QUERY_RETENTION_TOOL_NAME)
 
 
 class RetentionSchemaAlignment(_JudgedScorer):
@@ -179,7 +189,7 @@ class RetentionTimeRangeRelevancy(_JudgedScorer):
                 score=0.0,
                 metadata={"reason": "Agent never ran query-retention successfully"},
             )
-        prompt = _extract_user_prompt(output)
+        prompt = _user_prompt(output)
         return {
             "output": {
                 "retention_query": actual,
@@ -225,20 +235,7 @@ def extract_last_query_trends_input(output: dict[str, Any] | None) -> dict[str, 
     that depend on this should short-circuit with ``score=None`` in that case
     rather than counting it as an incorrect trends query.
     """
-    if not output:
-        return None
-    messages = output.get("messages")
-    if not messages:
-        return None
-
-    last_input: dict[str, Any] | None = None
-    for tool_use, _ in iter_successful_tool_calls(messages):
-        if normalize_tool_name(tool_use.get("name")) != QUERY_TRENDS_TOOL_NAME:
-            continue
-        tool_input = tool_use.get("input")
-        if isinstance(tool_input, dict):
-            last_input = tool_input
-    return last_input
+    return _extract_last_successful_input(_parser_for(output), QUERY_TRENDS_TOOL_NAME)
 
 
 class TrendsSchemaAlignment(_JudgedScorer):
@@ -314,7 +311,7 @@ class TrendsTimeRangeRelevancy(_JudgedScorer):
                 score=0.0,
                 metadata={"reason": "Agent never ran query-trends successfully"},
             )
-        prompt = _extract_user_prompt(output)
+        prompt = _user_prompt(output)
         return {
             "output": {
                 "trends_query": actual,
@@ -361,20 +358,7 @@ def extract_last_query_funnel_input(output: dict[str, Any] | None) -> dict[str, 
     legitimately answered via HogQL (``execute-sql``); that's covered by the
     exit-code scorer, not by these LLM judges.
     """
-    if not output:
-        return None
-    messages = output.get("messages")
-    if not messages:
-        return None
-
-    last_input: dict[str, Any] | None = None
-    for tool_use, _ in iter_successful_tool_calls(messages):
-        if normalize_tool_name(tool_use.get("name")) != QUERY_FUNNEL_TOOL_NAME:
-            continue
-        tool_input = tool_use.get("input")
-        if isinstance(tool_input, dict):
-            last_input = tool_input
-    return last_input
+    return _extract_last_successful_input(_parser_for(output), QUERY_FUNNEL_TOOL_NAME)
 
 
 class FunnelSchemaAlignment(_JudgedScorer):
@@ -454,7 +438,7 @@ class FunnelTimeRangeRelevancy(_JudgedScorer):
                 score=0.0,
                 metadata={"reason": "Agent never ran query-funnel successfully"},
             )
-        prompt = _extract_user_prompt(output)
+        prompt = _user_prompt(output)
         return {
             "output": {
                 "funnel_query": actual,
@@ -496,136 +480,6 @@ Are the time range AND the conversion window in the actual query consistent with
         )
 
 
-def _extract_user_prompt(output: dict[str, Any] | None) -> str:
-    """Fish the original user prompt out of the sandbox task output.
-
-    The eval harness doesn't surface the prompt on the task return dict, but
-    ``parse_log(..., initial_prompt=eval_case.prompt)`` seeds it as the first
-    user message, so reading ``messages[0]`` is reliable. Keeps the scorer
-    decoupled from how ``base.py`` chooses to expose the prompt.
-    """
-    if not isinstance(output, dict):
-        return ""
-    for key in ("prompt", "input"):
-        value = output.get(key)
-        if isinstance(value, str) and value:
-            return value
-    messages = output.get("messages") or []
-    for msg in messages:
-        if msg.get("role") != "user":
-            continue
-        content = msg.get("content")
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
-                    return block.get("text", "")
-            # First user message may be tool_results in a multi-turn thread —
-            # in that case keep scanning.
-    return ""
-
-
-def _parse_exec_command(command: str) -> tuple[str, dict[str, Any]] | None:
-    """Split a CLI-style ``exec`` command string into ``(virtual_name, input)``.
-
-    Recognized shapes (produced by single-exec mode where the agent talks to
-    the PostHog MCP through one ``exec`` tool):
-      - ``"info <tool>"``          → ``("__info__:<tool>", {})``
-      - ``"call [--json] <tool> <json>"`` → ``("<tool>", parsed_json)``
-
-    Anything else (``search``, ``tools``, ``schema``, malformed) returns
-    ``None`` so the caller can fall back to emitting the raw ``exec`` call —
-    those commands aren't load-bearing for the ordering checks.
-    """
-    stripped = command.strip()
-    if not stripped:
-        return None
-
-    head, _, rest = stripped.partition(" ")
-    head = head.lower()
-
-    if head == "info":
-        tool = rest.strip().split(None, 1)[0] if rest.strip() else ""
-        if tool:
-            return (f"{_INFO_SYNTHETIC_PREFIX}{tool}", {})
-        return None
-
-    if head == "call":
-        rest = rest.strip()
-        # Optional --json flag
-        if rest.startswith("--json"):
-            rest = rest[len("--json") :].lstrip()
-        if not rest:
-            return None
-        tool, _, json_part = rest.partition(" ")
-        tool = tool.strip()
-        if not tool:
-            return None
-        json_part = json_part.strip()
-        parsed: dict[str, Any] = {}
-        if json_part:
-            try:
-                decoded = json.loads(json_part)
-                if isinstance(decoded, dict):
-                    parsed = decoded
-            except json.JSONDecodeError:
-                parsed = {}
-        return (tool, parsed)
-
-    return None
-
-
-def _enumerate_tool_calls(messages: list[dict[str, Any]]) -> list[tuple[int, str, dict[str, Any]]]:
-    """Return a chronological list of ``(position, normalized_name, tool_use)``.
-
-    Position is the index of the enclosing assistant message inside the flat
-    ``messages`` list, which preserves the execution order the ACP log emits
-    (``base.py`` rebuilds the conversation history in order, so message index
-    ≈ time). Includes only successful calls — error results are skipped the
-    same way ``iter_successful_tool_calls`` does.
-
-    Also unwraps ``mcp__posthog__exec`` calls from single-exec mode: each
-    ``call <tool> <json>`` becomes a synthetic ``(pos, <tool>, parsed_input)``
-    entry, and each ``info <tool>`` becomes ``(pos, "__info__:<tool>", {})``.
-    This way ordering checks don't care whether the agent talks to tools
-    directly or through the CLI wrapper.
-    """
-    positions: dict[str, int] = {}
-    for idx, msg in enumerate(messages):
-        content = msg.get("content")
-        if not isinstance(content, list):
-            continue
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "tool_use":
-                call_id = block.get("id")
-                if call_id and call_id not in positions:
-                    positions[call_id] = idx
-
-    ordered: list[tuple[int, str, dict[str, Any]]] = []
-    for tool_use, _result in iter_successful_tool_calls(messages):
-        call_id = tool_use.get("id", "")
-        name = normalize_tool_name(tool_use.get("name"))
-        pos = positions.get(call_id, -1)
-        # Unwrap single-exec CLI commands so downstream checks see the inner tool.
-        if name == EXEC_TOOL_NAME:
-            tool_input = tool_use.get("input") or {}
-            command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
-            parsed = _parse_exec_command(command)
-            if parsed is not None:
-                virtual_name, virtual_input = parsed
-                synthetic_use = {
-                    "id": tool_use.get("id"),
-                    "name": virtual_name,
-                    "input": virtual_input,
-                }
-                ordered.append((pos, virtual_name, synthetic_use))
-                continue
-        ordered.append((pos, name, tool_use))
-    ordered.sort(key=lambda item: item[0])
-    return ordered
-
-
 class SchemaDiscoveryOrder(Scorer):
     """Binary deterministic scorer: did the agent discover before querying?
 
@@ -665,9 +519,9 @@ class SchemaDiscoveryOrder(Scorer):
     def _evaluate(self, output: dict | None, expected: dict | None) -> Score:
         if not output:
             return Score(name=self._name(), score=None, metadata={"reason": "No output"})
-        messages = output.get("messages")
-        if not messages:
-            return Score(name=self._name(), score=None, metadata={"reason": "No parsed messages"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
 
         spec = self._spec(expected)
         if spec is None:
@@ -681,7 +535,8 @@ class SchemaDiscoveryOrder(Scorer):
         data_kind = spec.get("data_kind")
         search_any_of = [s.lower() for s in spec.get("data_search_any_of", []) if isinstance(s, str)]
 
-        ordered = _enumerate_tool_calls(messages)
+        # Successful calls only — matches the legacy "skip error results" behaviour.
+        ordered = [c for c in parser.get_tool_calls() if not c.is_error]
 
         tool_search_pos = self._find_tool_search_pos(ordered, query_tool)
         data_schema_pos = self._find_read_data_schema_pos(ordered, data_kind, search_any_of)
@@ -722,29 +577,26 @@ class SchemaDiscoveryOrder(Scorer):
         return spec
 
     @staticmethod
-    def _find_tool_search_pos(ordered: list[tuple[int, str, dict[str, Any]]], query_tool: str) -> int | None:
+    def _find_tool_search_pos(ordered: list[ToolCall], query_tool: str) -> int | None:
         """Match either Claude-Code's ``ToolSearch`` (per-tool MCP mode) or
         the synthetic ``__info__:<tool>`` entry emitted by single-exec's
         ``info <tool>`` command — both represent "tool schema loaded"."""
         needle = query_tool.lower()
-        info_synthetic = f"{_INFO_SYNTHETIC_PREFIX}{query_tool}".lower()
-        for pos, name, tool_use in ordered:
-            if name.lower() == info_synthetic:
-                return pos
-            if name != TOOL_SEARCH_TOOL_NAME:
+        info_synthetic = f"{INFO_SYNTHETIC_PREFIX}{query_tool}".lower()
+        for call in ordered:
+            if call.name.lower() == info_synthetic:
+                return call.position
+            if call.name != TOOL_SEARCH_TOOL_NAME:
                 continue
-            query = ""
-            tool_input = tool_use.get("input")
-            if isinstance(tool_input, dict):
-                raw = tool_input.get("query", "")
-                query = raw.lower() if isinstance(raw, str) else ""
+            raw = call.input.get("query", "")
+            query = raw.lower() if isinstance(raw, str) else ""
             if needle in query:
-                return pos
+                return call.position
         return None
 
     @staticmethod
     def _find_read_data_schema_pos(
-        ordered: list[tuple[int, str, dict[str, Any]]],
+        ordered: list[ToolCall],
         data_kind: str | None,
         search_any_of: Iterable[str],
     ) -> int | None:
@@ -767,35 +619,29 @@ class SchemaDiscoveryOrder(Scorer):
 
         # Pass 1: prefer the call whose search matches a target term.
         if search_terms:
-            for pos, name, tool_use in ordered:
-                if name != READ_DATA_SCHEMA_TOOL_NAME:
+            for call in ordered:
+                if call.name != READ_DATA_SCHEMA_TOOL_NAME:
                     continue
-                tool_input = tool_use.get("input")
-                if not isinstance(tool_input, dict):
-                    continue
-                kind, search_val = _extract(tool_input)
+                kind, search_val = _extract(call.input)
                 if data_kind and kind != data_kind:
                     continue
                 if any(term in search_val for term in search_terms):
-                    return pos
+                    return call.position
 
         # Pass 2: any successful call with the right kind — the response is
         # the full event list, which still lets the agent verify.
-        for pos, name, tool_use in ordered:
-            if name != READ_DATA_SCHEMA_TOOL_NAME:
+        for call in ordered:
+            if call.name != READ_DATA_SCHEMA_TOOL_NAME:
                 continue
-            tool_input = tool_use.get("input")
-            if not isinstance(tool_input, dict):
-                continue
-            kind, _ = _extract(tool_input)
+            kind, _ = _extract(call.input)
             if data_kind and kind != data_kind:
                 continue
-            return pos
+            return call.position
         return None
 
     @staticmethod
-    def _find_query_tool_pos(ordered: list[tuple[int, str, dict[str, Any]]], query_tool: str) -> int | None:
-        for pos, name, _tool_use in ordered:
-            if name == query_tool:
-                return pos
+    def _find_query_tool_pos(ordered: list[ToolCall], query_tool: str) -> int | None:
+        for call in ordered:
+            if call.name == query_tool:
+                return call.position
         return None
