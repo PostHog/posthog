@@ -27,7 +27,6 @@ from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
-from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from slack_sdk import WebClient
@@ -38,7 +37,7 @@ from stripe import StripeClient
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.github_integration_base import GITHUB_REPOSITORY_CACHE_TTL_SECONDS, GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
@@ -2240,48 +2239,12 @@ class GitHubIntegration(GitHubIntegrationBase):
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
-    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
-        expires_in = self.integration.config.get("expires_in")
-        refreshed_at = self.integration.config.get("refreshed_at")
-        if not expires_in or not refreshed_at:
-            return False
+    def _on_token_refresh_failed(self, response: requests.Response) -> None:
+        logger.warning(f"Failed to refresh token for {self}", response=response.text)
+        self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+        oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        self.integration.save()
 
-        # To be really safe we refresh if its half way through the expiry
-        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
-
-        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
-
-    def refresh_access_token(self):
-        """
-        Refresh the access token for the integration if necessary
-        """
-        endpoint = "/app/installations/{installation_id}/access_tokens"
-        try:
-            response = self.client_request(
-                f"installations/{self.integration.integration_id}/access_tokens", method="POST"
-            )
-        except requests.RequestException:
-            self._record_github_api_exception("POST", endpoint)
-            raise
-        self._record_github_api_response(response, "POST", endpoint)
-        config = response.json()
-
-        if response.status_code != status.HTTP_201_CREATED or not config.get("token"):
-            logger.warning(f"Failed to refresh token for {self}", response=response.text)
-            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
-            self.integration.save()
-            raise Exception(f"Failed to refresh token for {self}: {response.text}")
-        else:
-            logger.info(f"Refreshed access token for {self}")
-            expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
-            self.integration.config["expires_in"] = expires_in
-            self.integration.config["refreshed_at"] = int(time.time())
-            self.integration.sensitive_config["access_token"] = config["token"]
-            self.integration.errors = ""
-            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
-            self.integration.save()
     def get_access_token(self) -> str:
         """Return a valid installation access token, refreshing it if expired."""
         if self.access_token_expired():
@@ -2291,124 +2254,12 @@ class GitHubIntegration(GitHubIntegrationBase):
             raise GitHubIntegrationError("Access token unavailable after refresh")
         return token
 
-    def _get_stored_repository_list(self) -> list[dict] | None:
-        """Repositories persisted on the team ``Integration`` row (not Redis)."""
-        cached = self.integration.repository_cache
-        if not isinstance(cached, list):
-            return None
 
-        repositories: list[dict] = []
-        for repo in cached:
-            if (
-                isinstance(repo, dict)
-                and isinstance(repo.get("id"), int)
-                and isinstance(repo.get("name"), str)
-                and isinstance(repo.get("full_name"), str)
-            ):
-                repositories.append(
-                    {
-                        "id": repo["id"],
-                        "name": repo["name"],
-                        "full_name": repo["full_name"],
-                    }
-                )
-
-        return repositories
-
-    def repository_cache_is_stale(self) -> bool:
-        updated_at = self.integration.repository_cache_updated_at
-        if updated_at is None:
-            return True
-
-        return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
-
-    def sync_repository_cache(self, min_refresh_interval_seconds: int | None = None) -> list[dict]:
-        cached_repositories = self._get_stored_repository_list()
-        updated_at = self.integration.repository_cache_updated_at
-        if (
-            min_refresh_interval_seconds is not None
-            and cached_repositories is not None
-            and updated_at is not None
-            and (timezone.now() - updated_at).total_seconds() < min_refresh_interval_seconds
-        ):
-            return cached_repositories
-
-        repositories = self.list_all_repositories()
-        refreshed_at = timezone.now()
-        update_fields = ["repository_cache_updated_at"]
-        if repositories != cached_repositories:
-            self.integration.repository_cache = repositories
-            update_fields.insert(0, "repository_cache")
-        self.integration.repository_cache_updated_at = refreshed_at
-        self.integration.save(update_fields=update_fields)
-        return repositories
-
-    def _filter_cached_repositories(self, repositories: list[dict], search: str) -> list[dict]:
-        search_query = search.strip().casefold()
-        if not search_query:
-            return repositories
-
-        return [
-            repository for repository in repositories if search_query in str(repository.get("full_name", "")).casefold()
-        ]
-
-    def list_cached_repositories(
-        self, *, search: str = "", limit: int = 100, offset: int = 0
-    ) -> tuple[list[dict], bool]:
-        cached_repositories = self._get_stored_repository_list()
-        updated_at = self.integration.repository_cache_updated_at
-        has_cached_snapshot = updated_at is not None
-        cache_is_stale = self.repository_cache_is_stale()
-        should_refresh = cached_repositories is None or cache_is_stale
-        self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
-
-        if should_refresh:
-            try:
-                cached_repositories = self.sync_repository_cache()
-            except Exception:
-                logger.warning(
-                    "GitHubIntegration: failed to refresh repository cache",
-                    integration_id=self.integration.id,
-                    exc_info=True,
-                )
-                if not has_cached_snapshot:
-                    raise
-
-        if cached_repositories is None:
-            cached_repositories = []
-
-        filtered_repositories = self._filter_cached_repositories(cached_repositories, search)
-        result = filtered_repositories[offset : offset + limit]
-        has_more = offset + limit < len(filtered_repositories)
-        return result, has_more
-
-    def list_all_cached_repositories(self, max_repos: int | None = None) -> list[dict]:
-        cached_repositories = self._get_stored_repository_list()
-        updated_at = self.integration.repository_cache_updated_at
-        has_cached_snapshot = updated_at is not None
-        cache_is_stale = self.repository_cache_is_stale()
-        should_refresh = cached_repositories is None or cache_is_stale
-        self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
-
-        if should_refresh:
-            try:
-                cached_repositories = self.sync_repository_cache()
-            except Exception:
-                logger.warning(
-                    "GitHubIntegration: failed to refresh repository cache",
-                    integration_id=self.integration.id,
-                    exc_info=True,
-                )
-                if not has_cached_snapshot:
-                    raise
-
-        if cached_repositories is None:
-            cached_repositories = []
-
-        if max_repos is not None:
-            return cached_repositories[:max_repos]
-
-        return cached_repositories
+    def _on_token_refreshed(self) -> None:
+        logger.info(f"Refreshed access token for {self}")
+        self.integration.errors = ""
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+        oauth_refresh_counter.labels(self.integration.kind, "success").inc()
 
     @database_sync_to_async
     def list_cached_repositories_async(

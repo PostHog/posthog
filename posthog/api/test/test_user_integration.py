@@ -438,6 +438,35 @@ class TestUserGitHubIntegration(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.user_integration.requests.post")
+    def test_refresh_clears_expiry_metadata_when_github_omits_expiry_fields(self, mock_post):
+        """Non-expiring tokens omit expires_in / refresh_token_expires_in; stale DB expiries must be cleared."""
+        # https://app.graphite.com/github/pr/PostHog/posthog/55303#comment-PRRC_kwDODg-Tdc67nmop
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "access_token": "gho_non_expiring",
+            "refresh_token": "ghr_rotated",
+        }
+        mock_post.return_value = mock_response
+
+        now = int(time.time())
+        gh = self._make_integration(
+            user_token_refreshed_at=now - 20000,
+            user_access_token_expires_at=now + 8800,
+            user_refresh_token_expires_at=now - 1,
+        )
+        self.assertTrue(gh.user_access_token_expired())
+        self.assertTrue(gh.user_refresh_token_expired())
+
+        gh.refresh_user_access_token()
+        gh.integration.refresh_from_db()
+
+        self.assertNotIn("user_access_token_expires_at", gh.integration.config)
+        self.assertNotIn("user_refresh_token_expires_at", gh.integration.config)
+        self.assertFalse(gh.user_access_token_expired())
+        self.assertFalse(gh.user_refresh_token_expired())
+
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
+    @patch("posthog.models.user_integration.requests.post")
     def test_refresh_discards_row_on_unrecoverable_error(self, mock_post):
         mock_response = MagicMock()
         mock_response.json.return_value = {"error": "bad_refresh_token"}

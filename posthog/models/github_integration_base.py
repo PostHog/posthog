@@ -13,6 +13,7 @@ from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.core.cache import cache
+from django.utils import timezone
 
 import jwt
 import requests
@@ -47,9 +48,8 @@ github_cache_access_counter = Counter(
     labelnames=["integration_id", "cache", "repository", "result"],
 )
 
-# Repo cache: 1-hour staleness window, 24-hour eviction timeout.
+# Repository cache: 1-hour staleness window.
 GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
-GITHUB_REPOSITORY_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 # Branch cache: 10-minute staleness, 24-hour eviction timeout.
 GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
@@ -775,50 +775,49 @@ class GitHubIntegrationBase:
 
     # --- Cached repository operations ---
 
-    def _get_repository_cache_key(self) -> str:
-        return f"github_integration:repos:{self.integration.id}"
-
-    def _get_repository_cache(self) -> dict[str, Any] | None:
-        cached = cache.get(self._get_repository_cache_key())
-        if not isinstance(cached, dict):
+    def _get_stored_repository_list(self) -> list[dict] | None:
+        """Repositories persisted on the integration row."""
+        cached = self.integration.repository_cache
+        if not isinstance(cached, list):
             return None
-
-        repositories = cached.get("repositories")
-        updated_at = cached.get("updated_at")
-        if not isinstance(repositories, list) or not isinstance(updated_at, (int, float)):
-            return None
-
-        validated: list[dict] = [
-            {"id": repo["id"], "name": repo["name"], "full_name": repo["full_name"]}
-            for repo in repositories
+        return [
+            {
+                "id": repo["id"],
+                "name": repo["name"],
+                "full_name": repo["full_name"],
+            }
+            for repo in cached
             if isinstance(repo, dict)
             and isinstance(repo.get("id"), int)
             and isinstance(repo.get("name"), str)
             and isinstance(repo.get("full_name"), str)
         ]
-        return {"repositories": validated, "updated_at": updated_at}
 
     def repository_cache_is_stale(self) -> bool:
-        cached = self._get_repository_cache()
-        if cached is None:
+        updated_at = self.integration.repository_cache_updated_at
+        if updated_at is None:
             return True
-        return time.time() - float(cached["updated_at"]) >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
+        return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 
     def sync_repository_cache(self, min_refresh_interval_seconds: int | None = None) -> list[dict]:
-        cached = self._get_repository_cache()
+        cached_repositories = self._get_stored_repository_list()
+        updated_at = self.integration.repository_cache_updated_at
         if (
             min_refresh_interval_seconds is not None
-            and cached is not None
-            and time.time() - float(cached["updated_at"]) < min_refresh_interval_seconds
+            and cached_repositories is not None
+            and updated_at is not None
+            and (timezone.now() - updated_at).total_seconds() < min_refresh_interval_seconds
         ):
-            return cached["repositories"]
+            return cached_repositories
 
         repositories = self.list_all_repositories()
-        cache.set(
-            self._get_repository_cache_key(),
-            {"repositories": repositories, "updated_at": time.time()},
-            timeout=GITHUB_REPOSITORY_CACHE_TIMEOUT_SECONDS,
-        )
+        refreshed_at = timezone.now()
+        update_fields = ["repository_cache_updated_at"]
+        if repositories != cached_repositories:
+            self.integration.repository_cache = repositories
+            update_fields.insert(0, "repository_cache")
+        self.integration.repository_cache_updated_at = refreshed_at
+        self.integration.save(update_fields=update_fields)
         return repositories
 
     def _filter_cached_repositories(self, repositories: list[dict], search: str) -> list[dict]:
@@ -832,15 +831,14 @@ class GitHubIntegrationBase:
     def list_cached_repositories(
         self, *, search: str = "", limit: int = 100, offset: int = 0
     ) -> tuple[list[dict], bool]:
-        cached = self._get_repository_cache()
-        has_cached_snapshot = cached is not None
-        should_refresh = cached is None or self.repository_cache_is_stale()
+        cached_repositories = self._get_stored_repository_list()
+        has_cached_snapshot = self.integration.repository_cache_updated_at is not None
+        should_refresh = cached_repositories is None or self.repository_cache_is_stale()
         self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:
             try:
-                repos = self.sync_repository_cache()
-                cached = {"repositories": repos, "updated_at": time.time()}
+                cached_repositories = self.sync_repository_cache()
             except Exception:
                 logger.warning(
                     "GitHubIntegration: failed to refresh repository cache",
@@ -850,22 +848,23 @@ class GitHubIntegrationBase:
                 if not has_cached_snapshot:
                     raise
 
-        repositories = cast(list[dict], cached["repositories"]) if cached else []
-        filtered = self._filter_cached_repositories(repositories, search)
+        if cached_repositories is None:
+            cached_repositories = []
+
+        filtered = self._filter_cached_repositories(cached_repositories, search)
         result = filtered[offset : offset + limit]
         has_more = offset + limit < len(filtered)
         return result, has_more
 
     def list_all_cached_repositories(self, max_repos: int | None = None) -> list[dict]:
-        cached = self._get_repository_cache()
-        has_cached_snapshot = cached is not None
-        should_refresh = cached is None or self.repository_cache_is_stale()
+        cached_repositories = self._get_stored_repository_list()
+        has_cached_snapshot = self.integration.repository_cache_updated_at is not None
+        should_refresh = cached_repositories is None or self.repository_cache_is_stale()
         self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:
             try:
-                repos = self.sync_repository_cache()
-                cached = {"repositories": repos, "updated_at": time.time()}
+                cached_repositories = self.sync_repository_cache()
             except Exception:
                 logger.warning(
                     "GitHubIntegration: failed to refresh repository cache",
@@ -875,10 +874,12 @@ class GitHubIntegrationBase:
                 if not has_cached_snapshot:
                     raise
 
-        repositories = cast(list[dict], cached["repositories"]) if cached else []
+        if cached_repositories is None:
+            cached_repositories = []
+
         if max_repos is not None:
-            return repositories[:max_repos]
-        return repositories
+            return cached_repositories[:max_repos]
+        return cached_repositories
 
     # --- Cached branch operations ---
 

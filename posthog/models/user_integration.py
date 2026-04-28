@@ -13,16 +13,14 @@ from posthog.models.utils import UUIDModel
 
 logger = structlog.get_logger(__name__)
 
-# GitHub rejects a refresh token with one of these error codes when it's
-# no longer valid; the user must re-authorize through the install flow.
-_GITHUB_UNRECOVERABLE_REFRESH_ERRORS = frozenset(
-    {
-        "bad_refresh_token",
-        "incorrect_client_credentials",
-        "refresh_token_expired",
-        "unauthorized_client",
-    }
-)
+
+# GitHub rejects a refresh token with one of these error codes when it's no longer valid and the user can remediate this
+# We then force the user to re-authorize through the install flow, by deleting the bad integration
+_GITHUB_UNRECOVERABLE_REFRESH_ERRORS = {
+    "bad_refresh_token",
+    "refresh_token_expired",
+    "unauthorized_client",
+}
 
 
 class UserIntegration(UUIDModel):
@@ -47,6 +45,8 @@ class UserIntegration(UUIDModel):
     integration_id = models.TextField()
     config = models.JSONField(default=dict)
     sensitive_config = EncryptedJSONField(default=dict)
+    repository_cache = models.JSONField(default=list, blank=True)
+    repository_cache_updated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -232,10 +232,16 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         }
         config = dict(self.integration.config or {})
         config["user_token_refreshed_at"] = now
+        # When GitHub disables user-token expiration, refresh responses omit expiry fields.
+        # Clear stored expiries so we do not treat a non-expiring token as perpetually expired.
         if access_expires_in is not None:
             config["user_access_token_expires_at"] = now + int(access_expires_in)
+        else:
+            config.pop("user_access_token_expires_at", None)
         if refresh_expires_in is not None:
             config["user_refresh_token_expires_at"] = now + int(refresh_expires_in)
+        else:
+            config.pop("user_refresh_token_expires_at", None)
         self.integration.config = config
         self.integration.save(update_fields=["sensitive_config", "config", "updated_at"])
 
