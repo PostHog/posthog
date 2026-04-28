@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { IconChevronLeft, IconChevronRight, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
@@ -225,10 +225,28 @@ export function VisualReviewRunScene(): JSX.Element {
         )
     }
 
+    const prUrl =
+        run.pr_number && repoFullName ? `https://github.com/${repoFullName}/pull/${run.pr_number}` : null
+    const openPrButton = prUrl ? (
+        <LemonButton
+            type="secondary"
+            icon={<IconExternal />}
+            to={prUrl}
+            targetBlank
+            tooltip={`Open PR #${run.pr_number} on GitHub`}
+        >
+            PR #{run.pr_number}
+        </LemonButton>
+    ) : null
+
     if (isRunInProgress) {
         return (
             <SceneContent>
-                <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <SceneTitleSection
+                    name={run.branch}
+                    resourceType={{ type: 'visual_review' }}
+                    actions={openPrButton ?? undefined}
+                />
                 <RunInProgressEmptyState
                     isProcessing={isRunProcessing}
                     createdAt={run.created_at}
@@ -241,7 +259,11 @@ export function VisualReviewRunScene(): JSX.Element {
     if (run.status === 'failed') {
         return (
             <SceneContent>
-                <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
+                <SceneTitleSection
+                    name={run.branch}
+                    resourceType={{ type: 'visual_review' }}
+                    actions={openPrButton ?? undefined}
+                />
                 <LemonBanner type="error">
                     This run failed to process.{run.error_message ? ` ${run.error_message}` : ''} Check the CI logs for
                     details, or rerun the job to try again.
@@ -316,13 +338,18 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    !run.approved &&
-                    !run.is_stale &&
-                    (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
-                        <LemonButton type="primary" onClick={approveChanges} loading={isApproving}>
-                            {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
-                        </LemonButton>
-                    ) : undefined
+                    <div className="flex gap-2">
+                        {openPrButton}
+                        {!run.approved &&
+                        !run.is_stale &&
+                        (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
+                            <LemonButton type="primary" onClick={approveChanges} loading={isApproving}>
+                                {reviewPending > 0
+                                    ? `Approve ${reviewPending} pending and commit`
+                                    : 'Commit to baseline'}
+                            </LemonButton>
+                        ) : null}
+                    </div>
                 }
             />
 
