@@ -10,6 +10,7 @@ import { onShutdown } from '../lifecycle'
 import { PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { isTestEnv } from '../utils/env-utils'
+import { configureEventLoopYield } from '../utils/event-loop-yield'
 import { logger } from '../utils/logger'
 import { NodeInstrumentation } from '../utils/node-instrumentation'
 import { captureException, shutdown as posthogShutdown } from '../utils/posthog'
@@ -26,6 +27,7 @@ export type BaseServerConfig = {
     CONTINUOUS_PROFILING_ENABLED: boolean
     PYROSCOPE_SERVER_ADDRESS: string
     PYROSCOPE_APPLICATION_NAME: string
+    EVENT_LOOP_YIELD_THRESHOLD_MS: number
 }
 
 export interface CleanupResources {
@@ -68,6 +70,7 @@ export class ServerLifecycle {
     constructor(private config: BaseServerConfig) {
         this.expressApp = setupExpressApp({ internalApiSecret: this.config.INTERNAL_API_SECRET })
         this.nodeInstrumentation = new NodeInstrumentation(this.config.INSTRUMENT_THREAD_PERFORMANCE)
+        configureEventLoopYield(this.config.EVENT_LOOP_YIELD_THRESHOLD_MS)
         this.setupContinuousProfiling()
     }
 

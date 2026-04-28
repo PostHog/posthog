@@ -1,0 +1,68 @@
+import { Counter, Histogram } from 'prom-client'
+
+const DEFAULT_THRESHOLD_MS = 200
+
+let defaultThresholdMs = DEFAULT_THRESHOLD_MS
+
+let state: {
+    startedAt: number
+    promise: Promise<void>
+} | null = null
+
+const eventLoopYieldCounter = new Counter({
+    name: 'event_loop_yield_total',
+    help: 'Total calls to yieldEventLoopIfNeeded, labelled by caller and whether the call actually yielded',
+    labelNames: ['caller', 'waited'],
+})
+
+const eventLoopYieldBlockedMs = new Histogram({
+    name: 'event_loop_yield_blocked_duration_ms',
+    help: 'How long the event loop went without yielding before yieldEventLoopIfNeeded forced a yield',
+    labelNames: ['caller'],
+    buckets: [50, 100, 200, 500, 1000, 2500, 5000, 10000],
+})
+
+const eventLoopYieldWaitMs = new Histogram({
+    name: 'event_loop_yield_wait_duration_ms',
+    help: 'How long the await for setTimeout(0) actually took to resolve once yieldEventLoopIfNeeded forced a yield',
+    labelNames: ['caller'],
+    buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500],
+})
+
+export function configureEventLoopYield(thresholdMs: number): void {
+    defaultThresholdMs = thresholdMs
+}
+
+export function getEventLoopYieldThresholdMs(): number {
+    return defaultThresholdMs
+}
+
+export async function yieldEventLoopIfNeeded(caller: string, options?: { thresholdMs?: number }): Promise<boolean> {
+    const threshold = options?.thresholdMs ?? defaultThresholdMs
+
+    if (!state) {
+        state = {
+            startedAt: performance.now(),
+            promise: new Promise((resolve) => {
+                setTimeout(() => {
+                    state = null
+                    resolve()
+                }, 0)
+            }),
+        }
+    }
+
+    const blockedFor = performance.now() - state.startedAt
+    if (blockedFor < threshold) {
+        eventLoopYieldCounter.inc({ caller, waited: 'false' })
+        return false
+    }
+
+    eventLoopYieldBlockedMs.observe({ caller }, blockedFor)
+
+    const awaitStartedAt = performance.now()
+    await state.promise
+    eventLoopYieldWaitMs.observe({ caller }, performance.now() - awaitStartedAt)
+    eventLoopYieldCounter.inc({ caller, waited: 'true' })
+    return true
+}

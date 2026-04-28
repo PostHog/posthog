@@ -1,3 +1,4 @@
+import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '../../utils/event-loop-yield'
 import { compileHog } from '../templates/compiler'
 import { execHog } from './hog-exec'
 
@@ -9,10 +10,14 @@ describe('hog-exec', () => {
         let lastCheck = Date.now()
         let longestDelay = 0
         const blockTime = 100
+        let originalThresholdMs: number
 
         beforeEach(() => {
             jest.spyOn(Date, 'now').mockRestore()
             jest.useRealTimers()
+
+            originalThresholdMs = getEventLoopYieldThresholdMs()
+            configureEventLoopYield(blockTime)
 
             interval = setInterval(() => {
                 // Sets up an interval loop so we can see how long the longest delay between ticks is
@@ -23,6 +28,7 @@ describe('hog-exec', () => {
 
         afterEach(() => {
             clearInterval(interval)
+            configureEventLoopYield(originalThresholdMs)
         })
 
         it('should process batches in a way that does not block the main thread', async () => {
