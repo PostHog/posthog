@@ -1633,12 +1633,6 @@ export interface CohortType {
     _create_static_person_ids?: string[]
 }
 
-export interface CohortUsedInResponse {
-    feature_flags: { id: number; key: string; name: string | null }[]
-    insights: { id: number; short_id: string; name: string }[]
-    cohorts: { id: number; name: string }[]
-}
-
 export interface InsightHistory {
     id: number
     filters: Record<string, any>

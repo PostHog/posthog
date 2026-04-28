@@ -24,6 +24,7 @@ import {
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 import { personsLogic } from 'scenes/persons/personsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -38,13 +39,15 @@ import {
     CohortCriteriaGroupFilter,
     CohortGroupType,
     CohortType,
-    CohortUsedInResponse,
     FilterLogicalOperator,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyOperator,
     PropertyType,
 } from '~/types'
+
+import { cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
+import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
 
 import type { cohortEditLogicType } from './cohortEditLogicType'
 
@@ -84,6 +87,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     }),
     path(['scenes', 'cohorts', 'cohortLogicEdit']),
     connect(() => ({
+        values: [teamLogic, ['currentProjectId']],
         actions: [eventUsageLogic, ['reportExperimentExposureCohortEdited']],
         logic: [cohortsModel],
     })),
@@ -566,14 +570,19 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
 
         usedIn: [
-            null as CohortUsedInResponse | null,
+            null as CohortUsedInResponseApi | null,
             {
                 loadUsedIn: async () => {
                     const { id } = values.cohort
                     if (!id || id === 'new') {
                         return null
                     }
-                    return await api.cohorts.getUsedIn(id)
+                    try {
+                        return await cohortsUsedInRetrieve(String(values.currentProjectId), id)
+                    } catch (error) {
+                        posthog.captureException(error, { feature: 'cohort-used-in' })
+                        return null
+                    }
                 },
             },
         ],
@@ -623,6 +632,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 fallbackErrorMessage:
                     'There was an error submitting this cohort. Make sure the cohort filters are correct.',
             })
+        },
+        submitCohortSuccess: () => {
+            actions.loadUsedIn()
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             const isPendingCalculation = checkIsPendingCalculation(cohort)

@@ -38,7 +38,7 @@ import {
 } from '~/layout/scenes/SceneLayout'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { Query } from '~/queries/Query/Query'
-import { CohortType, SidePanelTab } from '~/types'
+import { CohortType, InsightShortId, SidePanelTab } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -562,37 +562,71 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                         </Link>
                                     </LemonBanner>
                                 )}
-                                {!isNewCohort && usedIn && (usedIn.feature_flags.length > 0 || usedIn.insights.length > 0 || usedIn.cohorts.length > 0) && (
-                                    <LemonBanner type="info">
-                                        <div className="font-semibold mb-1">Used in</div>
-                                        <ul className="list-disc pl-4 mb-0 space-y-0.5">
-                                            {usedIn.feature_flags.map((flag) => (
-                                                <li key={`flag-${flag.id}`}>
-                                                    Feature flag:{' '}
-                                                    <Link to={urls.featureFlag(flag.id)}>
-                                                        {flag.name || flag.key}
-                                                    </Link>
-                                                </li>
-                                            ))}
-                                            {usedIn.insights.map((insight) => (
-                                                <li key={`insight-${insight.id}`}>
-                                                    Insight:{' '}
-                                                    <Link to={urls.insightView(insight.short_id)}>
-                                                        {insight.name}
-                                                    </Link>
-                                                </li>
-                                            ))}
-                                            {usedIn.cohorts.map((c) => (
-                                                <li key={`cohort-${c.id}`}>
-                                                    Cohort:{' '}
-                                                    <Link to={urls.cohort(c.id)}>
-                                                        {c.name}
-                                                    </Link>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </LemonBanner>
-                                )}
+                                {!isNewCohort &&
+                                    usedIn &&
+                                    (usedIn.feature_flags.length > 0 ||
+                                        usedIn.insights.results.length > 0 ||
+                                        usedIn.cohorts.results.length > 0) && (
+                                        <LemonBanner type="info">
+                                            <div className="font-semibold mb-1">Used in</div>
+                                            <div className="space-y-2">
+                                                {usedIn.feature_flags.length > 0 && (
+                                                    <div>
+                                                        <div className="text-xs font-semibold uppercase opacity-60">
+                                                            Feature flags
+                                                        </div>
+                                                        <ul className="list-disc pl-4 mb-0 space-y-0.5">
+                                                            {usedIn.feature_flags.map((flag) => (
+                                                                <li key={`flag-${flag.id}`}>
+                                                                    <Link to={urls.featureFlag(flag.id)}>
+                                                                        {flag.name || flag.key}
+                                                                    </Link>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                                {usedIn.insights.results.length > 0 && (
+                                                    <div>
+                                                        <div className="text-xs font-semibold uppercase opacity-60">
+                                                            Insights
+                                                            {usedIn.insights.has_more &&
+                                                                ` (${usedIn.insights.results.length} of ${usedIn.insights.total} shown)`}
+                                                        </div>
+                                                        <ul className="list-disc pl-4 mb-0 space-y-0.5">
+                                                            {usedIn.insights.results.map((insight) => (
+                                                                <li key={`insight-${insight.id}`}>
+                                                                    <Link
+                                                                        to={urls.insightView(
+                                                                            insight.short_id as InsightShortId
+                                                                        )}
+                                                                    >
+                                                                        {insight.name}
+                                                                    </Link>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                                {usedIn.cohorts.results.length > 0 && (
+                                                    <div>
+                                                        <div className="text-xs font-semibold uppercase opacity-60">
+                                                            Cohorts
+                                                            {usedIn.cohorts.has_more &&
+                                                                ` (${usedIn.cohorts.results.length} of ${usedIn.cohorts.total} shown)`}
+                                                        </div>
+                                                        <ul className="list-disc pl-4 mb-0 space-y-0.5">
+                                                            {usedIn.cohorts.results.map((c) => (
+                                                                <li key={`cohort-${c.id}`}>
+                                                                    <Link to={urls.cohort(c.id)}>{c.name}</Link>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </LemonBanner>
+                                    )}
                                 <SceneSection
                                     // TODO: @adamleithp Add a number of matching persons to the title "Matching criteria (100)"
                                     title="Matching criteria"
