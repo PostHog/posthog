@@ -273,10 +273,15 @@ class SnapshotHistoryEntry:
     """A single entry in a snapshot's change history across runs."""
 
     run_id: UUID
+    snapshot_id: UUID
     result: str
     branch: str
     commit_sha: str
     created_at: datetime
+    pr_number: int | None = None
+    diff_percentage: float | None = None
+    review_state: str = ""
+    current_artifact: Artifact | None = None
 
 
 @dataclass(frozen=True)

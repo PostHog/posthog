@@ -82,6 +82,41 @@ export interface QuarantineInputApi {
     expires_at?: string | null
 }
 
+export interface ArtifactApi {
+    id: string
+    content_hash: string
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    /** @nullable */
+    download_url: string | null
+}
+
+export interface SnapshotHistoryEntryApi {
+    current_artifact?: ArtifactApi | null
+    run_id: string
+    snapshot_id: string
+    result: string
+    branch: string
+    commit_sha: string
+    created_at: string
+    /** @nullable */
+    pr_number?: number | null
+    /** @nullable */
+    diff_percentage?: number | null
+    review_state?: string
+}
+
+export interface PaginatedSnapshotHistoryEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SnapshotHistoryEntryApi[]
+}
+
 export interface RunSummaryApi {
     total: number
     changed: number
@@ -209,34 +244,6 @@ export interface RecomputeResultApi {
     ci_rerun_error?: string | null
 }
 
-export interface SnapshotHistoryEntryApi {
-    run_id: string
-    result: string
-    branch: string
-    commit_sha: string
-    created_at: string
-}
-
-export interface PaginatedSnapshotHistoryEntryListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SnapshotHistoryEntryApi[]
-}
-
-export interface ArtifactApi {
-    id: string
-    content_hash: string
-    /** @nullable */
-    width: number | null
-    /** @nullable */
-    height: number | null
-    /** @nullable */
-    download_url: string | null
-}
-
 export type SnapshotApiMetadata = { [key: string]: unknown }
 
 export interface SnapshotApi {
@@ -331,6 +338,25 @@ export type VisualReviewReposQuarantineListParams = {
      * Filter by run type
      */
     run_type?: string
+}
+
+export type VisualReviewReposSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Run type (storybook, playwright, ...)
+     */
+    run_type: string
 }
 
 export type VisualReviewRunsListParams = {

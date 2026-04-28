@@ -33,6 +33,7 @@ import type {
     SnapshotApi,
     VisualReviewReposListParams,
     VisualReviewReposQuarantineListParams,
+    VisualReviewReposSnapshotHistoryListParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
@@ -208,6 +209,44 @@ export const visualReviewReposQuarantineExpireCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(quarantineInputApi),
     })
+}
+
+/**
+ * Recent change history for a (repo, run_type, identifier) triple across all runs.
+ */
+export const getVisualReviewReposSnapshotHistoryListUrl = (
+    projectId: string,
+    id: string,
+    params: VisualReviewReposSnapshotHistoryListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/repos/${id}/snapshot-history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/${id}/snapshot-history/`
+}
+
+export const visualReviewReposSnapshotHistoryList = async (
+    projectId: string,
+    id: string,
+    params: VisualReviewReposSnapshotHistoryListParams,
+    options?: RequestInit
+): Promise<PaginatedSnapshotHistoryEntryListApi> => {
+    return apiMutator<PaginatedSnapshotHistoryEntryListApi>(
+        getVisualReviewReposSnapshotHistoryListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 /**

@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { urls } from 'scenes/urls'
 
 import type {
     QuarantinedIdentifierEntryApi,
@@ -185,6 +186,7 @@ interface SnapshotDiffViewerProps {
     onUnquarantine?: () => void
     commitSha?: string
     prNumber?: number | null
+    repoId?: string | null
     repoFullName?: string | null
     runType?: string
     githubRunId?: string | null
@@ -207,6 +209,7 @@ export function SnapshotDiffViewer({
     onUnquarantine,
     commitSha,
     prNumber,
+    repoId,
     repoFullName,
     runType,
     githubRunId,
@@ -500,7 +503,17 @@ export function SnapshotDiffViewer({
 
                     {/* History */}
                     <div>
-                        <h4 className="text-xs font-semibold text-muted mb-2">History</h4>
+                        <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-xs font-semibold text-muted m-0">History</h4>
+                            {repoId && runType && (
+                                <Link
+                                    to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                    className="text-xs"
+                                >
+                                    View full
+                                </Link>
+                            )}
+                        </div>
                         {snapshotHistoryLoading ? (
                             <div className="space-y-2">
                                 <LemonSkeleton className="h-4 w-full" />

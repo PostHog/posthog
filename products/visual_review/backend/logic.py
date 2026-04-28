@@ -1667,26 +1667,31 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnaps
     )
 
 
-def get_snapshot_history(repo_id: UUID, identifier: str, limit: int = 15) -> list[dict]:
-    """Recent runs where this snapshot identifier appeared, most recent first."""
-    entries = (
+_DEFAULT_BRANCHES = ("master", "main")
+
+
+def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str, limit: int = 15) -> list[RunSnapshot]:
+    """Baseline history for a snapshot identifier — only runs that actually moved
+    the committed baseline.
+
+    Scoped by (repo, run_type, identifier) — the same triple that quarantines use.
+    We restrict to runs on the default branch (master/main): an approval on a PR
+    branch only commits to that branch's HEAD, the *baseline* in the repo only
+    changes once the PR is merged. Filtering by branch is a simple stand-in for
+    "this run produced a baseline visible to everyone else".
+
+    Returns ORM rows; the facade layer shapes them into DTOs.
+    """
+    return list(
         RunSnapshot.objects.filter(
             run__repo_id=repo_id,
+            run__run_type=run_type,
+            run__branch__in=_DEFAULT_BRANCHES,
             identifier=identifier,
         )
-        .select_related("run")
+        .select_related("run", "current_artifact")
         .order_by("-run__created_at")[:limit]
     )
-    return [
-        {
-            "run_id": entry.run_id,
-            "result": entry.result,
-            "branch": entry.run.branch,
-            "commit_sha": entry.run.commit_sha,
-            "created_at": entry.run.created_at,
-        }
-        for entry in entries
-    ]
 
 
 @transaction.atomic(using=WRITER_DB)

@@ -470,6 +470,7 @@ export function VisualReviewRunScene(): JSX.Element {
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
+                            repoId={run.repo_id}
                             repoFullName={repoFullName}
                             runType={run.run_type}
                             githubRunId={(run.metadata?.github_run_id as string) || null}

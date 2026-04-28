@@ -24044,11 +24044,18 @@ export namespace Schemas {
     }
 
     export interface SnapshotHistoryEntry {
+      current_artifact?: Artifact | null;
       run_id: string;
+      snapshot_id: string;
       result: string;
       branch: string;
       commit_sha: string;
       created_at: string;
+      /** @nullable */
+      pr_number?: number | null;
+      /** @nullable */
+      diff_percentage?: number | null;
+      review_state?: string;
     }
 
     export interface PaginatedSnapshotHistoryEntryList {
@@ -43998,6 +44005,25 @@ export namespace Schemas {
      * Filter by run type
      */
     run_type?: string;
+    };
+
+    export type VisualReviewReposSnapshotHistoryListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Run type (storybook, playwright, ...)
+     */
+    run_type: string;
     };
 
     export type VisualReviewRunsListParams = {

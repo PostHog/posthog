@@ -189,3 +189,75 @@ class TestRunViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Per-snapshot approval is DB only — run not finalized
         self.assertFalse(response.json()["run"]["approved"])
+
+    def test_repo_snapshot_history(self):
+        """Repo-scoped snapshot history endpoint returns enriched entries across runs.
+
+        Only runs on the default branch (master/main) count — those are the moments
+        the baseline actually moved. Runs on PR branches are excluded.
+        """
+        # Two storybook runs on default branches — these should appear.
+        for sha, branch in (("aaaaaaa", "main"), ("bbbbbbb", "master")):
+            api.create_run(
+                CreateRunInput(
+                    repo_id=self.vr_project.id,
+                    run_type=RunType.STORYBOOK,
+                    commit_sha=sha,
+                    branch=branch,
+                    snapshots=[SnapshotManifestItem(identifier="Button", content_hash=f"hash-{sha}")],
+                ),
+                team_id=self.team.id,
+            )
+        # A storybook run on a PR branch — must NOT appear in history, even if approved.
+        api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="ddddddd",
+                branch="feat/something",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="hash-feat")],
+            ),
+            team_id=self.team.id,
+        )
+        # A playwright run on master with the SAME identifier — must NOT appear in storybook history.
+        api.create_run(
+            CreateRunInput(
+                repo_id=self.vr_project.id,
+                run_type=RunType.PLAYWRIGHT,
+                commit_sha="ccccccc",
+                branch="master",
+                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="hash-pw")],
+            ),
+            team_id=self.team.id,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/visual_review/repos/{self.vr_project.id}/snapshot-history/",
+            {"identifier": "Button", "run_type": RunType.STORYBOOK},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        results = body["results"]
+        self.assertEqual(body["count"], 2)
+        self.assertEqual(len(results), 2)
+        # Newest first, playwright entry filtered out.
+        self.assertEqual(results[0]["commit_sha"], "bbbbbbb")
+        self.assertEqual(results[1]["commit_sha"], "aaaaaaa")
+        # Enriched fields are present (current_artifact may be null when no artifact yet).
+        for entry in results:
+            self.assertIn("snapshot_id", entry)
+            self.assertIn("review_state", entry)
+            self.assertIn("diff_percentage", entry)
+
+    def test_repo_snapshot_history_requires_identifier_and_run_type(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/visual_review/repos/{self.vr_project.id}/snapshot-history/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Missing run_type alone also rejected.
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/visual_review/repos/{self.vr_project.id}/snapshot-history/",
+            {"identifier": "Button"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

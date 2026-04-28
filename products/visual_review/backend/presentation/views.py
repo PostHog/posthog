@@ -69,7 +69,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
-    scope_object_read_actions = ["list", "retrieve", "list_quarantined"]
+    scope_object_read_actions = ["list", "retrieve", "list_quarantined", "snapshot_history"]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -186,6 +186,32 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("identifier", str, required=True, description="Snapshot identifier"),
+            OpenApiParameter("run_type", str, required=True, description="Run type (storybook, playwright, ...)"),
+        ],
+        responses={200: SnapshotHistoryEntrySerializer(many=True)},
+    )
+    @action(detail=True, methods=["get"], url_path="snapshot-history")
+    def snapshot_history(self, request: Request, pk: str, **kwargs) -> Response:
+        """Recent change history for a (repo, run_type, identifier) triple across all runs."""
+        identifier = request.query_params.get("identifier")
+        run_type = request.query_params.get("run_type")
+        if not identifier or not run_type:
+            return Response(
+                {"detail": "identifier and run_type query params required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            api.get_repo(UUID(pk), team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        history = api.get_snapshot_history(UUID(pk), identifier, run_type)
+        page = self.paginate_queryset(history)
+        if page is not None:
+            return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
+        return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])
@@ -329,7 +355,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        history = api.get_snapshot_history(run.repo_id, identifier)
+        history = api.get_snapshot_history(run.repo_id, identifier, run.run_type)
+        page = self.paginate_queryset(history)
+        if page is not None:
+            return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
         return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
     @extend_schema(request=None, responses={200: RunSerializer})
