@@ -126,6 +126,9 @@ const cleanSeriesEntityMath = (
         }
         return { ...baseEntity, math: BaseMathType.TotalCount }
     } else if (mathAvailability === MathAvailability.ActorsOnly) {
+        if (math != null) {
+            return { ...baseEntity, math, math_property, math_group_type_index, math_hogql }
+        }
         return { ...baseEntity, math: BaseMathType.UniqueUsers }
     }
     return baseEntity

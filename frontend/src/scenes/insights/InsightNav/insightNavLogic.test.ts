@@ -391,7 +391,10 @@ describe('insightNavLogic', () => {
                 })
             })
 
-            it('preserves series math when switching away from trends and back', async () => {
+            it.each([
+                ['switching away from trends and back', [InsightType.FUNNELS]],
+                ['switching through multiple tabs', [InsightType.FUNNELS, InsightType.LIFECYCLE]],
+            ] as const)('preserves series math when %s', async (_, intermediateViews) => {
                 const trendsQueryWithUniqueUsers: InsightVizNode = {
                     kind: NodeKind.InsightVizNode,
                     source: {
@@ -411,55 +414,12 @@ describe('insightNavLogic', () => {
                     builtInsightDataLogic.actions.setQuery(trendsQueryWithUniqueUsers)
                 })
 
-                await expectLogic(builtInsightDataLogic, () => {
-                    logic.actions.setActiveView(InsightType.FUNNELS)
-                }).toFinishAllListeners()
-
-                await expectLogic(builtInsightDataLogic, () => {
-                    logic.actions.setActiveView(InsightType.TRENDS)
-                }).toFinishAllListeners()
-
-                expect(builtInsightDataLogic.values.query).toMatchObject({
-                    kind: 'InsightVizNode',
-                    source: {
-                        kind: 'TrendsQuery',
-                        series: [
-                            expect.objectContaining({
-                                math: BaseMathType.UniqueUsers,
-                            }),
-                        ],
-                    },
-                })
-            })
-
-            it('preserves series math when switching through multiple tabs', async () => {
-                const trendsQueryWithDAU: InsightVizNode = {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.TrendsQuery,
-                        series: [
-                            {
-                                kind: NodeKind.EventsNode,
-                                name: '$pageview',
-                                event: '$pageview',
-                                math: BaseMathType.UniqueUsers,
-                            },
-                        ],
-                    },
+                for (const view of intermediateViews) {
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(view)
+                    }).toFinishAllListeners()
                 }
 
-                await expectLogic(logic, () => {
-                    builtInsightDataLogic.actions.setQuery(trendsQueryWithDAU)
-                })
-
-                await expectLogic(builtInsightDataLogic, () => {
-                    logic.actions.setActiveView(InsightType.FUNNELS)
-                }).toFinishAllListeners()
-
-                await expectLogic(builtInsightDataLogic, () => {
-                    logic.actions.setActiveView(InsightType.LIFECYCLE)
-                }).toFinishAllListeners()
-
                 await expectLogic(builtInsightDataLogic, () => {
                     logic.actions.setActiveView(InsightType.TRENDS)
                 }).toFinishAllListeners()
@@ -468,11 +428,7 @@ describe('insightNavLogic', () => {
                     kind: 'InsightVizNode',
                     source: {
                         kind: 'TrendsQuery',
-                        series: [
-                            expect.objectContaining({
-                                math: BaseMathType.UniqueUsers,
-                            }),
-                        ],
+                        series: [expect.objectContaining({ math: BaseMathType.UniqueUsers })],
                     },
                 })
             })
