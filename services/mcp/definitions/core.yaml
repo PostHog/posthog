@@ -245,6 +245,9 @@ tools:
     event-definitions-partial-update:
         operation: event_definitions_partial_update
         enabled: false
+    event-definitions-promoted-properties-retrieve:
+        operation: event_definitions_promoted_properties_retrieve
+        enabled: false
     event-definitions-python-retrieve:
         operation: event_definitions_python_retrieve
         enabled: false
@@ -791,7 +794,4 @@ tools:
         enabled: false
     users-verify-email-create:
         operation: users_verify_email_create
-        enabled: false
-    event-definitions-promoted-properties-retrieve:
-        operation: event_definitions_promoted_properties_retrieve
         enabled: false
