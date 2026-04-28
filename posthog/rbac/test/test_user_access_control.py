@@ -1206,6 +1206,45 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_3.id in notebook_ids
         assert self.notebook_2.id not in notebook_ids  # Explicitly blocked
 
+    @parameterized.expand(
+        [
+            (
+                "include_all_if_admin lists default-none dashboard for org admin (issue #44364)",
+                True,
+                True,
+            ),
+            (
+                "include_all_if_admin false keeps blocked default-none dashboards out of list for org admin",
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_organization_admin_dashboard_list_respects_include_all_if_admin_flag(
+        self, _name: str, include_all_if_admin: bool, expect_dashboard_in_results: bool
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="none",
+        )
+
+        self._clear_uac_caches()
+        uac = UserAccessControl(self.user, self.team)
+        filtered = uac.filter_queryset_by_access_level(
+            Dashboard.objects.filter(team=self.team),
+            include_all_if_admin=include_all_if_admin,
+        )
+        ids = list(filtered.values_list("id", flat=True))
+        if expect_dashboard_in_results:
+            assert dashboard.id in ids
+        else:
+            assert dashboard.id not in ids
+
     def test_get_user_access_level_with_specific_access_priority(self):
         """Test that get_user_access_level prioritizes specific access over resource access"""
         # Set resource-level access to "none"

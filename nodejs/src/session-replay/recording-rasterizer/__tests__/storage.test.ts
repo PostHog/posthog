@@ -61,9 +61,23 @@ describe('uploadToS3', () => {
         )
     })
 
+    it('uses webm extension and content type for webm format', async () => {
+        const key = await uploadToS3('/tmp/video.webm', 'my-bucket', 'exports/team-1', 'abc-123', 'webm')
+        expect(key).toBe('s3://my-bucket/exports/team-1/abc-123.webm')
+
+        expect(Upload).toHaveBeenCalledWith(
+            expect.objectContaining({
+                params: expect.objectContaining({
+                    Key: 'exports/team-1/abc-123.webm',
+                    ContentType: 'video/webm',
+                }),
+            })
+        )
+    })
+
     it('registers httpUploadProgress listener when onProgress is provided', async () => {
         const onProgress = jest.fn()
-        await uploadToS3('/tmp/video.mp4', 'my-bucket', 'exports/team-1', 'abc-123', onProgress)
+        await uploadToS3('/tmp/video.mp4', 'my-bucket', 'exports/team-1', 'abc-123', 'mp4', onProgress)
 
         expect(mockOn).toHaveBeenCalledWith('httpUploadProgress', expect.any(Function))
     })

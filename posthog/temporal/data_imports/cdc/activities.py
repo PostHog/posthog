@@ -30,6 +30,7 @@ from posthog.temporal.data_imports.cdc.batcher import (
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.producer import KafkaBatchProducer
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
+from posthog.temporal.data_imports.workflow_activities.create_job_model import _build_schema_snapshot
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
@@ -217,7 +218,8 @@ class CDCExtractActivity:
             rows_synced=0,
             workflow_id=activity.info().workflow_id,
             workflow_run_id=activity.info().workflow_run_id,
-            pipeline_version=ExternalDataJob.PipelineVersion.V2,
+            pipeline_version=ExternalDataJob.PipelineVersion.V3,
+            schema_snapshot=_build_schema_snapshot(schema),
         )
         self.created_jobs.append(job)
 

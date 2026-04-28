@@ -176,12 +176,12 @@ pub enum MockRedisValue {
     String(String),
     StringWithTTL(String, u64),
     VecString(Vec<String>),
-    I32(i32),
     I64(i64),
     MinMax(String, String),
     StringWithFormat(String, RedisValueFormat),
     StringWithTTLAndFormat(String, u64, RedisValueFormat),
     Bytes(Vec<u8>, Option<u64>),
+    MemberScore(String, i64),
 }
 
 #[derive(Debug, Clone)]
@@ -213,20 +213,27 @@ impl Client for MockRedisClient {
         }
     }
 
+    async fn zadd(&self, key: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        let mut calls = self.lock_calls();
+        calls.push(MockRedisCall {
+            op: "zadd".to_string(),
+            key,
+            value: MockRedisValue::MemberScore(member, score),
+        });
+        Ok(())
+    }
+
     async fn hincrby(
         &self,
         key: String,
         field: String,
-        count: Option<i32>,
+        count: i64,
     ) -> Result<(), CustomRedisError> {
         let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
             op: "hincrby".to_string(),
             key: format!("{key}:{field}"),
-            value: match count {
-                None => MockRedisValue::None,
-                Some(v) => MockRedisValue::I32(v),
-            },
+            value: MockRedisValue::I64(count),
         });
 
         match self.hincrby_ret.get(&key) {
@@ -642,7 +649,7 @@ impl MockRedisClient {
                 self.record_call(
                     "pipeline_hincrby",
                     format!("{key}:{field}"),
-                    MockRedisValue::I32(count),
+                    MockRedisValue::I64(count),
                 );
                 Self::lookup_or_ok(&self.hincrby_ret, &key).map(|_| PipelineResult::Ok)
             }

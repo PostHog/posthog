@@ -1,9 +1,10 @@
 import { CODES, Message, MessageHeader, KafkaConsumer as RdKafkaConsumer } from 'node-rdkafka'
 
 import { defaultConfig } from '~/config/config'
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 
 import { delay } from '../utils/utils'
-import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders, withBackgroundTaskTimeout } from './consumer'
+import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from './consumer'
 
 jest.mock('./admin', () => ({
     ensureTopicExists: jest.fn().mockResolvedValue(undefined),
@@ -87,63 +88,6 @@ const triggerablePromise = (): {
     })
     return result
 }
-
-describe('withBackgroundTaskTimeout', () => {
-    beforeEach(() => jest.useFakeTimers())
-    afterEach(() => jest.useRealTimers())
-
-    const labels = { topic: 'test-topic', groupId: 'test-group' }
-
-    it('should resolve when the task resolves before timeout', async () => {
-        const task = triggerablePromise()
-        const wrapped = withBackgroundTaskTimeout(task.promise, 10_000, false, labels)
-
-        task.resolve()
-        await jest.advanceTimersByTimeAsync(1)
-
-        await expect(wrapped).resolves.toBeUndefined()
-    })
-
-    it('should resolve on timeout when forceResolve is true', async () => {
-        const task = triggerablePromise()
-        const wrapped = withBackgroundTaskTimeout(task.promise, 10_000, true, labels)
-
-        await jest.advanceTimersByTimeAsync(10_000)
-
-        await expect(wrapped).resolves.toBeUndefined()
-    })
-
-    it('should not resolve on timeout when forceResolve is false', async () => {
-        const task = triggerablePromise()
-        const wrapped = withBackgroundTaskTimeout(task.promise, 10_000, false, labels)
-
-        let resolved = false
-        void wrapped.then(() => {
-            resolved = true
-        })
-
-        await jest.advanceTimersByTimeAsync(10_000)
-        expect(resolved).toBe(false)
-
-        // Only resolves when the actual task completes
-        task.resolve()
-        await jest.advanceTimersByTimeAsync(1)
-        expect(resolved).toBe(true)
-    })
-
-    it('should handle double resolve safely when task completes after timeout', async () => {
-        const task = triggerablePromise()
-        const wrapped = withBackgroundTaskTimeout(task.promise, 10_000, true, labels)
-
-        await jest.advanceTimersByTimeAsync(10_000)
-        await expect(wrapped).resolves.toBeUndefined()
-
-        // Second resolve is a no-op
-        task.resolve()
-        await jest.advanceTimersByTimeAsync(1)
-        await expect(wrapped).resolves.toBeUndefined()
-    })
-})
 
 describe('consumer', () => {
     afterEach(() => {
@@ -410,118 +354,6 @@ describe('consumer', () => {
         })
     })
 
-    describe('background task timeout', () => {
-        let eachBatch: jest.Mock
-
-        beforeEach(async () => {
-            jest.useFakeTimers()
-            defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS = 10_000
-            defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_FORCE_RESOLVE = true
-            consumer['maxBackgroundTasks'] = 3
-            eachBatch = jest.fn(() => Promise.resolve({}))
-            await consumer.connect(eachBatch)
-        })
-
-        afterEach(() => {
-            jest.useRealTimers()
-            defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_MS = 60_000
-            defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_FORCE_RESOLVE = false
-        })
-
-        const simulateMessageWithBackgroundTask = async (
-            messages: Message[],
-            backgroundTask: Promise<any>
-        ): Promise<void> => {
-            eachBatch.mockImplementationOnce(() => Promise.resolve({ backgroundTask }))
-            consumeCallback(null, messages)
-            await jest.advanceTimersByTimeAsync(1)
-        }
-
-        it('should commit offsets when a background task times out with force resolve', async () => {
-            const stuckTask = triggerablePromise()
-            await simulateMessageWithBackgroundTask(
-                [createKafkaMessage({ offset: 1, partition: 0 })],
-                stuckTask.promise
-            )
-
-            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
-
-            await jest.advanceTimersByTimeAsync(10_000)
-
-            expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalledWith([
-                { offset: 2, partition: 0, topic: 'test-topic' },
-            ])
-        })
-
-        it('should not commit offsets on timeout without force resolve (probe only)', async () => {
-            defaultConfig.CONSUMER_BACKGROUND_TASK_TIMEOUT_FORCE_RESOLVE = false
-
-            const stuckTask = triggerablePromise()
-            await simulateMessageWithBackgroundTask(
-                [createKafkaMessage({ offset: 1, partition: 0 })],
-                stuckTask.promise
-            )
-
-            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
-
-            await jest.advanceTimersByTimeAsync(10_000)
-
-            // Should still not be stored - timeout only logs, doesn't resolve
-            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
-
-            // But once the task actually resolves, offsets are stored
-            stuckTask.resolve()
-            await jest.advanceTimersByTimeAsync(1)
-
-            expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalledWith([
-                { offset: 2, partition: 0, topic: 'test-topic' },
-            ])
-        })
-
-        it('should not trigger timeout if task completes in time', async () => {
-            const task = triggerablePromise()
-            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], task.promise)
-
-            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
-
-            task.resolve()
-            await jest.advanceTimersByTimeAsync(1)
-
-            expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalledWith([
-                { offset: 2, partition: 0, topic: 'test-topic' },
-            ])
-        })
-
-        it('should unblock subsequent tasks when an earlier task times out', async () => {
-            const stuckTask = triggerablePromise()
-            await simulateMessageWithBackgroundTask(
-                [createKafkaMessage({ offset: 1, partition: 0 })],
-                stuckTask.promise
-            )
-
-            const normalTask = triggerablePromise()
-            await simulateMessageWithBackgroundTask(
-                [createKafkaMessage({ offset: 2, partition: 0 })],
-                normalTask.promise
-            )
-
-            normalTask.resolve()
-            await jest.advanceTimersByTimeAsync(1)
-
-            // Neither should have committed yet - second is waiting on first
-            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
-
-            await jest.advanceTimersByTimeAsync(10_000)
-
-            expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalledWith([
-                { offset: 2, partition: 0, topic: 'test-topic' },
-            ])
-            expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalledWith([
-                { offset: 3, partition: 0, topic: 'test-topic' },
-            ])
-        })
-    })
-
     describe('rebalancing', () => {
         it('should set rebalancing state during partition revocation', () => {
             expect(consumer['rebalanceCoordination'].isRebalancing).toBe(false)
@@ -713,42 +545,30 @@ describe('parseKafkaHeaders', () => {
 describe('parseEventHeaders', () => {
     it('should return empty object when headers is undefined', () => {
         const result = parseEventHeaders(undefined)
-        expect(result).toEqual({ force_disable_person_processing: false, historical_migration: false })
+        expect(result).toEqual(createTestEventHeaders())
     })
 
     it('should return empty object when headers is empty array', () => {
         const result = parseEventHeaders([])
-        expect(result).toEqual({ force_disable_person_processing: false, historical_migration: false })
+        expect(result).toEqual(createTestEventHeaders())
     })
 
     it('should parse token header only', () => {
         const headers: MessageHeader[] = [{ token: Buffer.from('test-token') }]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'test-token' }))
     })
 
     it('should parse distinct_id header only', () => {
         const headers: MessageHeader[] = [{ distinct_id: Buffer.from('user-123') }]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            distinct_id: 'user-123',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ distinct_id: 'user-123' }))
     })
 
     it('should parse timestamp header only', () => {
         const headers: MessageHeader[] = [{ timestamp: Buffer.from('1234567890') }]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            timestamp: '1234567890',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ timestamp: '1234567890' }))
     })
 
     it('should parse all supported headers', () => {
@@ -760,13 +580,9 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            distinct_id: 'user-123',
-            timestamp: '1234567890',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(
+            createTestEventHeaders({ token: 'test-token', distinct_id: 'user-123', timestamp: '1234567890' })
+        )
     })
 
     it('should parse supported headers from multiple objects', () => {
@@ -776,13 +592,9 @@ describe('parseEventHeaders', () => {
             { timestamp: Buffer.from('1234567890') },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            distinct_id: 'user-123',
-            timestamp: '1234567890',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(
+            createTestEventHeaders({ token: 'test-token', distinct_id: 'user-123', timestamp: '1234567890' })
+        )
     })
 
     it('should ignore unsupported headers', () => {
@@ -795,12 +607,7 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            distinct_id: 'user-123',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'test-token', distinct_id: 'user-123' }))
     })
 
     it('should handle empty buffer values', () => {
@@ -812,13 +619,7 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: '',
-            distinct_id: '',
-            timestamp: '',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: '', distinct_id: '', timestamp: '' }))
     })
 
     it('should handle duplicate keys by overwriting', () => {
@@ -829,12 +630,7 @@ describe('parseEventHeaders', () => {
             { distinct_id: Buffer.from('second-id') },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'second-token',
-            distinct_id: 'second-id',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'second-token', distinct_id: 'second-id' }))
     })
 
     it('should handle mixed supported and unsupported headers', () => {
@@ -846,12 +642,7 @@ describe('parseEventHeaders', () => {
             { unsupported3: Buffer.from('still-ignored') },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            timestamp: '1234567890',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'test-token', timestamp: '1234567890' }))
     })
 
     it('should handle partial header sets', () => {
@@ -863,32 +654,19 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            timestamp: '1234567890',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'test-token', timestamp: '1234567890' }))
     })
 
     it('should parse event header', () => {
         const headers: MessageHeader[] = [{ event: Buffer.from('$pageview') }]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            event: '$pageview',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ event: '$pageview' }))
     })
 
     it('should parse uuid header', () => {
         const headers: MessageHeader[] = [{ uuid: Buffer.from('123e4567-e89b-12d3-a456-426614174000') }]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            uuid: '123e4567-e89b-12d3-a456-426614174000',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ uuid: '123e4567-e89b-12d3-a456-426614174000' }))
     })
 
     it('should parse all headers including new event and uuid', () => {
@@ -902,15 +680,15 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            distinct_id: 'user-123',
-            timestamp: '1234567890',
-            event: '$pageview',
-            uuid: '123e4567-e89b-12d3-a456-426614174000',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(
+            createTestEventHeaders({
+                token: 'test-token',
+                distinct_id: 'user-123',
+                timestamp: '1234567890',
+                event: '$pageview',
+                uuid: '123e4567-e89b-12d3-a456-426614174000',
+            })
+        )
     })
 
     it('should ignore unsupported headers but include event and uuid', () => {
@@ -925,14 +703,14 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            distinct_id: 'user-123',
-            event: 'custom_event',
-            uuid: 'uuid-value',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(
+            createTestEventHeaders({
+                token: 'test-token',
+                distinct_id: 'user-123',
+                event: 'custom_event',
+                uuid: 'uuid-value',
+            })
+        )
     })
 
     it('should handle empty event and uuid headers', () => {
@@ -944,13 +722,7 @@ describe('parseEventHeaders', () => {
             },
         ]
         const result = parseEventHeaders(headers)
-        expect(result).toEqual({
-            token: 'test-token',
-            event: '',
-            uuid: '',
-            force_disable_person_processing: false,
-            historical_migration: false,
-        })
+        expect(result).toEqual(createTestEventHeaders({ token: 'test-token', event: '', uuid: '' }))
     })
 
     describe('now header parsing', () => {
@@ -994,13 +766,13 @@ describe('parseEventHeaders', () => {
                 },
             ]
             const result = parseEventHeaders(headers)
-            expect(result).toEqual({
-                token: 'test-token',
-                distinct_id: 'user-123',
-                now: new Date(isoDate),
-                force_disable_person_processing: false,
-                historical_migration: false,
-            })
+            expect(result).toEqual(
+                createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'user-123',
+                    now: new Date(isoDate),
+                })
+            )
         })
 
         it('should handle now header with milliseconds precision', () => {

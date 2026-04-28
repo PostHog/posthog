@@ -9,7 +9,6 @@ import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/componen
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,6 +16,8 @@ import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
+
+import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/types'
 
 import type { definitionPopoverLogicType } from './definitionPopoverLogicType'
 

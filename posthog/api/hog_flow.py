@@ -1,3 +1,4 @@
+import re
 import json
 import uuid as uuid_mod
 from datetime import timedelta
@@ -18,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.app_metrics2 import AppMetricsMixin
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.hog_flow_batch_job import HogFlowBatchJobSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -38,13 +40,17 @@ from posthog.models.feature_flag.user_blast_radius import (
 )
 from posthog.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
+from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
 
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
-from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
+
+# Delay durations are strings like "30m", "2h", "1.5d". Must match the regex in the Node.js executor
+# (nodejs/src/cdp/services/hogflows/actions/delay.ts) that throws at runtime on mismatch.
+DELAY_DURATION_REGEX = re.compile(r"^\d*\.?\d+[dhm]$")
 
 
 class BlastRadiusRequestSerializer(serializers.Serializer):
@@ -93,7 +99,7 @@ class HogFlowActionSerializer(serializers.Serializer):
 
         trigger_is_function = False
         if data.get("type") == "trigger":
-            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel", "schedule"]:
+            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel"]:
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
@@ -118,6 +124,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                     properties = filters.get("properties", None)
                     if properties is not None and not isinstance(properties, list):
                         raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
+            elif data.get("config", {}).get("type") == "schedule":
+                # Schedule triggers have no extra validation - the schedule definition
+                # lives on a separate HogFlowSchedule row keyed by hog_flow_id.
+                pass
             else:
                 if not is_draft:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
@@ -172,16 +182,17 @@ class HogFlowActionSerializer(serializers.Serializer):
                             serializer.is_valid(raise_exception=True)
                             condition["filters"] = serializer.validated_data
 
-        # Compile bytecode for wait_until_event subscriptions. Each entry in
+        # Compile bytecode for event-based wait subscriptions on
+        # wait_until_event and the unified wait_until_condition (which now
+        # supports both property conditions and events). Each entry in
         # config.events has its own filters (event name + property filters)
-        # which the cdp-events consumer evaluates against incoming events to
-        # decide whether to wake the workflow. Unlike conditional branches,
-        # event filters ARE allowed (and required) here.
-        if data.get("type") == "wait_until_event":
+        # which the subscription matcher consumer evaluates against incoming
+        # events to decide whether to wake the workflow.
+        if data.get("type") in ("wait_until_event", "wait_until_condition"):
             events = data.get("config", {}).get("events", [])
             if not isinstance(events, list):
                 if not is_draft:
-                    raise serializers.ValidationError({"config": "wait_until_event config.events must be a list"})
+                    raise serializers.ValidationError({"config": "config.events must be a list"})
             else:
                 for event in events:
                     event_filters = event.get("filters")
@@ -193,6 +204,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                         else:
                             serializer.is_valid(raise_exception=True)
                             event["filters"] = serializer.validated_data
+
+        if data.get("type") == "delay":
+            delay_duration = data.get("config", {}).get("delay_duration")
+            if not isinstance(delay_duration, str) or not DELAY_DURATION_REGEX.match(delay_duration):
+                if not is_draft:
+                    raise serializers.ValidationError(
+                        {
+                            "config": (
+                                "delay_duration must be a string matching ^\\d*\\.?\\d+[dhm]$ "
+                                "(e.g. '30m', '2h', '1d'). Seconds and ISO-8601 formats are not supported."
+                            )
+                        }
+                    )
 
         return data
 
@@ -282,6 +306,8 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         if any(field in validated_data for field in ("rrule", "starts_at", "timezone")):
             # Force the scheduler to recalculate the next occurrence on its next poll
             instance.next_run_at = None
+            if instance.status != HogFlowSchedule.Status.PAUSED:
+                instance.status = HogFlowSchedule.Status.ACTIVE
         return super().update(instance, validated_data)
 
 
@@ -450,6 +476,7 @@ class HogFlowFilterSet(FilterSet):
 @extend_schema(tags=["workflows"])
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
+    scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
@@ -660,6 +687,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
     """
 
     scope_object = "INTERNAL"
+    serializer_class = _FallbackSerializer
     authentication_classes = [InternalAPIAuthentication]
 
     # Internal service-to-service endpoints (authenticated with INTERNAL_API_SECRET)
@@ -775,7 +803,8 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
             for schedule_id in due_schedule_ids:
                 try:
-                    batch_job_params = None
+                    batch_job_params: dict | None = None
+                    schedule_invocation_params: dict | None = None
                     with transaction.atomic():
                         # Per-schedule transaction: lock only one row at a time to minimize
                         # lock duration and allow concurrent replicas via skip_locked.
@@ -796,27 +825,37 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         hog_flow = schedule.hog_flow
                         trigger_type = (hog_flow.trigger or {}).get("type")
 
-                        if hog_flow.status != "active" or trigger_type != "batch":
+                        if hog_flow.status != "active" or trigger_type not in SCHEDULED_TRIGGER_TYPES:
                             schedule.next_run_at = None
                             schedule.save(update_fields=["next_run_at", "updated_at"])
                             continue
 
                         advance_next_run(schedule, after=schedule.next_run_at)
 
-                        batch_job_params = {
-                            "team_id": schedule.team_id,
-                            "hog_flow": hog_flow,
-                            "variables": resolve_variables(hog_flow, schedule),
-                            "filters": (hog_flow.trigger or {}).get("filters", {}),
-                        }
+                        if trigger_type == "batch":
+                            batch_job_params = {
+                                "team_id": schedule.team_id,
+                                "hog_flow": hog_flow,
+                                "variables": resolve_variables(hog_flow, schedule),
+                                "filters": (hog_flow.trigger or {}).get("filters", {}),
+                            }
+                        else:
+                            schedule_invocation_params = {
+                                "team_id": schedule.team_id,
+                                "hog_flow_id": str(hog_flow.id),
+                                "variables": resolve_variables(hog_flow, schedule),
+                            }
 
-                    # Create the batch job outside the transaction so the
-                    # post_save signal's HTTP call doesn't hold the row lock.
+                    # Dispatch outside the transaction so HTTP calls don't hold the row lock.
                     if batch_job_params:
                         HogFlowBatchJob.objects.create(
                             **batch_job_params,
                             status=HogFlowBatchJob.State.QUEUED,
                         )
+                        processed.append(str(schedule_id))
+                    elif schedule_invocation_params:
+                        response = create_hog_flow_scheduled_invocation(**schedule_invocation_params)
+                        response.raise_for_status()
                         processed.append(str(schedule_id))
                 except Exception:
                     logger.exception("Error processing schedule", schedule_id=str(schedule_id))
@@ -829,7 +868,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     status=HogFlowSchedule.Status.ACTIVE,
                     next_run_at__isnull=True,
                     hog_flow__status="active",
-                    hog_flow__trigger__type="batch",
+                    hog_flow__trigger__type__in=SCHEDULED_TRIGGER_TYPES,
                 ).values_list("id", flat=True)
             )
 

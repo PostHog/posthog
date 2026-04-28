@@ -321,7 +321,7 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
         return events
     }
 
-    public async start(): Promise<void> {
+    public override async start(): Promise<void> {
         await super.start()
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -339,7 +339,7 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
         })
     }
 
-    public async stop(): Promise<void> {
+    public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.kafkaConsumer.disconnect()
         if (this.cyclotronPool) {

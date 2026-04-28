@@ -16,6 +16,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    Breakdown,
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
@@ -26,6 +27,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     EventsNode,
+    MultipleBreakdownType,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -272,6 +274,41 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
 
+    def test_trends_single_item_multi_breakdown(self):
+        table_name = self.setup_data_warehouse()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="prop_1", type=MultipleBreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert len(response.results) == 4
+        # `breakdown_value` is a list under multi-breakdown, even when there's only one entry —
+        # this exercises the list-vs-string handling in `build_series_response`/`format_results`.
+        breakdown_results = sorted(response.results, key=lambda r: r["breakdown_value"])
+        assert [r["breakdown_value"] for r in breakdown_results] == [["a"], ["b"], ["c"], ["d"]]
+        assert [r["data"] for r in breakdown_results] == [
+            [1, 0, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 0, 0],
+            [0, 0, 0, 1, 0, 0, 0],
+        ]
+
     def test_trends_breakdown_with_event_property(self):
         table_name = self.setup_data_warehouse()
 
@@ -347,43 +384,6 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
-
-    def test_trends_breakdown_with_events_join_experiments_optimized(self):
-        table_name = self.setup_data_warehouse()
-
-        DataWarehouseJoin.objects.create(
-            team=self.team,
-            source_table_name=table_name,
-            source_table_key="prop_1",
-            joining_table_name="events",
-            joining_table_key="distinct_id",
-            field_name="events",
-            configuration={"experiments_optimized": True, "experiments_timestamp_key": "created"},
-        )
-
-        trends_query = TrendsQuery(
-            kind="TrendsQuery",
-            dateRange=DateRange(date_from="2023-01-01"),
-            series=[
-                DataWarehouseNode(
-                    id=table_name,
-                    table_name=table_name,
-                    id_field="id",
-                    distinct_id_field="prop_1",
-                    timestamp_field="created",
-                )
-            ],
-            filterTestAccounts=True,
-            interval="day",
-            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
-        )
-
-        with freeze_time("2023-01-07"):
-            response = self.get_response(trends_query=trends_query)
-
-        assert response.columns is not None
-        assert set(response.columns).issubset({"date", "total"})
-        assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_on_view(self):
@@ -560,7 +560,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                 DataWarehousePropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT),
                 DataWarehousePropertyFilter(key="prop_2", value="e", operator=PropertyOperator.EXACT),
                 EventPropertyFilter(key="prop_1", value="a", operator=PropertyOperator.EXACT),
-                # This should be ignored for DW queries
+                # TODO: This should raise a validation error
             ],
         )
 

@@ -455,53 +455,6 @@ describe('SourceWebhooksConsumer', () => {
                 await insertHogFlow(hub.postgres, hogFlow)
             })
 
-            it('should schedule workflow run for scheduled_at on trigger', async () => {
-                const scheduledAt = '2025-01-02T12:00:00.000Z'
-                const scheduledHogFlow = new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withSimpleWorkflow({
-                        trigger: {
-                            type: 'schedule',
-                            template_id: incomingWebhookTemplate.id,
-                            scheduled_at: scheduledAt,
-                            inputs: {
-                                event: {
-                                    value: 'my-event',
-                                    bytecode: await compileHog(`return f'my-event'`),
-                                },
-                                distinct_id: {
-                                    value: '{request.body.distinct_id}',
-                                    bytecode: await compileHog(`return f'{request.body.distinct_id}'`),
-                                },
-                                method: {
-                                    value: 'POST',
-                                    bytecode: await compileHog(`return f'POST'`),
-                                },
-                            },
-                        },
-                    })
-                    .build()
-                await insertHogFlow(hub.postgres, scheduledHogFlow)
-
-                const res = await doPostRequest({
-                    webhookId: scheduledHogFlow.id,
-                    body: {
-                        event: 'my-event',
-                        distinct_id: 'test-distinct-id',
-                    },
-                })
-                expect(res.status).toEqual(201)
-                expect(res.body).toEqual({ status: 'queued' })
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
-                expect(call.queueScheduledAt.toISO()).toEqual(scheduledAt)
-                await waitForBackgroundTasks()
-                expect(getLogs()).toEqual([
-                    expect.stringContaining('[Action:trigger] Function completed in'),
-                    expect.stringContaining(`[Action:trigger] Workflow run scheduled for ${scheduledAt}`),
-                ])
-            })
-
             it('should 404 if the hog flow does not exist', async () => {
                 const res = await doPostRequest({
                     webhookId: 'non-existent-hog-flow-id',

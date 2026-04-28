@@ -21,6 +21,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
+    // `clickhouse_test_cluster_perf` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
@@ -47,8 +48,11 @@ export const API_SCOPES: APIScope[] = [
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
+    { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
+    { key: 'llm_analytics', objectName: 'LLM analytics', objectPlural: 'LLM analytics' },
     { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
+    { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
@@ -124,6 +128,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'warehouse_view', objectName: 'Warehouse view', objectPlural: 'warehouse views' },
     { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
 ]
+API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read']
 
@@ -192,8 +197,10 @@ export const MCP_SERVER_OAUTH_SCOPES = [
     'email',
     'introspection',
     'user:read',
+    'user:write',
     'organization:read',
     'project:read',
+    'project:write',
     'feature_flag:read',
     'feature_flag:write',
     'experiment:read',
@@ -239,9 +246,13 @@ export const getScopeDescription = (scope: string): string | undefined => {
     }
 
     const scopeObject = API_SCOPES.find((s) => s.key === object)
+    if (!scopeObject) {
+        // Unknown / hidden scope — call sites .filter(Boolean) the result.
+        return undefined
+    }
     const actionWord = action === 'write' ? 'Write' : 'Read'
 
-    return `${actionWord} access to ${scopeObject?.objectPlural ?? scope}`
+    return `${actionWord} access to ${scopeObject.objectPlural}`
 }
 
 export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {

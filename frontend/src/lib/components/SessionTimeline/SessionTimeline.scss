@@ -1,0 +1,15 @@
+.SessionTimeline__scroll-container {
+    // Session timeline only: reserve a visible gutter so the scrollbar area
+    // doesn't visually blend into row actions.
+    box-shadow: inset -12px 0 0 var(--color-bg-fill-tertiary);
+    scrollbar-color: var(--trace-3000) var(--color-bg-fill-tertiary);
+
+    &::-webkit-scrollbar {
+        width: 0.75rem;
+        height: 0.75rem;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: var(--color-bg-fill-tertiary);
+    }
+}

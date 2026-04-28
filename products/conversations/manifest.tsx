@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -47,7 +47,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Support',
             intents: [ProductKey.CONVERSATIONS],
-            category: 'Behavior',
+            category: ProductItemCategory.BEHAVIOR,
             href: urls.supportTickets(),
             type: 'conversations',
             flag: FEATURE_FLAGS.PRODUCT_SUPPORT,

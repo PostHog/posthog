@@ -41,3 +41,9 @@ export const aiOtelEventTypeCounter = new Counter({
     help: 'OTel events by type and library',
     labelNames: ['event_type', 'library'],
 })
+
+export const aiOtelOlderSpecEventsCounter = new Counter({
+    name: 'llma_ai_otel_older_spec_events_total',
+    help: 'Outcome of decoding the older OTel GenAI span-events `events` attribute',
+    labelNames: ['outcome'],
+})

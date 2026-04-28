@@ -7,6 +7,7 @@ import { isOperatorSemver } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
+import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterType, PropertyOperator } from '~/types'
@@ -51,6 +52,7 @@ export type HogFlowFiltersProps = {
 export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }: HogFlowFiltersProps): JSX.Element {
     const shouldShowInternalEvents = useFeatureFlag('WORKFLOWS_INTERNAL_EVENT_FILTERS')
     const sampleGlobals = useSampleGlobals()
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
     if (shouldShowInternalEvents) {
@@ -62,6 +64,7 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.PersonProperties,
+        ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.HogQLExpression,
         TaxonomicFilterGroupType.WorkflowVariables,
     ]
@@ -97,6 +100,7 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
 
 export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
@@ -109,6 +113,7 @@ export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogF
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.PersonProperties,
+                ...groupsTaxonomicTypes,
                 TaxonomicFilterGroupType.HogQLExpression,
                 TaxonomicFilterGroupType.EventMetadata,
             ]}

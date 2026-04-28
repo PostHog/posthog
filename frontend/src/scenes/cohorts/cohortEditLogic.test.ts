@@ -51,7 +51,9 @@ describe('cohortEditLogic', () => {
         await expectLogic(cohortsModel).toFinishAllListeners()
         jest.spyOn(api, 'get')
         jest.spyOn(api, 'update')
+        jest.spyOn(api, 'create')
         api.get.mockClear()
+        api.create.mockClear()
         logic = cohortEditLogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -87,6 +89,7 @@ describe('cohortEditLogic', () => {
             await expectLogic(logic).toDispatchActions(['setCohort'])
 
             expect(api.get).toHaveBeenCalledTimes(0)
+            expect(logic.values.staticCohortMode).toEqual('people')
         })
 
         it('loads new cohort on mount with undefined id', async () => {
@@ -594,8 +597,10 @@ describe('cohortEditLogic', () => {
                                                             row.fields
                                                                 .filter(
                                                                     ({ fieldKey }) =>
-                                                                        !!fieldKey && fieldKey !== 'event_filters'
-                                                                ) // event_filters are optional
+                                                                        !!fieldKey &&
+                                                                        fieldKey !== 'event_filters' &&
+                                                                        fieldKey !== 'explicit_datetime_to'
+                                                                ) // event_filters and explicit_datetime_to are optional
                                                                 .map(({ fieldKey, type }) => [
                                                                     fieldKey,
                                                                     CRITERIA_VALIDATIONS[type](undefined),
@@ -621,11 +626,65 @@ describe('cohortEditLogic', () => {
                     ...mockCohort,
                     is_static: true,
                     groups: [],
+                    filters: { properties: {} as any },
                     csv: undefined,
                 })
+                logic.actions.setStaticCohortMode('people')
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort', 'submitCohortSuccess'])
             expect(api.update).toHaveBeenCalledTimes(1)
+        })
+
+        it('can create static cohort from criteria without csv', async () => {
+            await initCohortLogic({ id: 'new' })
+            const createdCohort = {
+                ...mockCohort,
+                id: 2,
+                name: 'Static from criteria',
+                is_static: true,
+            }
+            const createSpy = jest.spyOn(api.cohorts, 'create').mockResolvedValue(createdCohort)
+            const setTimeoutSpy = jest.spyOn(window, 'setTimeout').mockImplementation(() => 0 as never)
+
+            await expectLogic(logic, async () => {
+                logic.actions.setCohort({
+                    ...mockCohort,
+                    id: 'new',
+                    name: 'Static from criteria',
+                    is_static: true,
+                    filters: {
+                        properties: {
+                            ...mockCohort.filters.properties,
+                            values: [
+                                {
+                                    id: '70427',
+                                    type: FilterLogicalOperator.Or,
+                                    values: [
+                                        {
+                                            type: BehavioralFilterKey.Behavioral,
+                                            value: BehavioralEventType.PerformEvent,
+                                            event_type: TaxonomicFilterGroupType.Events,
+                                            time_value: 30,
+                                            time_interval: TimeUnitType.Day,
+                                            key: 'dashboard date range changed',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                })
+                logic.actions.setStaticCohortMode('criteria')
+                logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort', 'submitCohortSuccess'])
+
+            expect(createSpy).toHaveBeenCalledTimes(1)
+            const createPayload = createSpy.mock.calls[0][0] as FormData
+            expect(createPayload.get('is_static')).toEqual('true')
+            expect(createPayload.get('filters')).toContain('"values"')
+            expect(createPayload.get('filters')).not.toContain('"properties":{}')
+
+            setTimeoutSpy.mockRestore()
         })
 
         it('do not save static cohort with empty csv', async () => {
@@ -638,8 +697,9 @@ describe('cohortEditLogic', () => {
                     csv: undefined,
                     id: 'new',
                 })
+                logic.actions.setStaticCohortMode('people')
                 logic.actions.submitCohort()
-            }).toDispatchActions(['setCohort', 'submitCohort'])
+            }).toDispatchActions(['setCohort', 'setStaticCohortMode', 'submitCohort'])
             expect(api.update).toHaveBeenCalledTimes(0)
         })
 

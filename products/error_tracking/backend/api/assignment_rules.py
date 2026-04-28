@@ -1,11 +1,15 @@
+from uuid import UUID
+
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema_field
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import groups
 
@@ -14,6 +18,79 @@ from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
 from .utils import RuleReorderingMixin, generate_byte_code
 
 logger = structlog.get_logger(__name__)
+
+
+@extend_schema_field(PropertyGroupFilterValue)  # type: ignore[arg-type]
+class ErrorTrackingAssignmentRuleFiltersField(serializers.JSONField):
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Expected a JSON object.")
+        try:
+            PropertyGroupFilterValue(**value)
+        except PydanticValidationError as err:
+            logger.warning("Invalid assignment rule filters payload", exc_info=err)
+            raise serializers.ValidationError("Invalid filters payload.") from err
+        return value
+
+
+@extend_schema_field({"oneOf": [{"type": "integer"}, {"type": "string", "format": "uuid"}]})
+class ErrorTrackingAssignmentRuleAssigneeIdField(serializers.Field):
+    def to_internal_value(self, data):
+        if isinstance(data, bool):
+            raise serializers.ValidationError("Expected an integer user ID or UUID role ID.")
+        if isinstance(data, int):
+            return data
+        if isinstance(data, str):
+            try:
+                return UUID(data)
+            except ValueError:
+                if data.isdigit():
+                    return int(data)
+        raise serializers.ValidationError("Expected an integer user ID or UUID role ID.")
+
+    def to_representation(self, value):
+        return value
+
+
+class ErrorTrackingAssignmentRuleAssigneeRequestSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["user", "role"],
+        help_text="Assignee type. Use `user` for a user ID or `role` for a role UUID.",
+    )
+    id = ErrorTrackingAssignmentRuleAssigneeIdField(
+        help_text="User ID when `type` is `user`, or role UUID when `type` is `role`."
+    )
+
+    def validate(self, attrs):
+        assignee_id = attrs["id"]
+        if attrs["type"] == "user" and not isinstance(assignee_id, int):
+            raise serializers.ValidationError({"id": "User assignee IDs must be integers."})
+        if attrs["type"] == "role" and not isinstance(assignee_id, UUID):
+            raise serializers.ValidationError({"id": "Role assignee IDs must be UUIDs."})
+        return attrs
+
+
+class ErrorTrackingAssignmentRuleCreateRequestSerializer(serializers.Serializer):
+    filters = ErrorTrackingAssignmentRuleFiltersField(
+        help_text="Property-group filters that define when this rule matches incoming error events."
+    )
+    assignee = ErrorTrackingAssignmentRuleAssigneeRequestSerializer(
+        help_text="User or role to assign matching issues to."
+    )
+
+
+class ErrorTrackingAssignmentRuleUpdateRequestSerializer(serializers.Serializer):
+    filters = ErrorTrackingAssignmentRuleFiltersField(
+        required=False,
+        allow_null=True,
+        help_text="Property-group filters that define when this rule matches incoming error events.",
+    )
+    assignee = ErrorTrackingAssignmentRuleAssigneeRequestSerializer(
+        required=False,
+        allow_null=True,
+        help_text="User or role to assign matching issues to.",
+    )
 
 
 class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
@@ -50,10 +127,10 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
 
-    def update(self, request, *args, **kwargs) -> Response:
+    def _apply_rule_update(self, request: ValidatedRequest) -> Response:
         assignment_rule = self.get_object()
-        assignee = request.data.get("assignee")
-        json_filters = request.data.get("filters")
+        json_filters = request.validated_data.get("filters")
+        assignee = request.validated_data.get("assignee")
 
         if json_filters:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
@@ -74,8 +151,19 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
 
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
-    def partial_update(self, request, *args, **kwargs) -> Response:
-        return self.update(request, *args, **kwargs)
+    @validated_request(
+        request_serializer=ErrorTrackingAssignmentRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
+
+    @validated_request(
+        request_serializer=ErrorTrackingAssignmentRuleUpdateRequestSerializer,
+        responses={204: None},
+    )
+    def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        return self._apply_rule_update(request)
 
     def destroy(self, request, *args, **kwargs) -> Response:
         response = super().destroy(request, *args, **kwargs)
@@ -87,14 +175,13 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
 
         return response
 
-    def create(self, request, *args, **kwargs) -> Response:
-        json_filters = request.data.get("filters")
-        assignee = request.data.get("assignee", None)
-
-        if not json_filters:
-            return Response({"error": "Filters are required"}, status=status.HTTP_400_BAD_REQUEST)
-        if not assignee:
-            return Response({"error": "Assignee is required"}, status=status.HTTP_400_BAD_REQUEST)
+    @validated_request(
+        request_serializer=ErrorTrackingAssignmentRuleCreateRequestSerializer,
+        responses={201: OpenApiResponse(response=ErrorTrackingAssignmentRuleSerializer)},
+    )
+    def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        json_filters = request.validated_data["filters"]
+        assignee = request.validated_data["assignee"]
 
         parsed_filters = PropertyGroupFilterValue(**json_filters)
 

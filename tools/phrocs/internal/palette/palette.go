@@ -51,5 +51,6 @@ const (
 	IconStopped = "○"
 	IconDone    = "✓"
 	IconCrashed = "✗"
+	IconStandby = "·"
 	IconWarning = "⚠"
 )

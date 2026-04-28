@@ -11,7 +11,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { urls } from 'scenes/urls'
 
-import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
+import { pipelineHealthLogic } from '~/scenes/health/pipelineStatus/pipelineHealthLogic'
 import { sdkDoctorLogic } from '~/scenes/onboarding/sdks/sdkDoctorLogic'
 
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
@@ -38,7 +38,7 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
     const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sdkDoctorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const pipelineStatusEnabled = !!featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]
-    const { issueCount: pipelineIssueCount } = useValues(sidePanelHealthLogic)
+    const { issueCount: pipelineIssueCount } = useValues(pipelineHealthLogic)
 
     const sdkDoctorTooltip = needsAttention
         ? 'Needs attention'

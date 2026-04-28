@@ -1,4 +1,12 @@
-import { autoFormatYTick, computePercentStackData, computeStackData, createXScale, createYScale } from '../core/scales'
+import {
+    autoFormatYTick,
+    computePercentStackData,
+    computeStackData,
+    createScales,
+    createXScale,
+    createYScale,
+} from '../core/scales'
+import { DEFAULT_Y_AXIS_ID } from '../core/types'
 import { dimensions, makeSeries } from '../test-helpers'
 
 describe('hog-charts scales', () => {
@@ -64,6 +72,13 @@ describe('hog-charts scales', () => {
             expect(domainMin).toBeLessThan(0)
         })
 
+        it('extends max to 0 when all values are negative (mirror of positive-data zero baseline)', () => {
+            const series = [makeSeries({ key: 's1', data: [-30, -20, -10] })]
+            const scale = createYScale(series, dimensions)
+            const [, domainMax] = scale.domain()
+            expect(domainMax).toBe(0)
+        })
+
         it('returns a fallback [0,1] domain for empty series', () => {
             const scale = createYScale([], dimensions)
             expect(scale.domain()).toEqual([0, 1])
@@ -75,9 +90,9 @@ describe('hog-charts scales', () => {
             expect(scale.domain()).toEqual([0, 1])
         })
 
-        it('excludes hidden series from the domain calculation', () => {
+        it('excludes visibility.excluded series from the domain calculation', () => {
             const visible = makeSeries({ key: 'v', data: [0, 10] })
-            const hidden = makeSeries({ key: 'h', data: [0, 1000], hidden: true })
+            const hidden = makeSeries({ key: 'h', data: [0, 1000], visibility: { excluded: true } })
             const scale = createYScale([visible, hidden], dimensions)
             const domainMax = scale.domain()[1]
             // nice() can extend the domain slightly, but it should be nowhere near 1000
@@ -112,6 +127,16 @@ describe('hog-charts scales', () => {
             const scale = createYScale(series, dimensions, { scaleType: 'log' })
             expect(scale(100)).toBeLessThan(scale(1))
         })
+
+        it('falls back to a linear scale when all data is non-positive (log undefined)', () => {
+            const series = [makeSeries({ key: 's1', data: [-100, -50, -10] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log' })
+            // Linear domain spans the data; not collapsed to a 1e-10 single point.
+            const [domainMin, domainMax] = scale.domain()
+            expect(domainMin).toBeLessThan(domainMax)
+            // The fallback is linear, so different inputs produce different outputs (not collapsed).
+            expect(scale(-100)).not.toBeCloseTo(scale(-10), 0)
+        })
     })
 
     describe('createYScale — percent stack mode', () => {
@@ -136,14 +161,87 @@ describe('hog-charts scales', () => {
         })
     })
 
+    describe('createScales — single axis', () => {
+        it('returns no yAxes map when all visible series share the default axis', () => {
+            const series = [makeSeries({ key: 's1', data: [10] }), makeSeries({ key: 's2', data: [20] })]
+            const result = createScales(series, ['a'], dimensions)
+            expect(result.yAxes).toBeUndefined()
+        })
+
+        it('treats all-excluded series as single-axis (no yAxes map)', () => {
+            const series = [
+                makeSeries({ key: 'h1', data: [10], visibility: { excluded: true }, yAxisId: 'y1' }),
+                makeSeries({ key: 'h2', data: [20], visibility: { excluded: true }, yAxisId: 'y2' }),
+            ]
+            const result = createScales(series, ['a'], dimensions)
+            expect(result.yAxes).toBeUndefined()
+        })
+    })
+
+    describe('createScales — multi-axis', () => {
+        it('builds independent per-axis scales with their own domains', () => {
+            const small = makeSeries({ key: 'small', data: [0, 1], yAxisId: DEFAULT_Y_AXIS_ID })
+            const large = makeSeries({ key: 'large', data: [0, 1000], yAxisId: 'y1' })
+            const result = createScales([small, large], ['a', 'b'], dimensions)
+            expect(result.yAxes).not.toBeUndefined()
+            const left = result.yAxes![DEFAULT_Y_AXIS_ID].scale
+            const right = result.yAxes!.y1.scale
+            // 50 is in the middle of left's [0, 1] domain → top of plot; and far below right's [0, 1000]
+            // domain midpoint. Different scales → different pixels.
+            expect(left(1)).not.toBeCloseTo(right(1), 0)
+        })
+
+        it.each([
+            ['DEFAULT_Y_AXIS_ID first', [DEFAULT_Y_AXIS_ID, 'y1']],
+            ['non-default first', ['y1', DEFAULT_Y_AXIS_ID]],
+        ] as const)('assigns left to DEFAULT_Y_AXIS_ID regardless of series order (%s)', (_, [firstId, secondId]) => {
+            const a = makeSeries({ key: 'a', data: [10], yAxisId: firstId })
+            const b = makeSeries({ key: 'b', data: [20], yAxisId: secondId })
+            const result = createScales([a, b], ['x'], dimensions)
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].position).toBe('left')
+            expect(result.yAxes!.y1.position).toBe('right')
+        })
+
+        it('points scales.y at the default axis for backward compat', () => {
+            const a = makeSeries({ key: 'a', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
+            const b = makeSeries({ key: 'b', data: [0, 1000], yAxisId: 'y1' })
+            const result = createScales([a, b], ['x', 'y'], dimensions)
+            expect(result.y(10)).toBe(result.yAxes![DEFAULT_Y_AXIS_ID].scale(10))
+        })
+
+        it('falls back scales.y to the first axis when no series uses DEFAULT_Y_AXIS_ID', () => {
+            const a = makeSeries({ key: 'a', data: [0, 10], yAxisId: 'y1' })
+            const b = makeSeries({ key: 'b', data: [0, 1000], yAxisId: 'y2' })
+            const result = createScales([a, b], ['x', 'y'], dimensions)
+            // Without 'left', 'y1' takes the left position; scales.y should mirror it.
+            expect(result.yAxes!.y1.position).toBe('left')
+            expect(result.y(10)).toBe(result.yAxes!.y1.scale(10))
+        })
+
+        it('excludes visibility.excluded series from per-axis domain calculation', () => {
+            const visible = makeSeries({ key: 'v', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
+            const hiddenOnLeft = makeSeries({
+                key: 'h',
+                data: [0, 9999],
+                visibility: { excluded: true },
+                yAxisId: DEFAULT_Y_AXIS_ID,
+            })
+            const otherAxis = makeSeries({ key: 'o', data: [0, 500], yAxisId: 'y1' })
+            const result = createScales([visible, hiddenOnLeft, otherAxis], ['a', 'b'], dimensions)
+            const [, leftMax] = result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain() as [number, number]
+            // nice() can extend the domain slightly but nowhere near 9999.
+            expect(leftMax).toBeLessThan(100)
+        })
+    })
+
     describe('computePercentStackData', () => {
         it('returns an empty map when there are no series', () => {
             const result = computePercentStackData([], ['a', 'b'])
             expect(result.size).toBe(0)
         })
 
-        it('returns an empty map when all series are hidden', () => {
-            const series = [makeSeries({ key: 's1', data: [10, 20], hidden: true })]
+        it('returns an empty map when all series have visibility.excluded', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20], visibility: { excluded: true } })]
             const result = computePercentStackData(series, ['a', 'b'])
             expect(result.size).toBe(0)
         })
@@ -170,9 +268,9 @@ describe('hog-charts scales', () => {
             }
         })
 
-        it('excludes hidden series from the percent calculation', () => {
+        it('excludes visibility.excluded series from the percent calculation', () => {
             const visible = makeSeries({ key: 'v', data: [50, 50] })
-            const hidden = makeSeries({ key: 'h', data: [50, 50], hidden: true })
+            const hidden = makeSeries({ key: 'h', data: [50, 50], visibility: { excluded: true } })
             const result = computePercentStackData([visible, hidden], ['a', 'b'])
             expect(result.has('h')).toBe(false)
             expect(result.has('v')).toBe(true)
@@ -202,8 +300,8 @@ describe('hog-charts scales', () => {
             expect(result.size).toBe(0)
         })
 
-        it('returns an empty map when all series are hidden', () => {
-            const series = [makeSeries({ key: 's1', data: [10, 20], hidden: true })]
+        it('returns an empty map when all series have visibility.excluded', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20], visibility: { excluded: true } })]
             const result = computeStackData(series, ['a', 'b'])
             expect(result.size).toBe(0)
         })
@@ -243,9 +341,9 @@ describe('hog-charts scales', () => {
             expect(result.get('s3')!.bottom).toEqual([30])
         })
 
-        it('excludes hidden series from the stack', () => {
+        it('excludes visibility.excluded series from the stack', () => {
             const visible = makeSeries({ key: 'v', data: [10, 20] })
-            const hidden = makeSeries({ key: 'h', data: [100, 200], hidden: true })
+            const hidden = makeSeries({ key: 'h', data: [100, 200], visibility: { excluded: true } })
             const result = computeStackData([visible, hidden], ['a', 'b'])
             expect(result.has('h')).toBe(false)
             expect(result.get('v')!.top).toEqual([10, 20])
@@ -259,6 +357,33 @@ describe('hog-charts scales', () => {
             expect(result.get('s1')!.top).toEqual([0, 20])
             expect(result.get('s2')!.bottom).toEqual([0, 20])
             expect(result.get('s2')!.top).toEqual([30, 30])
+        })
+
+        it('stacks per yAxisId so series on different axes do not contaminate each others totals', () => {
+            const left = makeSeries({ key: 'l', data: [10, 20], yAxisId: DEFAULT_Y_AXIS_ID })
+            const right = makeSeries({ key: 'r', data: [1000, 2000], yAxisId: 'y1' })
+            const result = computeStackData([left, right], ['a', 'b'])
+            // Each axis stack starts from 0 — the right-axis values must not pile on top
+            // of the left-axis values (and vice versa).
+            expect(result.get('l')!.bottom).toEqual([0, 0])
+            expect(result.get('l')!.top).toEqual([10, 20])
+            expect(result.get('r')!.bottom).toEqual([0, 0])
+            expect(result.get('r')!.top).toEqual([1000, 2000])
+        })
+
+        it('percent stack groups by yAxisId so each axis sums to 1 independently', () => {
+            const l1 = makeSeries({ key: 'l1', data: [30, 70], yAxisId: DEFAULT_Y_AXIS_ID })
+            const l2 = makeSeries({ key: 'l2', data: [70, 30], yAxisId: DEFAULT_Y_AXIS_ID })
+            const r1 = makeSeries({ key: 'r1', data: [500, 500], yAxisId: 'y1' })
+            const result = computePercentStackData([l1, l2, r1], ['a', 'b'])
+            // Left axis: l2 sits on top of l1, sum = 1.
+            for (const v of result.get('l2')!.top) {
+                expect(v).toBeCloseTo(1, 5)
+            }
+            // Right axis: only one series, so its top is at 1.
+            for (const v of result.get('r1')!.top) {
+                expect(v).toBeCloseTo(1, 5)
+            }
         })
     })
 

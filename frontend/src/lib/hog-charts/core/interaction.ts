@@ -1,6 +1,7 @@
 import { bisector } from 'd3'
 
-import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext } from './types'
+import type { ChartDimensions, PointClickData, ResolveValueFn, Series, TooltipContext, YAxisScale } from './types'
+import { DEFAULT_Y_AXIS_ID } from './types'
 
 export function findNearestIndex(
     mouseX: number,
@@ -13,8 +14,9 @@ export function findNearestIndex(
 
     const positions: { x: number; index: number }[] = []
     for (let i = 0; i < labels.length; i++) {
-        const x = xScale(labels[i]) ?? 0
-        if (isFinite(x)) {
+        const x = xScale(labels[i])
+
+        if (x != null && isFinite(x)) {
             positions.push({ x, index: i })
         }
     }
@@ -44,7 +46,8 @@ export function buildTooltipContext<Meta = unknown>(
     xScale: (label: string) => number | undefined,
     yScale: (value: number) => number,
     canvasBounds: DOMRect,
-    resolveValue: ResolveValueFn
+    resolveValue: ResolveValueFn,
+    yAxes?: Record<string, YAxisScale>
 ): TooltipContext<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
@@ -59,14 +62,15 @@ export function buildTooltipContext<Meta = unknown>(
     const seriesData: TooltipContext<Meta>['seriesData'] = []
     const yPixels: number[] = []
     for (const s of series) {
-        if (s.hidden) {
+        if (s.visibility?.excluded) {
             continue
         }
         const value = resolveValue(s, dataIndex)
-        if (!s.hideFromTooltip) {
+        if (!s.visibility?.fromTooltip) {
             seriesData.push({ series: s, value, color: s.color })
         }
-        const yVal = yScale(value)
+        const seriesYScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
+        const yVal = seriesYScale(value)
         if (isFinite(yVal)) {
             yPixels.push(yVal)
         }
@@ -94,7 +98,7 @@ export function buildPointClickData<Meta = unknown>(
         return null
     }
 
-    const visibleSeries = series.filter((s) => !s.hidden)
+    const visibleSeries = series.filter((s) => !s.visibility?.excluded)
     if (visibleSeries.length === 0) {
         return null
     }

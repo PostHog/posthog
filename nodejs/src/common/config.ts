@@ -3,13 +3,6 @@ import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
 
-export enum KafkaSecurityProtocol {
-    Plaintext = 'PLAINTEXT',
-    SaslPlaintext = 'SASL_PLAINTEXT',
-    Ssl = 'SSL',
-    SaslSsl = 'SASL_SSL',
-}
-
 export enum KafkaSaslMechanism {
     Plain = 'plain',
     ScramSha256 = 'scram-sha-256',
@@ -65,7 +58,6 @@ export type CommonConfig = BaseServerConfig & {
     DISABLE_OPENTELEMETRY_TRACING: boolean
 
     // Tasks
-    TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
 
     // Database
@@ -120,13 +112,12 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: number
-    CONSUMER_BACKGROUND_TASK_TIMEOUT_FORCE_RESOLVE: boolean
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
+    CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
 
     // Kafka
     KAFKA_HOSTS: string
-    KAFKA_SECURITY_PROTOCOL: KafkaSecurityProtocol | undefined
     KAFKA_CLIENT_RACK: string | undefined
     KAFKA_CLIENT_CERT_B64: string | undefined
     KAFKA_CLIENT_CERT_KEY_B64: string | undefined
@@ -206,7 +197,6 @@ export function getDefaultCommonConfig(): CommonConfig {
         DISABLE_OPENTELEMETRY_TRACING: false,
 
         // Tasks
-        TASKS_PER_WORKER: 10,
         TASK_TIMEOUT: 30,
 
         // Database
@@ -279,13 +269,12 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_LOOP_BASED_HEALTH_CHECK: false,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: 60_000,
-        CONSUMER_BACKGROUND_TASK_TIMEOUT_FORCE_RESOLVE: false,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
+        CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
 
         // Kafka
         KAFKA_HOSTS: 'kafka:9092',
-        KAFKA_SECURITY_PROTOCOL: undefined,
         KAFKA_CLIENT_RACK: undefined,
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,

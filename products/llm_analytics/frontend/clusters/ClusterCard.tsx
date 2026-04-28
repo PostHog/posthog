@@ -37,17 +37,28 @@ export function ClusterCard({
 }: ClusterCardProps): JSX.Element {
     const percentage = totalTraces > 0 ? Math.round((cluster.size / totalTraces) * 100) : 0
     const isOutlierCluster = cluster.cluster_id === NOISE_CLUSTER_ID
-    const itemLabel = clusteringLevel === 'generation' ? 'generations' : 'traces'
+    const itemLabel =
+        clusteringLevel === 'generation' ? 'generations' : clusteringLevel === 'evaluation' ? 'evaluations' : 'traces'
 
     const clusterColor = isOutlierCluster ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
 
-    // Check if we have any metrics to show
+    // Check if we have any metrics to show. Eval-specific metrics (passRate /
+    // naRate / dominantEvaluationName / dominantRuntime) count even when the
+    // operational metrics are all null — an eval cluster whose linked generations
+    // were purged still has a meaningful pass rate.
     const hasMetrics =
         metrics &&
         (metrics.avgCost !== null ||
             metrics.avgLatency !== null ||
             metrics.avgTokens !== null ||
-            metrics.errorRate !== null)
+            metrics.errorRate !== null ||
+            (metrics.passRate ?? null) !== null ||
+            (metrics.naRate ?? null) !== null ||
+            !!metrics.dominantEvaluationName ||
+            !!metrics.dominantRuntime ||
+            (metrics.avgJudgeCost ?? null) !== null)
+
+    const isEvalLevel = clusteringLevel === 'evaluation'
 
     return (
         <div
@@ -94,22 +105,88 @@ export function ClusterCard({
                         )}
                         {hasMetrics && (
                             <div className="flex flex-row flex-wrap items-center gap-2 mt-2">
+                                {isEvalLevel && (metrics.passRate ?? null) !== null && (
+                                    <Tooltip
+                                        title={`${Math.round(
+                                            (metrics.passRate as number) * 100
+                                        )}% of evaluations in this cluster passed`}
+                                    >
+                                        <LemonTag
+                                            type={
+                                                (metrics.passRate as number) >= 0.8
+                                                    ? 'success'
+                                                    : (metrics.passRate as number) <= 0.2
+                                                      ? 'danger'
+                                                      : 'warning'
+                                            }
+                                            size="small"
+                                        >
+                                            Pass rate: {Math.round((metrics.passRate as number) * 100)}%
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {isEvalLevel && (metrics.naRate ?? null) !== null && (metrics.naRate as number) > 0 && (
+                                    <Tooltip title="Share of evaluations where the evaluator marked the criteria as not applicable">
+                                        <LemonTag type="muted" size="small">
+                                            N/A: {Math.round((metrics.naRate as number) * 100)}%
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {isEvalLevel && metrics.dominantEvaluationName && (
+                                    <Tooltip title="Most common evaluator in this cluster">
+                                        <LemonTag type="muted" size="small">
+                                            Evaluator: {metrics.dominantEvaluationName}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {isEvalLevel && metrics.dominantRuntime && (
+                                    <Tooltip title="Most common evaluator runtime (llm_judge = LLM-as-judge, hog = deterministic rule-based)">
+                                        <LemonTag type="muted" size="small">
+                                            Runtime: {metrics.dominantRuntime}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                                {isEvalLevel && (metrics.avgJudgeCost ?? null) !== null && (
+                                    <Tooltip title="Average cost of running the LLM-as-judge evaluator per eval in this cluster">
+                                        <LemonTag type="muted" size="small">
+                                            Avg Judge Cost: {formatLLMCost(metrics.avgJudgeCost as number)}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
                                 {metrics.avgCost !== null && (
-                                    <Tooltip title={`Average cost per ${clusteringLevel}`}>
+                                    <Tooltip
+                                        title={
+                                            isEvalLevel
+                                                ? 'Average cost of the linked generation that each evaluation judged'
+                                                : `Average cost per ${clusteringLevel}`
+                                        }
+                                    >
                                         <LemonTag type="muted" size="small">
                                             Avg Cost: {formatLLMCost(metrics.avgCost)}
                                         </LemonTag>
                                     </Tooltip>
                                 )}
                                 {metrics.avgLatency !== null && (
-                                    <Tooltip title={`Average latency per ${clusteringLevel}`}>
+                                    <Tooltip
+                                        title={
+                                            isEvalLevel
+                                                ? 'Average latency of the linked generation that each evaluation judged'
+                                                : `Average latency per ${clusteringLevel}`
+                                        }
+                                    >
                                         <LemonTag type="muted" size="small">
                                             Avg Latency: {formatLLMLatency(metrics.avgLatency)}
                                         </LemonTag>
                                     </Tooltip>
                                 )}
                                 {metrics.avgTokens !== null && (
-                                    <Tooltip title={`Average tokens (input + output) per ${clusteringLevel}`}>
+                                    <Tooltip
+                                        title={
+                                            isEvalLevel
+                                                ? 'Average input + output tokens of the linked generation'
+                                                : `Average tokens (input + output) per ${clusteringLevel}`
+                                        }
+                                    >
                                         <LemonTag type="muted" size="small">
                                             Avg Tokens: {formatTokens(metrics.avgTokens)}
                                         </LemonTag>
@@ -124,7 +201,7 @@ export function ClusterCard({
                                         </LemonTag>
                                     </Tooltip>
                                 )}
-                                {metrics.totalCost !== null && (
+                                {!isEvalLevel && metrics.totalCost !== null && (
                                     <Tooltip title={`Total cost across all ${itemLabel} in this cluster`}>
                                         <LemonTag type="muted" size="small">
                                             Total Cost: {formatLLMCost(metrics.totalCost)}

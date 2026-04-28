@@ -94,7 +94,9 @@ def disable_migrations() -> None:
     Speeds up setup significantly.
     """
     from django.conf import settings
-    from django.core.management.commands import migrate
+    from django.core.management.commands import migrate as django_migrate
+
+    from posthog.management.commands import migrate as posthog_migrate
 
     class DisableMigrations:
         def __contains__(self, item: str) -> bool:
@@ -103,7 +105,7 @@ def disable_migrations() -> None:
         def __getitem__(self, item: str) -> None:
             return None
 
-    class MigrateSilentCommand(migrate.Command):
+    class MigrateSilentCommand(posthog_migrate.Command):
         def handle(self, *args, **kwargs):
             from django.db import connection
 
@@ -115,4 +117,5 @@ def disable_migrations() -> None:
             return super().handle(*args, **kwargs)
 
     settings.MIGRATION_MODULES = DisableMigrations()
-    migrate.Command = MigrateSilentCommand  # type: ignore
+    django_migrate.Command = MigrateSilentCommand  # type: ignore
+    posthog_migrate.Command = MigrateSilentCommand  # type: ignore

@@ -36,45 +36,9 @@ class DevenvConfig(BaseModel):
 
 # Docker compose command building
 
-# Native services that codespaces run as Docker containers instead of local
-# Rust/Go binaries. The profile is None when the service is part of the base
-# compose stack and starts without an explicit profile.
-CODESPACE_SERVICE_PROFILES: dict[str, str | None] = {
-    "capture": "capture",  # profile-gated in docker-compose.dev.yml
-    "feature-flags": None,  # always starts from dev.yml
-    "property-defs-rs": None,  # always starts from codespace overlay
-    "capture-replay": "capture_replay",
-    "capture-ai": "capture_ai",
-    "cyclotron-janitor": "codespace_cyclotron",
-    "livestream": "codespace_livestream",
-}
-
-
-def _is_codespace() -> bool:
-    return os.environ.get("POSTHOG_DEVBOX") == "1"
-
 
 def _get_docker_compose_base() -> str:
-    if _is_codespace():
-        return "docker compose -f docker-compose.dev.yml -f docker-compose.codespace.yml -f docker-compose.profiles.yml"
     return "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml"
-
-
-def get_effective_docker_profiles(profiles: list[str], resolved_units: set[str] | None = None) -> list[str]:
-    """Return docker compose profiles after codespace-specific translation."""
-    effective_profiles = set(profiles)
-
-    if _is_codespace() and resolved_units:
-        for service_name, profile in CODESPACE_SERVICE_PROFILES.items():
-            if service_name in resolved_units and profile:
-                effective_profiles.add(profile)
-
-    return sorted(effective_profiles)
-
-
-def should_skip_native_process(name: str, resolved_units: set[str] | None = None) -> bool:
-    """Return whether a process should be omitted from mprocs in codespace mode."""
-    return _is_codespace() and name in CODESPACE_SERVICE_PROFILES and (resolved_units is None or name in resolved_units)
 
 
 def build_docker_compose_command(profiles: list[str], action: str = "up -d") -> str:
@@ -119,6 +83,7 @@ class MprocsConfig(BaseModel):
     """Represents an mprocs.yaml configuration."""
 
     procs: dict[str, dict[str, Any]]
+    group_order: dict[str, list[str]] = {}  # display order per grouping dimension
     mouse_scroll_speed: int = 1
     scrollback: int = 10000
     posthog_config: DevenvConfig | None = None  # embedded source config
@@ -129,6 +94,8 @@ class MprocsConfig(BaseModel):
         if self.posthog_config:
             result["_posthog"] = self.posthog_config.model_dump(exclude_defaults=True)
         result["procs"] = self.procs
+        if self.group_order:
+            result["group_order"] = self.group_order
         result["mouse_scroll_speed"] = self.mouse_scroll_speed
         result["scrollback"] = self.scrollback
         return result
@@ -158,17 +125,13 @@ class MprocsGenerator(ConfigGenerator):
         procs: dict[str, dict[str, Any]] = {}
 
         # Info process is always first
-        procs["info"] = self._build_info_process(resolved)
+        info_config = self.registry.get_process_config("info") or {}
+        procs["info"] = self._build_info_process(info_config, resolved)
 
         # Iterate in original mprocs.yaml order to preserve ordering
         for name in self.registry.get_processes():
             proc_config = self.registry.get_process_config(name)
             if not proc_config:
-                continue
-
-            # In codespace mode, native Rust/Go services run as Docker
-            # containers — skip them from the mprocs process list.
-            if should_skip_native_process(name, resolved.units):
                 continue
 
             # Include if: in resolved units, or autostart: false (manual start)
@@ -181,9 +144,18 @@ class MprocsGenerator(ConfigGenerator):
             # Copy config to avoid mutating registry's internal state
             proc_config = proc_config.copy()
 
-            # Remove metadata fields - not mprocs config
-            proc_config.pop("capability", None)
+            # Remove metadata fields - not mprocs config.
+            # (note that capability is kept, because it's used in groups)
             proc_config.pop("ask_skip", None)
+
+            # Give procs without an explicit capability a synthetic one so they
+            # don't all fall into "Ungrouped" when the user groups by capability,
+            # as many important ones are in that category (e.g. backend, frontend).
+            if not proc_config.get("capability"):
+                if name in resolved.always_required:
+                    proc_config["capability"] = "always_required"
+                elif is_manual_start:
+                    proc_config["capability"] = "tools"
 
             # Set autostart: false for skipped processes
             if name in resolved.skip_autostart:
@@ -200,9 +172,7 @@ class MprocsGenerator(ConfigGenerator):
 
             # Special handling for docker-compose
             if name == "docker-compose":
-                proc_config = self._generate_docker_compose_config(
-                    resolved.get_docker_profiles_list(), resolved_units=resolved.units
-                )
+                proc_config = self._generate_docker_compose_config(proc_config, resolved.get_docker_profiles_list())
 
             # Special handling for nodejs - set capability groups based on resolved nodejs_* capabilities
             if name == "nodejs":
@@ -229,13 +199,14 @@ class MprocsGenerator(ConfigGenerator):
 
         return MprocsConfig(
             procs=procs,
+            group_order=global_settings.get("group_order", {}),
             mouse_scroll_speed=global_settings.get("mouse_scroll_speed", 1),
             scrollback=global_settings.get("scrollback", 10000),
             posthog_config=source_config,
         )
 
-    def _build_info_process(self, resolved: ResolvedEnvironment) -> dict[str, Any]:
-        """Build the info process shell command with environment summary and news.
+    def _build_info_process(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Update the info process config with a generated shell command.
 
         News is read at runtime from devenv/news.txt so developers always see the
         latest items without re-running hogli dev:generate.
@@ -278,7 +249,8 @@ echo ''
 printf '  {bold}Log in with:{reset} test@posthog.com - {blue}12345678{reset}\\n'
 printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
 """
-        return {"shell": shell}
+        proc_config["shell"] = shell
+        return proc_config
 
     def _add_startup_message(self, proc_config: dict[str, Any], process_name: str, reason: str) -> dict[str, Any]:
         """Add a startup message to a process config.
@@ -301,20 +273,17 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         proc_config["shell"] = message + original_shell
         return proc_config
 
-    def _generate_docker_compose_config(
-        self, profiles: list[str], resolved_units: set[str] | None = None
-    ) -> dict[str, Any]:
-        """Generate docker-compose process config with profile flags.
+    def _generate_docker_compose_config(self, proc_config: dict[str, Any], profiles: list[str]) -> dict[str, Any]:
+        """Update docker-compose process config with profile flags.
 
         Args:
+            proc_config: The existing process configuration dict
             profiles: List of docker compose profiles to activate
-            resolved_units: Resolved unit names (used in codespace mode to
-                inject profiles for native services running as containers)
 
         Returns:
-            Process configuration dict with modified shell command
+            Modified process configuration dict
         """
-        profiles = get_effective_docker_profiles(profiles, resolved_units)
+        profiles = sorted(profiles)
 
         # Build the profile flags (may be empty for minimal stack)
         if profiles:
@@ -325,10 +294,9 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
         logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
 
-        return {
-            "shell": f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}",
-            "ready_pattern": "docker-compose ready",
-        }
+        proc_config["shell"] = f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}"
+        proc_config["ready_pattern"] = "docker-compose ready"
+        return proc_config
 
     def _add_nodejs_capability_groups(
         self, proc_config: dict[str, Any], resolved: ResolvedEnvironment

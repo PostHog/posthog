@@ -3,6 +3,7 @@ from typing import Literal
 from django.conf import settings
 
 from drf_spectacular.utils import extend_schema
+from opentelemetry import trace
 from prometheus_client import Histogram
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -19,6 +20,8 @@ from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.utils import format_query_params_absolute_url
+
+tracer = trace.get_tracer(__name__)
 
 ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "element_stats_time_seconds",
@@ -182,9 +185,17 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        with PROPERTY_VALUES_DURATION.labels(endpoint_type="element").time():
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="element").time(),
+            tracer.start_as_current_span("elements_api_property_values") as span,
+        ):
             key = request.GET.get("key")
             value = request.GET.get("value")
+
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", key or "")
+            span.set_attribute("has_value_filter", value is not None)
+
             select_regex = '[:|"]{}="(.*?)"'.format(key)
 
             # Make sure key exists, otherwise could lead to sql injection lower down
@@ -210,6 +221,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "filter_regex": filter_regex,
                 },
             )
+            span.set_attribute("result_count", len(result))
             return response.Response([{"name": value[0]} for value in result])
 
 

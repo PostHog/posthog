@@ -11,6 +11,8 @@ from rest_framework import status
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
+from ee.models.event_definition import EnterpriseEventDefinition
+
 
 class TestGolangGenerator(APIBaseTest):
     """Test the GolangGenerator class directly"""
@@ -496,16 +498,16 @@ class TestGolangGeneratorAPI(APIBaseTest):
         # Verify telemetry was called
         self._test_telemetry_called(mock_report)
 
-    def test_golang_endpoint_excludes_non_whitelisted_system_events(self):
-        # $autocapture should be excluded
-        # $pageview is whitelisted and should be included
-        EventDefinition.objects.create(team=self.team, project=self.project, name="$autocapture")
+    def test_golang_endpoint_excludes_non_core_system_events(self):
+        # $money is not a core PostHog event so it should be excluded
+        # $pageview is a core event and should be included
+        EventDefinition.objects.create(team=self.team, project=self.project, name="$money")
         EventDefinition.objects.create(team=self.team, project=self.project, name="$pageview")
 
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
 
         code = response.json()["content"]
-        self.assertNotIn("Autocapture", code)
+        self.assertNotIn("Money", code)
         self.assertIn("Pageview", code)
 
     @patch("posthog.api.event_definition_generators.base.report_user_action")
@@ -650,6 +652,29 @@ func main() {
                 f"STDERR:\n{build_result.stderr}\n\n"
                 f"Generated Go file:\n{go_content}",
             )
+
+    def test_excludes_unverified_events_without_schema(self):
+        EventDefinition.objects.create(team=self.team, project=self.project, name="spam_event")
+        EventDefinition.objects.create(team=self.team, project=self.project, name="John Smith clicked button")
+
+        response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
+        code = response.json()["content"]
+
+        self.assertNotIn("spam_event", code)
+        self.assertNotIn("John Smith", code)
+        # Events with schemas from setUp should still be present
+        self.assertIn("FileDownloadedCapture", code)
+        self.assertIn("UserSignedUpCapture", code)
+
+    def test_includes_verified_events_without_schema(self):
+        EnterpriseEventDefinition.objects.create(
+            team=self.team, project=self.project, name="verified_no_schema", verified=True
+        )
+
+        response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/golang")
+        code = response.json()["content"]
+
+        self.assertIn("VerifiedNoSchemaCapture", code)
 
     def _test_telemetry_called(self, mock_report) -> None:
         # Verify telemetry was called

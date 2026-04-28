@@ -1,5 +1,8 @@
-import type { AxisFormat, ChartTheme } from 'lib/charts/types'
-export type { AxisFormat, ChartTheme }
+import type { ChartTheme } from 'lib/charts/types'
+export type { ChartTheme }
+
+/** Default axis id used when a series doesn't specify one. */
+export const DEFAULT_Y_AXIS_ID = 'left'
 
 export interface Series<Meta = unknown> {
     /** Unique identifier used to key React elements and look up stacked data. */
@@ -8,38 +11,66 @@ export interface Series<Meta = unknown> {
     label: string
     /** Numeric values for each x-axis label. Must be the same length as the labels array. */
     data: number[]
-    /** CSS color string (hex, rgb, etc.) for the line and associated fill/points. */
+    /** CSS color string (hex, rgb, var(--…), etc.) for the line and associated fill/points. */
     color: string
-    /** When true, fills the area between the line and the x-axis baseline. */
-    fillArea?: boolean
-    /** Opacity of the area fill. Range 0–1, defaults to 0.5. Ignored when `fillArea` is false. */
-    fillOpacity?: number
-    /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit or [] for solid. */
-    dashPattern?: number[]
-    /** When true, the series is excluded from rendering, scales, and tooltips. */
-    hidden?: boolean
-    /** When true, the series still renders and participates in scales and hit-testing,
-     *  but is omitted from the tooltip's seriesData so it doesn't appear as a row. */
-    hideFromTooltip?: boolean
-    /** Radius in px for data point dots. Set to 0 or omit to hide dots. */
-    pointRadius?: number
+    /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
+    yAxisId?: string
     /** Arbitrary consumer data attached to this series. Flows through to TooltipContext
      *  so custom tooltip components can access domain-specific information (e.g. breakdown
      *  values, comparison labels, anomaly scores) without the library needing to know about them.
      *  Defaults to `unknown` so the library is meta-agnostic internally; adapters narrow it
      *  via `Series<MyMeta>` to get typed reads in their tooltip/click handlers. */
     meta?: Meta
+    /** Point markers configuration. Omit for no dots. */
+    points?: {
+        /** Radius in CSS pixels. */
+        radius: number
+    }
+    /** Line stroke configuration. */
+    stroke?: {
+        /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit for solid. */
+        pattern?: number[]
+        /** A range of indices that should be drawn with a different (typically dashed) pattern. */
+        partial?: {
+            /** Index from which the partial pattern starts (inclusive). Clamped to [0, data.length-1]. */
+            fromIndex?: number
+            /** Index up to which the partial pattern applies (inclusive). Clamped to [0, data.length-1]. */
+            toIndex?: number
+            /** Dash pattern for the partial range. Defaults to [10, 10]. */
+            pattern?: number[]
+        }
+    }
+    /** Area fill configuration. Presence implies the area between the line and baseline is filled. */
+    fill?: {
+        /** Opacity of the area fill. Range 0–1. Defaults to 0.5. */
+        opacity?: number
+        /** Bottom-edge data for fill-between rendering (e.g. confidence interval lower bound).
+         *  When set, the area is drawn between `data` (top) and this (bottom) instead of
+         *  filling down to the x-axis baseline. */
+        lowerData?: number[]
+    }
+    /** Per-axis visibility flags. Each defaults to false (the series is included in everything). */
+    visibility?: {
+        /** Fully exclude the series — no rendering, no scale contribution, no tooltip, no hit-testing. */
+        excluded?: boolean
+        /** Render and participate in scales/hit-testing, but omit from tooltip seriesData. */
+        fromTooltip?: boolean
+        /** ValueLabels overlay skips this series. */
+        fromValueLabels?: boolean
+        /** Excluded from d3 stack computation (auxiliary overlays like trend lines / moving averages). */
+        fromStack?: boolean
+    }
 }
 
 /** Data passed to the `onPointClick` callback when a user clicks a data point. */
 export interface PointClickData<Meta = unknown> {
-    /** Index of the clicked series within the original series array. */
+    /** Index of the primary series within the original series array. */
     seriesIndex: number
     /** Index along the x-axis (into the labels array) that was clicked. */
     dataIndex: number
-    /** The series that was clicked. */
+    /** Primary series at the clicked column. */
     series: Series<Meta>
-    /** The y-value at the clicked point. */
+    /** The y-value of the primary series at the clicked column. */
     value: number
     /** The x-axis label at the clicked point. */
     label: string
@@ -147,12 +178,25 @@ export type ResolveValueFn = (series: Series, dataIndex: number) => number
 /** Factory function that chart types provide to create their scales from dimensions and data. */
 export type CreateScalesFn = (series: Series[], labels: string[], dimensions: ChartDimensions) => ChartScales
 
+/** Per-axis scale: a mapping function and its tick values. */
+export interface YAxisScale {
+    /** Maps a y value to a pixel coordinate on this axis. */
+    scale: (value: number) => number
+    /** Returns tick values for this axis. */
+    ticks: () => number[]
+    /** Visual position of this axis. */
+    position: 'left' | 'right'
+}
+
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
     /** Maps a label to an x pixel coordinate. */
     x: (label: string) => number | undefined
-    /** Maps a y value to a pixel coordinate. */
+    /** Maps a y value to a pixel coordinate. Uses the default (left) axis. */
     y: (value: number) => number
-    /** Returns tick values for the y-axis. */
+    /** Returns tick values for the default (left) y-axis. */
     yTicks: () => number[]
+    /** Per-axis y scales keyed by axis id. Present when dual axes are active.
+     *  When absent, all series use `y` / `yTicks`. */
+    yAxes?: Record<string, YAxisScale>
 }

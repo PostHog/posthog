@@ -54,6 +54,7 @@ ee/support_sidebar_max/.vscode/settings.json
 ee/support_sidebar_max/max-venv/
 frontend/storybook-static
 max-test-venv/
+mts_example_*.json
 node_modules/
 object_storage/
 playwright/e2e-vrt/**/*-darwin.png
@@ -118,8 +119,8 @@ test-results/
 
 # Frontend caching, build artifacts, logs, private assets, etc.
 common/tailwind/dist
-frontend/__snapshots__/__diff_output__/
-frontend/__snapshots__/__failures__/
+frontend/__snapshots__/
+playwright/__snapshots__/
 frontend/.cache/
 frontend/@posthog/apps-common/dist/
 frontend/dist/
@@ -194,6 +195,7 @@ services/mcp/public/ui-apps
 
 # Test output
 junit.xml
+.test_dependency_map
 
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/

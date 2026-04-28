@@ -26,6 +26,7 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
         closePath: jest.fn(),
         arc: jest.fn(),
         setLineDash: jest.fn(),
+        createPattern: jest.fn(() => ({}) as CanvasPattern),
         strokeStyle: '',
         fillStyle: '',
         lineWidth: 0,
@@ -50,6 +51,11 @@ function makeDrawContextWithGaps(ctx: CanvasRenderingContext2D, labels: string[]
     return { ctx, dimensions, xScale, yScale: patchedYScale as any, labels }
 }
 
+/** Collects the dash-pattern argument of every setLineDash call, including the trailing [] reset. */
+function dashCalls(ctx: jest.Mocked<CanvasRenderingContext2D>): number[][] {
+    return ctx.setLineDash.mock.calls.map(([p]: [number[]]) => p)
+}
+
 describe('hog-charts canvas-renderer', () => {
     describe('drawLine — gap handling', () => {
         it.each([
@@ -63,13 +69,22 @@ describe('hog-charts canvas-renderer', () => {
                 expectedLineTo: 0,
             },
             {
-                name: 'skips non-finite y points without breaking the path',
+                name: 'breaks the path on a non-finite y so the gap is not bridged',
                 labels: ['a', 'b', 'c'],
                 data: [10, 50, 90],
                 gapValues: new Set([50]),
                 expectedBeginPath: 1,
-                expectedMoveTo: 1,
-                expectedLineTo: 1,
+                expectedMoveTo: 2,
+                expectedLineTo: 0,
+            },
+            {
+                name: 'rejoins after the gap with a fresh subpath when there are valid points on both sides',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 50, 70, 90],
+                gapValues: new Set([50]),
+                expectedBeginPath: 1,
+                expectedMoveTo: 2,
+                expectedLineTo: 2,
             },
             {
                 name: 'does not draw any path segments when all values are non-finite',
@@ -98,6 +113,201 @@ describe('hog-charts canvas-renderer', () => {
             drawLine(makeDrawContext(ctx, labels), series, [10, 90])
             expect(ctx.moveTo).toHaveBeenCalledTimes(1)
             expect(ctx.lineTo).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('drawLine — partial dashing (stroke.partial)', () => {
+        it.each([
+            // Fast path — neither index set
+            {
+                name: 'neither index set → single solid stroke',
+                length: 3,
+                expectedBeginPath: 1,
+                expectedDashCalls: [[], []],
+            },
+            {
+                name: 'neither index set, with stroke.pattern → whole line uses pattern',
+                length: 3,
+                strokePattern: [4, 4],
+                expectedBeginPath: 1,
+                expectedDashCalls: [[4, 4], []],
+            },
+
+            // partial.fromIndex
+            {
+                name: 'partial.fromIndex mid-series → solid + dashed',
+                length: 5,
+                fromIndex: 3,
+                expectedBeginPath: 2,
+                expectedDashCalls: [[], [10, 10], []],
+            },
+            {
+                name: 'partial.fromIndex === length-1 (projection tail)',
+                length: 5,
+                fromIndex: 4,
+                expectedBeginPath: 2,
+                expectedDashCalls: [[], [10, 10], []],
+            },
+            {
+                name: 'partial.fromIndex === 0 → whole line dashed',
+                length: 3,
+                fromIndex: 0,
+                expectedBeginPath: 1,
+                expectedDashCalls: [[10, 10], []],
+            },
+            {
+                name: 'partial.fromIndex >= length → clamped to last index (solid + trailing dashed)',
+                length: 3,
+                fromIndex: 99,
+                expectedBeginPath: 2,
+                expectedDashCalls: [[], [10, 10], []],
+            },
+            {
+                name: 'negative partial.fromIndex → clamped to 0 (whole line dashed)',
+                length: 3,
+                fromIndex: -5,
+                expectedBeginPath: 1,
+                expectedDashCalls: [[10, 10], []],
+            },
+
+            // partial.toIndex
+            {
+                name: 'partial.toIndex mid-series → dashed + solid',
+                length: 5,
+                toIndex: 1,
+                expectedBeginPath: 2,
+                expectedDashCalls: [[10, 10], [], []],
+            },
+            {
+                name: 'partial.toIndex === length-1 → whole line dashed',
+                length: 3,
+                toIndex: 2,
+                expectedBeginPath: 1,
+                expectedDashCalls: [[10, 10], []],
+            },
+            {
+                name: 'partial.toIndex < 0 → clamped to 0 (single-index leading dash + solid rest)',
+                length: 3,
+                toIndex: -5,
+                expectedBeginPath: 2,
+                expectedDashCalls: [[10, 10], [], []],
+            },
+            {
+                name: 'partial.toIndex beyond length → clamped to last index (whole line dashed)',
+                length: 3,
+                toIndex: 99,
+                expectedBeginPath: 1,
+                expectedDashCalls: [[10, 10], []],
+            },
+
+            // Both ends
+            {
+                name: 'both ends with a solid middle → dashed + solid + dashed',
+                length: 7,
+                toIndex: 1,
+                fromIndex: 5,
+                expectedBeginPath: 3,
+                expectedDashCalls: [[10, 10], [], [10, 10], []],
+            },
+            {
+                name: 'both ends meet (to === from - 1) → whole line dashed',
+                length: 5,
+                toIndex: 2,
+                fromIndex: 3,
+                expectedBeginPath: 1,
+                expectedDashCalls: [[10, 10], []],
+            },
+            {
+                name: 'both ends overlap (to > from - 1) → whole line dashed',
+                length: 5,
+                toIndex: 3,
+                fromIndex: 2,
+                expectedBeginPath: 1,
+                expectedDashCalls: [[10, 10], []],
+            },
+
+            // Rounding and pattern overrides
+            {
+                name: 'non-integer indices rounded (3.6 → 4)',
+                length: 5,
+                fromIndex: 3.6,
+                expectedBeginPath: 2,
+                expectedDashCalls: [[], [10, 10], []],
+            },
+            {
+                name: 'partial.pattern override applies to the dashed portion',
+                length: 4,
+                fromIndex: 2,
+                partialPattern: [2, 8],
+                expectedBeginPath: 2,
+                expectedDashCalls: [[], [2, 8], []],
+            },
+            {
+                name: 'stroke.pattern applies to the solid portion alongside partial.pattern on the dashed portion',
+                length: 4,
+                fromIndex: 2,
+                strokePattern: [2, 2],
+                expectedBeginPath: 2,
+                expectedDashCalls: [[2, 2], [10, 10], []],
+            },
+        ])(
+            '$name',
+            ({ length, fromIndex, toIndex, strokePattern, partialPattern, expectedBeginPath, expectedDashCalls }) => {
+                const ctx = mockCanvasContext()
+                const labels = Array.from({ length }, (_, i) => String.fromCharCode(97 + i))
+                const data = Array.from({ length }, (_, i) => (i + 1) * 10)
+                const series = makeSeries({
+                    key: 's1',
+                    data,
+                    stroke: {
+                        pattern: strokePattern,
+                        partial:
+                            fromIndex !== undefined || toIndex !== undefined || partialPattern !== undefined
+                                ? { fromIndex, toIndex, pattern: partialPattern }
+                                : undefined,
+                    },
+                })
+                drawLine(makeDrawContext(ctx, labels), series)
+                expect(ctx.beginPath).toHaveBeenCalledTimes(expectedBeginPath)
+                expect(dashCalls(ctx)).toEqual(expectedDashCalls)
+            }
+        )
+
+        // Kept out of the parameterized table — asserts boundary-point sharing via moveTo/lineTo counts.
+        it('shares the boundary point across adjacent subpaths', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({
+                key: 's1',
+                data: [10, 20, 30, 40, 50],
+                stroke: { partial: { fromIndex: 3 } },
+            })
+            drawLine(makeDrawContext(ctx, ['a', 'b', 'c', 'd', 'e']), series)
+            // Solid [0..2]: moveTo + 2 lineTos. Dashed [2..4]: moveTo + 2 lineTos.
+            expect(ctx.moveTo).toHaveBeenCalledTimes(2)
+            expect(ctx.lineTo).toHaveBeenCalledTimes(4)
+        })
+
+        it('applies partial dashing against the yValues override length, not series.data', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({
+                key: 's1',
+                data: [0, 0, 0, 0], // longer than the yValues override
+                stroke: { partial: { fromIndex: 1 } },
+            })
+            drawLine(makeDrawContext(ctx, ['a', 'b']), series, [10, 90])
+            // yValues length 2, fromIndex 1 → zero-length solid middle skipped; one dashed subpath.
+            expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+            expect(dashCalls(ctx)).toEqual([[10, 10], []])
+        })
+
+        it('does not crash on a length-1 data array', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [42], stroke: { partial: { fromIndex: 0 } } })
+            drawLine(makeDrawContext(ctx, ['a']), series)
+            // Single point: moveTo once, no lineTo, stroke draws nothing visible.
+            expect(ctx.beginPath).toHaveBeenCalledTimes(1)
+            expect(ctx.moveTo).toHaveBeenCalledTimes(1)
+            expect(ctx.lineTo).toHaveBeenCalledTimes(0)
         })
     })
 
@@ -142,6 +352,64 @@ describe('hog-charts canvas-renderer', () => {
             // Last two lineTo calls should be at the baseline
             expect(lineToArgs[lineToArgs.length - 1]).toBe(baseline)
             expect(lineToArgs[lineToArgs.length - 2]).toBe(baseline)
+        })
+    })
+
+    describe('drawArea — partial dashing', () => {
+        it.each([
+            {
+                name: 'partial.fromIndex only → solid leading + hatched trailing',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 30, 40, 50],
+                fromIndex: 3 as number | undefined,
+                toIndex: undefined as number | undefined,
+                expectedFills: 2,
+            },
+            {
+                name: 'partial.toIndex only → hatched leading + solid trailing',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 30, 40, 50],
+                fromIndex: undefined as number | undefined,
+                toIndex: 1 as number | undefined,
+                expectedFills: 2,
+            },
+            {
+                name: 'both indices → hatched + solid + hatched',
+                labels: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+                data: [10, 20, 30, 40, 50, 60, 70],
+                fromIndex: 5 as number | undefined,
+                toIndex: 1 as number | undefined,
+                expectedFills: 3,
+            },
+        ])('$name', ({ labels, data, fromIndex, toIndex, expectedFills }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's', data, stroke: { partial: { fromIndex, toIndex } } })
+            drawArea(makeDrawContext(ctx, labels), series)
+            expect(ctx.fill).toHaveBeenCalledTimes(expectedFills)
+        })
+    })
+
+    describe('drawArea — fill.lowerData edge cases', () => {
+        it.each([
+            {
+                name: 'shorter than data → segment breaks instead of silently baseline-filling',
+                labels: ['a', 'b', 'c', 'd'],
+                data: [10, 20, 30, 40],
+                bottomValues: [5, 5],
+                expectedFills: 1,
+            },
+            {
+                name: 'non-finite mid-segment → splits into two fills',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 30, 40, 50],
+                bottomValues: [5, 5, NaN, 5, 5],
+                expectedFills: 2,
+            },
+        ])('$name', ({ labels, data, bottomValues, expectedFills }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's', data })
+            drawArea(makeDrawContext(ctx, labels), series, undefined, bottomValues)
+            expect(ctx.fill).toHaveBeenCalledTimes(expectedFills)
         })
     })
 

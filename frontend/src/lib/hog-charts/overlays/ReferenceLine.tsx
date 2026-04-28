@@ -1,9 +1,7 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
 import React, { useMemo } from 'react'
 
-import { resolveVariableColor } from 'lib/charts/utils/color'
-
-import { useChart } from '../core/chart-context'
+import { useChartLayout } from '../core/chart-context'
 
 export type ReferenceLineOrientation = 'horizontal' | 'vertical'
 export type ReferenceLineVariant = 'goal' | 'alert' | 'marker'
@@ -41,6 +39,8 @@ export interface ReferenceLineProps {
     fillSide?: ReferenceLineFillSide
     /** Preset: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin grey). Defaults to `goal`. */
     variant?: ReferenceLineVariant
+    /** Which y-axis this line references. Only used for horizontal lines. Defaults to the primary axis. */
+    yAxisId?: string
 }
 
 interface ResolvedStyle {
@@ -63,7 +63,7 @@ const LABEL_PADDING = 4
 function resolveStyle(variant: ReferenceLineVariant, style: ReferenceLineStyle | undefined): ResolvedStyle {
     const defaults = VARIANT_DEFAULTS[variant]
     return {
-        color: resolveVariableColor(style?.color) ?? resolveVariableColor(defaults.color) ?? defaults.color,
+        color: style?.color ?? defaults.color,
         stroke: style?.stroke ?? defaults.stroke,
         width: style?.width ?? defaults.width,
     }
@@ -85,19 +85,25 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
  *  {@link ReferenceLineView}. */
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
     const { orientation = 'horizontal', variant = 'goal', style } = props
-    const resolved = useMemo(() => resolveStyle(variant, style), [variant, style?.color, style?.stroke, style?.width])
+    const resolved = useMemo(
+        () => resolveStyle(variant, style),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [variant, style?.color, style?.stroke, style?.width]
+    )
 
     const common: ResolvedProps = {
         resolved,
         fillSide: props.fillSide,
-        fillColor: resolveVariableColor(style?.fillColor) ?? resolved.color,
+        fillColor: style?.fillColor ?? resolved.color,
         fillOpacity: style?.fillOpacity ?? 0.1,
         label: props.label,
         labelPosition: props.labelPosition ?? 'end',
     }
 
     if (orientation === 'horizontal') {
-        return typeof props.value === 'number' ? <HorizontalReferenceLine y={props.value} {...common} /> : null
+        return typeof props.value === 'number' ? (
+            <HorizontalReferenceLine y={props.value} yAxisId={props.yAxisId} {...common} />
+        ) : null
     }
     return typeof props.value === 'string' ? <VerticalReferenceLine xLabel={props.value} {...common} /> : null
 }
@@ -113,19 +119,21 @@ interface ResolvedProps {
 
 function HorizontalReferenceLine({
     y: value,
+    yAxisId,
     resolved,
     fillSide,
     fillColor,
     fillOpacity,
     label,
     labelPosition,
-}: ResolvedProps & { y: number }): React.ReactElement | null {
-    const { scales, dimensions } = useChart()
+}: ResolvedProps & { y: number; yAxisId?: string }): React.ReactElement | null {
+    const { scales, dimensions } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width: containerWidth } = dimensions
     const plotRight = plotLeft + plotWidth
     const plotBottom = plotTop + plotHeight
 
-    const y = scales.y(value)
+    const yScaleFn = yAxisId && scales.yAxes?.[yAxisId] ? scales.yAxes[yAxisId].scale : scales.y
+    const y = yScaleFn(value)
     if (!isFinite(y) || y < plotTop || y > plotBottom) {
         return null
     }
@@ -135,7 +143,9 @@ function HorizontalReferenceLine({
         top: y - resolved.width / 2,
         width: plotWidth,
         height: 0,
-        borderTop: `${resolved.width}px ${resolved.stroke} ${resolved.color}`,
+        borderTopWidth: resolved.width,
+        borderTopStyle: resolved.stroke,
+        borderTopColor: resolved.color,
     }
     const labelStyle: React.CSSProperties = {
         top: y - LABEL_OFFSET,
@@ -173,7 +183,7 @@ function VerticalReferenceLine({
     label,
     labelPosition,
 }: ResolvedProps & { xLabel: string }): React.ReactElement | null {
-    const { scales, dimensions } = useChart()
+    const { scales, dimensions } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, height: containerHeight } = dimensions
     const plotRight = plotLeft + plotWidth
     const plotBottom = plotTop + plotHeight
@@ -188,7 +198,9 @@ function VerticalReferenceLine({
         top: plotTop,
         width: 0,
         height: plotHeight,
-        borderLeft: `${resolved.width}px ${resolved.stroke} ${resolved.color}`,
+        borderLeftWidth: resolved.width,
+        borderLeftStyle: resolved.stroke,
+        borderLeftColor: resolved.color,
     }
     const labelStyle: React.CSSProperties = {
         left: x + LABEL_PADDING,

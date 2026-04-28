@@ -54,7 +54,7 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
             content: (
                 <>
                     <Markdown>
-                        Add `posthog-js` and `posthog-js/react` to `ssr.noExternal` in your `vite.config.ts` so they get
+                        Add `posthog-js` and `@posthog/react` to `ssr.noExternal` in your `vite.config.ts` so they get
                         bundled for SSR:
                     </Markdown>
                     <CodeBlock
@@ -79,7 +79,7 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                         tsconfigPaths(),
                                       ],
                                       ssr: {
-                                        noExternal: ["posthog-js", "posthog-js/react"],
+                                        noExternal: ["posthog-js", "@posthog/react"],
                                       },
                                     });
                                 `,
@@ -106,7 +106,7 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 code: dedent`
                                     import { useEffect, useState } from "react";
                                     import posthog from "posthog-js";
-                                    import { PostHogProvider } from "posthog-js/react";
+                                    import { PostHogProvider } from "@posthog/react";
 
                                     export function PHProvider({ children }: { children: React.ReactNode }) {
                                       const [hydrated, setHydrated] = useState(false);

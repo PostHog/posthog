@@ -35,33 +35,38 @@ class CountAllPlaylistsWorkflow(PostHogWorkflow):
         if not playlist_infos:
             return
 
-        tasks = []
-        for info in playlist_infos:
-            task = temporalio.workflow.execute_child_workflow(
-                CountPlaylistWorkflow.run,
-                CountPlaylistInput(playlist_id=info.playlist_id),
-                id=f"count-playlist-{info.playlist_id}",
-                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=timedelta(minutes=30),
-            )
-            tasks.append((info.playlist_id, task))
-
-        results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
-
+        BATCH_SIZE = 500
         failed_ids = []
-        for (playlist_id, _), result in zip(tasks, results):
-            if isinstance(result, BaseException):
-                if isinstance(result, WorkflowAlreadyStartedError):
-                    temporalio.workflow.logger.info(
-                        "count_playlist.already_running",
-                        extra={"playlist_id": playlist_id},
-                    )
-                else:
-                    failed_ids.append(playlist_id)
-                    temporalio.workflow.logger.warning(
-                        "count_playlist.child_workflow_error",
-                        extra={"playlist_id": playlist_id, "error": str(result)},
-                    )
+
+        for batch_start in range(0, len(playlist_infos), BATCH_SIZE):
+            batch = playlist_infos[batch_start : batch_start + BATCH_SIZE]
+
+            tasks = []
+            for info in batch:
+                task = temporalio.workflow.execute_child_workflow(
+                    CountPlaylistWorkflow.run,
+                    CountPlaylistInput(playlist_id=info.playlist_id),
+                    id=f"count-playlist-{info.playlist_id}",
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                    execution_timeout=timedelta(minutes=30),
+                )
+                tasks.append((info.playlist_id, task))
+
+            results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
+
+            for (playlist_id, _), result in zip(tasks, results):
+                if isinstance(result, BaseException):
+                    if isinstance(result, WorkflowAlreadyStartedError):
+                        temporalio.workflow.logger.info(
+                            "count_playlist.already_running",
+                            extra={"playlist_id": playlist_id},
+                        )
+                    else:
+                        failed_ids.append(playlist_id)
+                        temporalio.workflow.logger.warning(
+                            "count_playlist.child_workflow_error",
+                            extra={"playlist_id": playlist_id, "error": str(result)},
+                        )
 
         if failed_ids:
             raise ApplicationError(
