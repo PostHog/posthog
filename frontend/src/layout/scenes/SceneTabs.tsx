@@ -4,7 +4,6 @@ import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '
 import { SortableContext, horizontalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import React, { Fragment, useEffect, useRef, useState } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
@@ -269,8 +268,11 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         e.stopPropagation()
                         e.preventDefault()
                         if (!isDragging) {
+                            // clickOnTab already activates the tab and pushes its URL — pushing
+                            // again here triggered urlToAction twice, racing the async loadScene
+                            // listener via kea's breakpoint and occasionally landing the tab on
+                            // Scene.Error404 ("lost in space") after switching tabs.
                             clickOnTab(tab)
-                            router.actions.push(`${tab.pathname}${tab.search}${tab.hash}`)
                         }
                     }}
                     onAuxClick={(e) => {

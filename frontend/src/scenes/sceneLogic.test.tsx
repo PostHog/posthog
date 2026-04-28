@@ -306,6 +306,142 @@ describe('sceneLogic', () => {
         expect(tab3Instances[0].pinned).toBe(false)
         expect(pinnedTabs.map((tab) => tab.id)).not.toContain('tab-3')
     })
+    it('keeps scene loaded when pinned tab pathname has search params and we revisit', async () => {
+        await expectLogic(logic).toDispatchActions(['setScene'])
+
+        logic.actions.setTabs([
+            {
+                id: 'tab-a',
+                active: true,
+                pathname: urls.eventDefinitions(),
+                search: '?type=event',
+                hash: '',
+                title: 'Data',
+                iconType: 'blank',
+                pinned: true,
+                sceneId: Scene.DataManagement,
+            },
+            {
+                id: 'tab-b',
+                active: false,
+                pathname: urls.settings('user'),
+                search: '',
+                hash: '',
+                title: 'Settings',
+                iconType: 'blank',
+                pinned: true,
+                sceneId: Scene.Settings,
+            },
+        ])
+        router.actions.push(urls.eventDefinitions(), '?type=event')
+        await expectLogic(logic).toDispatchActions(['setScene'])
+        expect(logic.values.sceneId).toBe(Scene.DataManagement)
+
+        const simulateTabClick = (id: string): void => {
+            const tab = logic.values.tabs.find((t) => t.id === id)!
+            logic.actions.clickOnTab(tab)
+            router.actions.push(`${tab.pathname}${tab.search}${tab.hash}`)
+        }
+
+        simulateTabClick('tab-b')
+        await expectLogic(logic).toDispatchActions(['setScene'])
+        expect(logic.values.sceneId).toBe(Scene.Settings)
+
+        simulateTabClick('tab-a')
+        await expectLogic(logic).toDispatchActions(['setScene'])
+        expect(logic.values.sceneId).toBe(Scene.DataManagement)
+        expect(logic.values.activeSceneId).not.toBe(Scene.Error404)
+    })
+
+    it('keeps scene loaded after re-clicking the active pinned tab (no activate path)', async () => {
+        // Variant: user clicks the *active* pinned tab. clickOnTab skips activateTab but still
+        // dispatches the URL push. The catch-all "/*" must not steal the navigation.
+        await expectLogic(logic).toDispatchActions(['setScene'])
+
+        logic.actions.setTabs([
+            {
+                id: 'tab-a',
+                active: true,
+                pathname: urls.eventDefinitions(),
+                search: '',
+                hash: '',
+                title: 'Data',
+                iconType: 'blank',
+                pinned: true,
+                sceneId: Scene.DataManagement,
+            },
+        ])
+        router.actions.push(urls.eventDefinitions())
+        await expectLogic(logic).toDispatchActions(['setScene'])
+        expect(logic.values.sceneId).toBe(Scene.DataManagement)
+
+        const tabA = logic.values.tabs.find((t) => t.id === 'tab-a')!
+        logic.actions.clickOnTab(tabA)
+        router.actions.push(`${tabA.pathname}${tabA.search}${tabA.hash}`)
+        await expectLogic(logic).toDispatchActions(['setScene'])
+        expect(logic.values.sceneId).toBe(Scene.DataManagement)
+    })
+
+    it('keeps scene loaded after switching from a pinned tab and back (all-pinned tabs)', async () => {
+        // Reproduces a regression where a pinned tab would render the Error404 ("lost in space")
+        // page after the user clicked a different tab and clicked back to the pinned tab.
+        // The repro requires only-pinned tabs so that initialNavigationTabCreated stays false
+        // and ensureNavigationTabId creates ghost navigation tabs on URL pushes.
+        await expectLogic(logic).toDispatchActions(['setScene'])
+
+        // Reset to a state with only pinned tabs (mimics a fresh session where only pinned tabs
+        // exist). The afterMount sync logic sets initialNavigationTabCreated based on this state.
+        logic.cache.initialNavigationTabCreated = false
+        logic.actions.setTabs([
+            {
+                id: 'tab-a',
+                active: true,
+                pathname: urls.eventDefinitions(),
+                search: '',
+                hash: '',
+                title: 'Data',
+                iconType: 'blank',
+                pinned: true,
+                sceneId: Scene.DataManagement,
+                sceneKey: 'eventDefinitions',
+            },
+            {
+                id: 'tab-b',
+                active: false,
+                pathname: urls.settings('user'),
+                search: '',
+                hash: '',
+                title: 'Settings',
+                iconType: 'blank',
+                pinned: true,
+                sceneId: Scene.Settings,
+            },
+        ])
+
+        // Helper that mirrors SceneTabs.tsx onClick — calls clickOnTab and then pushes the URL.
+        const simulateTabClick = (id: string): void => {
+            const tab = logic.values.tabs.find((t) => t.id === id)!
+            logic.actions.clickOnTab(tab)
+            router.actions.push(`${tab.pathname}${tab.search}${tab.hash}`)
+        }
+
+        // Activate tab A by navigating to it (initial state).
+        router.actions.push(urls.eventDefinitions())
+        await expectLogic(logic).toDispatchActions(['setScene'])
+        expect(logic.values.sceneId).toBe(Scene.DataManagement)
+
+        // Click tab B to switch to it.
+        simulateTabClick('tab-b')
+        await expectLogic(logic).toDispatchActions(['setScene'])
+        expect(logic.values.sceneId).toBe(Scene.Settings)
+
+        // Click back to tab A. The scene must remain DataManagement, not Error404.
+        simulateTabClick('tab-a')
+        await expectLogic(logic).toDispatchActions(['setScene'])
+        expect(logic.values.sceneId).toBe(Scene.DataManagement)
+        expect(logic.values.activeSceneId).not.toBe(Scene.Error404)
+    })
+
     it('hydrates pinned tabs stored under legacy personal key', async () => {
         const teamId = teamLogic.values.currentTeamId ?? 'null'
         const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`

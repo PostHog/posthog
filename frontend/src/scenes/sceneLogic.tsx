@@ -459,7 +459,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     return sortTabsPinnedFirst([...baseTabs, newTab])
                 },
                 removeTab: (state, { tab }) => {
-                    let index = state.findIndex((t) => t === tab)
+                    let index = state.findIndex((t) => t === tab || t.id === tab.id)
                     if (index === -1) {
                         console.error('Tab to remove not found', tab)
                         return state
@@ -484,19 +484,17 @@ export const sceneLogic = kea<sceneLogicType>([
                     return ensureActiveTab(sortTabsPinnedFirst(newState))
                 },
                 activateTab: (state, { tab }) => {
-                    const newState = state.map((t) =>
-                        t === tab
-                            ? !t.active
-                                ? { ...t, active: true, badge: false }
-                                : t
-                            : t.active
-                              ? {
-                                    ...t,
-                                    active: false,
-                                }
-                              : t
-                    )
-                    return sortTabsPinnedFirst(newState)
+                    // Match by id to survive stale React closures: by the time the click
+                    // dispatches, the state's tab object reference may have been replaced by
+                    // a previous setScene/setTabs run.
+                    const newState = state.map((t) => {
+                        const isTarget = t === tab || t.id === tab.id
+                        if (isTarget) {
+                            return t.active ? t : { ...t, active: true, badge: false }
+                        }
+                        return t.active ? { ...t, active: false } : t
+                    })
+                    return ensureActiveTab(sortTabsPinnedFirst(newState))
                 },
                 reorderTabs: (state, { activeId, overId }) => {
                     const activeIndex = state.findIndex((t) => t.id === activeId)
