@@ -370,6 +370,7 @@ layer = "modules"
 path = "products.query_performance_ai"
 depends_on = [
     "posthog",
+    "products.tasks",
 ]
 layer = "modules"
 

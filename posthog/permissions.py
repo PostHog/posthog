@@ -475,8 +475,13 @@ class APIScopePermission(ScopeBasePermission):
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             key_scopes = request.successful_authenticator.personal_api_key.scopes
         elif isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
+            access_token = request.successful_authenticator.access_token
+            # User-less OAuth tokens (`create_internal_oauth_access_token`) are only valid on INTERNAL viewsets
+            if access_token.user is None and self._get_scope_object(request, view) != "INTERNAL":
+                self.message = "User-less OAuth tokens are only valid on INTERNAL endpoints"
+                return False
             # OAuth tokens store scopes as space-separated string
-            token_scope_string = request.successful_authenticator.access_token.scope
+            token_scope_string = access_token.scope
             key_scopes = token_scope_string.split() if token_scope_string else []
             # OAuth tokens with no scopes should not have access
             if not key_scopes:

@@ -26,6 +26,7 @@ logger = structlog.get_logger(__name__)
 class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
     OAUTH = "oauth"
+    OAUTH_INTERNAL = "oauth_internal"
 
 
 class Product(StrEnum):
@@ -89,6 +90,7 @@ class Feature(StrEnum):
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
     MANAGEMENT_COMMAND = "management_command"
+    AUTORESEARCH = "autoresearch"
 
 
 class TemporalTags(BaseModel):

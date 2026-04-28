@@ -255,9 +255,13 @@
                 <query>GRANT SELECT ON posthog_test.sharded_session_recording_events</query>
                 <query>GRANT SELECT ON posthog_test.writable_session_recording_events</query>
 
-                <!-- Paired with the row policy in
-                     docker-entrypoint-initdb.d/autoresearch-row-policies.sql. -->
+                <!-- Profiling tables. Each is paired with a RESTRICTIVE row
+                     policy in docker-entrypoint-initdb.d/autoresearch-row-policies.sql
+                     that filters to the autoresearch user's own queries. -->
                 <query>GRANT SELECT ON system.query_log</query>
+                <query>GRANT SELECT ON system.query_thread_log</query>
+                <query>GRANT SELECT ON system.text_log</query>
+                <query>GRANT SELECT ON system.trace_log</query>
             </grants>
         </autoresearch>
     </users>

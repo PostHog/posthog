@@ -1,0 +1,21 @@
+{
+    "version": 1,
+    "status": "initializing",
+    "active_lane": null,
+    "best_candidate": {
+        "query_file": "query/best.sql",
+        "primary_metric": null,
+        "run_id": null,
+        "summary": ""
+    },
+    "review_counters": {
+        "since_lane_significant_improvement": 0,
+        "since_campaign_significant_improvement": 0,
+        "recent_new_hypotheses": 0
+    },
+    "lanes": [],
+    "hypotheses": [],
+    "integration_opportunities": [],
+    "repair_candidates": [],
+    "recent_learning": []
+}

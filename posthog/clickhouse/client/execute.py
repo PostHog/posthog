@@ -191,6 +191,7 @@ def sync_execute(
     readonly=False,
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    query_id: Optional[str] = None,
 ):
     """
     Executes a synchronous query on the ClickHouse database based on predefined workloads and tags.
@@ -271,7 +272,8 @@ def sync_execute(
         tags.team_id = team_id
 
     prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
-    query_id = validated_client_query_id()
+    if query_id is None:
+        query_id = validated_client_query_id()
     core_settings = {
         **default_settings(),
         **CLICKHOUSE_PER_TEAM_QUERY_SETTINGS.get(str(team_id), {}),

@@ -13,6 +13,11 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "**/eval/**" = ["ANN"]
 "**/dags/**" = ["ANN"]
 "**/scripts/**" = ["ANN"]
+# Autoresearch sandbox scripts: stdout is the protocol they speak to the
+# orchestrator. The "no print" lint applies to long-running services, not
+# to sandbox programs whose output is the result.
+"query_performance_ai/autoresearch/**" = ["T201", "ANN"]
+"query_performance_ai/scripts/**" = ["T201", "ANN"]
 "**/stats/**" = ["ANN"]
 
 # Temporarily exempted — too many violations to fix in one pass.

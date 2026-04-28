@@ -16199,13 +16199,8 @@ export namespace Schemas {
     }
 
     export interface ExecuteTestClusterResponse {
-      /** Rows returned, each as a positional list of canonicalized values. */
+      /** Rows returned, each as a positional list of values from the ClickHouse driver. */
       result: unknown[][];
-      /**
-       * ClickHouse query_id for this execution.
-       * @nullable
-       */
-      query_id: string | null;
       /**
        * Server-side elapsed time in milliseconds.
        * @nullable
@@ -16223,6 +16218,8 @@ export namespace Schemas {
       bytes_read: number | null;
       /** Rows in the `result` payload. */
       rows_returned: number;
+      /** Server-minted query id; the caller can look this up in `system.query_log`. */
+      query_id: string;
     }
 
     /**

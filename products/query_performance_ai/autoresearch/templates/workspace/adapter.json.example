@@ -1,0 +1,6 @@
+{
+  "_comment": "ClickHouse transport config. Only supported type today is 'posthog_proxy' (see products/query_performance_ai/autoresearch/scripts/transports.py). `url` is the PostHog app base URL; `token` is an OAuth access token with scope clickhouse_test_cluster_perf:read.",
+  "type": "posthog_proxy",
+  "url": "http://host.docker.internal:8000",
+  "token": "<oauth-token>"
+}

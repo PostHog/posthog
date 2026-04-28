@@ -9,6 +9,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
@@ -618,10 +619,17 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
     def test_allows_explicit_scope_for_internal_viewset(self):
         self.access_token.scope = "clickhouse_test_cluster_perf:read"
         self.access_token.save()
-        response = self._do_request(
-            "/api/query_performance_proxy/execute-test/", method="POST", data={"sql": "SELECT 1"}
-        )
+        # Mock past the proxy's DEBUG / cluster gates — this test is about scope.
+        with (
+            override_settings(DEBUG=True, CLICKHOUSE_TEST_CLUSTER_HOST="clickhouse-test.internal"),
+            patch("products.query_performance_ai.backend.api._run_autoresearch_query") as mocked,
+        ):
+            mocked.return_value = Response({"result": [], "rows_returned": 0})
+            response = self._do_request(
+                "/api/query_performance_proxy/execute-test/", method="POST", data={"sql": "SELECT 1"}
+            )
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(mocked.call_count, 1)
 
     def test_allows_derived_scope_for_read(self):
         """OAuth token with feature_flag:read can read feature flags"""

@@ -116,3 +116,38 @@ def create_oauth_access_token_for_user(
     )
 
     return token_value
+
+
+def create_internal_oauth_access_token(scopes: list[str]) -> str:
+    """Mint a user-less OAuth token for INTERNAL endpoints that reject
+    team-scoped tokens (e.g. `/api/query_performance_proxy/`). Authenticated
+    by `OAuthAccessTokenAuthentication` as a synthetic `InternalAPIUser`.
+
+    Shape-wise this is an OAuth 2.0 client_credentials token (RFC 6749 §4.4):
+    no user binding, scoped, time-bounded, individually revocable. PostHog's
+    OAuth provider does not expose the `client_credentials` grant via the
+    standard `/oauth/token` endpoint today (only `authorization_code` +
+    `refresh_token` are advertised in OIDC metadata), so we mint the row
+    directly via the ORM rather than going through the grant flow.
+
+    The trade-off vs. plumbing client_credentials through the OAuth provider:
+    we skip OIDC metadata changes, an `OAuthValidator` audit for the no-user
+    path, a new `OAuthApplication` registration, and the token-endpoint route
+    work — at the cost of procedural conformance to RFC 6749 §4.4. Security
+    properties are unchanged (same `OAuthAccessToken` row, same auth backend,
+    same scope/expiry/revocation surface), and the only minter is internal
+    Django code with DB access. If a second internal service wants this
+    pattern, that's the prompt to land real client_credentials support."""
+    app = get_array_app()
+    token_value = generate_random_oauth_access_token(None)
+
+    OAuthAccessToken.objects.create(
+        user=None,
+        application=app,
+        token=token_value,
+        expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
+        scope=" ".join(scopes),
+        scoped_teams=None,
+    )
+
+    return token_value

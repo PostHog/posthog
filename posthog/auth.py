@@ -603,6 +603,12 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
             self.access_token = access_token
 
+            if access_token.user is None:
+                # Internal user-less token (`create_internal_oauth_access_token`):
+                # authenticate as a synthetic user so DRF's IsAuthenticated holds.
+                tag_queries(access_method="oauth_internal")
+                return InternalAPIUser(), None
+
             tag_queries(
                 user_id=access_token.user.pk,
                 team_id=access_token.user.current_team_id,
@@ -634,10 +640,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             if access_token.is_expired():
                 raise AuthenticationFailed(detail="Access token has expired.")
 
-            if not access_token.user:
-                raise AuthenticationFailed(detail="User associated with access token not found.")
-
-            if not access_token.user.is_active:
+            if access_token.user is not None and not access_token.user.is_active:
                 raise AuthenticationFailed(detail="User associated with access token is disabled.")
 
             if not access_token.application_id:

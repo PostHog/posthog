@@ -14,7 +14,18 @@
             ],
             "outputs": [],
             "cache": true,
-            "env": ["DATABASE_URL", "REDIS_URL", "CLICKHOUSE_HOST", "TEST"],
+            "env": [
+                "DATABASE_URL",
+                "REDIS_URL",
+                "CLICKHOUSE_HOST",
+                "CLICKHOUSE_TEST_CLUSTER_HOST",
+                "CLICKHOUSE_TEST_CLUSTER_DATABASE",
+                "CLICKHOUSE_TEST_CLUSTER_USER",
+                "CLICKHOUSE_TEST_CLUSTER_PASSWORD",
+                "CLICKHOUSE_TEST_CLUSTER_SECURE",
+                "CLICKHOUSE_TEST_CLUSTER_VERIFY",
+                "TEST"
+            ],
             "passThroughEnv": ["PYTEST_ADDOPTS"]
         },
         "backend:lint": {
