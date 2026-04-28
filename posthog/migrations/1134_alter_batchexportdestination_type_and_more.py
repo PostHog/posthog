@@ -83,7 +83,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "abstract": False,
+                "indexes": [models.Index(fields=["team", "key"], name="team_key_idx")],
             },
         ),
     ]

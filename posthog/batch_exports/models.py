@@ -480,6 +480,11 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
     containing pre-signed URLs to access the data exported.
     """
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "key"], name="team_key_idx"),
+        ]
+
     team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     batch_export_run = models.ForeignKey(
         "BatchExportRun",
@@ -499,16 +504,22 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
     )
 
     def is_expired(self) -> bool:
+        """Return whether this file download is expired.
+
+        If expired, then the file download should not be used to generate download URLs anymore.
+        """
         if self.expires_at is None:
             raise ValueError("Cannot determine if object is expired: `expires_at` missing.")
 
         return dt.datetime.now(dt.UTC) > self.expires_at
 
+
     def is_expired_or_close(self, threshold: dt.timedelta | int = dt.timedelta(hours=1)) -> bool:
+        """Return whether this file download is expired, or close to expiring."""
         if self.is_expired():
             return True
 
-        delta = self.expires_at - dt.datetime.now(dt.UTC)
+        delta = self.expires_at - dt.datetime.now(dt.UTC) # type: ignore
 
         if isinstance(threshold, int):
             threshold_delta = dt.timedelta(seconds=threshold)
