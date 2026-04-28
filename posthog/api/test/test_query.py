@@ -13,6 +13,7 @@ from posthog.test.base import (
 from unittest import mock
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
@@ -1401,3 +1402,16 @@ class TestInferQueryTags(APIBaseTest):
             tags=QueryLogTags(scene="Cohort"),
         )
         assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": Feature.COHORT}
+
+    @parameterized.expand(
+        [
+            ("EndpointScene", ProductKey.ENDPOINTS),
+            ("EndpointsScene", ProductKey.ENDPOINTS),
+            ("Notebook", ProductKey.NOTEBOOKS),
+            ("SQLEditor", ProductKey.DATA_WAREHOUSE),
+        ]
+    )
+    def test_query_scenes_infer_product_and_query_feature(self, scene: str, product: ProductKey):
+        query = HogQLQuery(query="SELECT count() FROM events", tags=QueryLogTags(scene=scene))
+
+        assert _infer_query_tags(query) == {"product": product, "feature": Feature.QUERY}
