@@ -77,15 +77,15 @@ class PostHogConfig(AppConfig):
                     properties={"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
         # Use HyperCache to provide flag definitions instead of per-process API polling.
-        # Falls back to the SDK's emergency API fetch (via personal_api_key) only when
-        # the cache is cold. In E2E testing personal_api_key is None, so a cold cache
-        # will result in no flag definitions being loaded — which is acceptable there.
+        # Only wired up in US, where local team_id=2 corresponds to the PostHog company
+        # project. Outside US the helper returns None so the SDK falls back to its API
+        # path against `posthoganalytics.host` (us.i.posthog.com) — see helper docstring.
         if not posthoganalytics.disabled:
-            from posthog.feature_flags.sdk_cache_provider import HyperCacheFlagProvider
+            from posthog.feature_flags.sdk_cache_provider import get_default_flag_definition_cache_provider
 
-            posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(  # ty: ignore[invalid-assignment]
-                team_id=int(os.environ.get("POSTHOG_SELF_TEAM_ID", "2"))
-            )
+            provider = get_default_flag_definition_cache_provider()
+            if provider is not None:
+                posthoganalytics.flag_definition_cache_provider = provider  # ty: ignore[invalid-assignment]
 
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:

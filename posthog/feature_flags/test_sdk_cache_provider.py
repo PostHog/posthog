@@ -1,11 +1,13 @@
+import os
+
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from posthoganalytics.client import Client
 
-from posthog.feature_flags.sdk_cache_provider import HyperCacheFlagProvider
+from posthog.feature_flags.sdk_cache_provider import HyperCacheFlagProvider, get_default_flag_definition_cache_provider
 
 
 class TestHyperCacheFlagProvider(SimpleTestCase):
@@ -206,3 +208,43 @@ class TestSDKClientIntegration(SimpleTestCase):
             client._load_feature_flags()
 
             mock_api.assert_called_once()
+
+
+class TestGetDefaultFlagDefinitionCacheProvider(SimpleTestCase):
+    """The HyperCache provider is only safe to install in US where team_id=2 maps to
+    the PostHog company project. Elsewhere it must return None so the SDK falls back
+    to API polling against posthoganalytics.host."""
+
+    def setUp(self):
+        # Isolate POSTHOG_SELF_TEAM_ID so test order doesn't matter
+        self._env_patcher = patch.dict(os.environ, {}, clear=False)
+        self._env_patcher.start()
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+
+    def tearDown(self):
+        self._env_patcher.stop()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_us_returns_provider_with_default_team_id(self):
+        provider = get_default_flag_definition_cache_provider()
+        assert isinstance(provider, HyperCacheFlagProvider)
+        assert provider._team_id == 2
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_us_respects_self_team_id_env_override(self):
+        os.environ["POSTHOG_SELF_TEAM_ID"] = "42"
+        provider = get_default_flag_definition_cache_provider()
+        assert isinstance(provider, HyperCacheFlagProvider)
+        assert provider._team_id == 42
+
+    @parameterized.expand([("EU",), ("DEV",), ("E2E",), (None,)])
+    def test_non_us_regions_return_none(self, deployment):
+        with override_settings(CLOUD_DEPLOYMENT=deployment):
+            assert get_default_flag_definition_cache_provider() is None
+
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    def test_eu_ignores_self_team_id_env(self):
+        # Even with an explicit team id, EU should not install the provider —
+        # the assumption that local team_id maps to the company project doesn't hold.
+        os.environ["POSTHOG_SELF_TEAM_ID"] = "42"
+        assert get_default_flag_definition_cache_provider() is None

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Optional
 
 import structlog
@@ -72,3 +73,20 @@ class HyperCacheFlagProvider:
 
     def shutdown(self) -> None:
         pass  # No-op — no locks or resources to release
+
+
+def get_default_flag_definition_cache_provider() -> Optional[HyperCacheFlagProvider]:
+    """Build the flag-definition cache provider for this region, or None to fall back to API polling.
+
+    HyperCache is keyed by team_id (defaults to 2 via POSTHOG_SELF_TEAM_ID), which is only
+    the PostHog company project in US Postgres — in EU and other regions, team 2 is an
+    unrelated org. Returning None outside US lets the SDK poll posthoganalytics.host
+    (us.i.posthog.com) directly via personal_api_key, which is the cross-region behavior
+    that worked before this provider was wired up.
+    """
+    from django.conf import settings
+
+    if settings.CLOUD_DEPLOYMENT != "US":
+        return None
+
+    return HyperCacheFlagProvider(team_id=int(os.environ.get("POSTHOG_SELF_TEAM_ID", "2")))
