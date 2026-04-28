@@ -4,8 +4,7 @@ import 'chartjs-adapter-dayjs-3'
 
 import annotationPlugin from 'chartjs-plugin-annotation'
 import { useValues } from 'kea'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Root, createRoot } from 'react-dom/client'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
@@ -14,7 +13,6 @@ import { getSeriesColor } from 'lib/colors'
 import { getGraphColors } from 'lib/colors'
 import { Dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -22,6 +20,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 // eslint-disable-next-line import/no-cycle
 import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
 import { useBillingMarkersPositioning } from './useBillingMarkersPositioning'
+import { useBillingTooltip } from './useBillingTooltip'
 
 Chart.register(annotationPlugin)
 
@@ -50,52 +49,6 @@ export interface BillingLineGraphProps {
 }
 
 const defaultFormatter = (value: number): string => value.toLocaleString()
-
-let sharedBillingTooltipElement: HTMLElement | null = null
-let sharedBillingTooltipRoot: Root | null = null
-let sharedBillingTooltipRefCount = 0
-
-function ensureSharedBillingTooltip(): [Root, HTMLElement] {
-    if (!sharedBillingTooltipElement || !sharedBillingTooltipRoot) {
-        const element = document.createElement('div')
-        element.id = 'BillingTooltipWrapper'
-        element.className =
-            'BillingTooltipWrapper hidden absolute z-10 p-2 bg-bg-light rounded shadow-md text-xs pointer-events-none border border-border'
-        document.body.appendChild(element)
-        sharedBillingTooltipElement = element
-        sharedBillingTooltipRoot = createRoot(element)
-    }
-    return [sharedBillingTooltipRoot, sharedBillingTooltipElement]
-}
-
-function hideSharedBillingTooltip(): void {
-    if (sharedBillingTooltipElement) {
-        sharedBillingTooltipElement.classList.add('hidden')
-        sharedBillingTooltipElement.classList.remove('block')
-    }
-}
-
-function useBillingTooltip(): {
-    ensureBillingTooltip: () => [Root, HTMLElement]
-    hideBillingTooltip: () => void
-} {
-    const ensureBillingTooltip = useCallback((): [Root, HTMLElement] => ensureSharedBillingTooltip(), [])
-    const hideBillingTooltip = useCallback((): void => hideSharedBillingTooltip(), [])
-
-    useOnMountEffect(() => {
-        sharedBillingTooltipRefCount += 1
-        return () => {
-            sharedBillingTooltipRefCount -= 1
-            if (sharedBillingTooltipRefCount <= 0) {
-                sharedBillingTooltipRefCount = 0
-                hideSharedBillingTooltip()
-                sharedBillingTooltipRoot?.render(null)
-            }
-        }
-    })
-
-    return { ensureBillingTooltip, hideBillingTooltip }
-}
 
 export function SeriesColorDot({ colorIndex }: { colorIndex: number }): JSX.Element {
     return <div className={`series-color-dot series-color-dot-${colorIndex % 15}`} />
