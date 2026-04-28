@@ -4,6 +4,7 @@ import { Root } from 'react-dom/client'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import {
     SharedDomRootConfig,
+    createOwnedRender,
     createSharedDomRoot,
     ensureSharedDomRoot,
     resetSharedDomRoot,
@@ -20,9 +21,9 @@ const sharedBillingTooltipConfig: SharedDomRootConfig = {
 }
 
 function ensureSharedBillingTooltip(ownerId: string): [Root, HTMLElement] {
-    const result = ensureSharedDomRoot(sharedBillingTooltip, sharedBillingTooltipConfig)
+    const [, element] = ensureSharedDomRoot(sharedBillingTooltip, sharedBillingTooltipConfig)
     sharedBillingTooltip.owner = ownerId
-    return result
+    return [createOwnedRender(sharedBillingTooltip, ownerId), element]
 }
 
 function hideSharedBillingTooltipIfOwner(ownerId: string): void {

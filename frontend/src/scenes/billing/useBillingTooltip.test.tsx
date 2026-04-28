@@ -21,15 +21,13 @@ describe('useBillingTooltip', () => {
         expect(document.getElementById('BillingTooltipWrapper')).toBeNull()
 
         const { result } = renderHook(() => useBillingTooltip())
-        const [root, element] = result.current.ensureBillingTooltip()
+        const [, element] = result.current.ensureBillingTooltip()
 
         expect(element.id).toBe('BillingTooltipWrapper')
         expect(document.getElementById('BillingTooltipWrapper')).toBe(element)
-        expect(root).not.toBeNull()
 
-        const [secondRoot, secondElement] = result.current.ensureBillingTooltip()
+        const [, secondElement] = result.current.ensureBillingTooltip()
         expect(secondElement).toBe(element)
-        expect(secondRoot).toBe(root)
     })
 
     it('preserves the rendered tooltip when a sibling instance unmounts', () => {
@@ -62,6 +60,22 @@ describe('useBillingTooltip', () => {
         })
 
         // Last consumer unmount clears the tooltip content
+        expect(document.getElementById('BillingTooltipWrapper')!.textContent).toBe('')
+    })
+
+    it('drops renders from a caller that has lost ownership', () => {
+        const a = renderHook(() => useBillingTooltip())
+        const b = renderHook(() => useBillingTooltip())
+
+        const [aRoot] = a.result.current.ensureBillingTooltip()
+        // B taking ownership invalidates A's wrapped Root for further renders
+        b.result.current.ensureBillingTooltip()
+
+        act(() => {
+            aRoot.render(<span>should-be-dropped</span>)
+        })
+
+        // The render is silently dropped because A no longer owns the tooltip
         expect(document.getElementById('BillingTooltipWrapper')!.textContent).toBe('')
     })
 

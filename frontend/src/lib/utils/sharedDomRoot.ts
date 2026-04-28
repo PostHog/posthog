@@ -1,3 +1,4 @@
+import { ReactNode } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
 export interface SharedDomRoot {
@@ -25,6 +26,20 @@ export function ensureSharedDomRoot(target: SharedDomRoot, config: SharedDomRoot
         target.root = createRoot(element)
     }
     return [target.root, target.element]
+}
+
+export function createOwnedRender(target: SharedDomRoot, ownerId: string): Root {
+    return {
+        render: (children: ReactNode): void => {
+            if (target.owner !== ownerId || !target.root) {
+                return
+            }
+            target.root.render(children)
+        },
+        unmount: (): void => {
+            // shared root is never unmounted by callers; use resetSharedDomRoot for that
+        },
+    }
 }
 
 export function resetSharedDomRoot(target: SharedDomRoot): void {
