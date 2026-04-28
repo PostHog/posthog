@@ -1,11 +1,38 @@
+import time
+
 from django.conf import settings
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.paginator import Paginator
-from django.urls import reverse
+from django.shortcuts import redirect
+from django.urls import path, reverse
 from django.utils.html import format_html
+
+from asgiref.sync import async_to_sync
+from temporalio.client import Client
+from temporalio.common import WorkflowIDReusePolicy
+
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+
+PARTITION_FORMAT_CHOICES = ("month", "week", "day", "hour")
+
+
+@async_to_sync
+async def _start_external_data_workflow(client: Client, workflow_id: str, inputs: ExternalDataWorkflowInputs) -> None:
+    await client.start_workflow(
+        "external-data-job",
+        inputs,
+        id=workflow_id,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+    )
+
+
+def _change_url(schema_id) -> str:
+    return reverse("admin:data_warehouse_externaldataschema_change", args=[schema_id])
 
 
 class ExternalDataSchemaAdmin(admin.ModelAdmin):
@@ -33,6 +60,88 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
 
     JOBS_PER_PAGE = 20
 
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<path:schema_id>/repartition/",
+                self.admin_site.admin_view(self.repartition_view),
+                name="external_data_schema_repartition",
+            ),
+            path(
+                "<path:schema_id>/trigger-sync/",
+                self.admin_site.admin_view(self.trigger_sync_view),
+                name="external_data_schema_trigger_sync",
+            ),
+        ]
+        return custom_urls + urls
+
+    def repartition_view(self, request, schema_id):
+        # Update partition_format on sync_type_config. Takes effect on the next run; pair
+        # with a reset resync to rebuild Delta files at the new granularity.
+        if request.method != "POST":
+            return redirect(_change_url(schema_id))
+
+        try:
+            schema = ExternalDataSchema.objects.get(id=schema_id)
+        except ExternalDataSchema.DoesNotExist:
+            messages.error(request, f"Schema {schema_id} not found.")
+            return redirect(reverse("admin:data_warehouse_externaldataschema_changelist"))
+
+        new_format = request.POST.get("partition_format")
+        if new_format not in PARTITION_FORMAT_CHOICES:
+            messages.error(request, f"Invalid partition_format: {new_format!r}.")
+            return redirect(_change_url(schema_id))
+
+        previous = schema.sync_type_config.get("partition_format")
+        schema.sync_type_config["partition_format"] = new_format
+        schema.save(update_fields=["sync_type_config"])
+        messages.success(
+            request,
+            f"partition_format updated: {previous!r} → {new_format!r}. "
+            f"Trigger a resync (with reset) to rebuild Delta with the new partitioning.",
+        )
+        return redirect(_change_url(schema_id))
+
+    def trigger_sync_view(self, request, schema_id):
+        # Ad-hoc external-data-job workflow execution. We start a fresh workflow rather
+        # than triggering the schedule because the schedule's stored input cannot
+        # override `billable` per-trigger.
+        if request.method != "POST":
+            return redirect(_change_url(schema_id))
+
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
+        except ExternalDataSchema.DoesNotExist:
+            messages.error(request, f"Schema {schema_id} not found.")
+            return redirect(reverse("admin:data_warehouse_externaldataschema_changelist"))
+
+        reset_pipeline = request.POST.get("reset_pipeline") == "on"
+        billable = request.POST.get("billable") == "on"
+
+        inputs = ExternalDataWorkflowInputs(
+            team_id=schema.team_id,
+            external_data_source_id=schema.source.id,
+            external_data_schema_id=schema.id,
+            billable=billable,
+            reset_pipeline=reset_pipeline if reset_pipeline else None,
+        )
+        workflow_id = f"{schema.id}-admin-resync-{int(time.time())}"
+        try:
+            client = sync_connect()
+            _start_external_data_workflow(client, workflow_id, inputs)
+        except Exception as e:
+            messages.error(request, f"Failed to trigger sync: {e}")
+            return redirect(_change_url(schema_id))
+
+        billable_label = "billable" if billable else "non-billable"
+        action_label = "resync (with reset)" if reset_pipeline else "sync"
+        messages.success(
+            request,
+            f"Triggered {billable_label} {action_label} for {schema.name} (workflow_id={workflow_id}).",
+        )
+        return redirect(_change_url(schema_id))
+
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
@@ -47,6 +156,15 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["temporal_namespace"] = settings.TEMPORAL_NAMESPACE
             extra_context["site_url"] = settings.SITE_URL
             extra_context["team_id"] = obj.team_id
+
+            sync_type_config = obj.sync_type_config or {}
+            extra_context["partition_format_choices"] = PARTITION_FORMAT_CHOICES
+            extra_context["current_partition_format"] = sync_type_config.get("partition_format")
+            extra_context["current_partition_mode"] = sync_type_config.get("partition_mode")
+            extra_context["current_partition_keys"] = sync_type_config.get("partitioning_keys")
+            extra_context["partitioning_enabled"] = sync_type_config.get("partitioning_enabled")
+            extra_context["repartition_url"] = reverse("admin:external_data_schema_repartition", args=[obj.id])
+            extra_context["trigger_sync_url"] = reverse("admin:external_data_schema_trigger_sync", args=[obj.id])
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     @admin.display(description="Team")

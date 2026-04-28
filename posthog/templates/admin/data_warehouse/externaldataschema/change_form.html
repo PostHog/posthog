@@ -5,6 +5,76 @@
     {{ block.super }}
 
     <fieldset class="module aligned">
+        <h2>Partitioning &amp; sync</h2>
+
+        <div class="form-row" style="padding: 10px;">
+            <h3 style="margin-top: 0;">Current settings</h3>
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px;">
+                <tr style="border-bottom: 1px solid #eee;">
+                    <th style="text-align: left; padding: 6px; width: 220px;">partitioning_enabled</th>
+                    <td style="padding: 6px; font-family: monospace;">{{ partitioning_enabled|default:"— (None)" }}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #eee;">
+                    <th style="text-align: left; padding: 6px;">partition_format</th>
+                    <td style="padding: 6px; font-family: monospace;">{{ current_partition_format|default:"— (None)" }}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #eee;">
+                    <th style="text-align: left; padding: 6px;">partition_mode</th>
+                    <td style="padding: 6px; font-family: monospace;">{{ current_partition_mode|default:"— (None)" }}</td>
+                </tr>
+                <tr>
+                    <th style="text-align: left; padding: 6px;">partitioning_keys</th>
+                    <td style="padding: 6px; font-family: monospace;">{{ current_partition_keys|default:"— (None)" }}</td>
+                </tr>
+            </table>
+        </div>
+
+        <div class="form-row" style="padding: 10px; border-top: 1px solid #eee;">
+            <h3 style="margin-top: 0;">Repartition</h3>
+            <p style="color: #666; margin-bottom: 8px;">
+                Updates <code>sync_type_config["partition_format"]</code>. Takes effect on the next run —
+                pair with a reset resync below to rebuild Delta files at the new granularity.
+            </p>
+            <form method="post" action="{{ repartition_url }}" style="display: inline;">
+                {% csrf_token %}
+                <label for="partition_format_select" style="margin-right: 8px;">New partition format:</label>
+                <select id="partition_format_select" name="partition_format" required>
+                    {% for choice in partition_format_choices %}
+                        <option value="{{ choice }}" {% if choice == current_partition_format %}selected{% endif %}>{{ choice }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="default" style="margin-left: 8px;"
+                        onclick="return confirm('Update partition_format on this schema?');">
+                    Save partition format
+                </button>
+            </form>
+        </div>
+
+        <div class="form-row" style="padding: 10px; border-top: 1px solid #eee;">
+            <h3 style="margin-top: 0;">Trigger sync</h3>
+            <p style="color: #666; margin-bottom: 8px;">
+                Starts a one-off <code>external-data-job</code> workflow, bypassing the schedule.
+                Tick <strong>Reset pipeline</strong> to wipe Delta files and rebuild from scratch
+                (required after a partition format change). Leave <strong>Billable</strong> unchecked
+                to avoid charging the customer.
+            </p>
+            <form method="post" action="{{ trigger_sync_url }}" style="display: inline;">
+                {% csrf_token %}
+                <label style="margin-right: 12px;">
+                    <input type="checkbox" name="reset_pipeline"> Reset pipeline (re-sync from scratch)
+                </label>
+                <label style="margin-right: 12px;">
+                    <input type="checkbox" name="billable"> Billable
+                </label>
+                <button type="submit" class="default"
+                        onclick="return confirm('Trigger a sync for this schema?');">
+                    Trigger sync
+                </button>
+            </form>
+        </div>
+    </fieldset>
+
+    <fieldset class="module aligned">
         <h2>Temporal schedule</h2>
         <div class="form-row" style="padding: 10px;">
             <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/{{ original.id }}"
