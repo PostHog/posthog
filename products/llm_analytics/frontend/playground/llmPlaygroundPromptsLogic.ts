@@ -463,6 +463,7 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         setMessages: (messages: Message[], promptId?: string) => ({ messages, promptId }),
         deleteMessage: (index: number, promptId?: string) => ({ index, promptId }),
         addMessage: (message?: Partial<Message>, promptId?: string) => ({ message, promptId }),
+        addResultToConversation: (response: string, promptId?: string) => ({ response, promptId }),
         updateMessage: (index: number, payload: Partial<Message>, promptId?: string) => ({ index, payload, promptId }),
         clearLinkedSource: true,
         setSourceNames: (promptName: string | null, evaluationName: string | null, promptId?: string) => ({
@@ -570,6 +571,23 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     updatePromptConfigs(state, promptId, (prompt) => {
                         const defaultMessage: Message = { role: 'user', content: '' }
                         return { ...prompt, messages: [...prompt.messages, { ...defaultMessage, ...message }] }
+                    }),
+                addResultToConversation: (
+                    state: PromptConfig[],
+                    { response, promptId }: { response: string; promptId?: string }
+                ) =>
+                    updatePromptConfigs(state, promptId, (prompt) => {
+                        if (!response.trim()) {
+                            return prompt
+                        }
+                        return {
+                            ...prompt,
+                            messages: [
+                                ...prompt.messages,
+                                { role: 'assistant', content: response },
+                                { role: 'user', content: '' },
+                            ],
+                        }
                     }),
                 updateMessage: (
                     state: PromptConfig[],
