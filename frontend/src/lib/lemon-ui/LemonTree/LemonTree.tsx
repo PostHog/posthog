@@ -216,6 +216,8 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     disableKeyboardInput?: (disable: boolean) => void
     /** Whether the item is dragging */
     isDragging?: boolean
+    /** Internal callback threaded from <LemonTree> down to rows for insertion-line positioning during reorder drags. */
+    onReorderPositionChange?: (id: string, position: TreeDropPosition) => void
 }
 
 export interface LemonTreeRef {
@@ -246,7 +248,6 @@ type LemonTreeItemRowProps = Omit<LemonTreeNodeProps, 'data'> & {
     ariaPosInSet: number
     childrenContent?: React.ReactNode
     virtualizedRowHeight?: number
-    onReorderPositionChange?: (id: string, position: TreeDropPosition) => void
 }
 
 const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
