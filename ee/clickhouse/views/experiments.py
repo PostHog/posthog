@@ -551,6 +551,23 @@ class EnterpriseExperimentsViewSet(
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def unarchive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Unarchive an archived experiment.
+
+        Restores the experiment to the default list view. Returns 400 if the
+        experiment is not currently archived.
+        """
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+        unarchived_experiment = service.unarchive_experiment(experiment, request=request)
+        return Response(ExperimentSerializer(unarchived_experiment, context=self.get_serializer_context()).data)
+
+    @extend_schema(
         request=EndExperimentSerializer,
         responses=ExperimentSerializer,
     )

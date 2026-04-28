@@ -32,6 +32,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Session Recordings](./references/models-session-recordings.md)
 - [Support Tickets](./references/models-support-tickets.md)
 - [Surveys](./references/models-surveys.md)
+- [Usage Metrics](./references/models-usage-metrics.md)
 - [SQL Variables](./references/models-variables.md)
 - [Skipped events in the read-data-schema tool](./references/taxonomy-skipped-events.md)
 - [Dynamic person and event properties](./references/taxonomy-dynamic-properties.md) — patterns like `$survey_dismissed/{id}`, `$feature/{key}` that don't appear in tool results
