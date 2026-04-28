@@ -128,6 +128,17 @@ class TaggerSerializer(serializers.ModelSerializer):
     def validate(self, data: dict) -> dict:
         tagger_type = data.get("tagger_type", self.instance.tagger_type if self.instance else TaggerType.LLM)
         tagger_config = data.get("tagger_config")
+
+        # If the caller is changing tagger_type on an existing tagger, they must also send a fresh
+        # tagger_config — the existing config is shaped for the old type and won't validate.
+        if (
+            self.instance is not None
+            and "tagger_type" in data
+            and tagger_type != self.instance.tagger_type
+            and tagger_config is None
+        ):
+            raise serializers.ValidationError({"tagger_config": "tagger_config is required when changing tagger_type"})
+
         if tagger_config:
             try:
                 data["tagger_config"] = validate_tagger_config(tagger_type, tagger_config)
@@ -140,21 +151,34 @@ class TaggerSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"tagger_config": str(e)})
         return data
 
+    def _resolve_provider_key(self, model_config_data: dict[str, Any], team_id: int) -> LLMProviderKey | None:
+        provider_key_id = model_config_data.get("provider_key_id")
+        if not provider_key_id:
+            return None
+        try:
+            return LLMProviderKey.objects.get(id=provider_key_id, team_id=team_id)
+        except LLMProviderKey.DoesNotExist:
+            raise serializers.ValidationError({"model_configuration": {"provider_key_id": "Provider key not found"}})
+
     def _create_or_update_model_configuration(
-        self, model_config_data: dict[str, Any] | None, team_id: int
+        self,
+        model_config_data: dict[str, Any] | None,
+        team_id: int,
+        existing: LLMModelConfiguration | None = None,
     ) -> LLMModelConfiguration | None:
         if model_config_data is None:
             return None
 
-        provider_key = None
-        provider_key_id = model_config_data.get("provider_key_id")
-        if provider_key_id:
-            try:
-                provider_key = LLMProviderKey.objects.get(id=provider_key_id, team_id=team_id)
-            except LLMProviderKey.DoesNotExist:
-                raise serializers.ValidationError(
-                    {"model_configuration": {"provider_key_id": "Provider key not found"}}
-                )
+        provider_key = self._resolve_provider_key(model_config_data, team_id)
+
+        if existing is not None:
+            # Update in place so the FK on the tagger stays stable and we avoid the delete+insert churn.
+            existing.provider = model_config_data["provider"]
+            existing.model = model_config_data["model"]
+            existing.provider_key = provider_key
+            existing.full_clean()
+            existing.save()
+            return existing
 
         model_config = LLMModelConfiguration(
             team_id=team_id,
@@ -187,17 +211,12 @@ class TaggerSerializer(serializers.ModelSerializer):
     def update(self, instance: Tagger, validated_data: dict) -> Tagger:
         model_config_data = validated_data.pop("model_configuration", None)
 
-        # Transaction wraps the delete-then-create-then-save sequence so a failed
-        # tagger save rolls back the model_configuration swap.
+        # Transaction wraps the model_configuration update and the tagger save so a failed
+        # tagger save rolls back the configuration changes.
         with transaction.atomic():
             if model_config_data is not None:
-                if instance.model_configuration:
-                    old_config = instance.model_configuration
-                    instance.model_configuration = None
-                    old_config.delete()
-
                 validated_data["model_configuration"] = self._create_or_update_model_configuration(
-                    model_config_data, instance.team_id
+                    model_config_data, instance.team_id, existing=instance.model_configuration
                 )
 
             return super().update(instance, validated_data)
@@ -340,6 +359,8 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         return super().partial_update(request, *args, **kwargs)
 
     @action(detail=False, methods=["post"], url_path="test_hog")
+    @llma_track_latency("llma_taggers_test_hog")
+    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_test_hog", method="POST")
     def test_hog(self, request: Request, **kwargs) -> Response:
         """Test Hog tagger code against sample events without saving."""
         import json
@@ -372,7 +393,9 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         valid_tag_names = {tag["name"] for tag in tags}
 
         try:
-            bytecode = compile_hog(source, "destination")
+            # Use "tagger" kind so we don't expose PRODUCT_ASYNC_FUNCTIONS (fetch, posthogCapture, …) —
+            # taggers should only classify, never perform side effects.
+            bytecode = compile_hog(source, "tagger")
         except (ValueError, SyntaxError):
             logger.exception("Compilation error in Hog source")
             return Response({"error": "Invalid Hog source provided"}, status=400)

@@ -7,7 +7,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
 
-from products.llm_analytics.backend.models.taggers import Tagger
+from products.llm_analytics.backend.models.taggers import Tagger, TaggerType
 
 
 def _setup_team():
@@ -295,3 +295,21 @@ class TestTaggersApi(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_patch_tagger_type_without_fresh_config_is_rejected(self):
+        tagger = Tagger.objects.create(
+            name="LLM tagger",
+            tagger_type=TaggerType.LLM,
+            tagger_config=_make_tagger_config(),
+            team=self.team,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/taggers/{tagger.id}/",
+            {"tagger_type": TaggerType.HOG},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "tagger_config"

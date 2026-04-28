@@ -159,7 +159,9 @@ class Tagger(UUIDTModel):
         # Compile Hog source to bytecode
         if self.tagger_type == TaggerType.HOG and self.tagger_config.get("source"):
             try:
-                bytecode = compile_hog(self.tagger_config["source"], "destination")
+                # Use "tagger" kind so we don't expose PRODUCT_ASYNC_FUNCTIONS (fetch, posthogCapture, …) —
+                # taggers should only classify, never perform side effects.
+                bytecode = compile_hog(self.tagger_config["source"], "tagger")
                 self.tagger_config["bytecode"] = bytecode
             except Exception as e:
                 raise ValidationError({"tagger_config": f"Failed to compile Hog code: {e}"})
