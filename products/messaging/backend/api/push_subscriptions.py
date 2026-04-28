@@ -136,7 +136,7 @@ def push_subscriptions(request: Request):
             ("platform", platform),
             ("app_id", app_id),
         ]
-        if not value
+        if not value or not isinstance(value, str)
     ]
     if missing_fields:
         return cors_response(
@@ -149,6 +149,11 @@ def push_subscriptions(request: Request):
                 status_code=status.HTTP_400_BAD_REQUEST,
             ),
         )
+
+    assert isinstance(distinct_id, str)
+    assert isinstance(device_token, str)
+    assert isinstance(platform, str)
+    assert isinstance(app_id, str)
 
     if platform not in VALID_PLATFORMS:
         return cors_response(

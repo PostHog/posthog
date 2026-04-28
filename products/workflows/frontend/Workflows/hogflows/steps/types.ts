@@ -267,7 +267,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             template_uuid: z.string().uuid().optional(),
             template_id: z.literal('template-native-push'),
-            inputs: z.record(CyclotronInputSchema),
+            inputs: z.record(z.string(), CyclotronInputSchema),
         }),
     }),
 
