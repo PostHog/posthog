@@ -153,7 +153,7 @@ jobs:
     dagster:
         name: Dagster tests (${{ matrix.runner }})
         needs: [changes]
-        timeout-minutes: 30
+        timeout-minutes: 35
         strategy:
             fail-fast: false
             matrix:

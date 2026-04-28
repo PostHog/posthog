@@ -261,15 +261,16 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                                 property: zod.union([zod.string(), zod.number()]),
                                 type: zod
                                     .enum([
-                                        'cohort',
                                         'person',
                                         'event',
                                         'event_metadata',
                                         'group',
                                         'session',
                                         'hogql',
-                                        'data_warehouse_person_property',
+                                        'cohort',
                                         'revenue_analytics',
+                                        'data_warehouse',
+                                        'data_warehouse_person_property',
                                     ])
                                     .nullish(),
                             })

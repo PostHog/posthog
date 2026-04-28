@@ -238,7 +238,8 @@ def _make_search_service(pages_by_token: dict[str, list[_FakePage]]) -> mock.Mag
     """
 
     def _search(**kwargs):
-        token = kwargs.get("page_token", "") or ""
+        request = kwargs.get("request") or {}
+        token = request.get("page_token", "") or ""
         return _FakeSearchResponse(pages_by_token[token])
 
     service = mock.MagicMock()
@@ -345,7 +346,7 @@ class TestSearchAsArrowTablesResume:
             )
 
         assert len(tables) == expected_yielded_tables
-        assert service.search.call_args_list[0][1]["page_token"] == expected_first_call_token
+        assert service.search.call_args_list[0][1]["request"]["page_token"] == expected_first_call_token
         saved_tokens = [call.args[0].page_token for call in manager.save_state.call_args_list]
         assert saved_tokens == expected_saved_tokens
 
