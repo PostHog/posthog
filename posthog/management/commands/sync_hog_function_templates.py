@@ -23,6 +23,7 @@ TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionTyp
 TEST_INCLUDE_PYTHON_TEMPLATE_IDS = [
     "template-slack",
     "template-warehouse-source-stripe",
+    "template-warehouse-source-customer-io",
     "template-warehouse-source-default",
 ]
 TEST_INCLUDE_NODEJS_TEMPLATE_IDS = [
