@@ -525,27 +525,36 @@ export function EditAlertModal({
                                                 }))}
                                             />
                                         </LemonField>
-                                        <div>
-                                            and check {alertForm?.config.check_ongoing_interval ? 'current' : 'last'}
+                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                            <span>
+                                                and check{' '}
+                                                {alertForm?.config.check_ongoing_interval ? 'current' : 'last'}{' '}
+                                                <Tooltip
+                                                    title={
+                                                        <>
+                                                            This interval is sourced from the insight's{' '}
+                                                            <b>Grouped by</b> setting and can't be edited from the alert
+                                                            form.
+                                                        </>
+                                                    }
+                                                >
+                                                    <span
+                                                        className="font-semibold underline decoration-dotted underline-offset-2 cursor-help"
+                                                        data-attr="alertForm-trend-interval"
+                                                    >
+                                                        {trendInterval ?? 'day'}
+                                                    </span>
+                                                </Tooltip>
+                                            </span>
+                                            <Link
+                                                to={urls.insightEdit(insightShortId)}
+                                                target="_blank"
+                                                className="text-xs"
+                                                data-attr="alertForm-edit-insight-interval"
+                                            >
+                                                Change in insight
+                                            </Link>
                                         </div>
-                                        <LemonSelect
-                                            fullWidth
-                                            className="w-28"
-                                            data-attr="alertForm-trend-interval"
-                                            disabledReason={
-                                                <>
-                                                    To change the interval being checked, edit and <b>save</b> the
-                                                    interval which the insight is 'grouped by'
-                                                </>
-                                            }
-                                            value={trendInterval ?? 'day'}
-                                            options={[
-                                                {
-                                                    label: trendInterval ?? 'day',
-                                                    value: trendInterval ?? 'day',
-                                                },
-                                            ]}
-                                        />
                                     </div>
                                     {!creatingNewAlert && alert ? (
                                         <div className="text-sm text-muted flex flex-wrap items-center gap-x-2 gap-y-0">
