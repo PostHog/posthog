@@ -101,7 +101,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
 1. Open [Slack apps](https://api.slack.com/apps?new_app=1) and click **From a manifest**
 2. Pick your workspace and click **Next**
 3. Paste the manifest below into the editor, click **Next**, then **Create**
-4. On the app's page, click **Install to &lt;Workspace&gt;** and authorize
+4. In the left sidebar, click **Install App**, then **Install to Workspace**, and authorize
 5. Open **Basic information > App credentials**, copy the **Signing secret**, and paste it in the form below
 
 ```json
