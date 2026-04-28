@@ -55,7 +55,11 @@ class Command(BaseCommand):
         parser.add_argument(
             "--dry-run",
             action="store_true",
-            help="Report orphan counts without deleting any rows.",
+            help=(
+                "Walk the orphan rows without deleting them and log the count per batch. "
+                "Bounded by --max-batches when set; otherwise scans every orphan in the "
+                "selected team(s) using an id-cursor window."
+            ),
         )
         parser.add_argument(
             "--team-id",
@@ -105,6 +109,7 @@ class Command(BaseCommand):
         total_orphans_seen = 0
         total_deleted = 0
         batches_run = 0
+        teams_processed = 0
 
         for current_team_id in team_ids:
             if max_batches is not None and batches_run >= max_batches:
@@ -130,11 +135,13 @@ class Command(BaseCommand):
             total_orphans_seen += team_orphans
             total_deleted += team_deleted
             batches_run += team_batches
+            teams_processed += 1
 
         logger.info(
             "backfill_orphan_hash_key_overrides_complete",
             dry_run=dry_run,
-            teams_processed=len(team_ids),
+            teams_processed=teams_processed,
+            teams_total=len(team_ids),
             orphans_seen=total_orphans_seen,
             rows_deleted=total_deleted,
             batches_run=batches_run,
@@ -150,10 +157,19 @@ class Command(BaseCommand):
         dry_run: bool,
         remaining_batches: int | None,
     ) -> tuple[int, int, int]:
-        """Process one team's orphans. Returns (orphans_seen, rows_deleted, batches_run)."""
+        """Process one team's orphans. Returns (orphans_seen, rows_deleted, batches_run).
+
+        Uses an id-cursor window (``id__gt=last_seen_id``) so dry-run mode can
+        walk the full orphan set without re-selecting the same rows forever
+        (deletion-based windowing isn't available when nothing is being
+        deleted). Real runs benefit too — the cursor shape is the same in
+        both modes, and ``id__gt`` plays well with the ``(id)`` primary-key
+        index.
+        """
         orphans_seen = 0
         rows_deleted = 0
         batches_run = 0
+        last_seen_id = 0
 
         while True:
             if remaining_batches is not None and batches_run >= remaining_batches:
@@ -161,8 +177,9 @@ class Command(BaseCommand):
 
             ids_qs = (
                 FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE)
-                .filter(team_id=team_id)
+                .filter(team_id=team_id, id__gt=last_seen_id)
                 .exclude(feature_flag_key__in=keys_to_keep)
+                .order_by("id")
                 .values_list("id", flat=True)[:batch_size]
             )
             ids = list(ids_qs)
@@ -171,6 +188,7 @@ class Command(BaseCommand):
 
             orphans_seen += len(ids)
             batches_run += 1
+            last_seen_id = ids[-1]
 
             if dry_run:
                 logger.info(
@@ -178,22 +196,20 @@ class Command(BaseCommand):
                     team_id=team_id,
                     batch_size=len(ids),
                     batches_run_for_team=batches_run,
+                    cursor=last_seen_id,
                 )
-                # Slide the window: in dry-run we'd otherwise re-select the
-                # same ids forever. Break once we've sampled one batch per
-                # team (the dry-run is a probe, not an exact count).
-                break
-
-            with transaction.atomic(using=PERSONS_DB_FOR_WRITE):
-                deleted, _ = FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE).filter(id__in=ids).delete()
-                rows_deleted += deleted
-
-            logger.info(
-                "backfill_orphan_hash_key_overrides_batch",
-                team_id=team_id,
-                rows_deleted=deleted,
-                batches_run_for_team=batches_run,
-            )
+            else:
+                with transaction.atomic(using=PERSONS_DB_FOR_WRITE):
+                    deleted, _ = (
+                        FeatureFlagHashKeyOverride.objects.using(PERSONS_DB_FOR_WRITE).filter(id__in=ids).delete()
+                    )
+                    rows_deleted += deleted
+                logger.info(
+                    "backfill_orphan_hash_key_overrides_batch",
+                    team_id=team_id,
+                    rows_deleted=deleted,
+                    batches_run_for_team=batches_run,
+                )
 
             if sleep_between_batches > 0:
                 time.sleep(sleep_between_batches)

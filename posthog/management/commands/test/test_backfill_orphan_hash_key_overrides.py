@@ -117,3 +117,35 @@ class TestBackfillOrphanHashKeyOverrides(APIBaseTest):
 
         assert not FeatureFlagHashKeyOverride.objects.filter(team=self.team, feature_flag_key="orphan-key").exists()
         assert FeatureFlagHashKeyOverride.objects.filter(team=other_team, feature_flag_key="orphan-key").exists()
+
+    def test_max_batches_caps_total_work(self) -> None:
+        """``--max-batches`` is the operator's primary knob for incremental
+        runs. Together with ``--batch-size``, it should cap total deletions to
+        ``max_batches * batch_size``. Locks in the early-termination contract
+        so future refactors of the inner/outer counters can't silently let it
+        run unbounded."""
+        people = [self.person]
+        for i in range(2):
+            people.append(_create_person(team=self.team, distinct_ids=[f"d-extra-{i}"], properties={}))
+        flush_persons_and_events()
+        for p in people:
+            FeatureFlagHashKeyOverride.objects.create(
+                team=self.team, person=p, feature_flag_key="orphan-key", hash_key=f"hk-{p.id}"
+            )
+
+        call_command(
+            "backfill_orphan_hash_key_overrides",
+            "--team-id",
+            str(self.team.id),
+            "--batch-size",
+            "1",
+            "--max-batches",
+            "1",
+            "--sleep-between-batches",
+            "0",
+            stdout=StringIO(),
+        )
+
+        remaining = FeatureFlagHashKeyOverride.objects.filter(team=self.team, feature_flag_key="orphan-key").count()
+        # Started with 3 orphans; max_batches=1 with batch_size=1 means exactly 1 deletion.
+        assert remaining == len(people) - 1
