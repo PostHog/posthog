@@ -80,6 +80,8 @@ class PostHogConfig(AppConfig):
         # Only wired up in US, where local team_id=2 corresponds to the PostHog company
         # project. Outside US the helper returns None so the SDK falls back to its API
         # path against `posthoganalytics.host` (us.i.posthog.com) — see helper docstring.
+        # In E2E testing personal_api_key is None, so the SDK's API fallback is a no-op
+        # and no flag definitions are loaded — which is acceptable there.
         if not posthoganalytics.disabled:
             from posthog.feature_flags.sdk_cache_provider import get_default_flag_definition_cache_provider
 

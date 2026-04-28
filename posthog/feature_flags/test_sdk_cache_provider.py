@@ -211,30 +211,27 @@ class TestSDKClientIntegration(SimpleTestCase):
 
 
 class TestGetDefaultFlagDefinitionCacheProvider(SimpleTestCase):
-    """The HyperCache provider is only safe to install in US where team_id=2 maps to
-    the PostHog company project. Elsewhere it must return None so the SDK falls back
-    to API polling against posthoganalytics.host. The EU env-override case documents
-    that the gate is regional, not env-overridable."""
-
     @parameterized.expand(
         [
-            ("us_default", "US", None, 2),
-            ("us_env_override", "US", "42", 42),
-            ("eu_no_env", "EU", None, None),
-            ("eu_env_override", "EU", "42", None),
-            ("dev", "DEV", None, None),
-            ("e2e", "E2E", None, None),
-            ("self_hosted", None, None, None),
+            # (name, CLOUD_DEPLOYMENT, env_overrides, expected_team_id)
+            ("us_default", "US", {}, 2),
+            ("us_env_override", "US", {"POSTHOG_SELF_TEAM_ID": "42"}, 42),
+            ("eu_no_env", "EU", {}, None),
+            # documents that the gate is regional, not env-overridable
+            ("eu_env_override", "EU", {"POSTHOG_SELF_TEAM_ID": "42"}, None),
+            ("dev", "DEV", {}, None),
+            ("e2e", "E2E", {}, None),
+            ("local", "LOCAL", {}, None),
+            ("self_hosted", None, {}, None),
         ]
     )
-    @patch.dict(os.environ, {}, clear=False)
-    def test_provider(self, _name, deployment, env_team_id, expected_team_id):
-        if env_team_id is not None:
-            os.environ["POSTHOG_SELF_TEAM_ID"] = env_team_id
-        else:
-            os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
-
-        with override_settings(CLOUD_DEPLOYMENT=deployment):
+    def test_provider(self, _name, deployment, env_overrides, expected_team_id):
+        # clear=True wipes os.environ inside the context (and restores on exit), so the
+        # test sees only env_overrides — no leakage from the outer environment.
+        with (
+            patch.dict(os.environ, env_overrides, clear=True),
+            override_settings(CLOUD_DEPLOYMENT=deployment),
+        ):
             provider = get_default_flag_definition_cache_provider()
 
         if expected_team_id is None:
