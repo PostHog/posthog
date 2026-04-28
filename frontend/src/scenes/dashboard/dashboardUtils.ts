@@ -2,7 +2,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import api, { ApiError, ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { currentSessionId } from 'lib/internalMetrics'
 import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -293,6 +293,13 @@ export async function getInsightWithRetry(
         } catch (e: any) {
             if (shouldCancelQuery(e)) {
                 throw e // Re-throw cancellation errors
+            }
+
+            // Don't retry on 4xx errors except 408 (timeout) and 429 (rate limit) — they won't change on retry
+            if (e instanceof ApiError && e.status !== undefined && e.status >= 400 && e.status < 500) {
+                if (e.status !== 408 && e.status !== 429) {
+                    throw e
+                }
             }
 
             attempt++

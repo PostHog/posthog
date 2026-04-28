@@ -21,7 +21,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import api, { ApiError, ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 import { quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -220,6 +220,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshDashboardItems: (payload: {
             action: RefreshDashboardItemsAction | DashboardLoadAction
             forceRefresh?: boolean
+            isAutoRefresh?: boolean
         }) => payload,
         /** Update a single refresh status. */
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
@@ -230,6 +231,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queued,
         }),
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
+        /** Mark a tile as ineligible for background auto-refresh (e.g. permanent 4xx). Manual refresh still works. */
+        markTileNonAutoRefreshable: (shortId: InsightShortId) => ({ shortId }),
+        clearTileNonAutoRefreshable: (shortId: InsightShortId) => ({ shortId }),
         abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
@@ -914,6 +918,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 refreshDashboardItems: () => ({}),
                 abortQuery: () => ({}),
                 cancelDashboardRefresh: () => ({}),
+            },
+        ],
+        autoRefreshSkipShortIds: [
+            {} as Record<string, true>,
+            {
+                markTileNonAutoRefreshable: (state, { shortId }) => ({ ...state, [shortId]: true }),
+                clearTileNonAutoRefreshable: (state, { shortId }) => {
+                    if (!state[shortId]) {
+                        return state
+                    }
+                    const { [shortId]: _removed, ...rest } = state
+                    return rest
+                },
             },
         ],
         columns: [
@@ -1982,6 +1999,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (refreshedInsight) {
                     dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                     actions.setRefreshStatus(insight.short_id)
+                    actions.clearTileNonAutoRefreshable(insight.short_id)
                 } else {
                     actions.setRefreshError(insight.short_id)
                 }
@@ -1989,7 +2007,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setRefreshError(insight.short_id, e)
             }
         },
-        refreshDashboardItems: async ({ action, forceRefresh }, breakpoint) => {
+        refreshDashboardItems: async ({ action, forceRefresh, isAutoRefresh }, breakpoint) => {
             const dashboardRefreshStartTime = performance.now()
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
@@ -1999,6 +2017,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const allInsightTiles = values.insightTiles || []
             const totalTileCount = allInsightTiles.length
 
+            const autoRefreshSkipShortIds = values.autoRefreshSkipShortIds
             const sortedTilesToRefresh = allInsightTiles
                 // sort tiles so we poll them in the exact order they are computed on the backend
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -2013,6 +2032,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         !t.insight.cache_target_age ||
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
                 )
+                // skip tiles that previously returned a permanent client error (e.g. 403) when auto-refreshing
+                .filter((t) => !isAutoRefresh || !autoRefreshSkipShortIds[t.insight.short_id])
 
             const tilesStaleCount = sortedTilesToRefresh.length
             let tilesRefreshedCount = 0
@@ -2099,6 +2120,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             actions.abortQuery({ queryId, queryStartTime })
                             tilesAbortedCount++
                         } else {
+                            // Stop background polling for this tile if the failure is a permanent client error
+                            // (e.g. 401/403/404). Manual refreshes still go through and clear the skip on success.
+                            if (
+                                e instanceof ApiError &&
+                                e.status !== undefined &&
+                                [401, 403, 404].includes(e.status)
+                            ) {
+                                actions.markTileNonAutoRefreshable(insight.short_id)
+                            }
                             actions.setRefreshError(insight.short_id, e)
                             tilesErroredCount++
                         }
@@ -2265,6 +2295,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.refreshDashboardItems({
                         action: RefreshDashboardItemsAction.Refresh,
                         forceRefresh: true,
+                        isAutoRefresh: true,
                     })
                 }
                 cache.disposables.add(() => {
@@ -2272,6 +2303,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         actions.refreshDashboardItems({
                             action: RefreshDashboardItemsAction.Refresh,
                             forceRefresh: true,
+                            isAutoRefresh: true,
                         })
                     }, values.autoRefresh.interval * 1000)
                     return () => clearInterval(intervalId)
