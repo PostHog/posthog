@@ -120,6 +120,7 @@ class S3InsertInputs(BatchExportInsertInputs):
     prefix: str
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
+    aws_session_token: str | None = None
     compression: str | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
@@ -417,6 +418,7 @@ class ConcurrentS3Consumer(Consumer):
         file_format: str,
         aws_access_key_id: str,
         aws_secret_access_key: str,
+        aws_session_token: str | None = None,
         kms_key_id: str | None = None,
         max_file_size_mb: int | None = None,
         compression: str | None = None,
@@ -451,6 +453,7 @@ class ConcurrentS3Consumer(Consumer):
 
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
+        self.aws_session_token = aws_session_token
         self.kms_key_id = kms_key_id
         self.endpoint_url = endpoint_url
         self.use_virtual_style_addressing = use_virtual_style_addressing
@@ -499,6 +502,7 @@ class ConcurrentS3Consumer(Consumer):
             max_file_size_mb=s3_inputs.max_file_size_mb,
             aws_access_key_id=s3_inputs.aws_access_key_id,
             aws_secret_access_key=s3_inputs.aws_secret_access_key,
+            aws_session_token=s3_inputs.aws_session_token,
             kms_key_id=s3_inputs.kms_key_id,
             endpoint_url=s3_inputs.endpoint_url,
             use_virtual_style_addressing=s3_inputs.use_virtual_style_addressing,
@@ -530,6 +534,7 @@ class ConcurrentS3Consumer(Consumer):
                     region_name=self.region_name,
                     aws_access_key_id=self.aws_access_key_id,
                     aws_secret_access_key=self.aws_secret_access_key,
+                    aws_session_token=self.aws_session_token,
                     endpoint_url=self.endpoint_url,
                     config=boto_config,
                 )
