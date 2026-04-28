@@ -21,7 +21,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError, ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
 import { quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -98,6 +98,7 @@ import {
     encodeURLVariables,
     getDashboardWidgetType,
     getInsightWithRetry,
+    isPermanentClientError,
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
@@ -2097,6 +2098,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (refreshedInsight) {
                             dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                             actions.setRefreshStatus(insight.short_id)
+                            actions.clearTileNonAutoRefreshable(insight.short_id)
                             tilesRefreshedCount++
                             if (refreshedInsight.is_cached) {
                                 tilesRefreshedCachedCount++
@@ -2121,12 +2123,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tilesAbortedCount++
                         } else {
                             // Stop background polling for this tile if the failure is a permanent client error
-                            // (e.g. 401/403/404). Manual refreshes still go through and clear the skip on success.
-                            if (
-                                e instanceof ApiError &&
-                                e.status !== undefined &&
-                                [401, 403, 404].includes(e.status)
-                            ) {
+                            // (e.g. 4xx other than 408/429). Manual refreshes still go through and clear the skip on success.
+                            if (isPermanentClientError(e)) {
                                 actions.markTileNonAutoRefreshable(insight.short_id)
                             }
                             actions.setRefreshError(insight.short_id, e)

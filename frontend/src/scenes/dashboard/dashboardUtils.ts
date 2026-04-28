@@ -176,6 +176,22 @@ export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record
 }
 
 /**
+ * True for 4xx errors that won't change on retry. 408 (timeout) and 429 (rate limit) are excluded
+ * because they're transient. Used both to short-circuit the retry loop and to mark a dashboard
+ * tile as ineligible for background auto-refresh.
+ */
+export function isPermanentClientError(e: unknown): boolean {
+    return (
+        e instanceof ApiError &&
+        e.status !== undefined &&
+        e.status >= 400 &&
+        e.status < 500 &&
+        e.status !== 408 &&
+        e.status !== 429
+    )
+}
+
+/**
  * Fetches an insight with a retry and polling mechanism.
  * It first attempts to fetch the insight synchronously. If rate-limited, it retries with exponential backoff.
  * After multiple failed attempts, it switches to asynchronous polling to fetch the result.
@@ -295,11 +311,9 @@ export async function getInsightWithRetry(
                 throw e // Re-throw cancellation errors
             }
 
-            // Don't retry on 4xx errors except 408 (timeout) and 429 (rate limit) — they won't change on retry
-            if (e instanceof ApiError && e.status !== undefined && e.status >= 400 && e.status < 500) {
-                if (e.status !== 408 && e.status !== 429) {
-                    throw e
-                }
+            // Don't retry on permanent 4xx errors — they won't change on retry
+            if (isPermanentClientError(e)) {
+                throw e
             }
 
             attempt++
