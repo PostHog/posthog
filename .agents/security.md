@@ -1,5 +1,21 @@
 # Security guidelines for agents
 
+## Principle of Least Privilege
+
+Always grant the minimum access, scope, and permissions required for code to do its job. When in doubt, default to deny.
+
+- **Scope queries to the team:** Always filter querysets by `team_id` so a request can only ever read its own team's data.
+- **Pick the narrowest permission:** Prefer per-action DRF permissions and scoped access controls over broad `IsAuthenticated`. Reuse existing permission classes rather than weakening checks.
+- **Limit field exposure:** Serializers should expose the smallest set of fields needed. Never add `password`, tokens, secrets, or internal IDs to a response unless explicitly required.
+- **Restrict mutation surface:** Make read-only fields read-only; do not accept user input for fields the user has no business setting (e.g. `team`, `created_by`, `organization`).
+- **Credentials and tokens:** Use the narrowest scope and shortest lifetime that works. Never log secrets, never commit them, and never widen an existing token's scope to fit a new use case — mint a new one.
+- **Database roles and migrations:** Use the role with the least privilege required (read-only where possible). Don't grant blanket `ALL PRIVILEGES`.
+- **External services / IAM:** Request only the specific actions and resources you need (e.g. one S3 prefix, one Kafka topic) — avoid wildcards.
+- **Feature flags and admin paths:** Gate sensitive functionality behind explicit checks (`is_staff`, organization-level role, feature flag) rather than relying on obscurity.
+- **Removing access is part of the change:** When a feature is removed or a user/role no longer needs access, delete the permission in the same change — don't leave dormant grants behind.
+
+If a change appears to require broader privileges than what's already in place, treat that as a signal to stop and reconsider the design before widening the scope.
+
 ## SQL Security
 
 - **Never** use f-strings with user-controlled values in SQL queries - this creates SQL injection vulnerabilities
