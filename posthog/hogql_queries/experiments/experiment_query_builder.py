@@ -1384,8 +1384,7 @@ class ExperimentQueryBuilder:
             parse_expr("sum(entity_metrics.covariate_value) AS covariate_sum"),
             parse_expr("sum(power(entity_metrics.covariate_value, 2)) AS covariate_sum_squares"),
             parse_expr(
-                "sum(if(entity_metrics.value.1 = {n}, 1, 0) * entity_metrics.covariate_value) "
-                "AS main_covariate_sum_product",
+                "sum(if(entity_metrics.value.1 = {n}, 1, 0) * entity_metrics.covariate_value) AS covariate_sum_product",
                 placeholders={"n": ast.Constant(value=last_step_index)},
             ),
         ]
@@ -1400,7 +1399,7 @@ class ExperimentQueryBuilder:
     ) -> None:
         """
         Adds `covariate_value` to the entity_metrics CTE, plus the aggregation
-        aliases (`covariate_sum`, `covariate_sum_squares`, `main_covariate_sum_product`)
+        aliases (`covariate_sum`, `covariate_sum_squares`, `covariate_sum_product`)
         to the outer SELECT.
         """
         if not (query.ctes and "entity_metrics" in query.ctes):
