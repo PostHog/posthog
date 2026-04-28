@@ -33,6 +33,7 @@ export const MOCK_SUBSCRIPTION_INSIGHT: SubscriptionApi = {
     summary: 'sent every week',
     next_delivery_date: '2026-04-07T17:00:00Z',
     deleted: false,
+    enabled: true,
 }
 
 /** Insight subscription with several email recipients so Resource shows the type label, not the long name. */
@@ -62,6 +63,7 @@ export const MOCK_SUBSCRIPTION_DASHBOARD: SubscriptionApi = {
     summary: 'sent every day',
     next_delivery_date: '2026-04-08T09:00:00Z',
     deleted: false,
+    enabled: true,
     integration_id: 1,
 }
 
@@ -72,6 +74,14 @@ export const MOCK_SUBSCRIPTION_DASHBOARD_MANY_DESTINATIONS: SubscriptionApi = {
     target_value: 'C111|#team-a, C222|#team-b, C333|#team-c',
     resource_name: 'Company overview — all-hands dashboard export',
     title: 'Multi-channel dashboard digest',
+}
+
+/** Disabled insight subscription — auto-paused after the delivery integration broke. */
+export const MOCK_SUBSCRIPTION_DISABLED: SubscriptionApi = {
+    ...MOCK_SUBSCRIPTION_INSIGHT,
+    id: 5,
+    title: 'Paused weekly rollup',
+    enabled: false,
 }
 
 export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [

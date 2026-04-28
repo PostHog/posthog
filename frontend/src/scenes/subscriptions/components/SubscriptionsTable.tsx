@@ -1,4 +1,4 @@
-import { LemonTable, LemonTableColumn, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumn, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import type { PaginationManual, Sorting } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -94,7 +94,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                         <div className="min-w-0 w-full overflow-hidden">
                             <Link
                                 to={urls.subscription(sub.id)}
-                                className="font-medium block truncate"
+                                className={`font-medium block truncate ${sub.enabled ? '' : 'text-muted'}`}
                                 data-attr="subscription-name-link"
                             >
                                 {name}
@@ -184,6 +184,13 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
                 keyof SubscriptionApi | undefined
             >),
             sorter: true,
+        },
+        {
+            title: 'Enabled',
+            key: 'enabled',
+            dataIndex: 'enabled',
+            render: (_value: unknown, sub: SubscriptionApi) =>
+                sub.enabled ? <LemonTag type="success">ENABLED</LemonTag> : <LemonTag type="danger">DISABLED</LemonTag>,
         },
         {
             width: 56,
