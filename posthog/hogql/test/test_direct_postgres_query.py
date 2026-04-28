@@ -360,6 +360,67 @@ class TestDirectPostgresQuery(APIBaseTest):
         self.assertIn("icu_collate_nl", sql)
         self.assertEqual(executor.direct_postgres_source_id, str(source.id))
 
+    def test_generate_sql_for_direct_postgres_introspected_table_function(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+            connection_metadata={"available_table_functions": ["unnest"]},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT * FROM unnest(ARRAY[1, 2, 3])",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("unnest(", sql)
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
+    def test_generate_sql_for_direct_postgres_hardcoded_range_table_function(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+            },
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT range FROM range(10)",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertIn("range(10)", sql)
+        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+
     def test_generate_sql_for_duckdb_direct_postgres_table_uses_connection_catalog(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
