@@ -422,6 +422,31 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
 
+    def test_patch_enabled_true_rejected_when_slack_integration_missing(self):
+        """Re-enabling a disabled Slack subscription whose integration is gone must be
+        rejected up front — otherwise the next delivery would auto-disable it again
+        and the user would receive a confusing email seconds after hitting "Enable".
+        """
+        integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        create_response = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        subscription_id = create_response.json()["id"]
+
+        # Auto-disable: clear integration and disable the subscription
+        Subscription.objects.filter(pk=subscription_id).update(enabled=False, integration=None)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "enabled"
+        assert "Reconnect Slack" in response.json()["detail"]
+
     def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
