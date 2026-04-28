@@ -1,6 +1,6 @@
 import * as d3 from 'd3'
 
-import { drawArea, drawLine, type DrawContext } from '../core/canvas-renderer'
+import { drawArea, drawGrid, drawLine, type DrawContext } from '../core/canvas-renderer'
 import type { ChartDimensions, Series } from '../core/types'
 
 const dimensions: ChartDimensions = {
@@ -450,6 +450,42 @@ describe('hog-charts canvas-renderer', () => {
                 gapValues.size > 0 ? makeDrawContextWithGaps(ctx, labels, gapValues) : makeDrawContext(ctx, labels)
             drawArea(drawCtx, series)
             expect(ctx.fill).toHaveBeenCalledTimes(expectedFillCount)
+        })
+    })
+
+    describe('drawGrid', () => {
+        it('draws a horizontal line at every y-tick', () => {
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+            drawGrid(drawCtx)
+            const tickCount = ctx.moveTo.mock.calls.length - 1
+            expect(tickCount).toBeGreaterThan(0)
+            for (let i = 0; i < tickCount; i++) {
+                const [moveX, moveY] = ctx.moveTo.mock.calls[i] as [number, number]
+                const [lineX, lineY] = ctx.lineTo.mock.calls[i] as [number, number]
+                expect(moveX).toBe(dimensions.plotLeft)
+                expect(lineX).toBe(dimensions.plotLeft + dimensions.plotWidth)
+                expect(moveY).toBe(lineY)
+            }
+        })
+
+        it('draws a vertical y-axis line at plotLeft as the final stroke', () => {
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+            drawGrid(drawCtx)
+            const lastMoveTo = ctx.moveTo.mock.calls[ctx.moveTo.mock.calls.length - 1] as [number, number]
+            const lastLineTo = ctx.lineTo.mock.calls[ctx.lineTo.mock.calls.length - 1] as [number, number]
+            expect(lastMoveTo[0]).toBe(dimensions.plotLeft + 0.5)
+            expect(lastMoveTo[1]).toBe(dimensions.plotTop)
+            expect(lastLineTo[0]).toBe(dimensions.plotLeft + 0.5)
+            expect(lastLineTo[1]).toBe(dimensions.plotTop + dimensions.plotHeight)
+        })
+
+        it('uses the provided gridColor', () => {
+            const ctx = mockCanvasContext()
+            const drawCtx = makeDrawContext(ctx, ['a', 'b'])
+            drawGrid(drawCtx, { gridColor: 'rgb(1, 2, 3)' })
+            expect(ctx.strokeStyle).toBe('rgb(1, 2, 3)')
         })
     })
 })

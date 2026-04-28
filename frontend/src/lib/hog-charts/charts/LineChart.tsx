@@ -3,7 +3,12 @@ import React, { useCallback, useMemo, useRef } from 'react'
 import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../core/canvas-renderer'
 import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
-import { computePercentStackData, computeStackData, createScales as createLineScales } from '../core/scales'
+import {
+    computePercentStackData,
+    computeStackData,
+    createScales as createLineScales,
+    yTickCountForHeight,
+} from '../core/scales'
 import type { ScaleSet, StackedBand } from '../core/scales'
 import { DEFAULT_Y_AXIS_ID } from '../core/types'
 import type {
@@ -85,13 +90,15 @@ export function LineChart<Meta = unknown>({
             })
             d3ScalesRef.current = d3Scales
 
+            const yTickCount = yTickCountForHeight(dimensions.plotHeight)
+
             let yAxes: Record<string, YAxisScale> | undefined
             if (d3Scales.yAxes) {
                 yAxes = {}
                 for (const [axisId, { scale, position }] of Object.entries(d3Scales.yAxes)) {
                     yAxes[axisId] = {
                         scale: (value: number) => scale(value),
-                        ticks: () => scale.ticks?.() ?? [],
+                        ticks: () => scale.ticks?.(yTickCount) ?? [],
                         position,
                     }
                 }
@@ -100,7 +107,7 @@ export function LineChart<Meta = unknown>({
             return {
                 x: (label: string) => d3Scales.x(label),
                 y: (value: number) => d3Scales.y(value),
-                yTicks: () => d3Scales.y.ticks?.() ?? [],
+                yTicks: () => d3Scales.y.ticks?.(yTickCount) ?? [],
                 yAxes,
             }
         },
