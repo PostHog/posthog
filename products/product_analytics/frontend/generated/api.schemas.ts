@@ -2629,11 +2629,12 @@ export interface RetentionQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
-export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
+export type AggregationPropertyType1Api = (typeof AggregationPropertyType1Api)[keyof typeof AggregationPropertyType1Api]
 
-export const AggregationPropertyTypeApi = {
+export const AggregationPropertyType1Api = {
     Event: 'event',
     Person: 'person',
+    DataWarehouse: 'data_warehouse',
 } as const
 
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
@@ -2772,8 +2773,9 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
-    /** The type of property to aggregate on (event or person). Defaults to event. */
-    aggregationPropertyType?: AggregationPropertyTypeApi | null
+    /** The type of property to aggregate on. Defaults to event. Use `data_warehouse` to
+aggregate a column on the data warehouse table referenced by the start/returning entity. */
+    aggregationPropertyType?: AggregationPropertyType1Api | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
