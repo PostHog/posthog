@@ -62,6 +62,7 @@ import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
+import ProjectsGrid from './projects-grid/ProjectsGrid'
 
 // Component for rendering status cell with loading state
 function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
@@ -647,6 +648,7 @@ export function FeatureFlags(): JSX.Element {
     const showNotificationsTab =
         !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS] &&
         hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
+    const showProjectsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACROSS_PROJECTS_INDEX]
 
     return (
         <SceneContent className="feature_flags">
@@ -702,6 +704,15 @@ export function FeatureFlags(): JSX.Element {
                         label: 'Overview',
                         content: <OverViewTab />,
                     },
+                    ...(showProjectsTab
+                        ? [
+                              {
+                                  key: FeatureFlagsTab.PROJECTS,
+                                  label: 'Projects',
+                                  content: <ProjectsGrid />,
+                              },
+                          ]
+                        : []),
                     {
                         key: FeatureFlagsTab.HISTORY,
                         label: 'History',

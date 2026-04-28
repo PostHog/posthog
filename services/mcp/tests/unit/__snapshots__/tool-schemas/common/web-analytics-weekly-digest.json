@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "compare": {
+            "default": true,
+            "description": "When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).",
+            "type": "boolean"
+        },
+        "days": {
+            "default": 7,
+            "description": "Lookback window in days (1–90). Defaults to 7.",
+            "type": "number"
+        }
+    },
+    "type": "object"
+}

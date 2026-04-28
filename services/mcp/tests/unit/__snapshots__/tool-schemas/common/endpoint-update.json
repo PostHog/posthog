@@ -1,7 +1,7 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "cache_age_seconds": {
+        "data_freshness_seconds": {
             "anyOf": [
                 {
                     "type": "number"
@@ -10,7 +10,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Cache TTL in seconds (60–86400)."
+            "description": "How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency."
         },
         "description": {
             "anyOf": [

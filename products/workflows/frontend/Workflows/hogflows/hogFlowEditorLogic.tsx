@@ -594,9 +594,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             selectable: false,
                         })
 
-                        // If this branch edge has same target as other edges, we also add a single dropzone near the target node
+                        // If multiple edges share the same target, add a single dropzone near the target node
+                        // to allow branch convergence (fan-in). This covers both branch edges directly
+                        // from a conditional node and continue edges from downstream nodes in parallel paths.
                         const hasSiblingEdges = edges.filter((e) => e.data?.edge.to === edge.target).length > 1
-                        if (edge.data?.edge.type === 'branch' && hasSiblingEdges) {
+                        if (hasSiblingEdges) {
                             // Use an ID that we can consistently look up for the branch join point to avoid duplicate dropzones
                             const branchJoinDropzoneTargetId = `dropzone_target_${edge.target}_branch_join`
                             // Avoid duplicating dropzones for multiple branch edges to the same target
@@ -604,7 +606,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 return
                             }
 
-                            // For branch edges, we also add a dropzone near the target node to allow easier dropping
+                            // Add a dropzone near the target node to allow merging parallel branches
                             dropzoneNodes.push({
                                 id: branchJoinDropzoneTargetId,
                                 type: 'dropzone',

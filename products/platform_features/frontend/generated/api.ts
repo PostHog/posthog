@@ -19,23 +19,28 @@ import type {
     ChangeRequestsListParams,
     CommentApi,
     CommentsListParams,
+    ListParams,
     MembersListParams,
+    OrganizationApi,
     OrganizationMemberApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
     PaginatedChangeRequestListApi,
     PaginatedCommentListApi,
+    PaginatedOrganizationListApi,
     PaginatedOrganizationMemberListApi,
     PaginatedRoleListApi,
     PaginatedRoleMembershipListApi,
     PatchedApprovalPolicyApi,
     PatchedCommentApi,
+    PatchedOrganizationApi,
     PatchedOrganizationMemberApi,
     PatchedRoleApi,
     RoleApi,
     RoleMembershipApi,
     RolesListParams,
     RolesRoleMembershipsListParams,
+    WelcomeResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -265,6 +270,99 @@ export const changeRequestsRejectCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(changeRequestApi),
+    })
+}
+
+export const getListUrl = (params?: ListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0 ? `/api/organizations/?${stringifiedParams}` : `/api/organizations/`
+}
+
+export const list = async (params?: ListParams, options?: RequestInit): Promise<PaginatedOrganizationListApi> => {
+    return apiMutator<PaginatedOrganizationListApi>(getListUrl(params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCreateUrl = () => {
+    return `/api/organizations/`
+}
+
+export const create = async (
+    organizationApi: NonReadonly<OrganizationApi>,
+    options?: RequestInit
+): Promise<OrganizationApi> => {
+    return apiMutator<OrganizationApi>(getCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(organizationApi),
+    })
+}
+
+export const getRetrieveUrl = (id: string) => {
+    return `/api/organizations/${id}/`
+}
+
+export const retrieve = async (id: string, options?: RequestInit): Promise<OrganizationApi> => {
+    return apiMutator<OrganizationApi>(getRetrieveUrl(id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUpdateUrl = (id: string) => {
+    return `/api/organizations/${id}/`
+}
+
+export const update = async (
+    id: string,
+    organizationApi: NonReadonly<OrganizationApi>,
+    options?: RequestInit
+): Promise<OrganizationApi> => {
+    return apiMutator<OrganizationApi>(getUpdateUrl(id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(organizationApi),
+    })
+}
+
+export const getPartialUpdateUrl = (id: string) => {
+    return `/api/organizations/${id}/`
+}
+
+export const partialUpdate = async (
+    id: string,
+    patchedOrganizationApi: NonReadonly<PatchedOrganizationApi>,
+    options?: RequestInit
+): Promise<OrganizationApi> => {
+    return apiMutator<OrganizationApi>(getPartialUpdateUrl(id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedOrganizationApi),
+    })
+}
+
+export const getDestroyUrl = (id: string) => {
+    return `/api/organizations/${id}/`
+}
+
+export const destroy = async (id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getDestroyUrl(id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -542,6 +640,23 @@ export const rolesRoleMembershipsDestroy = async (
     return apiMutator<void>(getRolesRoleMembershipsDestroyUrl(organizationId, roleId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Aggregated payload for the invited-user welcome screen.
+ */
+export const getWelcomeCurrentRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/welcome/current/`
+}
+
+export const welcomeCurrentRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<WelcomeResponseApi> => {
+    return apiMutator<WelcomeResponseApi>(getWelcomeCurrentRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
     })
 }
 

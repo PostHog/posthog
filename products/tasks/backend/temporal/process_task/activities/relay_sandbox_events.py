@@ -102,12 +102,60 @@ async def relay_sandbox_events(input: RelaySandboxEventsInput) -> None:
         )
     except asyncio.CancelledError:
         logger.info("relay_sandbox_events_cancelled", run_id=input.run_id)
-        await redis_stream.mark_error("Relay cancelled")
+        # Cancellation is expected when the workflow finishes or is replaced.
+        # Do not emit an error sentinel: it makes clients treat a still-valid
+        # task run as unrecoverably disconnected.
+        await redis_stream.mark_complete()
         raise
     except Exception as e:
-        logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
-        await redis_stream.mark_error(str(e)[:500])
+        try:
+            marked_complete = await _mark_error_unless_run_is_terminal(redis_stream, input.run_id, str(e))
+        except Exception as status_check_error:
+            logger.exception(
+                "relay_sandbox_events_terminal_status_check_failed",
+                run_id=input.run_id,
+                relay_error=str(e),
+                error=str(status_check_error),
+            )
+            try:
+                await redis_stream.mark_error(str(e)[:500])
+            except Exception as mark_error_error:
+                logger.exception(
+                    "relay_sandbox_events_mark_error_failed",
+                    run_id=input.run_id,
+                    relay_error=str(e),
+                    error=str(mark_error_error),
+                )
+            logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
+        else:
+            if marked_complete:
+                logger.info("relay_sandbox_events_stopped_after_terminal_run", run_id=input.run_id, error=str(e))
+            else:
+                logger.exception("relay_sandbox_events_failed", run_id=input.run_id, error=str(e))
         raise
+
+
+async def _mark_error_unless_run_is_terminal(
+    redis_stream: TaskRunRedisStream,
+    run_id: str,
+    error: str,
+) -> bool:
+    try:
+        task_run = await TaskRunModel.objects.only("status").aget(id=run_id)
+    except TaskRunModel.DoesNotExist:
+        await redis_stream.mark_error(error[:500])
+        return False
+
+    if task_run.status in (
+        TaskRunModel.Status.COMPLETED,
+        TaskRunModel.Status.FAILED,
+        TaskRunModel.Status.CANCELLED,
+    ):
+        await redis_stream.mark_complete()
+        return True
+
+    await redis_stream.mark_error(error[:500])
+    return False
 
 
 async def _background_heartbeat(
@@ -130,21 +178,23 @@ async def _background_heartbeat(
         except TimeoutError:
             activity.heartbeat()
             # Lazy import to avoid circular dependency (workflow imports this module)
-            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT_MINUTES
+            from products.tasks.backend.temporal.process_task.workflow import INACTIVITY_TIMEOUT
 
             now = time.monotonic()
             if (
                 workflow_handle is not None
                 and last_event_time is not None
                 and last_event_time[0] > 0
-                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT_MINUTES * 60
+                and (now - last_event_time[0]) < INACTIVITY_TIMEOUT.total_seconds()
                 and (last_workflow_signal is None or (now - last_workflow_signal[0]) >= HEARTBEAT_INTERVAL_SECONDS)
                 and (agent_active is None or agent_active[0])
             ):
                 if last_workflow_signal is not None:
                     last_workflow_signal[0] = now
                 try:
-                    await workflow_handle.signal("heartbeat")
+                    await workflow_handle.signal(
+                        "heartbeat", arg=agent_active[0] if agent_active is not None else False
+                    )
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
 
@@ -241,7 +291,7 @@ async def _relay_loop(
                             ):
                                 last_workflow_signal[0] = now
                                 try:
-                                    await workflow_handle.signal("heartbeat")
+                                    await workflow_handle.signal("heartbeat", arg=True)
                                 except Exception as e:
                                     logger.warning(
                                         "relay_workflow_heartbeat_signal_failed", run_id=run_id, error=str(e)

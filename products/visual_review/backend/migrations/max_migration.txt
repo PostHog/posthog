@@ -1,1 +1,1 @@
-0005_tolerated_hashes
+0008_add_artifact_thumbnail

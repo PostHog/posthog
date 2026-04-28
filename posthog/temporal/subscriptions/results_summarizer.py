@@ -1,21 +1,35 @@
 import math
 from typing import Any
 
+from structlog import get_logger
+
+LOGGER = get_logger(__name__)
+
 MAX_SUMMARY_LENGTH = 2000
 
 
-def build_results_summary(query_kind: str, results: list[dict[str, Any]] | None) -> str:
+def build_results_summary(
+    query_kind: str,
+    results: list[Any] | None,
+    columns: list[str] | None = None,
+) -> str:
     if not results:
         return "No results"
 
-    summarizer = _SUMMARIZERS.get(query_kind, _summarize_generic)
-    text = summarizer(results)
+    summarizer = _SUMMARIZERS.get(query_kind)
+    if summarizer is not None:
+        text = summarizer(results)
+    else:
+        text = _summarize_generic(results, columns)
     if len(text) > MAX_SUMMARY_LENGTH:
         text = text[:MAX_SUMMARY_LENGTH] + "\n... (truncated)"
     return text
 
 
 def _summarize_trends(results: list[dict[str, Any]]) -> str:
+    if _looks_like_boxplot_trend(results):
+        return _summarize_boxplot_trend(results)
+
     lines: list[str] = []
     for series in results:
         label = series.get("label", "Unknown")
@@ -40,6 +54,43 @@ def _summarize_trends(results: list[dict[str, Any]]) -> str:
             lines.append(f"- {label}: count={_fmt(series['count'])}")
         else:
             lines.append(f"- {label}: (no data)")
+
+    return "\n".join(lines) if lines else "No trend series"
+
+
+def _looks_like_boxplot_trend(results: list[dict[str, Any]]) -> bool:
+    # Boxplot TrendsQuery results have one row per (series × time bucket) with
+    # quantile stats (median/min/max/p25/p75) and no `data` array.
+    if not results or not isinstance(results[0], dict):
+        return False
+    first = results[0]
+    return "median" in first and "data" not in first
+
+
+def _summarize_boxplot_trend(results: list[dict[str, Any]]) -> str:
+    by_series: dict[str, list[dict[str, Any]]] = {}
+    for row in results:
+        label = row.get("series_label") or row.get("label") or "Unknown"
+        by_series.setdefault(label, []).append(row)
+
+    lines: list[str] = []
+    for label, rows in by_series.items():
+        medians = [
+            r["median"] for r in rows if isinstance(r.get("median"), (int, float)) and math.isfinite(r["median"])
+        ]
+        if not medians:
+            lines.append(f"- {label}: (no data)")
+            continue
+        maxes = [r["max"] for r in rows if isinstance(r.get("max"), (int, float)) and math.isfinite(r["max"])]
+        mins = [r["min"] for r in rows if isinstance(r.get("min"), (int, float)) and math.isfinite(r["min"])]
+        trend = _trend_direction(medians)
+        lines.append(
+            f"- {label} (boxplot): median latest={_fmt(medians[-1])}, "
+            f"median avg={_fmt(sum(medians) / len(medians))}, "
+            f"overall min={_fmt(min(mins) if mins else medians[-1])}, "
+            f"overall max={_fmt(max(maxes) if maxes else medians[-1])}, "
+            f"median trend={trend} ({len(medians)} points)"
+        )
 
     return "\n".join(lines) if lines else "No trend series"
 
@@ -80,19 +131,49 @@ def _summarize_retention(results: list[dict[str, Any]]) -> str:
     return "\n".join(lines) if lines else "No retention cohorts"
 
 
-def _summarize_generic(results: list[dict[str, Any]]) -> str:
+def _summarize_generic(results: list[Any], columns: list[str] | None = None) -> str:
+    """Fallback for query kinds without a dedicated summarizer.
+
+    Handles both row shapes we see in practice:
+    - dict rows (most PostHog query results): skip known noisy keys, join the rest.
+    - list/tuple rows (HogQL / DataVisualizationNode): label each value with the
+      corresponding entry from `columns` when provided, falling back to
+      position-indexed `colN` names when a column list is unavailable or shorter
+      than the row.
+    Any other shape falls back to str() so a surprising result shape produces a
+    usable summary instead of an AttributeError that kills the whole activity.
+    """
     lines: list[str] = []
     for i, row in enumerate(results[:20]):
-        parts = []
-        for key, val in row.items():
-            if key in ("data", "values", "days", "labels", "timestamps"):
-                continue
-            parts.append(f"{key}={val}")
+        parts: list[str] = []
+        if isinstance(row, dict):
+            for key, val in row.items():
+                if key in ("data", "values", "days", "labels", "timestamps"):
+                    continue
+                parts.append(f"{key}={val}")
+        elif isinstance(row, (list, tuple)):
+            for col_index, val in enumerate(row):
+                label = _column_label(columns, col_index)
+                parts.append(f"{label}={val}")
+        else:
+            # Emit a signal rather than silently producing an ok-ish summary — if a
+            # new shape appears in practice we find out from logs, not from a user.
+            LOGGER.info(
+                "subscription_summary.unexpected_row_shape",
+                row_type=type(row).__name__,
+            )
+            parts.append(str(row))
         if parts:
             lines.append(f"- Row {i + 1}: {', '.join(parts)}")
     if len(results) > 20:
         lines.append(f"... and {len(results) - 20} more rows")
     return "\n".join(lines) if lines else "No results data"
+
+
+def _column_label(columns: list[str] | None, index: int) -> str:
+    if columns and index < len(columns) and columns[index].strip():
+        return columns[index]
+    return f"col{index}"
 
 
 def _trend_direction(values: list[float | int]) -> str:

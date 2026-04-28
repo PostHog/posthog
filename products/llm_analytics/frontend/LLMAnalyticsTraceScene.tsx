@@ -101,7 +101,6 @@ import {
     formatLLMLatency,
     formatLLMUsage,
     getEventType,
-    getSessionID,
     getSessionStartTimestamp,
     getTraceTimestamp,
     hasCostBreakdown,
@@ -1423,21 +1422,6 @@ function EventContentDisplay({
     )
 }
 
-function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): EnrichedTraceTreeNode | null {
-    for (const node of tree) {
-        if (node.event.id === eventId) {
-            return node
-        }
-        if (node.children) {
-            const result = findNodeForEvent(node.children, eventId)
-            if (result) {
-                return result
-            }
-        }
-    }
-    return null
-}
-
 const EventContent = React.memo(
     ({
         trace,
@@ -1460,12 +1444,10 @@ const EventContent = React.memo(
         const { displayOption, lineNumber, initialTab, viewMode, highlightMessageIndex } = useValues(traceLogic)
         const { effectiveEventId } = useValues(traceDataLogic)
         const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(traceLogic)
+        const { sessionId, selectedNode } = useValues(traceDataLogic)
 
-        const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
-        const aggregation = node?.aggregation || null
+        const aggregation = selectedNode?.aggregation || null
 
-        const childEventsForSessionId: LLMTraceEvent[] | undefined = node?.children?.map((child) => child.event)
-        const sessionId = event ? getSessionID(event, childEventsForSessionId) : null
         const hasSessionRecording = !!sessionId
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
@@ -1522,7 +1504,7 @@ const EventContent = React.memo(
             const provider = event.properties.$ai_provider
             const tools = event.properties.$ai_tools
 
-            openInPlayground({ model, provider, input: loadedInput, tools })
+            openInPlayground({ model, provider, input: loadedInput, output: loadedOutput, tools })
         }
 
         return (
@@ -1651,6 +1633,7 @@ const EventContent = React.memo(
                                             data-attr="llm-analytics"
                                             sessionId={sessionId || undefined}
                                             timestamp={removeMilliseconds(event.createdAt)}
+                                            checkRecordingExists
                                         />
                                     )}
                                 </div>

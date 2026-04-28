@@ -128,7 +128,7 @@ export const Checkboxes: Story = {
     render: () => {
         const [open, setOpen] = useState(true)
         const [checkedOne, setCheckedOne] = useState(true)
-        const [checkedTwo, setCheckedTwo] = useState(false)
+        const [checkedTwo, setCheckedTwo] = useState(true)
         return (
             <DropdownMenu open={open} onOpenChange={setOpen}>
                 <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>Click me</DropdownMenuTrigger>
@@ -141,6 +141,11 @@ export const Checkboxes: Story = {
                             Checkbox Item 2
                         </DropdownMenuCheckboxItem>
                         <DropdownMenuCheckboxItem disabled>Checkbox Item 2</DropdownMenuCheckboxItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem>
+                                <ExpandIcon />
+                                Expand
+                            </DropdownMenuItem>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>
             </DropdownMenu>
@@ -163,6 +168,11 @@ export const Radios: Story = {
                             <DropdownMenuRadioItem value="radioThree" disabled>
                                 Radio Item 3
                             </DropdownMenuRadioItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem>
+                                <ExpandIcon />
+                                Expand
+                            </DropdownMenuItem>
                         </DropdownMenuRadioGroup>
                     </DropdownMenuGroup>
                 </DropdownMenuContent>

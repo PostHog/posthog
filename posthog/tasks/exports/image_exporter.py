@@ -4,7 +4,7 @@ import time
 import uuid
 import tempfile
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Any, Literal, Optional, cast
 from urllib.parse import quote
 
 from django.conf import settings
@@ -116,7 +116,7 @@ def get_driver() -> webdriver.Chrome:
     # which routes through HTTP_PROXY. The egress proxy blocks this localhost request,
     # but it doesn't matter — Service.stop() always calls _terminate_process() (SIGTERM)
     # right after, so the HTTP shutdown is redundant.
-    driver.service.send_remote_shutdown_command = lambda: None
+    cast(Any, driver.service).send_remote_shutdown_command = lambda: None
 
     return driver
 

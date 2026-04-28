@@ -13,6 +13,11 @@ from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_ME
 logger = structlog.get_logger(__name__)
 
 
+def _next_delivery_date_display(subscription: Subscription) -> str:
+    next_delivery_date = subscription.next_delivery_date
+    return next_delivery_date.strftime("%A %B %d, %Y") if next_delivery_date is not None else "an upcoming date"
+
+
 def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
     if _has_asset_failed(asset):
         insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
@@ -65,13 +70,16 @@ def send_email_subscription_report(
     # one send per (resource kind, next_delivery_date) because campaign_key collided across subscriptions.
     campaign_key = (
         f"{resource_info.kind.lower()}_subscription_report_{subscription.pk}_"
-        f"{subscription.next_delivery_date.isoformat()}"
+        f"{subscription.next_delivery_date.isoformat() if subscription.next_delivery_date is not None else 'unscheduled'}"
     )
 
     unsubscribe_url = absolute_uri(f"/unsubscribe?token={get_unsubscribe_token(subscription, email)}&{utm_tags}")
 
     if is_invite:
-        invite_summary = f"This subscription is {subscription.summary}. The next subscription will be sent on {subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
+        invite_summary = (
+            f"This subscription is {subscription.summary}. "
+            f"The next subscription will be sent on {_next_delivery_date_display(subscription)}"
+        )
         if self_invite:
             subject = f"You have been subscribed to a PostHog {resource_info.kind}"
         else:

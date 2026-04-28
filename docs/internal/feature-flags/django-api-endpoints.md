@@ -2,7 +2,7 @@
 
 Django serves the admin/management API for feature flags: CRUD operations, local SDK evaluation, analytics, and organization-level operations. Runtime flag evaluation (`/flags`, `/decide`) is routed directly to the [Rust service](rust-service-overview.md) by Contour/Envoy at the Kubernetes infrastructure level -- these requests never reach Django. Django does make internal service-to-service HTTP calls to the Rust service for actions like `my_flags` and `evaluation_reasons`.
 
-The `/api/feature_flag/local_evaluation` endpoint (used by server-side SDKs for local flag evaluation) runs on a **dedicated Django deployment** (`posthog-local-evaluation`), separate from the main Django web service.
+The `/api/feature_flag/local_evaluation` endpoint was historically served by a dedicated Django deployment (`posthog-local-evaluation`). As of April 2026, all local evaluation traffic is served by the Rust definitions fleet at `/flags/definitions` (see [Rust service overview](rust-service-overview.md)). The Django endpoint and deployment are deprecated and pending removal.
 
 ## Architecture overview
 
