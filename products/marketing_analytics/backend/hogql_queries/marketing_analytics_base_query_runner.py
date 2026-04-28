@@ -505,10 +505,25 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def _build_channel_type_expr(self) -> ast.Expr:
         """Compute channel_type for adapter data using web analytics' classification."""
         modifiers = create_default_modifiers_for_team(self.team)
+        # Map adapter-internal source aliases to entries that exist in channel_definition_dict.
+        # The Meta Ads adapter emits "meta", but the dict keys it under "facebook" (same Paid Social rule).
+        source_field = ast.Field(chain=[self.config.source_field])
+        normalized_source = ast.Call(
+            name="if",
+            args=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Call(name="lower", args=[source_field]),
+                    right=ast.Constant(value="meta"),
+                ),
+                ast.Constant(value="facebook"),
+                source_field,
+            ],
+        )
         return create_channel_type_expr(
             custom_rules=modifiers.customChannelTypeRules,
             source_exprs=ChannelTypeExprs(
-                source=ast.Field(chain=[self.config.source_field]),
+                source=normalized_source,
                 medium=ast.Constant(value="cpc"),  # all adapter data is paid
                 campaign=ast.Constant(value=""),
                 referring_domain=ast.Constant(value="$direct"),

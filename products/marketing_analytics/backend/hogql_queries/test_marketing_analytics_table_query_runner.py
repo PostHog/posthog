@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
@@ -17,8 +18,8 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.data_warehouse.backend.models import DataWarehouseTable
@@ -453,10 +454,6 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
     )
     def test_channel_drill_down_classifies_adapter_source(self, source: str, expected_channel: str):
         """Adapter rows group into the channel_type derived from their source column."""
-        # channel_definition_dict caches entries for its LIFETIME; force a reload
-        # so new JSON entries (e.g. "meta") are visible in this test run.
-        sync_execute("SYSTEM RELOAD DICTIONARY channel_definition_dict")
-
         query = MarketingAnalyticsTableQuery(
             dateRange=self.default_date_range,
             limit=DEFAULT_LIMIT,
@@ -475,6 +472,25 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert channels == {expected_channel}, (
             f"source={source!r} expected channel={expected_channel!r}, got {channels}"
         )
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_channel_drill_down_meta_to_facebook_mapping_snapshot(self):
+        """Channel drill-down rewrites adapter source 'meta' to 'facebook' before lookupPaidSourceType."""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL,
+        )
+        runner = self._create_query_runner(query)
+        runner._apply_drill_down_level()
+
+        union_subquery = _build_synthetic_adapter_union(["meta"])
+        cte_select = runner._build_campaign_cost_select(union_subquery)
+        response = execute_hogql_query(query=cte_select, team=self.team)
+
+        assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
 
 
 def _build_synthetic_adapter_union(source_names: list[str]) -> ast.SelectSetQuery | ast.SelectQuery:
