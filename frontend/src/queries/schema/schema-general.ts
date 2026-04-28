@@ -3607,6 +3607,9 @@ export interface ExperimentStatsBase {
     number_of_samples: integer
     sum: number
     sum_squares: number
+    covariate_sum?: number
+    covariate_sum_squares?: number
+    main_covariate_sum_product?: number
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
@@ -4063,8 +4066,7 @@ export interface ResolvedDateRangeResponse {
     date_to: string
 }
 
-export type MultipleBreakdownType = Extract<
-    BreakdownType,
+export type MultipleBreakdownType =
     | 'person'
     | 'event'
     | 'event_metadata'
@@ -4073,8 +4075,8 @@ export type MultipleBreakdownType = Extract<
     | 'hogql'
     | 'cohort'
     | 'revenue_analytics'
+    | 'data_warehouse'
     | 'data_warehouse_person_property'
->
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null

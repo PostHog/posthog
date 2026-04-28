@@ -178,15 +178,16 @@ export const BreakdownTypeApi = {
 export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
 
 export const MultipleBreakdownTypeApi = {
-    Cohort: 'cohort',
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
-    DataWarehousePersonProperty: 'data_warehouse_person_property',
+    Cohort: 'cohort',
     RevenueAnalytics: 'revenue_analytics',
+    DataWarehouse: 'data_warehouse',
+    DataWarehousePersonProperty: 'data_warehouse_person_property',
 } as const
 
 export interface BreakdownApi {
@@ -6064,10 +6065,16 @@ export const ExperimentStatsValidationFailureApi = {
 
 export interface ExperimentStatsBaseValidatedApi {
     /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
+    /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
+    /** @nullable */
+    main_covariate_sum_product?: number | null
     number_of_samples: number
     /** @nullable */
     numerator_denominator_sum_product?: number | null
@@ -6096,10 +6103,16 @@ export interface ExperimentVariantResultFrequentistApi {
      */
     confidence_interval?: number[] | null
     /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
+    /** @nullable */
     denominator_sum?: number | null
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
+    /** @nullable */
+    main_covariate_sum_product?: number | null
     method?: ExperimentVariantResultFrequentistApiMethod
     number_of_samples: number
     /** @nullable */
@@ -6128,6 +6141,10 @@ export const ExperimentVariantResultBayesianApiMethod = {
 export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     chance_to_win?: number | null
+    /** @nullable */
+    covariate_sum?: number | null
+    /** @nullable */
+    covariate_sum_squares?: number | null
     /**
      * @minItems 2
      * @maxItems 2
@@ -6139,6 +6156,8 @@ export interface ExperimentVariantResultBayesianApi {
     /** @nullable */
     denominator_sum_squares?: number | null
     key: string
+    /** @nullable */
+    main_covariate_sum_product?: number | null
     method?: ExperimentVariantResultBayesianApiMethod
     number_of_samples: number
     /** @nullable */
@@ -9490,14 +9509,6 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
 }
 
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
-
-export const EffectiveRestrictionLevelEnumApi = {
-    Number21: 21,
-    Number37: 37,
-} as const
-
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
@@ -9589,7 +9600,7 @@ export interface InsightApi {
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -9707,7 +9718,7 @@ export interface PatchedInsightApi {
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
     readonly is_sample?: boolean
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -9804,7 +9815,47 @@ export type InsightsListParams = {
      * Return basic insight metadata only (no results, faster).
      */
     basic?: boolean
+    /**
+     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
+     */
+    created_by?: string
+    /**
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
+     */
+    created_date_from?: string
+    /**
+     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
+     */
+    created_date_to?: string
+    /**
+     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
+     */
+    dashboards?: string
+    /**
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     */
+    date_from?: string
+    /**
+     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
+     */
+    date_to?: string
+    /**
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
+     */
+    favorited?: boolean
     format?: InsightsListFormat
+    /**
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     */
+    insight?: InsightsListInsight
+    /**
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_from?: string
+    /**
+     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_to?: string
     /**
      * Number of results to return per page.
      */
@@ -9825,7 +9876,23 @@ Whether to refresh the retrieved insights, how aggressively, and if sync or asyn
 Background calculation can be tracked using the `query_status` response field.
  */
     refresh?: InsightsListRefresh
+    /**
+     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
+     */
+    saved?: boolean
+    /**
+     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     */
+    search?: string
     short_id?: string
+    /**
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     */
+    tags?: string
+    /**
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
+     */
+    user?: boolean
 }
 
 export type InsightsListFormat = (typeof InsightsListFormat)[keyof typeof InsightsListFormat]
@@ -9833,6 +9900,19 @@ export type InsightsListFormat = (typeof InsightsListFormat)[keyof typeof Insigh
 export const InsightsListFormat = {
     Csv: 'csv',
     Json: 'json',
+} as const
+
+export type InsightsListInsight = (typeof InsightsListInsight)[keyof typeof InsightsListInsight]
+
+export const InsightsListInsight = {
+    Funnels: 'FUNNELS',
+    Json: 'JSON',
+    Lifecycle: 'LIFECYCLE',
+    Paths: 'PATHS',
+    Retention: 'RETENTION',
+    Sql: 'SQL',
+    Stickiness: 'STICKINESS',
+    Trends: 'TRENDS',
 } as const
 
 export type InsightsListRefresh = (typeof InsightsListRefresh)[keyof typeof InsightsListRefresh]
@@ -9932,14 +10012,14 @@ export const InsightsDestroyFormat = {
     Json: 'json',
 } as const
 
-export type InsightsActivityRetrieve2Params = {
-    format?: InsightsActivityRetrieve2Format
+export type InsightsActivityRetrieveParams = {
+    format?: InsightsActivityRetrieveFormat
 }
 
-export type InsightsActivityRetrieve2Format =
-    (typeof InsightsActivityRetrieve2Format)[keyof typeof InsightsActivityRetrieve2Format]
+export type InsightsActivityRetrieveFormat =
+    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
 
-export const InsightsActivityRetrieve2Format = {
+export const InsightsActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const
@@ -9980,14 +10060,14 @@ export const InsightsSuggestionsCreateFormat = {
     Json: 'json',
 } as const
 
-export type InsightsActivityRetrieveParams = {
-    format?: InsightsActivityRetrieveFormat
+export type InsightsAllActivityRetrieveParams = {
+    format?: InsightsAllActivityRetrieveFormat
 }
 
-export type InsightsActivityRetrieveFormat =
-    (typeof InsightsActivityRetrieveFormat)[keyof typeof InsightsActivityRetrieveFormat]
+export type InsightsAllActivityRetrieveFormat =
+    (typeof InsightsAllActivityRetrieveFormat)[keyof typeof InsightsAllActivityRetrieveFormat]
 
-export const InsightsActivityRetrieveFormat = {
+export const InsightsAllActivityRetrieveFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

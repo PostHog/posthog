@@ -18,6 +18,7 @@ import {
     AnyPropertyFilter,
     ChoiceQuestionProcessedResponses,
     EventPropertyFilter,
+    LinkSurveyQuestion,
     OpenQuestionProcessedResponses,
     PropertyFilterType,
     PropertyOperator,
@@ -99,6 +100,19 @@ const createPersistedSurvey = (): Survey => ({
     ],
 })
 
+const createSurveyWithLinkQuestion = (questionOverrides: Partial<LinkSurveyQuestion> = {}): Survey => ({
+    ...createPersistedSurvey(),
+    questions: [
+        {
+            type: SurveyQuestionType.Link,
+            question: 'Open the documentation',
+            description: '',
+            link: 'https://posthog.com/docs',
+            ...questionOverrides,
+        },
+    ],
+})
+
 describe('editor sync', () => {
     beforeEach(() => {
         initKeaTests()
@@ -157,6 +171,96 @@ describe('editor sync', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.survey.name).toBe('Unsaved tabbed name')
+    })
+})
+
+describe('translation validation', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = surveyLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    it('validates placeholders and translated link URLs', async () => {
+        const survey = createSurveyWithLinkQuestion({
+            translations: {
+                fr: { question: 'Ouvrir la documentation', link: 'https:not-valid' },
+                es: { question: 'Abrir la documentacion', link: '' },
+                de: { question: 'Dokumentation offnen', link: 'https://posthog.com/docs' },
+                it: { question: '[Translation needed]' },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({
+            translationValidationErrors: expect.arrayContaining([
+                {
+                    language: 'fr',
+                    questionIndex: 0,
+                    field: 'link',
+                    error: 'Must start with https:// or mailto:',
+                },
+                {
+                    language: 'es',
+                    questionIndex: 0,
+                    field: 'link',
+                    error: 'Cannot be empty',
+                },
+                {
+                    language: 'it',
+                    questionIndex: 0,
+                    field: 'question',
+                    error: 'Contains placeholder "[Translation needed]"',
+                },
+            ]),
+        })
+
+        expect(
+            logic.values.translationValidationErrors.some((error) => error.language === 'de' && error.field === 'link')
+        ).toBe(false)
+    })
+
+    it('validates default link URLs without requiring translations', async () => {
+        const survey = createSurveyWithLinkQuestion({ link: 'https:not-valid' })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        }).toMatchValues({
+            translationValidationErrors: [
+                {
+                    language: 'default',
+                    questionIndex: 0,
+                    field: 'link',
+                    error: 'Must start with https:// or mailto:',
+                },
+            ],
+        })
+    })
+
+    it('does not validate survey root description translations', async () => {
+        const survey = {
+            ...createPersistedSurvey(),
+            description: '',
+            translations: {
+                fr: {
+                    name: 'Enquete',
+                    description: 'Description traduite',
+                },
+            },
+        } as Survey
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(survey)
+        })
+
+        expect(
+            logic.values.translationValidationErrors.some(
+                (error) => error.questionIndex === -1 && error.field === 'description'
+            )
+        ).toBe(false)
     })
 })
 

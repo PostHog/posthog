@@ -1412,7 +1412,7 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.22
   '''
-  SELECT "posthog_dashboardtile"."dashboard_id"
+  SELECT "posthog_dashboardtile"."dashboard_id" AS "dashboard_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
@@ -1455,7 +1455,7 @@
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.24
   '''
-  SELECT "posthog_tag"."name"
+  SELECT "posthog_tag"."name" AS "tag__name"
   FROM "posthog_taggeditem"
   INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
   WHERE "posthog_taggeditem"."insight_id" = 99999
@@ -2779,7 +2779,7 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboard"."team_id" = "posthog_team"."id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND ("posthog_dashboard"."team_id" =
-                (SELECT U0."parent_team_id"
+                (SELECT U0."parent_team_id" AS "parent_team_id"
                  FROM "posthog_team" U0
                  WHERE U0."id" = 99999
                  LIMIT 1)

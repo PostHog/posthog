@@ -24,36 +24,6 @@ ui_apps:
         data_type: SurveyStatsData
         view_component: SurveyStatsView
 tools:
-    surveys-get-all:
-        operation: surveys_list
-        enabled: true
-        scopes:
-            - survey:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        list: true
-        title: Get all surveys in the project with optional filtering.
-        description: |
-            Get all surveys in the project with optional filtering. Can filter by search term or use pagination.
-        ui_app: survey-list
-    survey-get:
-        operation: surveys_retrieve
-        enabled: true
-        scopes:
-            - survey:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Get a specific survey by ID.
-        description: >
-            Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling
-            details.
-        ui_app: survey
     survey-create:
         operation: surveys_create
         enabled: true
@@ -83,6 +53,49 @@ tools:
             - linked_flag_id
             - targeting_flag_filters
         ui_app: survey
+    survey-delete:
+        operation: surveys_destroy
+        enabled: true
+        scopes:
+            - survey:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a survey by ID.
+        description: |
+            Delete a survey by ID (soft delete - marks as archived).
+        soft_delete: archived
+    survey-get:
+        operation: surveys_retrieve
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get a specific survey by ID.
+        description: >
+            Get a specific survey by ID. Returns the survey configuration including questions, targeting, and scheduling
+            details.
+        ui_app: survey
+    survey-stats:
+        operation: surveys_stats_retrieve
+        enabled: true
+        scopes:
+            - survey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{survey_id}'
+        title: Get response statistics for a specific survey.
+        description: >
+            Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent),
+            unique respondents, conversion rates, and timing data. Supports optional date filtering.
+        ui_app: survey-stats
     survey-update:
         operation: surveys_partial_update
         enabled: true
@@ -118,21 +131,20 @@ tools:
             - targeting_flag_filters
             - remove_targeting_flag
         ui_app: survey
-    survey-delete:
-        operation: surveys_destroy
-        enabled: true
-        scopes:
-            - survey:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete a survey by ID.
-        description: |
-            Delete a survey by ID (soft delete - marks as archived).
-        soft_delete: archived
-    survey-stats:
-        operation: surveys_stats_retrieve_2
+    surveys-activity-retrieve:
+        operation: surveys_activity_retrieve
+        enabled: false
+    surveys-all-activity-retrieve:
+        operation: surveys_all_activity_retrieve
+        enabled: false
+    surveys-archived-response-uuids-retrieve:
+        operation: surveys_archived_response_uuids_retrieve
+        enabled: false
+    surveys-duplicate-to-projects-create:
+        operation: surveys_duplicate_to_projects_create
+        enabled: false
+    surveys-get-all:
+        operation: surveys_list
         enabled: true
         scopes:
             - survey:read
@@ -140,14 +152,14 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{survey_id}'
-        title: Get response statistics for a specific survey.
-        description: >
-            Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent),
-            unique respondents, conversion rates, and timing data. Supports optional date filtering.
-        ui_app: survey-stats
+        enrich_url: '{id}'
+        list: true
+        title: Get all surveys in the project with optional filtering.
+        description: |
+            Get all surveys in the project with optional filtering. Can filter by search term or use pagination.
+        ui_app: survey-list
     surveys-global-stats:
-        operation: surveys_stats_retrieve
+        operation: surveys_global_stats_retrieve
         enabled: true
         scopes:
             - survey:read
@@ -160,20 +172,11 @@ tools:
             Get aggregated response statistics across all surveys in the project. Includes event counts (shown,
             dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.
         ui_app: survey-global-stats
-    surveys-update:
-        operation: surveys_update
-        enabled: false
-    surveys-activity-retrieve:
-        operation: surveys_activity_retrieve
-        enabled: false
-    surveys-archived-response-uuids-retrieve:
-        operation: surveys_archived_response_uuids_retrieve
-        enabled: false
-    surveys-duplicate-to-projects-create:
-        operation: surveys_duplicate_to_projects_create
-        enabled: false
     surveys-responses-archive-create:
         operation: surveys_responses_archive_create
+        enabled: false
+    surveys-responses-count-retrieve:
+        operation: surveys_responses_count_retrieve
         enabled: false
     surveys-responses-unarchive-create:
         operation: surveys_responses_unarchive_create
@@ -184,6 +187,6 @@ tools:
     surveys-summary-headline-create:
         operation: surveys_summary_headline_create
         enabled: false
-    surveys-responses-count-retrieve:
-        operation: surveys_responses_count_retrieve
+    surveys-update:
+        operation: surveys_update
         enabled: false

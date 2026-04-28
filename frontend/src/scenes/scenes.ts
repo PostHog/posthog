@@ -275,6 +275,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Choose the type of insight you want to create',
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.StripeConfirmInstall]: { name: 'Confirm Stripe install', projectBased: true },
     [Scene.IngestionWarnings]: {
         projectBased: true,
         name: 'Event ingestion warnings',
@@ -751,6 +752,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
+    [urls.webAnalyticsBotDetail(':botName')]: [Scene.WebAnalytics, 'webAnalyticsBotDetail'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
@@ -872,6 +874,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
+    [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
 

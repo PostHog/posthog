@@ -2,7 +2,10 @@ from dataclasses import dataclass
 
 import structlog
 import temporalio
+import posthoganalytics
 
+from posthog.event_usage import groups
+from posthog.models import Organization
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
@@ -49,6 +52,35 @@ def _resolve_team_repo_context(team_id: int) -> int:
     return resolve_user_id_for_team(team_id)
 
 
+def _capture_repo_research_event(
+    event: str,
+    team: Team,
+    organization: Organization,
+    report_id: str,
+    result: str | None = None,
+    failure_reason: str | None = None,
+) -> None:
+    properties: dict = {"report_id": report_id}
+    if result is not None:
+        properties["result"] = result
+    if failure_reason is not None:
+        properties["failure_reason"] = failure_reason
+    try:
+        posthoganalytics.capture(
+            event=event,
+            distinct_id=str(team.uuid),
+            properties=properties,
+            groups=groups(organization, team),
+        )
+    except Exception:
+        # Swallow the exception, to avoid breaking the flow over failed analytics event
+        logger.exception(
+            "Failed to capture repo research event",
+            event=event,
+            report_id=report_id,
+        )
+
+
 def _load_previous_repo_selection(report_id: str) -> RepoSelectionResult | None:
     """Load a previous repo_selection artefact for this report, if one exists."""
     artefact = (
@@ -67,33 +99,66 @@ def _load_previous_repo_selection(report_id: str) -> RepoSelectionResult | None:
 @temporalio.activity.defn
 async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelectionResult:
     """Select the most relevant repository for a report's signals."""
-    # Check for a previous selection from an earlier run, if any
-    previous = await database_sync_to_async(_load_previous_repo_selection, thread_sensitive=False)(input.report_id)
-    if previous is not None and previous.repository is not None:
-        logger.info(
-            "signals repo selection reused from previous run",
-            report_id=input.report_id,
-            repository=previous.repository,
-        )
-        return previous
+    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+    _capture_repo_research_event(
+        "signals_repo_research_started",
+        team,
+        team.organization,
+        input.report_id,
+    )
+    try:
+        # Check for a previous selection from an earlier run, if any
+        previous = await database_sync_to_async(_load_previous_repo_selection, thread_sensitive=False)(input.report_id)
+        if previous is not None and previous.repository is not None:
+            logger.info(
+                "signals repo selection reused from previous run",
+                report_id=input.report_id,
+                repository=previous.repository,
+            )
+            _capture_repo_research_event(
+                "signals_repo_research_completed",
+                team,
+                team.organization,
+                input.report_id,
+                result="reused",
+            )
+            return previous
 
-    user_id = await database_sync_to_async(_resolve_team_repo_context, thread_sensitive=False)(input.team_id)
-    sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-        input.team_id,
-        SIGNALS_REPO_DISCOVERY_ENV_NAME,
-        SandboxEnvironment.NetworkAccessLevel.CUSTOM,
-        allowed_domains=GITHUB_ONLY_DOMAINS,
-    )
-    result = await select_repository_for_report(
-        team_id=input.team_id,
-        user_id=user_id,
-        signals=input.signals,
-        sandbox_environment_id=sandbox_env_id,
-    )
-    logger.info(
-        "signals repo selection completed",
-        report_id=input.report_id,
-        repository=result.repository,
-        reason=result.reason,
-    )
-    return result
+        user_id = await database_sync_to_async(_resolve_team_repo_context, thread_sensitive=False)(input.team_id)
+        sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
+            input.team_id,
+            SIGNALS_REPO_DISCOVERY_ENV_NAME,
+            SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+            allowed_domains=GITHUB_ONLY_DOMAINS,
+        )
+        result = await select_repository_for_report(
+            team_id=input.team_id,
+            user_id=user_id,
+            signals=input.signals,
+            sandbox_environment_id=sandbox_env_id,
+        )
+        logger.info(
+            "signals repo selection completed",
+            report_id=input.report_id,
+            repository=result.repository,
+            reason=result.reason,
+        )
+        _capture_repo_research_event(
+            "signals_repo_research_completed",
+            team,
+            team.organization,
+            input.report_id,
+            result="selected" if result.repository is not None else "no_repo",
+        )
+        return result
+    except Exception as e:
+        failure_reason = "no_github_integration" if isinstance(e, RuntimeError) else "agentic_activity_error"
+        _capture_repo_research_event(
+            "signals_repo_research_completed",
+            team,
+            team.organization,
+            input.report_id,
+            result="failed",
+            failure_reason=failure_reason,
+        )
+        raise

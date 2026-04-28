@@ -227,7 +227,7 @@ import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
-import type { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -2910,6 +2910,14 @@ const api = {
                 .withQueryString(toParams({ limit, ...params }))
                 .get()
         },
+        async promotedProperties({
+            names,
+        }: {
+            names?: string[]
+        } = {}): Promise<{ promoted_properties: Record<string, string> }> {
+            const params = names && names.length > 0 ? toParams({ names }, true) : ''
+            return new ApiRequest().eventDefinitions().withAction('promoted_properties').withQueryString(params).get()
+        },
         async getMetrics({
             eventDefinitionId,
         }: {
@@ -4785,8 +4793,11 @@ const api = {
     },
 
     tasks: {
-        async list(): Promise<PaginatedResponse<Task>> {
-            return await new ApiRequest().tasks().get()
+        async list(params: TaskListParams = {}): Promise<PaginatedResponse<Task>> {
+            return await new ApiRequest().tasks().withQueryString(params).get()
+        },
+        async repositories(): Promise<{ repositories: string[] }> {
+            return await new ApiRequest().tasks().withAction('repositories').get()
         },
         async get(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).get()

@@ -126,12 +126,12 @@ function isNonEmptyFilters(obj: unknown): boolean {
     return obj != null && typeof obj === 'object' && Object.keys(obj as Record<string, unknown>).length > 0
 }
 
-function ClusteringStatusIndicator({ status }: { status: SignalSourceConfigStatus | null }): JSX.Element | null {
+function SessionAnalysisStatusIndicator({ status }: { status: SignalSourceConfigStatus | null }): JSX.Element | null {
     if (status === SignalSourceConfigStatus.RUNNING) {
         return (
             <div className="mt-2 flex items-center gap-2 rounded bg-accent-light text-xs text-accent">
                 <Spinner className="size-3.5" />
-                <span>Session analysis run in progress now… (est. 30 min)</span>
+                <span>Summarizing sessions…</span>
             </div>
         )
     }
@@ -188,7 +188,7 @@ export function SourcesList(): JSX.Element {
                     ),
                 }}
                 onClearClick={hasNonEmptyFilters ? clearSessionAnalysisFilters : undefined}
-                statusSection={<ClusteringStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
+                statusSection={<SessionAnalysisStatusIndicator status={sessionAnalysisConfig?.status ?? null} />}
             />
 
             <Source

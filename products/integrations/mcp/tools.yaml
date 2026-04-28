@@ -9,35 +9,6 @@ feature: integrations
 url_prefix: /settings/integrations
 ui_apps: {}
 tools:
-    integrations-list:
-        operation: integrations_list_2
-        enabled: true
-        scopes:
-            - integration:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List integrations
-        description: >
-            List all third-party integrations configured in the current project. Returns each integration's type (kind),
-            display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack,
-            github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key, only GitHub
-            integrations are returned.
-    integration-get:
-        operation: integrations_retrieve_2
-        enabled: true
-        scopes:
-            - integration:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get integration
-        description: >
-            Get a specific integration by ID. Returns the full integration details including kind, display name,
-            non-sensitive configuration, error status, and creation metadata. Does not expose sensitive credentials.
     integration-delete:
         operation: integrations_destroy
         enabled: true
@@ -51,8 +22,21 @@ tools:
         description: >
             Permanently delete an integration by ID. This removes the connection to the third-party service. Any
             features relying on this integration (alerts, workflow destinations, etc.) will stop working.
-    integrations-create:
-        operation: integrations_create
+    integration-get:
+        operation: integrations_retrieve
+        enabled: true
+        scopes:
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get integration
+        description: >
+            Get a specific integration by ID. Returns the full integration details including kind, display name,
+            non-sensitive configuration, error status, and creation metadata. Does not expose sensitive credentials.
+    integrations-authorize-retrieve:
+        operation: integrations_authorize_retrieve
         enabled: false
     integrations-channels-retrieve:
         operation: integrations_channels_retrieve
@@ -66,14 +50,29 @@ tools:
     integrations-clickup-workspaces-retrieve:
         operation: integrations_clickup_workspaces_retrieve
         enabled: false
+    integrations-create:
+        operation: integrations_create
+        enabled: false
+    integrations-domain-connect-apply-url-create:
+        operation: integrations_domain_connect_apply_url_create
+        enabled: false
+    integrations-domain-connect-check-retrieve:
+        operation: integrations_domain_connect_check_retrieve
+        enabled: false
     integrations-email-partial-update:
         operation: integrations_email_partial_update
         enabled: false
     integrations-email-verify-create:
         operation: integrations_email_verify_create
         enabled: false
+    integrations-environment-mapping-partial-update:
+        operation: integrations_environment_mapping_partial_update
+        enabled: false
     integrations-github-branches-retrieve:
         operation: integrations_github_branches_retrieve
+        enabled: false
+    integrations-github-repos-refresh-create:
+        operation: integrations_github_repos_refresh_create
         enabled: false
     integrations-github-repos-retrieve:
         operation: integrations_github_repos_retrieve
@@ -96,24 +95,34 @@ tools:
     integrations-linkedin-ads-conversion-rules-retrieve:
         operation: integrations_linkedin_ads_conversion_rules_retrieve
         enabled: false
+    integrations-list:
+        operation: integrations_list
+        enabled: true
+        scopes:
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List integrations
+        description: >
+            List all third-party integrations configured in the current project. Returns each integration's type (kind),
+            display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack,
+            github, hubspot, salesforce, and various ad platforms. When authenticated via personal API key, only GitHub
+            integrations are returned.
     integrations-twilio-phone-numbers-retrieve:
         operation: integrations_twilio_phone_numbers_retrieve
         enabled: false
-    integrations-authorize-retrieve:
-        operation: integrations_authorize_retrieve
+    role-external-references-create:
+        operation: role_external_references_create
         enabled: false
-    integrations-domain-connect-apply-url-create:
-        operation: integrations_domain_connect_apply_url_create
+    role-external-references-destroy:
+        operation: role_external_references_destroy
         enabled: false
-    integrations-domain-connect-check-retrieve:
-        operation: integrations_domain_connect_check_retrieve
+    role-external-references-list:
+        operation: role_external_references_list
         enabled: false
-    integrations-environment-mapping-partial-update:
-        operation: integrations_environment_mapping_partial_update
-        enabled: false
-    organization-integrations-destroy:
-        operation: organization_integrations_destroy
-        enabled: false
-    integrations-github-repos-refresh-create:
-        operation: integrations_github_repos_refresh_create
+    role-external-references-lookup-retrieve:
+        operation: role_external_references_lookup_retrieve
         enabled: false

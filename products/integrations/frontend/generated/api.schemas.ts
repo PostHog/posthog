@@ -79,29 +79,6 @@ export interface UserBasicApi {
 /**
  * Serializer for organization-level integrations.
  */
-export interface OrganizationIntegrationApi {
-    readonly id: string
-    readonly kind: OrganizationIntegrationKindEnumApi
-    /** @nullable */
-    readonly integration_id: string | null
-    readonly config: unknown
-    readonly created_at: string
-    readonly updated_at: string
-    readonly created_by: UserBasicApi
-}
-
-export interface PaginatedOrganizationIntegrationListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: OrganizationIntegrationApi[]
-}
-
-/**
- * Serializer for organization-level integrations.
- */
 export interface PatchedOrganizationIntegrationApi {
     readonly id?: string
     readonly kind?: OrganizationIntegrationKindEnumApi
@@ -114,82 +91,146 @@ export interface PatchedOrganizationIntegrationApi {
 }
 
 /**
- * * `slack` - Slack
- * `slack-posthog-code` - Slack Posthog Code
- * `salesforce` - Salesforce
- * `hubspot` - Hubspot
- * `google-pubsub` - Google Pubsub
- * `google-cloud-storage` - Google Cloud Storage
- * `google-ads` - Google Ads
- * `google-sheets` - Google Sheets
- * `google-cloud-service-account` - Google Cloud Service Account
- * `snapchat` - Snapchat
- * `linkedin-ads` - Linkedin Ads
- * `reddit-ads` - Reddit Ads
- * `tiktok-ads` - Tiktok Ads
+ * Serializer for organization-level integrations.
+ */
+export interface OrganizationIntegrationApi {
+    readonly id: string
+    readonly kind: OrganizationIntegrationKindEnumApi
+    /** @nullable */
+    readonly integration_id: string | null
+    readonly config: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface RoleExternalReferenceApi {
+    readonly id: string
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @maxLength 32
+     */
+    provider: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @maxLength 255
+     */
+    provider_organization_id: string
+    /**
+     * Stable provider role identifier.
+     * @maxLength 255
+     */
+    provider_role_id: string
+    /**
+     * Human-friendly provider role identifier.
+     * @maxLength 255
+     * @nullable
+     */
+    provider_role_slug?: string | null
+    /**
+     * Display name of the provider role.
+     * @maxLength 255
+     */
+    provider_role_name: string
+    /** PostHog role UUID this external role maps to. */
+    role: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedRoleExternalReferenceListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RoleExternalReferenceApi[]
+}
+
+export interface RoleLookupResponseApi {
+    /** Matching reference, or null if none exists. */
+    reference: RoleExternalReferenceApi | null
+}
+
+/**
+ * * `azure-blob` - Azure Blob
  * `bing-ads` - Bing Ads
- * `intercom` - Intercom
+ * `clickup` - Clickup
+ * `customerio-app` - Customerio App
+ * `customerio-track` - Customerio Track
+ * `customerio-webhook` - Customerio Webhook
+ * `databricks` - Databricks
  * `email` - Email
- * `linear` - Linear
+ * `firebase` - Firebase
  * `github` - Github
  * `gitlab` - Gitlab
- * `meta-ads` - Meta Ads
- * `twilio` - Twilio
- * `clickup` - Clickup
- * `vercel` - Vercel
- * `databricks` - Databricks
- * `azure-blob` - Azure Blob
- * `firebase` - Firebase
+ * `google-ads` - Google Ads
+ * `google-cloud-service-account` - Google Cloud Service Account
+ * `google-cloud-storage` - Google Cloud Storage
+ * `google-pubsub` - Google Pubsub
+ * `google-sheets` - Google Sheets
+ * `hubspot` - Hubspot
+ * `intercom` - Intercom
  * `jira` - Jira
+ * `linear` - Linear
+ * `linkedin-ads` - Linkedin Ads
+ * `meta-ads` - Meta Ads
  * `pinterest-ads` - Pinterest Ads
+ * `postgresql` - Postgresql
+ * `reddit-ads` - Reddit Ads
+ * `salesforce` - Salesforce
+ * `slack` - Slack
+ * `slack-posthog-code` - Slack Posthog Code
+ * `snapchat` - Snapchat
  * `stripe` - Stripe
- * `customerio-app` - Customerio App
- * `customerio-webhook` - Customerio Webhook
- * `customerio-track` - Customerio Track
+ * `tiktok-ads` - Tiktok Ads
+ * `twilio` - Twilio
+ * `vercel` - Vercel
  */
-export type KindE4eEnumApi = (typeof KindE4eEnumApi)[keyof typeof KindE4eEnumApi]
+export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
 
-export const KindE4eEnumApi = {
-    Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
-    Salesforce: 'salesforce',
-    Hubspot: 'hubspot',
-    GooglePubsub: 'google-pubsub',
-    GoogleCloudStorage: 'google-cloud-storage',
-    GoogleAds: 'google-ads',
-    GoogleSheets: 'google-sheets',
-    GoogleCloudServiceAccount: 'google-cloud-service-account',
-    Snapchat: 'snapchat',
-    LinkedinAds: 'linkedin-ads',
-    RedditAds: 'reddit-ads',
-    TiktokAds: 'tiktok-ads',
+export const IntegrationKindEnumApi = {
+    AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
-    Intercom: 'intercom',
+    Clickup: 'clickup',
+    CustomerioApp: 'customerio-app',
+    CustomerioTrack: 'customerio-track',
+    CustomerioWebhook: 'customerio-webhook',
+    Databricks: 'databricks',
     Email: 'email',
-    Linear: 'linear',
+    Firebase: 'firebase',
     Github: 'github',
     Gitlab: 'gitlab',
-    MetaAds: 'meta-ads',
-    Twilio: 'twilio',
-    Clickup: 'clickup',
-    Vercel: 'vercel',
-    Databricks: 'databricks',
-    AzureBlob: 'azure-blob',
-    Firebase: 'firebase',
+    GoogleAds: 'google-ads',
+    GoogleCloudServiceAccount: 'google-cloud-service-account',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GooglePubsub: 'google-pubsub',
+    GoogleSheets: 'google-sheets',
+    Hubspot: 'hubspot',
+    Intercom: 'intercom',
     Jira: 'jira',
+    Linear: 'linear',
+    LinkedinAds: 'linkedin-ads',
+    MetaAds: 'meta-ads',
     PinterestAds: 'pinterest-ads',
+    Postgresql: 'postgresql',
+    RedditAds: 'reddit-ads',
+    Salesforce: 'salesforce',
+    Slack: 'slack',
+    SlackPosthogCode: 'slack-posthog-code',
+    Snapchat: 'snapchat',
     Stripe: 'stripe',
-    CustomerioApp: 'customerio-app',
-    CustomerioWebhook: 'customerio-webhook',
-    CustomerioTrack: 'customerio-track',
+    TiktokAds: 'tiktok-ads',
+    Twilio: 'twilio',
+    Vercel: 'vercel',
 } as const
 
 /**
  * Standard Integration serializer.
  */
-export interface IntegrationApi {
+export interface IntegrationConfigApi {
     readonly id: number
-    kind: KindE4eEnumApi
+    kind: IntegrationKindEnumApi
     config?: unknown
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -197,21 +238,21 @@ export interface IntegrationApi {
     readonly display_name: string
 }
 
-export interface PaginatedIntegrationListApi {
+export interface PaginatedIntegrationConfigListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: IntegrationApi[]
+    results: IntegrationConfigApi[]
 }
 
 /**
  * Standard Integration serializer.
  */
-export interface PatchedIntegrationApi {
+export interface PatchedIntegrationConfigApi {
     readonly id?: number
-    kind?: KindE4eEnumApi
+    kind?: IntegrationKindEnumApi
     config?: unknown
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -248,7 +289,7 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
-export type IntegrationsListParams = {
+export type RoleExternalReferencesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -259,7 +300,30 @@ export type IntegrationsListParams = {
     offset?: number
 }
 
-export type IntegrationsList2Params = {
+export type RoleExternalReferencesLookupRetrieveParams = {
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @minLength 1
+     */
+    provider: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @minLength 1
+     */
+    provider_organization_id: string
+    /**
+     * Stable provider role identifier.
+     * @minLength 1
+     */
+    provider_role_id?: string
+    /**
+     * Human-friendly provider role identifier.
+     * @minLength 1
+     */
+    provider_role_slug?: string
+}
+
+export type IntegrationsListParams = {
     /**
      * Number of results to return per page.
      */

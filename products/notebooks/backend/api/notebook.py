@@ -1,7 +1,7 @@
 import math
 import hashlib
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -35,13 +35,15 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
-from products.notebooks.backend.collab import initialize_collab_session, submit_steps
+from products.notebooks.backend import collab
+from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.tasks.backend.services.sandbox import SandboxStatus
 from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
+from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
 logger = structlog.get_logger(__name__)
@@ -292,6 +294,9 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
     content = serializers.JSONField(help_text="The resulting ProseMirror document after applying the steps locally.")
     text_content = serializers.CharField(required=False, default="", help_text="Plain text for search indexing.")
     title = serializers.CharField(required=False, help_text="Updated notebook title.")
+    cursor_head = serializers.IntegerField(
+        required=False, allow_null=True, help_text="ProseMirror cursor head position after applying steps."
+    )
 
 
 def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
@@ -742,7 +747,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         notebook = self.get_object()
 
-        initialize_collab_session(notebook.team_id, str(notebook.short_id), notebook.version)
+        user = cast(User, request.user)
+        user_name = user.get_full_name() or "Wandering Hog"
 
         result = submit_steps(
             team_id=notebook.team_id,
@@ -750,9 +756,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             client_id=data["client_id"],
             steps_json=data["steps"],
             last_seen_version=data["version"],
+            user_id=user.pk,
+            user_name=user_name,
+            cursor_head=data.get("cursor_head"),
         )
 
-        if result.accepted:
+        if result.status == "accepted":
             content = data["content"]
             Notebook.objects.filter(pk=notebook.pk).update(
                 content=annotate_python_nodes(content) if isinstance(content, dict) else content,
@@ -765,12 +774,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             notebook.refresh_from_db()
             return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
 
-        if result.steps_since is None:
+        if result.status == "stale":
             return Response(
                 {"code": "conflict_stale", "detail": "Reload the notebook."},
                 status=410,
             )
 
+        # Carries the missed steps so the client can reconcile without depending on SSE
+        assert result.steps_since is not None  # status == "conflict" guarantees this
         return Response(
             {
                 "code": "conflict",
@@ -780,6 +791,34 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             },
             status=409,
         )
+
+    @action(
+        methods=["GET"],
+        url_path="collab/stream",
+        detail=True,
+        renderer_classes=[ServerSentEventRenderer],
+        required_scopes=["notebook:read"],
+    )
+    def collab_stream(self, request: Request, **kwargs):
+        """SSE stream of accepted prosemirror-collab steps for this notebook."""
+        notebook = self.get_object()
+        team_id = notebook.team_id
+        notebook_id = str(notebook.short_id)
+        last_event_id = request.headers.get("Last-Event-ID")
+
+        # On ASGI (Granian in prod) the async generator runs as one cheap task per connection.
+        # On WSGI (tests, fallback) async_to_sync bridges it via a worker thread + queue.
+        response = StreamingHttpResponse(
+            streaming_content=(
+                collab.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id)
+                if SERVER_GATEWAY_INTERFACE == "ASGI"
+                else async_to_sync(lambda: collab.stream_collab_sse(team_id, notebook_id, last_event_id=last_event_id))
+            ),
+            content_type=ServerSentEventRenderer.media_type,
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
 
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):
@@ -815,6 +854,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                         )
         return JsonResponse({"results": comments})
 
+    @extend_schema(operation_id="notebooks_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))

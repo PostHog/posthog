@@ -19,19 +19,6 @@ ui_apps:
         detail_tool: error-tracking-issues-retrieve
         click_prop: onIssueClick
 tools:
-    error-tracking-assignment-rules-list:
-        operation: error_tracking_assignment_rules_list
-        enabled: true
-        scopes:
-            - error_tracking:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List error tracking assignment rules
-        description: >
-            List error tracking assignment rules for the current project. Returns rules in evaluation order with their
-            filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: true
@@ -45,14 +32,48 @@ tools:
         description: >
             Create an error tracking assignment rule for the current project. Provide `filters` to match incoming errors
             and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.
+    error-tracking-assignment-rules-destroy:
+        operation: error_tracking_assignment_rules_destroy
+        enabled: false
+    error-tracking-assignment-rules-list:
+        operation: error_tracking_assignment_rules_list
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking assignment rules
+        description: >
+            List error tracking assignment rules for the current project. Returns rules in evaluation order with their
+            filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.
+    error-tracking-assignment-rules-partial-update:
+        operation: error_tracking_assignment_rules_partial_update
+        enabled: false
     error-tracking-assignment-rules-reorder-partial-update:
         operation: error_tracking_assignment_rules_reorder_partial_update
+        enabled: false
+    error-tracking-assignment-rules-retrieve:
+        operation: error_tracking_assignment_rules_retrieve
+        enabled: false
+    error-tracking-assignment-rules-update:
+        operation: error_tracking_assignment_rules_update
+        enabled: false
+    error-tracking-external-references-create:
+        operation: error_tracking_external_references_create
+        enabled: false
+    error-tracking-external-references-destroy:
+        operation: error_tracking_external_references_destroy
         enabled: false
     error-tracking-external-references-list:
         operation: error_tracking_external_references_list
         enabled: false
-    error-tracking-external-references-create:
-        operation: error_tracking_external_references_create
+    error-tracking-external-references-retrieve:
+        operation: error_tracking_external_references_retrieve
+        enabled: false
+    error-tracking-fingerprints-destroy:
+        operation: error_tracking_fingerprints_destroy
         enabled: false
     error-tracking-fingerprints-list:
         operation: error_tracking_fingerprints_list
@@ -60,14 +81,27 @@ tools:
     error-tracking-fingerprints-retrieve:
         operation: error_tracking_fingerprints_retrieve
         enabled: false
-    error-tracking-fingerprints-destroy:
-        operation: error_tracking_fingerprints_destroy
-        enabled: false
     error-tracking-git-provider-file-links-resolve-github-retrieve:
         operation: error_tracking_git_provider_file_links_resolve_github_retrieve
         enabled: false
     error-tracking-git-provider-file-links-resolve-gitlab-retrieve:
         operation: error_tracking_git_provider_file_links_resolve_gitlab_retrieve
+        enabled: false
+    error-tracking-grouping-rules-create:
+        operation: error_tracking_grouping_rules_create
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking grouping rule
+        description: >
+            Create an error tracking grouping rule for the current project. Provide required `filters`, and optionally
+            set `assignee` and `description` for the issues this rule creates.
+    error-tracking-grouping-rules-destroy:
+        operation: error_tracking_grouping_rules_destroy
         enabled: false
     error-tracking-grouping-rules-list:
         operation: error_tracking_grouping_rules_list
@@ -82,21 +116,41 @@ tools:
         description: >
             List error tracking grouping rules for the current project. Returns rules in evaluation order with their
             filters, optional assignee, description, and linked issue when available.
-    error-tracking-grouping-rules-create:
-        operation: error_tracking_grouping_rules_create
-        enabled: true
-        scopes:
-            - error_tracking:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create error tracking grouping rule
-        description: >
-            Create an error tracking grouping rule for the current project. Provide required `filters`, and optionally
-            set `assignee` and `description` for the issues this rule creates.
+    error-tracking-grouping-rules-partial-update:
+        operation: error_tracking_grouping_rules_partial_update
+        enabled: false
     error-tracking-grouping-rules-reorder-partial-update:
         operation: error_tracking_grouping_rules_reorder_partial_update
+        enabled: false
+    error-tracking-grouping-rules-retrieve:
+        operation: error_tracking_grouping_rules_retrieve
+        enabled: false
+    error-tracking-grouping-rules-update:
+        operation: error_tracking_grouping_rules_update
+        enabled: false
+    error-tracking-issues-activity-retrieve:
+        operation: error_tracking_issues_activity_retrieve
+        enabled: false
+    error-tracking-issues-all-activity-retrieve:
+        operation: error_tracking_issues_all_activity_retrieve
+        enabled: false
+    error-tracking-issues-assign-partial-update:
+        operation: error_tracking_issues_assign_partial_update
+        enabled: false
+    error-tracking-issues-bulk-create:
+        operation: error_tracking_issues_bulk_create
+        enabled: false
+    error-tracking-issues-cohort-update:
+        operation: error_tracking_issues_cohort_update
+        enabled: false
+    error-tracking-issues-create:
+        operation: error_tracking_issues_create
+        enabled: false
+    error-tracking-issues-destroy:
+        operation: error_tracking_issues_destroy
+        enabled: false
+    error-tracking-issues-exists-retrieve:
+        operation: error_tracking_issues_exists_retrieve
         enabled: false
     error-tracking-issues-list:
         operation: error_tracking_issues_list
@@ -121,27 +175,19 @@ tools:
                 - name
                 - first_seen
                 - assignee
-    error-tracking-issues-create:
-        operation: error_tracking_issues_create
-        enabled: false
-    error-tracking-issues-retrieve:
-        operation: error_tracking_issues_retrieve
+    error-tracking-issues-merge-create:
+        operation: error_tracking_issues_merge_create
         enabled: true
         scopes:
-            - error_tracking:read
+            - error_tracking:write
         annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        enrich_url: '{id}'
-        title: Get error tracking issue
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Merge error tracking issues
         description: >
-            Get a specific error tracking issue by ID. Returns full issue details including status, description, volume,
-            and metadata.
-        ui_app: error-issue
-    error-tracking-issues-update:
-        operation: error_tracking_issues_update
-        enabled: false
+            Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and
+            the issues to merge into it as `ids`.
     error-tracking-issues-partial-update:
         operation: error_tracking_issues_partial_update
         enabled: true
@@ -157,31 +203,22 @@ tools:
             Update an error tracking issue. Can change status (active, resolved, suppressed), assign to a user, or
             update description.
         ui_app: error-issue
-    error-tracking-issues-destroy:
-        operation: error_tracking_issues_destroy
-        enabled: false
-    error-tracking-issues-activity-retrieve:
-        operation: error_tracking_issues_activity_retrieve
-        enabled: false
-    error-tracking-issues-assign-partial-update:
-        operation: error_tracking_issues_assign_partial_update
-        enabled: false
-    error-tracking-issues-cohort-update:
-        operation: error_tracking_issues_cohort_update
-        enabled: false
-    error-tracking-issues-merge-create:
-        operation: error_tracking_issues_merge_create
+    error-tracking-issues-retrieve:
+        operation: error_tracking_issues_retrieve
         enabled: true
         scopes:
-            - error_tracking:write
+            - error_tracking:read
         annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Merge error tracking issues
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get error tracking issue
         description: >
-            Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and
-            the issues to merge into it as `ids`.
+            Get a specific error tracking issue by ID. Returns full issue details including status, description, volume,
+            and metadata. After retrieving an issue, consider using `query-session-recordings-list` with an event filter
+            for `$exception` to find session recordings of users who hit this error.
+        ui_app: error-issue
     error-tracking-issues-split-create:
         operation: error_tracking_issues_split_create
         enabled: true
@@ -196,26 +233,26 @@ tools:
             Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source
             issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required
             `fingerprint` and optional `name` or `description`.
-    error-tracking-issues-bulk-create:
-        operation: error_tracking_issues_bulk_create
+    error-tracking-issues-update:
+        operation: error_tracking_issues_update
         enabled: false
     error-tracking-issues-values-retrieve:
         operation: error_tracking_issues_values_retrieve
         enabled: false
-    error-tracking-releases-list:
-        operation: error_tracking_releases_list
+    error-tracking-recommendations-dismiss-create:
+        operation: error_tracking_recommendations_dismiss_create
+        enabled: false
+    error-tracking-recommendations-list:
+        operation: error_tracking_recommendations_list
+        enabled: false
+    error-tracking-recommendations-refresh-create:
+        operation: error_tracking_recommendations_refresh_create
+        enabled: false
+    error-tracking-recommendations-restore-create:
+        operation: error_tracking_recommendations_restore_create
         enabled: false
     error-tracking-releases-create:
         operation: error_tracking_releases_create
-        enabled: false
-    error-tracking-releases-retrieve:
-        operation: error_tracking_releases_retrieve
-        enabled: false
-    error-tracking-releases-update:
-        operation: error_tracking_releases_update
-        enabled: false
-    error-tracking-releases-partial-update:
-        operation: error_tracking_releases_partial_update
         enabled: false
     error-tracking-releases-destroy:
         operation: error_tracking_releases_destroy
@@ -223,11 +260,32 @@ tools:
     error-tracking-releases-hash-retrieve:
         operation: error_tracking_releases_hash_retrieve
         enabled: false
-    error-tracking-spike-detection-config-retrieve:
-        operation: error_tracking_spike_detection_config_retrieve
+    error-tracking-releases-list:
+        operation: error_tracking_releases_list
+        enabled: false
+    error-tracking-releases-partial-update:
+        operation: error_tracking_releases_partial_update
+        enabled: false
+    error-tracking-releases-retrieve:
+        operation: error_tracking_releases_retrieve
+        enabled: false
+    error-tracking-releases-update:
+        operation: error_tracking_releases_update
+        enabled: false
+    error-tracking-spike-detection-config-list:
+        operation: error_tracking_spike_detection_config_list
         enabled: false
     error-tracking-spike-detection-config-update-config-partial-update:
         operation: error_tracking_spike_detection_config_update_config_partial_update
+        enabled: false
+    error-tracking-spike-events-list:
+        operation: error_tracking_spike_events_list
+        enabled: false
+    error-tracking-stack-frames-batch-get-create:
+        operation: error_tracking_stack_frames_batch_get_create
+        enabled: false
+    error-tracking-stack-frames-destroy:
+        operation: error_tracking_stack_frames_destroy
         enabled: false
     error-tracking-stack-frames-list:
         operation: error_tracking_stack_frames_list
@@ -235,11 +293,21 @@ tools:
     error-tracking-stack-frames-retrieve:
         operation: error_tracking_stack_frames_retrieve
         enabled: false
-    error-tracking-stack-frames-destroy:
-        operation: error_tracking_stack_frames_destroy
-        enabled: false
-    error-tracking-stack-frames-batch-get-create:
-        operation: error_tracking_stack_frames_batch_get_create
+    error-tracking-suppression-rules-create:
+        operation: error_tracking_suppression_rules_create
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking suppression rule
+        description: >
+            Create an error tracking suppression rule for the current project. Provide optional `filters` and optional
+            `sampling_rate`; omit `filters` to create a match-all suppression rule.
+    error-tracking-suppression-rules-destroy:
+        operation: error_tracking_suppression_rules_destroy
         enabled: false
     error-tracking-suppression-rules-list:
         operation: error_tracking_suppression_rules_list
@@ -254,81 +322,11 @@ tools:
         description: >
             List error tracking suppression rules for the current project. Returns rules in evaluation order with their
             filters, sampling rate, and disabled state. Supports pagination with `limit` and `offset`.
-    error-tracking-suppression-rules-create:
-        operation: error_tracking_suppression_rules_create
-        enabled: true
-        scopes:
-            - error_tracking:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create error tracking suppression rule
-        description: >
-            Create an error tracking suppression rule for the current project. Provide optional `filters` and optional
-            `sampling_rate`; omit `filters` to create a match-all suppression rule.
+    error-tracking-suppression-rules-partial-update:
+        operation: error_tracking_suppression_rules_partial_update
+        enabled: false
     error-tracking-suppression-rules-reorder-partial-update:
         operation: error_tracking_suppression_rules_reorder_partial_update
-        enabled: false
-    error-tracking-symbol-sets-list:
-        operation: error_tracking_symbol_sets_list
-        enabled: false
-    error-tracking-symbol-sets-create:
-        operation: error_tracking_symbol_sets_create
-        enabled: false
-    error-tracking-symbol-sets-retrieve:
-        operation: error_tracking_symbol_sets_retrieve
-        enabled: false
-    error-tracking-symbol-sets-update:
-        operation: error_tracking_symbol_sets_update
-        enabled: false
-    error-tracking-symbol-sets-partial-update:
-        operation: error_tracking_symbol_sets_partial_update
-        enabled: false
-    error-tracking-symbol-sets-destroy:
-        operation: error_tracking_symbol_sets_destroy
-        enabled: false
-    error-tracking-symbol-sets-finish-upload-update:
-        operation: error_tracking_symbol_sets_finish_upload_update
-        enabled: false
-    error-tracking-symbol-sets-bulk-finish-upload-create:
-        operation: error_tracking_symbol_sets_bulk_finish_upload_create
-        enabled: false
-    error-tracking-symbol-sets-bulk-start-upload-create:
-        operation: error_tracking_symbol_sets_bulk_start_upload_create
-        enabled: false
-    error-tracking-symbol-sets-start-upload-create:
-        operation: error_tracking_symbol_sets_start_upload_create
-        enabled: false
-    error-tracking-assignment-rules-retrieve:
-        operation: error_tracking_assignment_rules_retrieve
-        enabled: false
-    error-tracking-assignment-rules-update:
-        operation: error_tracking_assignment_rules_update
-        enabled: false
-    error-tracking-assignment-rules-partial-update:
-        operation: error_tracking_assignment_rules_partial_update
-        enabled: false
-    error-tracking-assignment-rules-destroy:
-        operation: error_tracking_assignment_rules_destroy
-        enabled: false
-    error-tracking-external-references-retrieve:
-        operation: error_tracking_external_references_retrieve
-        enabled: false
-    error-tracking-external-references-destroy:
-        operation: error_tracking_external_references_destroy
-        enabled: false
-    error-tracking-grouping-rules-retrieve:
-        operation: error_tracking_grouping_rules_retrieve
-        enabled: false
-    error-tracking-grouping-rules-update:
-        operation: error_tracking_grouping_rules_update
-        enabled: false
-    error-tracking-grouping-rules-partial-update:
-        operation: error_tracking_grouping_rules_partial_update
-        enabled: false
-    error-tracking-grouping-rules-destroy:
-        operation: error_tracking_grouping_rules_destroy
         enabled: false
     error-tracking-suppression-rules-retrieve:
         operation: error_tracking_suppression_rules_retrieve
@@ -336,35 +334,41 @@ tools:
     error-tracking-suppression-rules-update:
         operation: error_tracking_suppression_rules_update
         enabled: false
-    error-tracking-suppression-rules-partial-update:
-        operation: error_tracking_suppression_rules_partial_update
-        enabled: false
-    error-tracking-suppression-rules-destroy:
-        operation: error_tracking_suppression_rules_destroy
-        enabled: false
-    error-tracking-spike-events-list:
-        operation: error_tracking_spike_events_list
-        enabled: false
     error-tracking-symbol-sets-bulk-delete-create:
         operation: error_tracking_symbol_sets_bulk_delete_create
         enabled: false
-    error-tracking-issues-exists-retrieve:
-        operation: error_tracking_issues_exists_retrieve
+    error-tracking-symbol-sets-bulk-finish-upload-create:
+        operation: error_tracking_symbol_sets_bulk_finish_upload_create
         enabled: false
-    error-tracking-recommendations-list:
-        operation: error_tracking_recommendations_list
+    error-tracking-symbol-sets-bulk-start-upload-create:
+        operation: error_tracking_symbol_sets_bulk_start_upload_create
         enabled: false
-    error-tracking-recommendations-dismiss-create:
-        operation: error_tracking_recommendations_dismiss_create
+    error-tracking-symbol-sets-create:
+        operation: error_tracking_symbol_sets_create
         enabled: false
-    error-tracking-recommendations-refresh-create:
-        operation: error_tracking_recommendations_refresh_create
-        enabled: false
-    error-tracking-recommendations-restore-create:
-        operation: error_tracking_recommendations_restore_create
+    error-tracking-symbol-sets-destroy:
+        operation: error_tracking_symbol_sets_destroy
         enabled: false
     error-tracking-symbol-sets-download-retrieve:
         operation: error_tracking_symbol_sets_download_retrieve
+        enabled: false
+    error-tracking-symbol-sets-finish-upload-update:
+        operation: error_tracking_symbol_sets_finish_upload_update
+        enabled: false
+    error-tracking-symbol-sets-list:
+        operation: error_tracking_symbol_sets_list
+        enabled: false
+    error-tracking-symbol-sets-partial-update:
+        operation: error_tracking_symbol_sets_partial_update
+        enabled: false
+    error-tracking-symbol-sets-retrieve:
+        operation: error_tracking_symbol_sets_retrieve
+        enabled: false
+    error-tracking-symbol-sets-start-upload-create:
+        operation: error_tracking_symbol_sets_start_upload_create
+        enabled: false
+    error-tracking-symbol-sets-update:
+        operation: error_tracking_symbol_sets_update
         enabled: false
 wrappers:
     query-error-tracking-issues:

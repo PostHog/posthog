@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
@@ -12,6 +14,7 @@ class LLMProvider(models.TextChoices):
     GEMINI = "gemini"
     OPENROUTER = "openrouter"
     FIREWORKS = "fireworks"
+    AZURE_OPENAI = "azure_openai", "Azure OpenAI"
 
 
 class LLMProviderKey(UUIDTModel):
@@ -22,9 +25,9 @@ class LLMProviderKey(UUIDTModel):
         ERROR = "error"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    provider = models.CharField(max_length=50, choices=LLMProvider.choices)
+    provider = models.CharField(max_length=50, choices=LLMProvider)
     name = models.CharField(max_length=255)
-    state = models.CharField(max_length=20, choices=State.choices, default=State.UNKNOWN)
+    state = models.CharField(max_length=20, choices=State, default=State.UNKNOWN)
     error_message = models.TextField(null=True, blank=True)
     encrypted_config = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -38,3 +41,17 @@ class LLMProviderKey(UUIDTModel):
 
     def __str__(self):
         return f"{self.name} ({self.provider})"
+
+    def provider_extra_kwargs(self) -> dict[str, Any]:
+        """Return provider-specific kwargs from encrypted_config.
+
+        Used when calling ``Client.validate_key`` / ``Client.list_models`` to pass
+        extra config (e.g. Azure's ``azure_endpoint`` and ``api_version``). Most
+        providers return an empty dict.
+        """
+        if self.provider == LLMProvider.AZURE_OPENAI:
+            return {
+                "azure_endpoint": self.encrypted_config.get("azure_endpoint", ""),
+                "api_version": self.encrypted_config.get("api_version", ""),
+            }
+        return {}
