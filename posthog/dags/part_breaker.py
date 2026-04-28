@@ -434,9 +434,8 @@ def _get_mutation_ids_for_part(client: Client, source_table: str, partition_id: 
     return {row[0] for row in rows}
 
 
-def _setup_staging_table(client: Client, source_table: str, staging_table: str) -> None:
-    """Create the non-replicated staging table if it doesn't exist, and apply
-    PART_BREAKER_RECOMPRESS_CODEC if configured.
+def _ensure_staging_table(client: Client, source_table: str, staging_table: str) -> None:
+    """Create the non-replicated staging table if it doesn't exist.
 
     Uses CREATE TABLE ... AS to copy the source table's full schema (columns,
     partition key, order key, indices, projections, settings) with a
@@ -453,53 +452,45 @@ def _setup_staging_table(client: Client, source_table: str, staging_table: str) 
         "SELECT count() FROM system.tables WHERE database = %(db)s AND name = %(table)s",
         {"db": database, "table": staging_table},
     )
-    table_exists = rows[0][0] > 0
+    if rows[0][0] > 0:
+        return
 
-    if not table_exists:
-        # Get the source engine definition to derive the non-replicated equivalent
-        rows = client.execute(
-            "SELECT engine_full FROM system.tables WHERE database = %(db)s AND name = %(table)s",
-            {"db": database, "table": source_table},
-        )
-        if not rows:
-            raise dagster.Failure(description=f"Source table {database}.{source_table} not found")
+    # Get the source engine definition to derive the non-replicated equivalent
+    rows = client.execute(
+        "SELECT engine_full FROM system.tables WHERE database = %(db)s AND name = %(table)s",
+        {"db": database, "table": source_table},
+    )
+    if not rows:
+        raise dagster.Failure(description=f"Source table {database}.{source_table} not found")
 
-        engine_full = rows[0][0]
+    engine_full = rows[0][0]
 
-        # Extract non-replicated engine: strip Replicated prefix and ZK path/replica args
-        # e.g. ReplicatedReplacingMergeTree('/path', '{replica}', _timestamp)
-        #   → ReplacingMergeTree(_timestamp)
-        def _strip_replication(m: re.Match) -> str:
-            base_engine = m.group(1)  # e.g. "ReplacingMergeTree", "MergeTree"
-            extra_args = m.group(2)  # e.g. "_timestamp" or None
+    # Extract non-replicated engine: strip Replicated prefix and ZK path/replica args
+    # e.g. ReplicatedReplacingMergeTree('/path', '{replica}', _timestamp)
+    #   → ReplacingMergeTree(_timestamp)
+    def _strip_replication(m: re.Match) -> str:
+        base_engine = m.group(1)  # e.g. "ReplacingMergeTree", "MergeTree"
+        extra_args = m.group(2)  # e.g. "_timestamp" or None
 
-            if base_engine == "MergeTree" or not extra_args:
-                return f"{base_engine}()"
-            return f"{base_engine}({extra_args})"
+        if base_engine == "MergeTree" or not extra_args:
+            return f"{base_engine}()"
+        return f"{base_engine}({extra_args})"
 
-        engine_clause, count = re.subn(
-            r"Replicated(\w+)\('[^']*',\s*'\{replica\}'(?:,\s*(.+?))?\)",
-            _strip_replication,
-            engine_full,
-            count=1,
-        )
-        if count == 0:
-            raise dagster.Failure(
-                description=f"Source table {source_table} does not use a Replicated engine: {engine_full}"
-            )
-
-        # CREATE TABLE ... AS copies schema; ENGINE = overrides the engine only
-        client.execute(
-            f"CREATE TABLE IF NOT EXISTS {database}.{staging_table} AS {database}.{source_table} "
-            f"ENGINE = {engine_clause}"
+    engine_clause, count = re.subn(
+        r"Replicated(\w+)\('[^']*',\s*'\{replica\}'(?:,\s*(.+?))?\)",
+        _strip_replication,
+        engine_full,
+        count=1,
+    )
+    if count == 0:
+        raise dagster.Failure(
+            description=f"Source table {source_table} does not use a Replicated engine: {engine_full}"
         )
 
-    # Apply recompression codec if configured. Idempotent — safe to call on every run.
-    recompress_codec = getattr(settings, "PART_BREAKER_RECOMPRESS_CODEC", "")
-    if recompress_codec:
-        client.execute(
-            f"ALTER TABLE {database}.{staging_table} MODIFY SETTING default_compression_codec = '{recompress_codec}'"
-        )
+    # CREATE TABLE ... AS copies schema; ENGINE = overrides the engine only
+    client.execute(
+        f"CREATE TABLE IF NOT EXISTS {database}.{staging_table} AS {database}.{source_table} ENGINE = {engine_clause}"
+    )
 
 
 def _get_disk_paths(client: Client) -> dict[str, str]:
@@ -914,8 +905,8 @@ def break_part(
     def _process(client: Client) -> BreakResult:
         # -- Step 1: Ensure both staging tables exist --
         context.log.info(f"Ensuring staging tables exist ({staging_source}, {staging_target})...")
-        _setup_staging_table(client, source_table, staging_source)
-        _setup_staging_table(client, source_table, staging_target)
+        _ensure_staging_table(client, source_table, staging_source)
+        _ensure_staging_table(client, source_table, staging_target)
 
         ssh: paramiko.SSHClient | None = None
         freeze_name: str | None = None
