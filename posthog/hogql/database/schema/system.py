@@ -317,7 +317,7 @@ endpoint_versions: PostgresTable = PostgresTable(
         "version": IntegerDatabaseField(name="version"),
         "description": StringDatabaseField(name="description"),
         "query": StringJSONDatabaseField(name="query"),
-        "cache_age_seconds": IntegerDatabaseField(name="cache_age_seconds"),
+        "data_freshness_seconds": IntegerDatabaseField(name="data_freshness_seconds"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
         "is_active": ExpressionField(

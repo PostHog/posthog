@@ -18,14 +18,15 @@ const AssistantGroupMultipleBreakdownFilter = z.object({
 })
 
 const AssistantEventMultipleBreakdownFilterType = z.enum([
-    'cohort',
     'person',
     'event',
     'event_metadata',
     'session',
     'hogql',
-    'data_warehouse_person_property',
+    'cohort',
     'revenue_analytics',
+    'data_warehouse',
+    'data_warehouse_person_property',
 ])
 
 const AssistantGenericMultipleBreakdownFilter = z.object({

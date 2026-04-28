@@ -75,6 +75,7 @@ class TaskEvent(StrEnum):
 
 INACTIVITY_TIMEOUT = timedelta(minutes=5)
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
+RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 MAX_CI_REPETITIONS = 3
 DEFAULT_CI_MESSAGE = """\
@@ -376,6 +377,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         elif follow_up_result == "no_pr":
                             # No PR will ever appear — stop the CI loop entirely.
                             self._ci_repetitions = MAX_CI_REPETITIONS
+                        elif follow_up_result == "skip":
+                            # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
+                            # Without this, _wait_for_ci_follow_up returns immediately
+                            # whenever last_active_time is older than the delay, and the
+                            # workflow tight-loops calling GET /repos/.../pulls/{n}.
+                            self._last_active_time = workflow.now()
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
                             workflow.logger.info(
@@ -744,7 +751,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 relay_sandbox_events,
                 relay_input,
-                start_to_close_timeout=timedelta(minutes=65),
+                start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,

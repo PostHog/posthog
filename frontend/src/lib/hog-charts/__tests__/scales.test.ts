@@ -90,9 +90,9 @@ describe('hog-charts scales', () => {
             expect(scale.domain()).toEqual([0, 1])
         })
 
-        it('excludes hidden series from the domain calculation', () => {
+        it('excludes visibility.excluded series from the domain calculation', () => {
             const visible = makeSeries({ key: 'v', data: [0, 10] })
-            const hidden = makeSeries({ key: 'h', data: [0, 1000], hidden: true })
+            const hidden = makeSeries({ key: 'h', data: [0, 1000], visibility: { excluded: true } })
             const scale = createYScale([visible, hidden], dimensions)
             const domainMax = scale.domain()[1]
             // nice() can extend the domain slightly, but it should be nowhere near 1000
@@ -168,10 +168,10 @@ describe('hog-charts scales', () => {
             expect(result.yAxes).toBeUndefined()
         })
 
-        it('treats all-hidden series as single-axis (no yAxes map)', () => {
+        it('treats all-excluded series as single-axis (no yAxes map)', () => {
             const series = [
-                makeSeries({ key: 'h1', data: [10], hidden: true, yAxisId: 'y1' }),
-                makeSeries({ key: 'h2', data: [20], hidden: true, yAxisId: 'y2' }),
+                makeSeries({ key: 'h1', data: [10], visibility: { excluded: true }, yAxisId: 'y1' }),
+                makeSeries({ key: 'h2', data: [20], visibility: { excluded: true }, yAxisId: 'y2' }),
             ]
             const result = createScales(series, ['a'], dimensions)
             expect(result.yAxes).toBeUndefined()
@@ -218,9 +218,14 @@ describe('hog-charts scales', () => {
             expect(result.y(10)).toBe(result.yAxes!.y1.scale(10))
         })
 
-        it('excludes hidden series from per-axis domain calculation', () => {
+        it('excludes visibility.excluded series from per-axis domain calculation', () => {
             const visible = makeSeries({ key: 'v', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
-            const hiddenOnLeft = makeSeries({ key: 'h', data: [0, 9999], hidden: true, yAxisId: DEFAULT_Y_AXIS_ID })
+            const hiddenOnLeft = makeSeries({
+                key: 'h',
+                data: [0, 9999],
+                visibility: { excluded: true },
+                yAxisId: DEFAULT_Y_AXIS_ID,
+            })
             const otherAxis = makeSeries({ key: 'o', data: [0, 500], yAxisId: 'y1' })
             const result = createScales([visible, hiddenOnLeft, otherAxis], ['a', 'b'], dimensions)
             const [, leftMax] = result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain() as [number, number]
@@ -235,8 +240,8 @@ describe('hog-charts scales', () => {
             expect(result.size).toBe(0)
         })
 
-        it('returns an empty map when all series are hidden', () => {
-            const series = [makeSeries({ key: 's1', data: [10, 20], hidden: true })]
+        it('returns an empty map when all series have visibility.excluded', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20], visibility: { excluded: true } })]
             const result = computePercentStackData(series, ['a', 'b'])
             expect(result.size).toBe(0)
         })
@@ -263,9 +268,9 @@ describe('hog-charts scales', () => {
             }
         })
 
-        it('excludes hidden series from the percent calculation', () => {
+        it('excludes visibility.excluded series from the percent calculation', () => {
             const visible = makeSeries({ key: 'v', data: [50, 50] })
-            const hidden = makeSeries({ key: 'h', data: [50, 50], hidden: true })
+            const hidden = makeSeries({ key: 'h', data: [50, 50], visibility: { excluded: true } })
             const result = computePercentStackData([visible, hidden], ['a', 'b'])
             expect(result.has('h')).toBe(false)
             expect(result.has('v')).toBe(true)
@@ -295,8 +300,8 @@ describe('hog-charts scales', () => {
             expect(result.size).toBe(0)
         })
 
-        it('returns an empty map when all series are hidden', () => {
-            const series = [makeSeries({ key: 's1', data: [10, 20], hidden: true })]
+        it('returns an empty map when all series have visibility.excluded', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20], visibility: { excluded: true } })]
             const result = computeStackData(series, ['a', 'b'])
             expect(result.size).toBe(0)
         })
@@ -336,9 +341,9 @@ describe('hog-charts scales', () => {
             expect(result.get('s3')!.bottom).toEqual([30])
         })
 
-        it('excludes hidden series from the stack', () => {
+        it('excludes visibility.excluded series from the stack', () => {
             const visible = makeSeries({ key: 'v', data: [10, 20] })
-            const hidden = makeSeries({ key: 'h', data: [100, 200], hidden: true })
+            const hidden = makeSeries({ key: 'h', data: [100, 200], visibility: { excluded: true } })
             const result = computeStackData([visible, hidden], ['a', 'b'])
             expect(result.has('h')).toBe(false)
             expect(result.get('v')!.top).toEqual([10, 20])
