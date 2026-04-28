@@ -2736,6 +2736,9 @@ importers:
       '@testing-library/user-event':
         specifier: '*'
         version: 13.5.0(@testing-library/dom@9.3.4)
+      '@types/papaparse':
+        specifier: '*'
+        version: 5.3.8
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
@@ -2763,6 +2766,9 @@ importers:
       kea-subscriptions:
         specifier: 'catalog:'
         version: 3.0.1(kea@4.0.0-pre.5(react@18.3.1))
+      papaparse:
+        specifier: '*'
+        version: 5.4.1
       partial-json:
         specifier: ^0.1.7
         version: 0.1.7
