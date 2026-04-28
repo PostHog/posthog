@@ -159,6 +159,10 @@ export function CodeEditor({
 
     // Keep a ref to the editor for cleanup - ensures we can dispose it even if state is stale
     const editorRef = useRef<importedEditor.IStandaloneCodeEditor | null>(null)
+    // In diff mode editorRef holds the inner modified sub-editor; this
+    // ref holds the parent diff editor so cleanup can dispose the whole
+    // diff (original editor, diff widget, decorations, view zones).
+    const diffEditorRef = useRef<importedEditor.IStandaloneDiffEditor | null>(null)
 
     const vimModeRef = useRef<{ dispose: () => void } | null>(null)
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
@@ -193,44 +197,55 @@ export function CodeEditor({
     const monacoDisposables = useRef([] as IDisposable[])
     const mutationObserver = useRef<MutationObserver | null>(null)
 
-    // Consolidated cleanup: dispose editor and its resources BEFORE removing monacoRoot from DOM.
-    // This prevents Monaco's internal services (hoverService, contextViewService) from holding
-    // references to detached DOM nodes.
+    const disposeMonacoDisposables = (): void => {
+        monacoDisposables.current.forEach((d) => d?.dispose())
+        monacoDisposables.current = []
+    }
+
+    const disconnectMutationObserver = (): void => {
+        mutationObserver.current?.disconnect()
+        mutationObserver.current = null
+    }
+
+    const clearLogicReferenceFromModel = (): void => {
+        const model = editorRef.current?.getModel()
+        if (model) {
+            ;(model as any).codeEditorLogic = undefined
+        }
+    }
+
+    const disposeEditor = (): void => {
+        try {
+            if (diffEditorRef.current) {
+                diffEditorRef.current.dispose()
+            } else {
+                editorRef.current?.dispose()
+            }
+        } catch {
+            // already disposed
+        }
+        editorRef.current = null
+        diffEditorRef.current = null
+    }
+
     useOnMountEffect(() => {
         return () => {
-            // 1. Dispose all custom disposables (actions, observers, etc.)
-            monacoDisposables.current.forEach((d) => d?.dispose())
-            monacoDisposables.current = []
+            disposeMonacoDisposables()
+            disconnectMutationObserver()
+            clearLogicReferenceFromModel()
 
-            // 2. Disconnect and clear mutation observer to fully release DOM references
-            mutationObserver.current?.disconnect()
-            mutationObserver.current = null
+            // Dispose the editor BEFORE @monaco-editor/react's own cleanup
+            // runs: Monaco's services (HoverService, ContextView,
+            // DomListener) keep refs to the editor's container DOM that
+            // survive the library's dispose. Disposing while we still hold
+            // a strong reference lets Monaco tear down its services in an
+            // order that releases those DOM refs.
+            disposeEditor()
 
-            // 3. Clear codeEditorLogic reference from model to break kea reference chain
-            const model = editorRef.current?.getModel()
-            if (model) {
-                ;(model as any).codeEditorLogic = undefined
-            }
-
-            // 4. Dispose the editor itself BEFORE @monaco-editor/react's own cleanup runs.
-            // @monaco-editor/react does call dispose() on unmount but Monaco's services
-            // (HoverService, ContextView, DomListener) keep refs to the editor's container
-            // DOM that survive that disposal in our setup. Calling dispose() here, while we
-            // still have a strong reference to the editor, lets Monaco tear down its
-            // services in an order that releases those DOM refs.
-            try {
-                editorRef.current?.dispose()
-            } catch {
-                // already disposed
-            }
-            editorRef.current = null
-
-            // 5. Clear state to release React's reference to the editor
             setMonacoAndEditor(null)
 
-            // 6. Do NOT remove monacoRoot — it's a shared singleton that
-            // Monaco's global services have permanent DomListeners on. Leave
-            // it attached forever; it's a single empty <div> on body.
+            // Do NOT remove monacoRoot — it's a shared singleton that
+            // Monaco's global services have permanent DomListeners on.
         }
     })
 
@@ -433,6 +448,7 @@ export function CodeEditor({
         const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
             const modifiedEditor = diff.getModifiedEditor()
             editorRef.current = modifiedEditor
+            diffEditorRef.current = diff
             setMonacoAndEditor([monaco, modifiedEditor])
 
             if (editorProps.onChange) {
