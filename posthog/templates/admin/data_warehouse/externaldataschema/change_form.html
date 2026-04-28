@@ -88,12 +88,14 @@
     </form>
 {% endblock %}
 
+{# Suppress the default bottom submit_row — we render it inside `after_field_sets` #}
+{# below, immediately above Partitioning & sync, so save/delete sit close to the #}
+{# field sets instead of below the operator panel. #}
+{% block submit_buttons_bottom %}{% endblock %}
+
 {% block after_field_sets %}
     {{ block.super }}
 
-    {# Render the model save/delete row immediately above Partitioning & sync so #}
-    {# operators don't have to scroll to the bottom to save changes. The original #}
-    {# bottom submit_row still renders. #}
     <div style="margin: 12px 0;">
         {% submit_row %}
     </div>
