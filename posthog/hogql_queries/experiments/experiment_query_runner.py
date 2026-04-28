@@ -316,7 +316,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _evaluate_experiment_query(
         self,
-    ) -> list[tuple]:
+    ) -> tuple[list[tuple], list[str]]:
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         metric_name = self.metric.name or get_default_metric_title(self.metric.model_dump())
@@ -378,7 +378,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
-        return sorted_results
+        return sorted_results, response.columns or []
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
@@ -407,8 +407,8 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
         """Fetch and prepare variant results with missing variants added."""
-        sorted_results = self._evaluate_experiment_query()
-        variant_results = get_variant_results(sorted_results, self.metric, cuped_enabled=self.cuped_config.enabled)
+        sorted_results, columns = self._evaluate_experiment_query()
+        variant_results = get_variant_results(sorted_results, columns)
         return self._add_missing_variants(variant_results)
 
     def _has_breakdown(self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]) -> bool:

@@ -3,7 +3,7 @@
     "properties": {
         "analysis_level": {
             "default": "trace",
-            "description": "* `trace` - trace\n* `generation` - generation",
+            "description": "Whether the IDs are 'trace' IDs or 'generation' IDs.\n\n* `trace` - trace\n* `generation` - generation",
             "enum": ["trace", "generation"],
             "type": "string"
         },
@@ -15,7 +15,8 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."
         },
         "date_to": {
             "anyOf": [
@@ -25,13 +26,16 @@
                 {
                     "type": "null"
                 }
-            ]
+            ],
+            "description": "End of date range for the lookup. Defaults to now."
         },
         "force_refresh": {
             "default": false,
+            "description": "If true, bypass cache and reclassify.",
             "type": "boolean"
         },
         "ids": {
+            "description": "Trace IDs or generation IDs to classify, depending on analysis_level.",
             "items": {
                 "type": "string"
             },

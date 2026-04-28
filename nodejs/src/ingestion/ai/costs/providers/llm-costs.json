@@ -1489,6 +1489,10 @@
                 "completion_token": 2.8e-7,
                 "cache_read_token": 2.8e-9
             },
+            "akashml-fp8": {
+                "prompt_token": 2e-7,
+                "completion_token": 3e-7
+            },
             "deepinfra-fp4": {
                 "prompt_token": 1.4e-7,
                 "completion_token": 2.8e-7,
@@ -2146,8 +2150,8 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 2.2e-7,
-                "completion_token": 5.9e-7
+                "prompt_token": 2e-7,
+                "completion_token": 3.5e-7
             }
         }
     },
@@ -2278,6 +2282,10 @@
             "default": {
                 "prompt_token": 6e-8,
                 "completion_token": 3.3e-7
+            },
+            "cloudflare": {
+                "prompt_token": 1e-7,
+                "completion_token": 3e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 7e-8,
@@ -3116,8 +3124,8 @@
                 "completion_token": 0.00000138
             },
             "sambanova": {
-                "prompt_token": 2.2e-7,
-                "completion_token": 5.9e-7
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
             },
             "siliconflow-fp8": {
                 "prompt_token": 3e-7,
@@ -3410,9 +3418,9 @@
                 "prompt_token": 2e-8,
                 "completion_token": 4e-8
             },
-            "dekallm-bf16": {
-                "prompt_token": 2e-8,
-                "completion_token": 4e-8
+            "dekallm-fp8": {
+                "prompt_token": 3e-8,
+                "completion_token": 1.4e-7
             },
             "mistral": {
                 "prompt_token": 1.5e-7,
@@ -3741,6 +3749,10 @@
                 "completion_token": 0.000004655,
                 "cache_read_token": 1.463e-7
             },
+            "akashml-int4": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000004
+            },
             "atlas-cloud-int4": {
                 "prompt_token": 9.5e-7,
                 "completion_token": 0.000004,
@@ -3790,9 +3802,9 @@
                 "completion_token": 0.0000046
             },
             "siliconflow-fp8": {
-                "prompt_token": 9.5e-7,
+                "prompt_token": 9e-7,
                 "completion_token": 0.000004,
-                "cache_read_token": 1.6e-7
+                "cache_read_token": 2e-7
             },
             "together": {
                 "prompt_token": 0.0000012,
@@ -6370,6 +6382,10 @@
                 "completion_token": 0.0000018,
                 "cache_read_token": 2.25e-7
             },
+            "dekallm-fp8": {
+                "prompt_token": 2e-7,
+                "completion_token": 0.000001
+            },
             "nextbit-fp8": {
                 "prompt_token": 3e-7,
                 "completion_token": 0.0000018
@@ -6491,9 +6507,8 @@
         "model": "qwen/qwen3.6-27b",
         "cost": {
             "default": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.000002,
-                "cache_read_token": 2.5e-7
+                "prompt_token": 3.25e-7,
+                "completion_token": 0.00000325
             },
             "alibaba": {
                 "prompt_token": 6e-7,
@@ -6507,6 +6522,10 @@
             "morph": {
                 "prompt_token": 5.5e-7,
                 "completion_token": 0.0000024
+            },
+            "venice-fp8": {
+                "prompt_token": 3.25e-7,
+                "completion_token": 0.00000325
             }
         }
     },
@@ -6553,14 +6572,14 @@
         "model": "qwen/qwen3.6-max-preview",
         "cost": {
             "default": {
-                "prompt_token": 0.0000013,
-                "completion_token": 0.0000078,
-                "cache_write_token": 0.000001625
+                "prompt_token": 0.00000104,
+                "completion_token": 0.00000624,
+                "cache_write_token": 0.0000013
             },
             "alibaba": {
-                "prompt_token": 0.0000013,
-                "completion_token": 0.0000078,
-                "cache_write_token": 0.000001625
+                "prompt_token": 0.00000104,
+                "completion_token": 0.00000624,
+                "cache_write_token": 0.0000013
             }
         }
     },
@@ -7554,6 +7573,10 @@
                 "prompt_token": 0.00000105,
                 "completion_token": 0.0000035,
                 "cache_read_token": 5.25e-7
+            },
+            "ambient-fp8": {
+                "prompt_token": 0.0000014,
+                "completion_token": 0.0000044
             },
             "atlas-cloud-fp8": {
                 "prompt_token": 0.00000139,
