@@ -7,52 +7,8 @@
 category: LLM analytics
 feature: llm_analytics
 url_prefix: /llm-analytics/evaluation-reports
+ui_apps: {}
 tools:
-    evaluation-reports-list:
-        operation: llm_analytics_evaluation_reports_list
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List evaluation report configs
-        description: >
-            List all evaluation report configurations for the current project. Optionally filter by
-            evaluation UUID using the 'evaluation' query param. Each report config controls how and
-            when evaluation summary reports are generated and delivered (email or Slack).
-
-    evaluation-report-get:
-        operation: llm_analytics_evaluation_reports_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get evaluation report config
-        description: >
-            Get a specific evaluation report configuration by UUID. Returns the full config including
-            frequency, delivery targets, trigger thresholds, and schedule settings.
-
-    evaluation-report-update:
-        operation: llm_analytics_evaluation_reports_partial_update
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update evaluation report config
-        description: >
-            Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery
-            targets (email or Slack), change frequency ('every_n' or 'scheduled'), set trigger_threshold
-            and cooldown_minutes (min 60, max 1440) for every_n mode, or set rrule/starts_at for scheduled
-            mode. Set deleted=true to soft-delete the config.
-
     evaluation-report-generate:
         operation: llm_analytics_evaluation_reports_generate_create
         enabled: true
@@ -64,11 +20,23 @@ tools:
             idempotent: false
         title: Trigger evaluation report generation
         description: >
-            Immediately trigger an AI-generated evaluation report for this report config. Enqueues a
-            Temporal workflow that analyzes recent evaluation runs and delivers the report to configured
-            targets (email or Slack). Returns 202 on success. Duplicate requests within the same minute
-            are coalesced — only one report is generated. Rate-limited by daily_run_cap.
-
+            Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow
+            that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns
+            202 on success. Duplicate requests within the same minute are coalesced — only one report is generated.
+            Rate-limited by daily_run_cap.
+    evaluation-report-get:
+        operation: llm_analytics_evaluation_reports_retrieve
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get evaluation report config
+        description: >
+            Get a specific evaluation report configuration by UUID. Returns the full config including frequency,
+            delivery targets, trigger thresholds, and schedule settings.
     evaluation-report-runs-list:
         operation: llm_analytics_evaluation_reports_runs_list
         enabled: true
@@ -80,6 +48,35 @@ tools:
             idempotent: true
         title: List evaluation report runs
         description: >
-            List the run history for a specific evaluation report config. Each run record includes the
-            generated report content, the evaluation period covered, delivery status ('pending',
-            'delivered', 'failed'), and any delivery error details.
+            List the run history for a specific evaluation report config. Each run record includes the generated report
+            content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery
+            error details.
+    evaluation-report-update:
+        operation: llm_analytics_evaluation_reports_partial_update
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update evaluation report config
+        description: >
+            Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email
+            or Slack), change frequency ('every_n' or 'scheduled'), set trigger_threshold and cooldown_minutes (min 60,
+            max 1440) for every_n mode, or set rrule/starts_at for scheduled mode. Set deleted=true to soft-delete the
+            config.
+    evaluation-reports-list:
+        operation: llm_analytics_evaluation_reports_list
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List evaluation report configs
+        description: >
+            List all evaluation report configurations for the current project. Optionally filter by evaluation UUID
+            using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are
+            generated and delivered (email or Slack).
