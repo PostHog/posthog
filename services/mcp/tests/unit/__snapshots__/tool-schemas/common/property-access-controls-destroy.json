@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "organization_member": {
+            "description": "The organization member UUID whose override should be deleted.",
+            "type": "string"
+        },
+        "property_definition_id": {
+            "description": "The property definition ID the rule applies to.",
+            "type": "string"
+        },
+        "role": {
+            "description": "The role UUID whose override should be deleted.",
+            "type": "string"
+        }
+    },
+    "required": ["property_definition_id"],
+    "type": "object"
+}

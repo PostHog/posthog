@@ -1,19 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Request body for upserting or deleting a rule.\n\nSending ``access_level=null`` deletes the matching override.",
+    "description": "Request body for upserting a rule (create or update).",
     "properties": {
         "access_level": {
-            "anyOf": [
-                {
-                    "description": "* `read_write` - read_write\n* `read` - read\n* `none` - none",
-                    "enum": ["read_write", "read", "none"],
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "The access level to set. Use null to delete an override.\n\n* `read_write` - read_write\n* `read` - read\n* `none` - none"
+            "description": "The access level to set for this rule.\n\n* `read_write` - read_write\n* `read` - read\n* `none` - none",
+            "enum": ["read_write", "read", "none"],
+            "type": "string"
         },
         "organization_member": {
             "anyOf": [

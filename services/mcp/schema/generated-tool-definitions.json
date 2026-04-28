@@ -4151,11 +4151,11 @@
         }
     },
     "property-access-controls-create": {
-        "description": "Create or update a property access control rule for a property definition. Provide `property_definition_id` and `access_level` (read_write, read, or none), plus optionally `organization_member` or `role` to target a specific member or role — omit both to set the default rule for the property. Send `access_level=null` to delete an existing override. Requires the calling user to be a project admin.",
+        "description": "Create or update a property access control rule for a property definition. `access_level` controls what the targeted user(s) can do with the property: `read_write` lets them read it in queries and edit its definition, `read` lets them read it in queries but not edit it, and `none` strips the property from queries entirely and hides its values. Pass `organization_member` to set a rule for a single member, `role` to set a rule for every member of that role, or omit both to set the property's default rule. Member-specific rules take precedence over role-specific rules, which take precedence over the default. Posting again with the same target updates the existing rule in place; to remove a rule, use `property-access-controls-destroy`. Requires the calling user to be a project admin.",
         "category": "Access control",
         "feature": "access_control",
-        "summary": "Create, update, or delete a property access control rule.",
-        "title": "Create, update, or delete a property access control rule.",
+        "summary": "Create or update a property access control rule.",
+        "title": "Create or update a property access control rule.",
         "required_scopes": ["property_definition:write"],
         "new_mcp": true,
         "annotations": {
@@ -4165,8 +4165,23 @@
             "readOnlyHint": false
         }
     },
-    "property-access-controls-list": {
-        "description": "List all property-level access control rules for a specific property definition. Pass the property definition's UUID as the `property_definition_id` query parameter. Returns the default access level, any member-specific or role-specific overrides, and the available access levels (read_write, read, none). Use this to understand who can read or write values for a given property.",
+    "property-access-controls-destroy": {
+        "description": "Delete a property access control rule for a property definition. Pass `organization_member` to remove a member-specific rule, `role` to remove a role-specific rule, or omit both to remove the property's default rule (which restores the system-wide default of `read_write`). Removing a rule does not affect the other rules on the property — e.g. deleting a member's rule causes that member to fall back to the role-specific or default rule, not to lose access. Requires the calling user to be a project admin.",
+        "category": "Access control",
+        "feature": "access_control",
+        "summary": "Delete a property access control rule.",
+        "title": "Delete a property access control rule.",
+        "required_scopes": ["property_definition:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "property-access-controls-retrieve": {
+        "description": "List all property-level access control rules for a specific property definition. Pass the property definition's UUID as the `property_definition_id` query parameter. Returns the default rule plus any member-specific or role-specific overrides. Each rule's `access_level` is one of: `read_write` (target can read the property in queries and edit its definition), `read` (target can read it in queries but not edit it), or `none` (the property is stripped from queries entirely and the target cannot see its values). Member-specific rules win over role-specific rules, which win over the default rule. Use this to audit who can see or modify a given property.",
         "category": "Access control",
         "feature": "access_control",
         "summary": "List property access control rules for a property definition.",
