@@ -587,7 +587,6 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
 
 def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
     email = details.get("email")
-
     # Check if SSO enforcement is enabled for this email address
     sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(email)
     if sso_enforcement is None or sso_enforcement == backend.name:

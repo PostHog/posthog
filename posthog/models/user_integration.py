@@ -263,7 +263,6 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             logger.warning("UserGitHubIntegration: failed to delete unusable integration", exc_info=True)
 
 
-
 def user_github_integration_from_installation(
     user: "User",
     installation: "GitHubInstallationAccess",
@@ -333,4 +332,3 @@ def user_github_integration_from_installation(
             },
         )
     return integration
-
