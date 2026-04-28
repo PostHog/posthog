@@ -15,7 +15,7 @@ from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttri
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     FIND_ACTIVITY_TIMEOUT,
     MAX_SESSIONS_PER_TEAM,
@@ -166,7 +166,10 @@ class SummarizeTeamSessionsWorkflow(PostHogWorkflow):
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 search_attributes=TypedSearchAttributes(
-                    search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id)]
+                    search_attributes=[
+                        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
+                        SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=session_id),
+                    ]
                 ),
                 # Covers all three retry attempts + backoff (10m + 15m + 15m) with headroom.
                 execution_timeout=timedelta(minutes=45),

@@ -75,6 +75,7 @@ class TaskEvent(StrEnum):
 
 INACTIVITY_TIMEOUT = timedelta(minutes=5)
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
+RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 MAX_CI_REPETITIONS = 3
 DEFAULT_CI_MESSAGE = """\
@@ -744,7 +745,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 relay_sandbox_events,
                 relay_input,
-                start_to_close_timeout=timedelta(minutes=65),
+                start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,

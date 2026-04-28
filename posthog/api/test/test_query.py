@@ -13,6 +13,7 @@ from posthog.test.base import (
 from unittest import mock
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import (
@@ -20,7 +21,6 @@ from posthog.schema import (
     CachedEventsQueryResponse,
     CachedHogQLQueryResponse,
     CachedRetentionQueryResponse,
-    CohortPropertyFilter,
     EventPropertyFilter,
     EventsQuery,
     HogLanguage,
@@ -40,7 +40,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.api.monitoring import Feature
 from posthog.api.query import _infer_query_tags
 from posthog.api.services.query import process_query_dict, process_query_model
-from posthog.clickhouse.query_tagging import QueryTags
+from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
 
@@ -1392,12 +1392,15 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestInferQueryTags(APIBaseTest):
-    def test_cohort_scene_infers_cohorts_product_and_cohort_feature(self):
-        # Mirrors the payload fired by the Cohort scene when listing members: the frontend's
-        # addTags attaches `tags.scene = "Cohort"` to every query issued from that scene.
-        query = ActorsQuery(
-            fixedProperties=[CohortPropertyFilter(value=1)],
-            select=["person_display_name -- Person", "id", "created_at"],
-            tags=QueryLogTags(scene="Cohort"),
-        )
-        assert _infer_query_tags(query) == {"product": ProductKey.COHORTS, "feature": Feature.COHORT}
+    # Each row mirrors a query payload fired from the named frontend scene. The scene tag is
+    # auto-attached by `addTags` in `dataNodeLogic.ts`. _infer_query_tags maps that to the
+    # product/feature labels used in ClickHouse query log comments.
+    @parameterized.expand(
+        [
+            ("Cohort", ProductKey.COHORTS, Feature.COHORT),
+            ("DebugQuery", Product.INTERNAL, Feature.DEBUG_QUERY),
+        ]
+    )
+    def test_scene_to_tags_mapping(self, scene, expected_product, expected_feature):
+        query = ActorsQuery(select=["id"], tags=QueryLogTags(scene=scene))
+        assert _infer_query_tags(query) == {"product": expected_product, "feature": expected_feature}

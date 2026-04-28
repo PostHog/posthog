@@ -1437,14 +1437,15 @@
         },
         "AssistantEventMultipleBreakdownFilterType": {
             "enum": [
-                "cohort",
                 "person",
                 "event",
                 "event_metadata",
                 "session",
                 "hogql",
-                "data_warehouse_person_property",
-                "revenue_analytics"
+                "cohort",
+                "revenue_analytics",
+                "data_warehouse",
+                "data_warehouse_person_property"
             ],
             "type": "string"
         },
@@ -2846,6 +2847,13 @@
                     "description": "Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.\n\nSupported types:\n- `person`: Filter by person properties (e.g. email, country).\n- `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).\n- `event`: Filter by properties of events in the session (e.g. $current_url, $browser).\n- `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).\n- `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`.",
                     "items": {
                         "$ref": "#/definitions/AssistantRecordingsQueryPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "session_ids": {
+                    "description": "Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call.",
+                    "items": {
+                        "type": "string"
                     },
                     "type": "array"
                 }
@@ -17641,6 +17649,12 @@
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17649,6 +17663,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17684,6 +17701,12 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17692,6 +17715,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17893,6 +17919,12 @@
                 "chance_to_win": {
                     "type": "number"
                 },
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "credible_interval": {
                     "items": {
                         "type": "number"
@@ -17909,6 +17941,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "method": {
                     "const": "bayesian",
@@ -17965,6 +18000,12 @@
                     "minItems": 2,
                     "type": "array"
                 },
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17973,6 +18014,9 @@
                 },
                 "key": {
                     "type": "string"
+                },
+                "main_covariate_sum_product": {
+                    "type": "number"
                 },
                 "method": {
                     "const": "frequentist",
@@ -25386,15 +25430,16 @@
         },
         "MultipleBreakdownType": {
             "enum": [
-                "cohort",
                 "person",
                 "event",
                 "event_metadata",
                 "group",
                 "session",
                 "hogql",
-                "data_warehouse_person_property",
-                "revenue_analytics"
+                "cohort",
+                "revenue_analytics",
+                "data_warehouse",
+                "data_warehouse_person_property"
             ],
             "type": "string"
         },
@@ -35260,11 +35305,15 @@
                 "required": {
                     "type": "boolean"
                 },
+                "secret": {
+                    "description": "Marks this field as containing sensitive data. The value is stripped from API responses regardless of the rendering `type` (so a multi-line PEM blob can use `textarea` and still be redacted). Required: source authors must explicitly classify every field.",
+                    "type": "boolean"
+                },
                 "type": {
                     "$ref": "#/definitions/SourceFieldInputConfigType"
                 }
             },
-            "required": ["type", "name", "label", "required", "placeholder"],
+            "required": ["type", "name", "label", "required", "placeholder", "secret"],
             "type": "object"
         },
         "SourceFieldInputConfigType": {

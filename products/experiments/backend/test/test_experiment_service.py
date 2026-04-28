@@ -3527,6 +3527,165 @@ class TestExperimentService(APIBaseTest):
         )
         assert experiment.metrics == []
 
+    # Shared cases for blank/whitespace event regression tests across create and update.
+    # Regression: pydantic permits event="" but it's not a queryable event name.
+    # Treat blank/whitespace events like None / "All events" instead of producing
+    # the misleading "Event(s) '' not found" error customers were hitting.
+    _BLANK_EVENT_CASES = [
+        (
+            "empty_mean",
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": ""},
+            },
+        ),
+        (
+            "whitespace_ratio",
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "ratio",
+                "numerator": {"kind": "EventsNode", "event": "   "},
+                "denominator": {"kind": "EventsNode", "event": ""},
+            },
+        ),
+        (
+            "empty_funnel_step",
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": ""}],
+            },
+        ),
+    ]
+
+    @parameterized.expand(_BLANK_EVENT_CASES)
+    def test_blank_event_names_pass_validation_on_create(self, name: str, metric: dict) -> None:
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Blank Event Create {name}",
+            feature_flag_key=f"blank-event-create-{name.replace('_', '-')}-flag",
+            metrics=[metric],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    @parameterized.expand(_BLANK_EVENT_CASES)
+    def test_blank_event_names_pass_validation_on_update(self, name: str, metric: dict) -> None:
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Blank Event Update {name}",
+            feature_flag_key=f"blank-event-update-{name.replace('_', '-')}-flag",
+        )
+        # Should not raise — both paths share the same validator but go through
+        # separate functions (create_experiment vs update_experiment).
+        service.update_experiment(experiment, {"metrics": [metric]})
+
+    @parameterized.expand(
+        [
+            ("int", 42, "int"),
+            ("json_object", {"kind": "EventsNode", "event": "nested"}, "dict"),
+            ("list", ["a", "b"], "list"),
+        ]
+    )
+    def test_unexpected_event_shape_is_skipped_and_logged(
+        self, _: str, malformed_event: object, expected_type_name: str
+    ) -> None:
+        # Pydantic should reject anything other than str/None for the `event` field
+        # in the incoming payload. If a malformed payload (e.g. int, dict, list)
+        # bypasses that check, we want to skip the value (don't crash, don't add a
+        # non-string to the lookup set) and log so we can find the offending caller.
+        # This is purely about the *incoming* payload shape — no DB lookup happens
+        # in `_extract_entity_nodes`.
+        from products.experiments.backend.experiment_service import logger as service_logger
+
+        service = self._service()
+        with patch.object(service_logger, "warning") as mock_warning:
+            event_names = service._extract_entity_nodes(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": malformed_event},
+                    },
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ]
+            )[0]
+
+        # Malformed value was skipped, "$pageview" kept
+        assert event_names == {"$pageview"}
+        mock_warning.assert_called_once()
+        kwargs = mock_warning.call_args.kwargs
+        assert kwargs.get("event_type") == expected_type_name
+
+    def test_event_validation_uses_project_scope(self):
+        # Regression: the frontend event picker queries EventDefinition by project_id
+        # (see posthog/api/event_definition.py), so users in multi-team projects see
+        # events ingested by sibling teams. Validation must match that scope or it
+        # rejects legitimate selections (e.g. "$pageview not found" reports).
+        sibling_team = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            name="Sibling team in same project",
+        )
+        EventDefinition.objects.create(team=sibling_team, project=self.project, name="purchase_v2")
+        # Note: NOT creating purchase_v2 on self.team — only the sibling team has it,
+        # but they share a project so the picker would show it.
+
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Cross-team Event",
+            feature_flag_key="cross-team-event-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "purchase_v2"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
+    def test_sibling_team_can_use_legacy_primary_team_event(self):
+        # Regression: the legacy fallback in validate_metric_event_names uses
+        #     team_id = project_id  (NOT team_id = self.team.id)
+        # because legacy EventDefinitions (project_id IS NULL) belong to the
+        # *primary* team — and by convention, primary_team.id == project.id.
+        # The picker mirrors this exact predicate (posthog/api/event_definition.py),
+        # so a sibling-team user must be able to validate against legacy events
+        # tied to the primary team. Swapping `team_id = project_id` for
+        # `team_id = self.team.id` would silently exclude those rows for sibling
+        # teams, even though the picker shows them.
+        primary_team = self.team  # APIBaseTest sets primary_team.id == project.id
+        assert primary_team.id == primary_team.project_id, "test fixture invariant: self.team is primary"
+
+        sibling_team = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            name="Sibling team in same project",
+        )
+        # A legacy event tied to the primary team — no project_id set.
+        EventDefinition.objects.create(team=primary_team, project=None, name="legacy_event")
+
+        # Run validation as the SIBLING team (not the primary). Without the
+        # legacy fallback's team_id=project_id semantics, this would raise.
+        sibling_service = ExperimentService(team=sibling_team, user=self.user)
+        experiment = sibling_service.create_experiment(
+            name="Sibling Legacy Event",
+            feature_flag_key="sibling-legacy-event-flag",
+            metrics=[
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "legacy_event"},
+                },
+            ],
+        )
+        assert experiment.metrics is not None and len(experiment.metrics) == 1
+
     def test_action_nodes_not_checked_for_event_existence(self):
         action = Action.objects.create(team=self.team, name="valid action for event test")
         service = self._service()

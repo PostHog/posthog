@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 from datetime import datetime
 from typing import Any, cast
@@ -23,8 +24,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.temporal.session_replay.session_summary.summarize_session import execute_summarize_session
@@ -43,6 +45,7 @@ from ee.hogai.session_summaries.tracking import (
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.models.session_summaries import SessionGroupSummary
+from ee.models.team_session_summaries_config import PRODUCT_CONTEXT_MAX_LENGTH, TeamSessionSummariesConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +60,30 @@ class SessionSummariesSerializer(serializers.Serializer):
     focus_area = serializers.CharField(
         required=False, allow_blank=True, max_length=500, help_text="Optional focus area for the summarization"
     )
+
+
+_PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\b[^>]*>", re.IGNORECASE)
+
+
+class SessionSummariesConfigSerializer(serializers.ModelSerializer):
+    product_context = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=PRODUCT_CONTEXT_MAX_LENGTH,
+        help_text=(
+            "Free-form description of the team's product, used to tailor AI-generated single-session replay "
+            "summaries. Injected into the system prompt of every summary generated for this team via the "
+            "replay page."
+        ),
+    )
+
+    class Meta:
+        model = TeamSessionSummariesConfig
+        fields = ["product_context"]
+
+    def validate_product_context(self, value: str) -> str:
+        # Prevent prompt injection via the <product_context> wrapper in the summary prompt.
+        return _PRODUCT_CONTEXT_WRAPPER_TAG_RE.sub("", value).strip()
 
 
 class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -304,6 +331,39 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.APIException(
                 f"Failed to generate individual session summaries for sessions {logging_session_ids(session_ids)}. Please try again later."
             )
+
+    @extend_schema(
+        methods=["GET"],
+        operation_id="retrieve_session_summaries_config",
+        description=(
+            "Retrieve the team's session summaries configuration "
+            "(product context used to tailor single-session replay summaries)."
+        ),
+        responses=SessionSummariesConfigSerializer,
+    )
+    @extend_schema(
+        operation_id="update_session_summaries_config",
+        description=(
+            "Update the team's session summaries configuration "
+            "(product context used to tailor single-session replay summaries)."
+        ),
+        request=SessionSummariesConfigSerializer,
+        responses=SessionSummariesConfigSerializer,
+        methods=["PATCH"],
+    )
+    @action(methods=["GET", "PATCH"], detail=False, serializer_class=SessionSummariesConfigSerializer)
+    def config(self, request: Request, **kwargs) -> Response:
+        team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
+        if request.method == "PATCH":
+            effective_level = self.user_permissions.team(self.team).effective_membership_level
+            if effective_level is None or effective_level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied("Only project admins can modify the session summaries configuration.")
+            serializer = SessionSummariesConfigSerializer(team_config, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+        else:
+            serializer = SessionSummariesConfigSerializer(team_config)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class SessionGroupSummaryMinimalSerializer(serializers.ModelSerializer):

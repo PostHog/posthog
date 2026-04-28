@@ -75,3 +75,7 @@ export type SessionGroupSummaryType = SessionGroupSummaryListItemType & {
     run_metadata: Record<string, any> | null
     team: number
 }
+
+export interface SessionSummariesConfig {
+    product_context: string
+}

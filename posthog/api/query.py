@@ -34,14 +34,17 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog import settings
 from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.mixins import PydanticModelMixin
-from posthog.api.monitoring import Feature, monitor
+from posthog.api.monitoring import (
+    Feature as MonitoringFeature,
+    monitor,
+)
 from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Product, get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
@@ -80,6 +83,17 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
 # which is the signal to register them.
 _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
     "Cohort": {"product": ProductKey.COHORTS, "feature": Feature.COHORT},
+    # Data management surfaces fan out into ad-hoc queries (e.g. the promoted-property picker
+    # introspecting which keys exist on an event). Tagged with scene-specific features so query
+    # usage analysis can attribute load to the originating product surface.
+    "EventDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "EventDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "EventDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
+    "PropertyDefinition": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
+    "PropertyDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
+    "PropertyDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
+    "ExploreEvents": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EXPLORE_EVENTS_SCENE},
+    "DebugQuery": {"product": Product.INTERNAL, "feature": Feature.DEBUG_QUERY},
 }
 
 
@@ -175,7 +189,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             200: QueryResponseAlternative,
         },
     )
-    @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
+    @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
         self._validate_query_kind(request, kwargs.get("query_kind"))
         start_time = perf_counter()
@@ -251,7 +265,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 else status.HTTP_200_OK
             )
 
-            if request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp":
+            if request.headers.get("x-posthog-client") == "mcp":
                 formatted = self._try_format_for_llm(query, result)
                 if formatted is not None:
                     result["formatted_results"] = formatted
@@ -285,7 +299,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
         responses={200: QueryStatusResponse},
     )
-    @monitor(feature=Feature.QUERY, endpoint="query", method="GET")
+    @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="GET")
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
         show_progress: bool = request.query_params.get("show_progress", False) == "true"
         show_progress = (
@@ -316,7 +330,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             204: OpenApiResponse(description="Query cancelled"),
         },
     )
-    @monitor(feature=Feature.QUERY, endpoint="query", method="DELETE")
+    @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
         dequeue_only = request.query_params.get("dequeue_only", False) == "true"
         message = cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)

@@ -8,7 +8,7 @@ import { Link } from '@posthog/lemon-ui'
 
 import {
     CategoryDropdownVariant,
-    isCategoryDropdownVariant,
+    resolveCategoryDropdownVariant,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
@@ -23,10 +23,6 @@ import { urls } from 'scenes/urls'
 import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
-
-function resolveCategoryDropdownVariant(flagValue: string | boolean | undefined): CategoryDropdownVariant {
-    return isCategoryDropdownVariant(flagValue) ? flagValue : 'control'
-}
 
 let uniqueMemoizedIndex = 0
 
@@ -74,11 +70,9 @@ export function TaxonomicFilter({
     const focusInput = (): void => searchInputRef.current?.focus()
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const flagVariant = resolveCategoryDropdownVariant(featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN])
-    // The pill/icon dropdown trigger lives inside the search input's suffix.
-    // When the host hides the input there is nowhere to render it, so fall
-    // back to the control layout so users can still switch categories.
-    const categoryDropdownVariant: CategoryDropdownVariant = hideSearchInput ? 'control' : flagVariant
+    const categoryDropdownVariant = resolveCategoryDropdownVariant(
+        featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
+    )
     const resolvedSuggestedFiltersLabel =
         suggestedFiltersLabel ?? (categoryDropdownVariant === 'control' ? 'Suggestions' : 'All')
 
