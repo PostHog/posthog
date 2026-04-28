@@ -14,7 +14,7 @@ from posthog.models import User
 from posthog.models.comment import Comment
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
-from .events import capture_message_received, capture_message_sent
+from .events import capture_message_received, capture_message_sent, capture_ticket_created
 from .models import Ticket
 from .models.constants import Channel
 from .tasks import post_reply_to_slack, post_reply_to_teams, send_email_reply
@@ -32,6 +32,35 @@ def _is_private_message(item_context: dict | None) -> bool:
 def _get_comment_created_by_id(comment: Comment) -> int | None:
     created_by_id = getattr(comment, "created_by_id", None)
     return created_by_id if isinstance(created_by_id, int) else None
+
+
+@receiver(post_save, sender=Ticket)
+def emit_ticket_created_event(sender, instance: Ticket, created: bool, **kwargs):
+    """
+    Fire `$conversation_ticket_created` for every newly created ticket, regardless of
+    channel (widget, email, slack, teams, ...). Workflow triggers depend on this event
+    being emitted uniformly for all sources.
+
+    Deferred via `transaction.on_commit` so we don't emit phantom events for tickets
+    rolled back by the email duplicate-race `IntegrityError` in `email_events.py` (or
+    any future caller that wraps creation in `transaction.atomic`).
+
+    Note: `Ticket.objects.bulk_create` does NOT trigger this signal. All current callers
+    use `Ticket.objects.create_with_number`; keep it that way or fire the event
+    explicitly.
+    """
+    if not created:
+        return
+
+    # All callers use `create_with_number(team=team_obj, ...)`, so `instance.team` is
+    # already populated and `capture_ticket_created` won't trigger an extra FK lookup.
+    def do_emit():
+        try:
+            capture_ticket_created(instance)
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(instance.id)})
+
+    transaction.on_commit(do_emit)
 
 
 @receiver(post_save, sender=Comment)

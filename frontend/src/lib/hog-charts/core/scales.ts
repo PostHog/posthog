@@ -20,6 +20,10 @@ export function createXScale(labels: string[], dimensions: ChartDimensions): d3.
         .padding(0)
 }
 
+export function yTickCountForHeight(plotHeight: number): number {
+    return Math.max(2, Math.min(8, Math.floor(plotHeight / 80)))
+}
+
 export function createYScale(
     series: Series[],
     dimensions: ChartDimensions,
@@ -29,12 +33,13 @@ export function createYScale(
     } = {}
 ): d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number> {
     const { scaleType = 'linear', percentStack = false } = options
+    const tickCount = yTickCountForHeight(dimensions.plotHeight)
 
     if (percentStack) {
         return d3
             .scaleLinear()
             .domain([0, 1])
-            .nice()
+            .nice(tickCount)
             .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
     }
 
@@ -52,20 +57,21 @@ export function createYScale(
     let max = d3.max(allValues) ?? 1
 
     if (scaleType === 'log') {
-        if (max <= 0) {
-            // Log of non-positive data is undefined — fall back to linear so the
-            // chart still shows something useful instead of collapsing to a line.
+        const positives = allValues.filter((v) => v > 0)
+        if (positives.length === 0) {
             return d3
                 .scaleLinear()
                 .domain([min, max])
-                .nice()
+                .nice(tickCount)
                 .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
         }
-        min = Math.max(min, 1e-10)
+        const minPositive = Math.min(...positives)
+        const niceMin = Math.pow(10, Math.ceil(Math.log10(minPositive)) - 1)
+        const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
+        const niceMax = Math.ceil(max / maxDecade) * maxDecade
         return d3
             .scaleLog()
-            .domain([min, max])
-            .nice()
+            .domain([niceMin, niceMax])
             .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
             .clamp(true)
     }
@@ -79,7 +85,7 @@ export function createYScale(
     return d3
         .scaleLinear()
         .domain([min, max])
-        .nice()
+        .nice(tickCount)
         .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
 }
 
