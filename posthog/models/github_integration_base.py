@@ -56,15 +56,6 @@ GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
 GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 
-def _dot_get(d: Any, path: str, default: Any = None) -> Any:
-    """Walk a dotted path through nested dicts."""
-    for key in path.split("."):
-        if not isinstance(d, dict):
-            return default
-        d = d.get(key, default)
-    return d
-
-
 @dataclass(frozen=True)
 class GitHubCommitAuthor:
     login: str
@@ -347,7 +338,10 @@ class GitHubIntegrationBase:
         return response.status_code == 200
 
     def organization(self) -> str:
-        return _dot_get(self.integration.config, "account.name")
+        name = self.integration.config.get("account", {}).get("name")
+        if not isinstance(name, str):
+            raise ValueError(f"GitHub integration account name is not a string: {name}")
+        return name
 
     # --- Repository operations ---
 

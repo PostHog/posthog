@@ -2291,7 +2291,8 @@ class GitHubIntegration(GitHubIntegrationBase):
             raise GitHubIntegrationError("Access token unavailable after refresh")
         return token
 
-    def _get_repository_cache(self) -> list[dict] | None:
+    def _get_stored_repository_list(self) -> list[dict] | None:
+        """Repositories persisted on the team ``Integration`` row (not Redis)."""
         cached = self.integration.repository_cache
         if not isinstance(cached, list):
             return None
@@ -2322,7 +2323,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 
     def sync_repository_cache(self, min_refresh_interval_seconds: int | None = None) -> list[dict]:
-        cached_repositories = self._get_repository_cache()
+        cached_repositories = self._get_stored_repository_list()
         updated_at = self.integration.repository_cache_updated_at
         if (
             min_refresh_interval_seconds is not None
@@ -2354,7 +2355,7 @@ class GitHubIntegration(GitHubIntegrationBase):
     def list_cached_repositories(
         self, *, search: str = "", limit: int = 100, offset: int = 0
     ) -> tuple[list[dict], bool]:
-        cached_repositories = self._get_repository_cache()
+        cached_repositories = self._get_stored_repository_list()
         updated_at = self.integration.repository_cache_updated_at
         has_cached_snapshot = updated_at is not None
         cache_is_stale = self.repository_cache_is_stale()
@@ -2382,7 +2383,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         return result, has_more
 
     def list_all_cached_repositories(self, max_repos: int | None = None) -> list[dict]:
-        cached_repositories = self._get_repository_cache()
+        cached_repositories = self._get_stored_repository_list()
         updated_at = self.integration.repository_cache_updated_at
         has_cached_snapshot = updated_at is not None
         cache_is_stale = self.repository_cache_is_stale()
