@@ -23,6 +23,7 @@ from posthog.auth import (
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.models.organization import Organization
 from posthog.models.project import Project
+from posthog.models.scoping import reset_current_team_id, set_current_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
@@ -86,6 +87,38 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
         for method, message in protected_methods.items():
             if method in cls.__dict__:
                 raise Exception(f"Method {method} is protected and should not be overridden. {message}")
+
+    def initial(self, request, *args, **kwargs):
+        """
+        Set team scope context from the URL-derived team_id, overriding any
+        value that TeamScopingMiddleware may have set from the user's "current"
+        team. The URL team_id is the team being acted on — using current_team_id
+        here would silently mismatch when a user makes a request to a project
+        they're not currently focused on (see #50899 for the equivalent org bug).
+
+        Runs after super().initial() so authentication has completed.
+        """
+        super().initial(request, *args, **kwargs)
+        self._team_scope_token = None
+        if self._is_team_view or self._is_project_view:
+            try:
+                team_id = self.team_id
+            except (KeyError, ValidationError, AuthenticationFailed):
+                # Resolution failed — leave middleware-set context in place
+                return
+            # Reuse parent_team_id from already-loaded team (likely cached by
+            # permission checks above). Lets the manager skip its subquery+join.
+            parent_team_id = self.team.parent_team_id if "team" in self.__dict__ else None
+            self._team_scope_token = set_current_team_id(team_id, parent_team_id=parent_team_id)
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        try:
+            return super().finalize_response(request, response, *args, **kwargs)
+        finally:
+            token = getattr(self, "_team_scope_token", None)
+            if token is not None:
+                reset_current_team_id(token)
+                self._team_scope_token = None
 
     def dangerously_get_permissions(self):
         """

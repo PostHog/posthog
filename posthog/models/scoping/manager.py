@@ -11,7 +11,7 @@ object access, and raw SQL bypasses the ORM entirely. Use this alongside
 explicit team checks at the API layer.
 """
 
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from django.db import models
 from django.db.models import Q, Subquery
@@ -68,6 +68,14 @@ class TeamScopedQuerySet(models.QuerySet[T]):
             effective_team_id = _get_effective_team_id_for_persons_db(team_id)
             return self.filter(team_id=effective_team_id)
 
+        # If context already cached parent_team_id for this team, skip the subquery+join
+        # and use a plain `team_id = X` filter. Saves a correlated subquery and a JOIN
+        # on every read through the manager. Only safe when parent_team_id is explicitly
+        # set — None could mean "this is a root team" or "we don't know yet".
+        ctx = get_current_team_context()
+        if ctx is not None and ctx.team_id == team_id and ctx.parent_team_id is not None:
+            return self.filter(team_id=ctx.parent_team_id)
+
         parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
         team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(team_id=team_id, team__parent_team_id__isnull=True)
         return self.filter(team_filter)
@@ -81,7 +89,7 @@ class TeamScopedQuerySet(models.QuerySet[T]):
 
         This creates a fresh queryset without any team filtering applied.
         """
-        return TeamScopedQuerySet(self.model, using=self._db)  # type: ignore[attr-defined]
+        return cast("TeamScopedQuerySet[T]", TeamScopedQuerySet(self.model, using=self._db))  # type: ignore[attr-defined]
 
 
 class TeamScopedManager(models.Manager[T]):

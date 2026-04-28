@@ -11,10 +11,14 @@ from posthog.models.scoping import reset_current_team_id, set_current_team_id
 
 class TeamScopingMiddleware:
     """
-    Middleware that sets the current team_id from the authenticated user.
+    Fallback middleware that sets team_id from the authenticated user's
+    "current" team. Used for non-DRF code paths (admin, management views,
+    etc.) where there's no URL-derived team_id.
 
-    This enables automatic team scoping for all database queries within the request.
-    Models using TeamScopedManager will automatically filter by this team_id.
+    DRF nested viewsets (TeamAndOrgViewSetMixin) override this in initial()
+    using the URL's team_id — the team being acted on. This avoids the same
+    class of bug as #50899: user.current_team_id can differ from the team
+    in the URL, and trusting it here would silently mismatch.
 
     Zero extra queries: only reads current_team_id (the integer FK column
     already loaded on the User object). parent_team_id is resolved lazily
