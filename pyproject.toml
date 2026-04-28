@@ -258,7 +258,7 @@ dev = [
     "types-requests==2.31.0.6",
     "types-retry==0.9.9.4",
     "types-tzlocal~=5.1.0.1",
-    "pywatchman~=2.0",
+    "pywatchman~=3.0",
     "watchdog==5.0.3",
 ]
 sentiment = [
@@ -268,6 +268,7 @@ sentiment = [
 
 [tool.uv]
 required-version = "~=0.10.2"
+add-bounds = "major"
 exclude-newer = "7 days"
 exclude-newer-package = { hogql-parser = false, posthoganalytics = false, pixelhog = false }
 constraint-dependencies = [

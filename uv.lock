@@ -11,7 +11,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-04-21T10:08:02.288234126Z"
+exclude-newer = "2026-04-21T16:01:35.219862981Z"
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
@@ -5469,7 +5469,7 @@ dev = [
     { name = "pytest-timeout", specifier = "~=2.4.0" },
     { name = "pytest-xdist", specifier = "~=3.8.0" },
     { name = "python-dateutil", specifier = "~=2.9.0" },
-    { name = "pywatchman", specifier = "~=2.0" },
+    { name = "pywatchman", specifier = "~=3.0" },
     { name = "requests-mock", specifier = "~=1.12.1" },
     { name = "responses", specifier = "==0.23.1" },
     { name = "ruff", specifier = "~=0.14.11" },
@@ -6345,11 +6345,12 @@ wheels = [
 
 [[package]]
 name = "pywatchman"
-version = "2.0.0"
+version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/cf/39/fc10dd952ac72a3a293936cd66a4551fdeb9012d2db99234a376100641ce/pywatchman-2.0.0.tar.gz", hash = "sha256:25354d9e3647f94411a4c13e510c83a1ceecc17977b0525ba41b16e7019c7b0c", size = 40570, upload-time = "2024-03-02T01:35:25.514Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/6b/f1df266103d33014ea7492222d12652f3341978c21d13f0b297cb7fd7e1f/pywatchman-3.0.0.tar.gz", hash = "sha256:efd32a17391a5872118c55041da71a20960e46ba4b73440c24efac287eea911e", size = 40717, upload-time = "2025-05-30T00:36:18.526Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/51/7f/5d68d803489770cffa5d2b44be99b978c866f8a4d8e835f9da850415ed8a/pywatchman-2.0.0-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:51c2b4c72bea6b9fd90caf20759f5bc47febf0fd27bf2f247b87c66e2f6bab02", size = 52557, upload-time = "2024-03-02T01:35:21.326Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/8e/431e68fca61344c68ac1ad294bc6fa352d68e48a0f6a1fbeb538216bb1d7/pywatchman-3.0.0-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:4f69c49a72e81f1d24733ff5c9dda451404c542edb1efafdb77fd43c7c1a8df9", size = 60136, upload-time = "2025-05-30T00:36:13.45Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/2e/721898f989cab2c0fe8bb3805b2f847c94c46ce7c88af3bd0cb9e0a6b2eb/pywatchman-3.0.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:c15484b7d20c007f5b3c7781dddf5acb2c8a8f6440925e3e512b7e194b05dda9", size = 52448, upload-time = "2025-05-30T00:36:14.287Z" },
 ]
 
 [[package]]
