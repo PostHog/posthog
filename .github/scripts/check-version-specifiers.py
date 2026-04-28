@@ -20,6 +20,7 @@ Exit codes:
     1 - One or more unbounded >= specifiers found (fix: replace with ~=)
 """
 
+import os
 import re
 import sys
 import tomllib
@@ -28,76 +29,91 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-# Matches a PEP 508 requirement string that contains >= but no < or <= upper bound.
-# We match the raw string because tomllib parses the value but not its operator semantics.
 _HAS_GTE = re.compile(r">=")
 _HAS_UPPER = re.compile(r"[<]=?")
 
+# Matches a quoted dep string inside a TOML array line, e.g.  "foo>=1.0",
+_DEP_LINE = re.compile(r'"([^"]+)"')
+
+IN_GITHUB_ACTIONS = os.getenv("GITHUB_ACTIONS") == "true"
+
 
 def _is_unbounded_gte(spec: str) -> bool:
-    """Return True if spec contains >= with no accompanying upper-bound operator."""
     if not _HAS_GTE.search(spec):
         return False
-    # Strip the upper-bound test — only check the version operators, not the package name.
-    # A requirement like "foo>=1.0,<2.0" has both >= and <, so it's bounded.
     return not _HAS_UPPER.search(spec)
 
 
-def collect_deps(data: dict) -> list[tuple[str, str]]:
-    """Return (section_label, requirement) pairs from all dependency lists."""
-    results: list[tuple[str, str]] = []
+def collect_deps(data: dict) -> list[str]:
+    """Return all requirement strings from dependency lists."""
+    results: list[str] = []
 
     project = data.get("project", {})
-    for dep in project.get("dependencies", []):
-        results.append(("[project].dependencies", dep))
+    results.extend(project.get("dependencies", []))
+    for deps in project.get("optional-dependencies", {}).values():
+        results.extend(deps)
 
-    for extra, deps in project.get("optional-dependencies", {}).items():
-        for dep in deps:
-            results.append((f"[project.optional-dependencies.{extra}]", dep))
-
-    # uv tool sections
+    uv = data.get("tool", {}).get("uv", {})
     for section_name in ("dev", "optional"):
-        uv_deps = data.get("tool", {}).get("uv", {}).get(section_name, {})
-        if isinstance(uv_deps, list):
-            for dep in uv_deps:
-                results.append((f"[tool.uv.{section_name}]", dep))
-        elif isinstance(uv_deps, dict):
-            for group, deps in uv_deps.items():
-                for dep in deps:
-                    results.append((f"[tool.uv.{section_name}.{group}]", dep))
+        uv_section = uv.get(section_name, {})
+        if isinstance(uv_section, list):
+            results.extend(uv_section)
+        elif isinstance(uv_section, dict):
+            for deps in uv_section.values():
+                results.extend(deps)
 
-    # dependency-groups (PEP 735)
-    for group, deps in data.get("dependency-groups", {}).items():
-        for dep in deps:
-            if isinstance(dep, str):
-                results.append((f"[dependency-groups.{group}]", dep))
+    for deps in data.get("dependency-groups", {}).values():
+        results.extend(d for d in deps if isinstance(d, str))
 
     return results
+
+
+def find_line_numbers(bad_deps: set[str]) -> dict[str, int]:
+    """Return {dep_string: line_number} by scanning the raw file."""
+    lines = PYPROJECT_PATH.read_text().splitlines()
+    found: dict[str, int] = {}
+    for lineno, line in enumerate(lines, start=1):
+        m = _DEP_LINE.search(line)
+        if m and m.group(1) in bad_deps:
+            found[m.group(1)] = lineno
+    return found
+
+
+def annotate(dep: str, lineno: int) -> None:
+    msg = f"Prefer ~= over >=: {dep!r} uses an unbounded floor. Use ~=X.Y or >=X,<Y instead."
+    if IN_GITHUB_ACTIONS:
+        print(f"::error file=pyproject.toml,line={lineno},title=Version specifier::{msg}")
+    else:
+        print(f"  pyproject.toml:{lineno}: {msg}")
 
 
 def main() -> int:
     with open(PYPROJECT_PATH, "rb") as f:
         data = tomllib.load(f)
 
-    violations: list[tuple[str, str]] = []
-    for section, dep in collect_deps(data):
-        if _is_unbounded_gte(dep):
-            violations.append((section, dep))
+    violations = [dep for dep in collect_deps(data) if _is_unbounded_gte(dep)]
 
     if not violations:
         print("check-version-specifiers: OK")
         return 0
 
+    line_numbers = find_line_numbers(set(violations))
+
     print("check-version-specifiers: FAIL — unbounded >= specifiers found in pyproject.toml")
-    print()
-    print("Prefer ~= (compatible release) over >= (unbounded floor).")
-    print("  ~=X.Y    allows >=X.Y and <(X+1)  (minor-compat)")
-    print("  ~=X.Y.Z  allows >=X.Y.Z and <X.(Y+1)  (patch-compat)")
-    print("If you need a wider range, use >=X,<Y to make the ceiling explicit.")
-    print()
-    for section, dep in violations:
-        print(f"  {section}: {dep!r}")
-    print()
+    if not IN_GITHUB_ACTIONS:
+        print()
+        print("Prefer ~= (compatible release) over >= (unbounded floor).")
+        print("  ~=X.Y    allows >=X.Y, <(X+1)    (minor-compat)")
+        print("  ~=X.Y.Z  allows >=X.Y.Z, <X.(Y+1) (patch-compat)")
+        print("If you need a wider range, use >=X,<Y to make the ceiling explicit.")
+        print()
+
+    for dep in violations:
+        lineno = line_numbers.get(dep, 1)
+        annotate(dep, lineno)
+
+    if not IN_GITHUB_ACTIONS:
+        print()
     print(f"{len(violations)} violation(s) found.")
     return 1
 
