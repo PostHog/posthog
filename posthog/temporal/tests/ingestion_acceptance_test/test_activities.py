@@ -12,8 +12,7 @@ def config() -> Config:
     return Config(
         api_host="https://test.posthog.com",
         project_api_key="phc_test_key",
-        project_id="12345",
-        personal_api_key="phx_personal_key",
+        team_id=12345,
         slack_webhook_url="https://hooks.slack.com/services/T00/B00/XXX",
         activity_timeout_seconds=1,
     )

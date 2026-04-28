@@ -3,7 +3,8 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { isLegacyExperimentQuery } from 'scenes/experiments/utils'
 
-import { LegacyErrorChecklist } from '../legacy/LegacyErrorChecklist'
+import { LegacyErrorChecklist } from '~/scenes/experiments/legacy'
+
 import { MetricErrorState } from '../new/MetricErrorState'
 import { ErrorChecklist } from './ErrorChecklist'
 

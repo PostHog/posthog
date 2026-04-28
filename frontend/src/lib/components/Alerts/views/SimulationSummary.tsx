@@ -7,7 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { DetectorConfig } from '~/queries/schema/schema-general'
 
-import { AlertSimulationResult } from '../types'
+import { AlertSimulationResult, BreakdownSimulationResult } from '../types'
 
 Chart.register(annotationPlugin)
 
@@ -211,35 +211,39 @@ function SimulationChart({
     )
 }
 
-export function SimulationSummary({
-    result,
-    detectorConfig,
+function SimulationStats({
+    totalPoints,
+    anomalyCount,
+    triggeredDates,
+    label,
 }: {
-    result: AlertSimulationResult
-    detectorConfig?: DetectorConfig | null
+    totalPoints: number
+    anomalyCount: number
+    triggeredDates: string[]
+    label?: string
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
-    const rate = result.total_points > 0 ? ((result.anomaly_count / result.total_points) * 100).toFixed(1) : '0'
+    const rate = totalPoints > 0 ? ((anomalyCount / totalPoints) * 100).toFixed(1) : '0'
 
     return (
-        <div className="rounded-lg p-3 space-y-2">
-            <SimulationChart result={result} detectorConfig={detectorConfig} />
+        <>
             <div className="flex gap-4 text-sm">
+                {label && <span className="font-semibold">{label}</span>}
                 <span>
-                    <strong>{result.total_points}</strong> points
+                    <strong>{totalPoints}</strong> points
                 </span>
                 <span>
-                    <strong className="text-danger">{result.anomaly_count}</strong> anomalies
+                    <strong className="text-danger">{anomalyCount}</strong> anomalies
                 </span>
                 <span>
                     <strong>{rate}%</strong> anomaly rate
                 </span>
             </div>
-            {result.triggered_dates.length > 0 && (
+            {triggeredDates.length > 0 && (
                 <div className="text-xs">
-                    {result.triggered_dates.length <= 5 ? (
+                    {triggeredDates.length <= 5 ? (
                         <div className="text-muted flex flex-wrap gap-1">
-                            {result.triggered_dates.map((d) => (
+                            {triggeredDates.map((d) => (
                                 <span key={d} className="bg-danger-highlight rounded px-1 py-0.5">
                                     {formatSimDate(d)}
                                 </span>
@@ -248,11 +252,11 @@ export function SimulationSummary({
                     ) : (
                         <>
                             <LemonButton type="tertiary" size="xsmall" onClick={() => setExpanded(!expanded)}>
-                                {expanded ? 'Hide' : 'Show'} {result.triggered_dates.length} triggered dates
+                                {expanded ? 'Hide' : 'Show'} {triggeredDates.length} triggered dates
                             </LemonButton>
                             {expanded && (
                                 <div className="text-muted mt-1 max-h-20 overflow-y-auto flex flex-wrap gap-1">
-                                    {result.triggered_dates.map((d) => (
+                                    {triggeredDates.map((d) => (
                                         <span key={d} className="bg-danger-highlight rounded px-1 py-0.5">
                                             {formatSimDate(d)}
                                         </span>
@@ -263,6 +267,80 @@ export function SimulationSummary({
                     )}
                 </div>
             )}
+        </>
+    )
+}
+
+function BreakdownSimulation({
+    breakdownResult,
+    detectorConfig,
+}: {
+    breakdownResult: BreakdownSimulationResult
+    detectorConfig?: DetectorConfig | null
+}): JSX.Element {
+    // Adapt BreakdownSimulationResult to AlertSimulationResult shape for the chart
+    const chartResult: AlertSimulationResult = {
+        ...breakdownResult,
+        interval: null,
+    }
+
+    return (
+        <div className="rounded border p-2 space-y-2">
+            <div className="text-xs font-semibold text-muted truncate" title={breakdownResult.label}>
+                {breakdownResult.label}
+            </div>
+            <SimulationChart result={chartResult} detectorConfig={detectorConfig} />
+            <SimulationStats
+                totalPoints={breakdownResult.total_points}
+                anomalyCount={breakdownResult.anomaly_count}
+                triggeredDates={breakdownResult.triggered_dates}
+            />
+        </div>
+    )
+}
+
+export function SimulationSummary({
+    result,
+    detectorConfig,
+}: {
+    result: AlertSimulationResult
+    detectorConfig?: DetectorConfig | null
+}): JSX.Element {
+    if (result.breakdown_results && result.breakdown_results.length > 0) {
+        const rate = result.total_points > 0 ? ((result.anomaly_count / result.total_points) * 100).toFixed(1) : '0'
+        return (
+            <div className="rounded-lg p-3 space-y-3">
+                <div className="flex gap-4 text-sm">
+                    <span>
+                        <strong>{result.breakdown_results.length}</strong> breakdown values
+                    </span>
+                    <span>
+                        <strong>{result.total_points}</strong> total points
+                    </span>
+                    <span>
+                        <strong className="text-danger">{result.anomaly_count}</strong> total anomalies
+                    </span>
+                    <span>
+                        <strong>{rate}%</strong> anomaly rate
+                    </span>
+                </div>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {result.breakdown_results.map((br) => (
+                        <BreakdownSimulation key={br.label} breakdownResult={br} detectorConfig={detectorConfig} />
+                    ))}
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="rounded-lg p-3 space-y-2">
+            <SimulationChart result={result} detectorConfig={detectorConfig} />
+            <SimulationStats
+                totalPoints={result.total_points}
+                anomalyCount={result.anomaly_count}
+                triggeredDates={result.triggered_dates}
+            />
         </div>
     )
 }

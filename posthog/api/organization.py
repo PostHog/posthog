@@ -19,8 +19,14 @@ from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
-from posthog.event_usage import groups, report_organization_action, report_organization_deleted
+from posthog.event_usage import (
+    groups,
+    report_organization_action,
+    report_organization_deleted,
+    report_organization_deletion_initiated,
+)
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import validate_display_name
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
@@ -92,6 +98,10 @@ class OrganizationSerializer(
         allow_null=True,
         help_text="ID of the role to automatically assign to new members joining the organization",
     )
+    is_member_join_email_enabled = serializers.BooleanField(
+        read_only=True,
+        help_text="Legacy field; member-join emails are controlled per user in account notification settings.",
+    )
 
     class Meta:
         model = Organization
@@ -121,6 +131,7 @@ class OrganizationSerializer(
             "default_role_id",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
         read_only_fields = [
             "id",
@@ -138,12 +149,16 @@ class OrganizationSerializer(
             "default_role_id",
             "is_active",
             "is_not_active_reason",
+            "is_pending_deletion",
         ]
         extra_kwargs = {
             "slug": {
                 "required": False,
             },  # slug is not required here as it's generated automatically for new organizations
         }
+
+    def validate_name(self, value: str) -> str:
+        return validate_display_name(value)
 
     def validate_logo_media_id(self, value: UploadedMedia | None) -> UploadedMedia | None:
         if value is None:
@@ -163,7 +178,7 @@ class OrganizationSerializer(
 
     def get_membership_level(self, organization: Organization) -> OrganizationMembership.Level | None:
         membership = self.user_permissions.organization_memberships.get(organization.pk)
-        return membership.level if membership is not None else None
+        return OrganizationMembership.Level(membership.level) if membership is not None else None
 
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
         # Support new access control system
@@ -236,6 +251,7 @@ class OrganizationSerializer(
         )
 
 
+@extend_schema(tags=["platform_features"])
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationSerializer
@@ -332,16 +348,21 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "Please cancel your subscription first in the billing page."
                     )
 
+        if organization.is_pending_deletion:
+            raise exceptions.ValidationError("This organization is already being deleted.")
+
         user = cast(User, self.request.user)
         report_organization_deleted(user, organization)
+        report_organization_deletion_initiated(user, organization)
         teams = list(organization.teams.only("id", "name").all())
         team_ids = [team.pk for team in teams]
         project_names = [team.name for team in teams]
         organization_id = organization.pk
         organization_name = organization.name
 
-        # the memberships need to be deleted synchronously so that the requesting user can delete their account if they want to
-        organization.memberships.all().delete()
+        # Mark as pending deletion
+        organization.is_pending_deletion = True
+        organization.save(update_fields=["is_pending_deletion"])
 
         # Queue background task to handle all deletion
         # bulky postgres, batch exports, org/team records, ClickHouse, email

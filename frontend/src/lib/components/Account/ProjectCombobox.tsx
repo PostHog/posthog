@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconCheck, IconLetter, IconGear, IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -18,6 +18,7 @@ import { urls } from 'scenes/urls'
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { AvailableFeature } from '~/types'
 
+import { pendingInvitesLogic } from './pendingInvitesLogic'
 import { ProjectName } from './ProjectMenu'
 
 export function ProjectCombobox(): JSX.Element | null {
@@ -26,6 +27,7 @@ export function ProjectCombobox(): JSX.Element | null {
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { pendingInvites } = useValues(pendingInvitesLogic)
 
     if (!isAuthenticatedTeam(currentTeam)) {
         return null
@@ -135,6 +137,39 @@ export function ProjectCombobox(): JSX.Element | null {
                             </Combobox.Group>
                         )
                     })}
+
+                {pendingInvites.length > 0 && (
+                    <>
+                        <Label intent="menu" className="px-2 mt-2">
+                            Pending invitations
+                        </Label>
+                        <MenuSeparator />
+                        {pendingInvites
+                            .slice()
+                            .sort((a, b) => a.organization_name.localeCompare(b.organization_name))
+                            .map((invite) => (
+                                <Combobox.Group value={[invite.organization_name]} key={invite.id}>
+                                    <Combobox.Item asChild>
+                                        <Link
+                                            buttonProps={{
+                                                menuItem: true,
+                                            }}
+                                            tooltip={`Accept pending invitation to ${invite.organization_name}`}
+                                            tooltipPlacement="right"
+                                            to={urls.inviteSignup(invite.id)}
+                                            disableClientSideRouting
+                                            data-attr="tree-navbar-project-dropdown-pending-invite-button"
+                                        >
+                                            <IconLetter className="text-warning" />
+                                            <span className="truncate flex-1">{invite.organization_name}</span>
+                                            <span className="text-xxs text-tertiary shrink-0 ml-1">Pending invite</span>
+                                        </Link>
+                                    </Combobox.Item>
+                                </Combobox.Group>
+                            ))}
+                    </>
+                )}
+
                 <MenuSeparator />
                 {preflight?.can_create_org && (
                     <Combobox.Item

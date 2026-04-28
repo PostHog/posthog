@@ -18,7 +18,7 @@ use crate::metrics_const::{
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use futures::stream::FuturesUnordered;
+use futures::stream;
 use futures::{StreamExt, TryStreamExt};
 use object_store::limit::LimitStore;
 use object_store::path::Path as ObjectPath;
@@ -100,6 +100,7 @@ pub struct S3Downloader {
     s3_bucket: String,
     s3_key_prefix: String,
     checkpoint_import_window_hours: u32,
+    max_concurrent_file_downloads: usize,
 }
 
 impl S3Downloader {
@@ -117,6 +118,7 @@ impl S3Downloader {
             s3_bucket: config.s3_bucket.clone(),
             s3_key_prefix: config.s3_key_prefix.clone(),
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
+            max_concurrent_file_downloads: config.max_concurrent_checkpoint_file_downloads,
         })
     }
 }
@@ -288,9 +290,15 @@ impl CheckpointDownloader for S3Downloader {
             }
         }
 
-        // Build download futures using FuturesUnordered for early exit with sibling cancellation.
-        // LimitStore's semaphore still limits concurrent S3 requests.
-        let mut futures: FuturesUnordered<_> = remote_keys
+        // buffer_unordered(N) only polls N futures concurrently, preventing
+        // eager resource allocation for all files at once. Futures outside the
+        // window aren't started, so no file handles or write buffers are created
+        // until a slot opens up.
+        //
+        // Pre-collect owned (remote_key, local_filepath) pairs to avoid lifetime
+        // issues with buffer_unordered's lazy stream requiring closures general
+        // over all lifetimes.
+        let download_tasks: Vec<_> = remote_keys
             .iter()
             .map(|remote_key| {
                 let remote_filename = remote_key
@@ -299,23 +307,22 @@ impl CheckpointDownloader for S3Downloader {
                     .unwrap_or(remote_key)
                     .to_string();
                 let local_filepath = local_base_path.join(&remote_filename);
-
-                async move {
-                    self.download_and_store_file_cancellable(
-                        remote_key,
-                        &local_filepath,
-                        cancel_token,
-                    )
-                    .await
-                    .with_context(|| format!("Failed to download: {remote_key}"))
-                }
+                (remote_key.clone(), local_filepath)
             })
             .collect();
+
+        let mut stream = stream::iter(download_tasks)
+            .map(|(remote_key, local_filepath)| async move {
+                self.download_and_store_file_cancellable(&remote_key, &local_filepath, cancel_token)
+                    .await
+                    .with_context(|| format!("Failed to download: {remote_key}"))
+            })
+            .buffer_unordered(self.max_concurrent_file_downloads);
 
         let mut first_error: Option<anyhow::Error> = None;
 
         // Process completions, cancel siblings on first error
-        while let Some(result) = futures.next().await {
+        while let Some(result) = stream.next().await {
             if let Err(e) = result {
                 first_error = Some(e);
                 // Cancel siblings via the attempt token - they'll exit on next chunk iteration
@@ -326,9 +333,11 @@ impl CheckpointDownloader for S3Downloader {
             }
         }
 
-        // Drain remaining futures - they'll exit quickly due to cancellation check in their loop
+        // Drain remaining active futures - they'll exit quickly due to cancellation.
+        // Futures not yet started (outside the buffer window) will see cancellation
+        // immediately when polled and exit without allocating resources.
         if first_error.is_some() {
-            while futures.next().await.is_some() {}
+            while stream.next().await.is_some() {}
         }
 
         if let Some(e) = first_error {

@@ -106,6 +106,7 @@ export const ListDefaultField = ({ variable, updateVariable }: DirectFieldProps<
 export const DateField = ({ variable, updateVariable, onSave }: DirectFieldProps<DateVariable>): JSX.Element => (
     <VariableCalendar
         value={dayjs(variable.default_value)}
+        rawValue={variable.default_value}
         updateVariable={(date) => {
             updateVariable({ ...variable, default_value: date })
             // calendar is a special case to reuse LemonCalendarSelect

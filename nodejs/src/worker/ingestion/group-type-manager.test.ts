@@ -1,6 +1,7 @@
 import { createTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
-import { Hub, ProjectId } from '../../types'
+import { Hub, ProjectId, TeamId } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import { PostgresUse } from '../../utils/db/postgres'
 import { captureTeamEvent } from '../../utils/posthog'
 import { GroupTypeManager } from './group-type-manager'
 
@@ -196,6 +197,69 @@ describe('GroupTypeManager()', () => {
                 g2: 2,
                 g3: 3,
                 g4: 4,
+            })
+        })
+
+        it('uses next available index after a group type is deleted', async () => {
+            await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'A', 0)
+            await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'B', 1)
+            await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'C', 2)
+            await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'D', 3)
+            await hub.groupRepository.insertGroupType(2 as TeamId, 2 as ProjectId, 'E', 4)
+
+            // Simulate deleting group type E (@ index 4). this is normally performed by a
+            // Django API endpoint which involves cache-busting, too. (we'll manually do this later)
+            await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                "DELETE FROM posthog_grouptypemapping WHERE project_id = 2 AND team_id = 2 AND group_type = 'E'",
+                undefined,
+                'deleteGroupType'
+            )
+
+            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+                A: 0,
+                B: 1,
+                C: 2,
+                D: 3,
+                // E: 4, // E is now deleted
+            })
+
+            // Creating a new group type F should get index 4 (the now-free slot at the end)
+            expect(await groupTypeManager.fetchGroupTypeIndex(2 as TeamId, 2 as ProjectId, 'F')).toEqual(4)
+            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+                A: 0,
+                B: 1,
+                C: 2,
+                D: 3,
+                F: 4,
+            })
+
+            // Simulate deleting group type C (@ index 2)
+            await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                "DELETE FROM posthog_grouptypemapping WHERE project_id = 2 AND team_id = 2 AND group_type = 'C'",
+                undefined,
+                'deleteGroupType'
+            )
+            // Bust the cache for project 2 as we've made a call to `.fetchGroupTypes()` earlier
+            // that cached the state of the group types.
+            groupTypeManager['loader'].markForRefresh('2')
+            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+                A: 0,
+                B: 1,
+                // C: 2,  // C is now deleted
+                D: 3,
+                F: 4,
+            })
+
+            // Creating a new group type G should get index 2 (the now-free slot)
+            expect(await groupTypeManager.fetchGroupTypeIndex(2 as TeamId, 2 as ProjectId, 'G')).toEqual(2)
+            expect(await groupTypeManager.fetchGroupTypes(2 as ProjectId)).toEqual({
+                A: 0,
+                B: 1,
+                G: 2,
+                D: 3,
+                F: 4,
             })
         })
     })

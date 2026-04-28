@@ -1,10 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { VisualImageDiffViewer } from './VisualImageDiffViewer'
+import { VisualImageDiffViewer, VisualImageDiffViewerProps } from './VisualImageDiffViewer'
 
-type Story = StoryObj<typeof VisualImageDiffViewer>
+type Story = StoryObj<VisualImageDiffViewerProps>
 
-const meta: Meta<typeof VisualImageDiffViewer> = {
+const meta: Meta<VisualImageDiffViewerProps> = {
     title: 'Lemon UI/Visual image diff viewer',
     component: VisualImageDiffViewer,
     parameters: {

@@ -23,6 +23,8 @@ from rest_framework import status
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
 from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
+from ee.models.event_definition import EnterpriseEventDefinition
+
 
 @pytest.mark.usefixtures("unittest_snapshot")
 class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
@@ -80,9 +82,9 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
 
         EventSchema.objects.create(event_definition=self.optional_event_def, property_group=optional_property_group)
 
-        # Create event with no schema (all properties allowed)
-        self.untyped_event_def = EventDefinition.objects.create(
-            team=self.team, project=self.project, name="untyped_event"
+        # Create verified event with no schema (all properties allowed)
+        self.untyped_event_def = EnterpriseEventDefinition.objects.create(
+            team=self.team, project=self.project, name="untyped_event", verified=True
         )
 
         # Create event with special characters to test escaping

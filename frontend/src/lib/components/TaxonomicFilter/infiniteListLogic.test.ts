@@ -4,12 +4,14 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
 import { AppContext, PropertyDefinition, PropertyType } from '~/types'
+
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
@@ -127,6 +129,20 @@ describe('infiniteListLogic', () => {
             })
         })
 
+        it('toggles pinned rows and keeps the highlighted index in sync', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+
+            await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({
+                index: 1,
+                pinnedRowIndex: 1,
+            })
+
+            await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({
+                index: 1,
+                pinnedRowIndex: null,
+            })
+        })
+
         it('setting search query filters events', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('event')
@@ -138,6 +154,129 @@ describe('infiniteListLogic', () => {
                         count: 3,
                         results: partial([partial({ name: 'event1' })]),
                     }),
+                })
+        })
+
+        describe('"All events" visibility', () => {
+            it('shows "All events" when the search query is empty', async () => {
+                await expectLogic(logic)
+                    .toDispatchActions(['loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 1,
+                            results: [{ name: 'All events', value: null }],
+                        }),
+                    })
+            })
+
+            it.each([
+                ['All e', 'prefix'],
+                ['all events', 'lowercase'],
+                ['ALL EVENTS', 'uppercase'],
+                ['All Events', 'title case'],
+                ['events', 'suffix only'],
+                ['ll ev', 'mid substring'],
+            ])('shows "All events" when the search query is %s (%s)', async (query) => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery(query)
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 1,
+                            results: [{ name: 'All events', value: null }],
+                        }),
+                    })
+            })
+
+            it.each([
+                ['mcp tool call', 'long unrelated query'],
+                ['foobar', 'short unrelated query'],
+                ['xyz', 'no overlap'],
+                ['$pageview', 'real event name'],
+            ])('hides "All events" when the search query is %s (%s)', async (query) => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery(query)
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 0,
+                            results: [],
+                        }),
+                    })
+            })
+
+            it('excludes "All events" from the combined items list for a non-matching query but keeps remote events', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('event')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        // Remote /event_definitions mock returns 3 events whose names contain "event".
+                        // "All events" also contains "event" so the meta option is kept as the first local item.
+                        items: partial({
+                            count: 4,
+                            results: partial([{ name: 'All events', value: null }, partial({ name: 'event1' })]),
+                        }),
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('mcp tool call')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        // Remote mock returns 0 matches; local "All events" is filtered out by substring match.
+                        items: partial({
+                            count: 0,
+                            results: [],
+                        }),
+                    })
+            })
+
+            it('restores "All events" when the search query is cleared', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('mcp tool call')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({ count: 0 }),
+                    })
+
+                await expectLogic(logic, () => {
+                    logic.actions.setSearchQuery('')
+                })
+                    .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        localItems: partial({
+                            count: 1,
+                            results: [{ name: 'All events', value: null }],
+                        }),
+                    })
+            })
+        })
+
+        it('resets pinned state when the search query changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']) // wait for data
+            await expectLogic(logic, () => logic.actions.togglePinnedRow(1)).toMatchValues({
+                pinnedRowIndex: 1,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setSearchQuery('event')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    searchQuery: 'event',
+                    pinnedRowIndex: null,
+                    hasAppliedInitialPin: false,
                 })
         })
 
@@ -235,6 +374,136 @@ describe('infiniteListLogic', () => {
         })
     })
 
+    describe('internal events local options filtering', () => {
+        // The Internal Events group has multiple local options ("All internal events" plus
+        // product filter options), so substring matching needs to cover both the meta option
+        // and the concrete labels.
+        let internalLogic: ReturnType<typeof infiniteListLogic.build>
+
+        beforeEach(() => {
+            internalLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'testListInternal',
+                listGroupType: TaxonomicFilterGroupType.InternalEvents,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.InternalEvents],
+                showNumericalPropsOnly: false,
+            })
+            internalLogic.mount()
+        })
+
+        it('shows all options when the search query is empty', async () => {
+            await expectLogic(internalLogic)
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        results: partial([partial({ name: 'All internal events' })]),
+                    }),
+                })
+            expect(internalLogic.values.localItems.count).toBeGreaterThanOrEqual(1)
+        })
+
+        it('keeps "All internal events" when the search query matches it', async () => {
+            await expectLogic(internalLogic, () => {
+                internalLogic.actions.setSearchQuery('internal')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        results: partial([{ name: 'All internal events', value: null }]),
+                    }),
+                })
+        })
+
+        it('hides "All internal events" when the search query does not match any option', async () => {
+            await expectLogic(internalLogic, () => {
+                internalLogic.actions.setSearchQuery('mcp tool call')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    localItems: partial({
+                        count: 0,
+                        results: [],
+                    }),
+                })
+        })
+
+        it('keeps option labels when the search query matches them (case-insensitive)', async () => {
+            await expectLogic(internalLogic, () => {
+                internalLogic.actions.setSearchQuery('TEAM')
+            })
+                .toDispatchActions(['setSearchQuery'])
+                .toFinishAllListeners()
+            // "Team activity" is one of the default activity-log product filter options.
+            const names = internalLogic.values.localItems.results.map((item: any) => item.name)
+            expect(names).toContain('Team activity')
+            expect(names).not.toContain('All internal events')
+        })
+    })
+
+    describe('data warehouse pin lifecycle', () => {
+        beforeEach(() => {
+            const databaseLogic = databaseTableListLogic()
+            databaseLogic.mount()
+            databaseLogic.actions.loadDatabaseSuccess({
+                tables: {
+                    orders: {
+                        id: 'orders',
+                        name: 'orders',
+                        type: 'data_warehouse',
+                        format: 'Parquet',
+                        url_pattern: '',
+                        fields: {},
+                    },
+                    customers: {
+                        id: 'customers',
+                        name: 'customers',
+                        type: 'data_warehouse',
+                        format: 'Parquet',
+                        url_pattern: '',
+                        fields: {},
+                    },
+                },
+                joins: [],
+            } as any)
+
+            dataWarehouseSettingsSceneLogic().mount()
+        })
+
+        it('reapplies the initial pin when the data warehouse tab becomes active again', async () => {
+            const dataWarehouseLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: 'test-data-warehouse-list',
+                listGroupType: TaxonomicFilterGroupType.DataWarehouse,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.DataWarehouse],
+                showNumericalPropsOnly: false,
+                groupType: TaxonomicFilterGroupType.DataWarehouse,
+                value: 'customers',
+            })
+            dataWarehouseLogic.mount()
+
+            await expectLogic(dataWarehouseLogic).toMatchValues({
+                index: 1,
+                pinnedRowIndex: 1,
+                hasAppliedInitialPin: true,
+            })
+
+            await expectLogic(dataWarehouseLogic, () => {
+                dataWarehouseLogic.actions.setActiveTab(TaxonomicFilterGroupType.Events)
+            }).toMatchValues({
+                pinnedRowIndex: null,
+                hasAppliedInitialPin: false,
+            })
+
+            await expectLogic(dataWarehouseLogic, () => {
+                dataWarehouseLogic.actions.setActiveTab(TaxonomicFilterGroupType.DataWarehouse)
+            }).toMatchValues({
+                index: 1,
+                pinnedRowIndex: 1,
+                hasAppliedInitialPin: true,
+            })
+        })
+    })
+
     describe('with optionsFromProp', () => {
         beforeEach(() => {
             logic = infiniteListLogic({
@@ -288,9 +557,9 @@ describe('infiniteListLogic', () => {
             joins: [],
         } as any)
 
-        const joinsLogic = dataWarehouseJoinsLogic()
-        joinsLogic.mount()
-        joinsLogic.actions.loadJoinsSuccess([
+        const joinsLogicInstance = joinsLogic()
+        joinsLogicInstance.mount()
+        joinsLogicInstance.actions.loadJoinsSuccess([
             {
                 id: 'join-1',
                 source_table_name: 'persons',
@@ -461,6 +730,89 @@ describe('infiniteListLogic', () => {
 
         await expectLogic(logicWithProps, () => logicWithProps.actions.setSearchQuery('css')).toMatchValues({
             localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css' },
+        })
+    })
+
+    describe('keyword shortcuts', () => {
+        let keySuffix = 0
+        const mountEventsLogic = (enableKeywordShortcuts: boolean): ReturnType<typeof infiniteListLogic.build> => {
+            // Unique key per test so kea doesn't hand us a logic instance that was already mounted
+            // with a previous test's mock data.
+            keySuffix += 1
+            const listLogic = infiniteListLogic({
+                taxonomicFilterLogicKey: `keywordShortcutsTest-${enableKeywordShortcuts}-${keySuffix}`,
+                listGroupType: TaxonomicFilterGroupType.Events,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
+                enableKeywordShortcuts,
+            })
+            listLogic.mount()
+            return listLogic
+        }
+
+        it('surfaces matching shortcut items when enableKeywordShortcuts is true', async () => {
+            const listLogic = mountEventsLogic(true)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: partial([
+                        partial({
+                            _type: 'quick_filter',
+                            name: 'Click (autocapture)',
+                            filterValue: 'click',
+                            eventName: '$autocapture',
+                        }),
+                    ]),
+                })
+        })
+
+        it('places shortcuts at the TOP of the list so they are prominent and Enter picks them', async () => {
+            const listLogic = mountEventsLogic(true)
+            await expectLogic(listLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            // First result is the shortcut; real matches follow.
+            const results = listLogic.values.items.results
+            expect(results[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
+        })
+
+        it('contributes shortcuts to topMatchesForQuery so they flow into the SuggestedFilters aggregate', async () => {
+            const listLogic = mountEventsLogic(true)
+            await expectLogic(listLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+
+            const topMatches = listLogic.values.topMatchesForQuery
+            expect(topMatches[0]).toMatchObject({ _type: 'quick_filter', filterValue: 'click' })
+        })
+
+        it('returns no shortcut items when enableKeywordShortcuts is false', async () => {
+            const listLogic = mountEventsLogic(false)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('click'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: [],
+                })
+        })
+
+        it('returns no shortcut items when the search query does not match a keyword', async () => {
+            const listLogic = mountEventsLogic(true)
+
+            await expectLogic(listLogic, () => listLogic.actions.setSearchQuery('xyzabc'))
+                .toDispatchActions(['setSearchQuery', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
+                .toFinishAllListeners()
+                .toMatchValues({
+                    keywordShortcutItems: [],
+                })
         })
     })
 })

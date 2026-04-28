@@ -42,7 +42,7 @@ export const scene: SceneExport<SessionRecordingsPlaylistLogicProps> = {
 
 function PlaylistSceneLoadingSkeleton(): JSX.Element {
     return (
-        <div className="gap-y-4 mt-6">
+        <div className="flex flex-col gap-y-4 mt-6">
             <LemonSkeleton className="h-10 w-1/4" />
             <LemonSkeleton className="h-4 w-1/3" />
             <LemonSkeleton className="h-4 w-1/4" />
@@ -56,7 +56,7 @@ function PlaylistSceneLoadingSkeleton(): JSX.Element {
             </div>
 
             <div className="flex justify-between gap-4 mt-8">
-                <div className="gap-y-8 w-1/4">
+                <div className="flex flex-col gap-y-8 w-1/4">
                     <LemonSkeleton className="h-10" repeat={10} />
                 </div>
                 <div className="flex-1" />
@@ -100,12 +100,12 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
         enabled: Boolean(playlist?.short_id && !playlistLoading && !playlist?.is_synthetic),
     })
 
-    if (playlistLoading) {
+    if (playlistLoading && !playlist) {
         return <PlaylistSceneLoadingSkeleton />
     }
 
     if (!playlist) {
-        return <NotFound object="Recording Playlist" />
+        return <NotFound object="replay collection" />
     }
 
     return (
@@ -156,7 +156,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     }}
                     canEdit={!playlist.is_synthetic}
                     forceEdit={isNewPlaylist}
-                    renameDebounceMs={1000}
+                    saveOnBlur
+                    renameDebounceMs={100}
                     actions={
                         !playlist.is_synthetic ? (
                             <LemonButton

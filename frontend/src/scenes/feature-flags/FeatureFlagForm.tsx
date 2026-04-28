@@ -70,6 +70,7 @@ import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { PercentageInput } from './PercentageInput'
 
 interface SortableVariantHeaderProps {
     variant: MultivariateFlagVariant
@@ -89,7 +90,7 @@ function SortableVariantHeader({
     moveVariantDown,
 }: SortableVariantHeaderProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
-        id: variant.key || `variant-${index}`,
+        id: `variant-${index}`,
     })
 
     const style = {
@@ -182,8 +183,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
     const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
-    const showBucketingIdentifierUI = !!featureFlags[FEATURE_FLAGS.FLAG_BUCKETING_IDENTIFIER]
-
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
 
@@ -308,8 +307,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         const { active, over } = event
 
         if (over && active.id !== over.id) {
-            const fromIndex = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === active.id)
-            const toIndex = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === over.id)
+            const fromIndex = variants.findIndex((_, index) => `variant-${index}` === active.id)
+            const toIndex = variants.findIndex((_, index) => `variant-${index}` === over.id)
 
             if (fromIndex !== -1 && toIndex !== -1) {
                 reorderVariants(fromIndex, toIndex)
@@ -323,17 +322,15 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         if (!activeId) {
             return null
         }
-        const index = variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === String(activeId))
+        const index = variants.findIndex((_, index) => `variant-${index}` === String(activeId))
         return index !== -1 ? variants[index] : null
     }
 
     // Calculate active variant index for drag overlay
-    const activeVariantIndex = activeId
-        ? variants.findIndex((variant, index) => (variant.key || `variant-${index}`) === String(activeId))
-        : -1
+    const activeVariantIndex = activeId ? variants.findIndex((_, index) => `variant-${index}` === String(activeId)) : -1
 
     // Calculate expand/collapse button state
-    const allVariantKeys = variants.map((variant, index) => variant.key || `variant-${index}`)
+    const allVariantKeys = variants.map((_, index) => `variant-${index}`)
     const allExpanded = allVariantKeys.every((key) => openVariants.includes(key))
     const anyExpanded = openVariants.length > 0
 
@@ -785,9 +782,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             onDragEnd={handleDragEnd}
                                         >
                                             <SortableContext
-                                                items={variants.map(
-                                                    (variant, index) => variant.key || `variant-${index}`
-                                                )}
+                                                items={variants.map((_, index) => `variant-${index}`)}
                                                 strategy={verticalListSortingStrategy}
                                             >
                                                 <LemonCollapse
@@ -796,7 +791,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     onChange={setOpenVariants}
                                                     className="mb-3 [&_.LemonCollapsePanel:not(:last-child)]:border-b [&_.LemonCollapsePanel:not(:last-child)]:border-border-secondary"
                                                     panels={variants.map((variant, index) => ({
-                                                        key: variant.key || `variant-${index}`,
+                                                        key: `variant-${index}`,
                                                         className: '!pl-[2.5rem] dark:bg-surface-secondary',
                                                         header: (
                                                             <SortableVariantHeader
@@ -829,19 +824,15 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 )}
 
                                                                 <LemonLabel>Rollout percentage</LemonLabel>
-                                                                <LemonInput
-                                                                    type="number"
-                                                                    min={0}
-                                                                    max={100}
-                                                                    value={variant.rollout_percentage || 0}
+                                                                <PercentageInput
+                                                                    value={variant.rollout_percentage}
                                                                     onChange={(value) =>
                                                                         updateVariant(
                                                                             index,
                                                                             'rollout_percentage',
-                                                                            parseInt(value?.toString() || '0')
+                                                                            value
                                                                         )
                                                                     }
-                                                                    suffix={<span>%</span>}
                                                                     data-attr={`feature-flag-variant-rollout-${index}`}
                                                                 />
 
@@ -998,14 +989,9 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
-                                        bucketingIdentifier={
-                                            showBucketingIdentifierUI ? featureFlag.bucketing_identifier : undefined
-                                        }
-                                        onBucketingIdentifierChange={
-                                            showBucketingIdentifierUI
-                                                ? (value: FeatureFlagBucketingIdentifier | null) =>
-                                                      setBucketingIdentifier(value)
-                                                : undefined
+                                        bucketingIdentifier={featureFlag.bucketing_identifier}
+                                        onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) =>
+                                            setBucketingIdentifier(value)
                                         }
                                         evaluationRuntime={featureFlag.evaluation_runtime}
                                     />

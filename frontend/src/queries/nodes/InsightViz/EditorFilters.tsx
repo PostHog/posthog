@@ -4,10 +4,12 @@ import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { FunnelStepConfiguration } from 'scenes/insights/EditorFilters/FunnelStepConfiguration'
 import { GoalLines } from 'scenes/insights/EditorFilters/GoalLines'
 import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
@@ -22,23 +24,29 @@ import { SamplingDeprecationNotice } from 'scenes/insights/EditorFilters/Samplin
 import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { FunnelVizType } from 'scenes/insights/views/Funnels/FunnelVizType'
 import { userLogic } from 'scenes/userLogic'
 
 import { StickinessCriteria } from '~/queries/nodes/InsightViz/StickinessCriteria'
-import { InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightQueryNode, WebOverviewQuery, WebStatsTableQuery } from '~/queries/schema/schema-general'
 import { isWebAnalyticsInsightQuery } from '~/queries/utils'
-import { AvailableFeature, ChartDisplayType, EditorFilterProps, InsightEditorFilterGroup, PathType } from '~/types'
+import {
+    AvailableFeature,
+    ChartDisplayType,
+    EditorFilterProps,
+    FunnelVizType as FunnelVizTypeEnum,
+    InsightEditorFilterGroup,
+    PathType,
+} from '~/types'
 
 import { Breakdown } from './Breakdown'
 import { CumulativeStickinessFilter } from './CumulativeStickinessFilter'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { EditorFiltersShell } from './EditorFiltersShell'
-import { visibleFilters } from './editorFilterUtils'
+import { getBreakdownSummary, getFiltersSummary, getSeriesSummary, visibleFilters } from './editorFilterUtils'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { LifecycleToggles } from './LifecycleToggles'
-import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
-import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -61,7 +69,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         display,
         pathsFilter,
         querySource,
-        hasFormula,
+        series,
+        breakdownFilter,
+        properties,
     } = useValues(insightVizDataLogic(insightProps))
 
     const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
@@ -91,31 +101,49 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
     const displayGoalLines =
         (isTrends &&
-            [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsLineGraphCumulative].includes(
-                display || ChartDisplayType.ActionsLineGraph
-            )) ||
+            [
+                ChartDisplayType.ActionsLineGraph,
+                ChartDisplayType.ActionsLineGraphCumulative,
+                ChartDisplayType.ActionsAreaGraph,
+                ChartDisplayType.ActionsBar,
+                ChartDisplayType.ActionsUnstackedBar,
+            ].includes(display || ChartDisplayType.ActionsLineGraph)) ||
         (isFunnels && isTrendsFunnel) ||
         (isRetention &&
             [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsBar].includes(
                 display || ChartDisplayType.ActionsLineGraph
             ))
 
+    const seriesSummary = getSeriesSummary(series)
+    const filtersSummary = getFiltersSummary(properties)
+    const breakdownSummary = getBreakdownSummary(breakdownFilter)
+    const exclusionCount = isPaths ? (pathsFilter?.excludeEvents?.length ?? 0) : 0
+    const exclusionsSummary = exclusionCount > 0 ? pluralize(exclusionCount, 'exclusion') : null
+
     const leftEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
-            title: 'General',
+            title: 'Retention condition',
+            defaultExpanded: true,
+            show: isRetention,
+            editorFilters: [{ key: 'retention-condition', component: RetentionCondition }],
+        },
+        {
+            title: 'Calculation options',
+            defaultExpanded: false,
+            show: isRetention,
+            editorFilters: [{ key: 'retention-options', component: RetentionOptions }],
+        },
+        {
+            title: isFunnels ? 'Steps' : 'General',
+            show: !isRetention,
+            defaultExpanded: true,
+            headerExtra:
+                isFunnels && (querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow ? (
+                    <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
+                        <FunnelVizType insightProps={insightProps} />
+                    </Tooltip>
+                ) : null,
             editorFilters: visibleFilters([
-                {
-                    key: 'retention-condition',
-                    label: 'Retention condition',
-                    component: RetentionCondition,
-                    show: isRetention,
-                },
-                {
-                    key: 'retention-options',
-                    label: 'Calculation options',
-                    component: RetentionOptions,
-                    show: isRetention,
-                },
                 { key: 'query-steps', component: FunnelsQuerySteps, show: isFunnels },
                 { key: 'event-types', label: 'Event Types', component: PathsEventsTypes, show: isPaths },
                 {
@@ -140,33 +168,36 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     ),
                 },
                 { key: 'start-target', label: 'Starts at', component: PathsTargetStart, show: isPaths },
-                { key: 'ends-target', label: 'Ends at', component: PathsTargetEnd, show: isPaths && hasPathsAdvanced },
+                {
+                    key: 'ends-target',
+                    label: 'Ends at',
+                    component: PathsTargetEnd,
+                    show: isPaths && hasPathsAdvanced,
+                },
             ]),
         },
         {
             title: 'Series',
+            defaultExpanded: true,
+            collapsedSummary: seriesSummary,
             editorFilters: visibleFilters([
                 {
                     key: 'series',
-                    label:
-                        isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
-                            ? TrendsSeriesLabel
-                            : undefined,
                     component: TrendsSeries,
                     show: isTrendsLike,
-                },
-                {
-                    key: 'formula',
-                    label: 'Formula',
-                    component: TrendsFormula,
-                    show: isTrends && hasFormula && display !== ChartDisplayType.BoxPlot,
                 },
             ]),
         },
         {
-            title: 'Advanced options',
+            title: isFunnels ? 'Funnel settings' : isPaths ? 'Path settings' : 'Advanced options',
+            defaultExpanded: false,
             editorFilters: visibleFilters([
                 { key: 'paths-advanced', component: PathsAdvanced, show: isPaths },
+                {
+                    key: 'funnel-step-configuration',
+                    component: FunnelStepConfiguration,
+                    show: isFunnels,
+                },
                 { key: 'funnels-advanced', component: FunnelsAdvanced, show: isFunnels },
             ]),
         },
@@ -175,6 +206,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const rightEditorFilterGroups: InsightEditorFilterGroup[] = [
         {
             title: 'Filters',
+            defaultExpanded: false,
+            collapsedSummary: filtersSummary,
             editorFilters: visibleFilters([
                 {
                     key: 'toggles',
@@ -231,13 +264,15 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                 },
                 {
                     key: 'properties',
-                    label: 'Filters',
+                    label: undefined,
                     component: GlobalAndOrFilters as (props: EditorFilterProps) => JSX.Element | null,
                 },
             ]),
         },
         {
             title: 'Breakdown',
+            defaultExpanded: false,
+            collapsedSummary: breakdownSummary,
             editorFilters: visibleFilters([
                 { key: 'breakdown', component: Breakdown, show: hasBreakdown },
                 {
@@ -297,6 +332,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Exclusions',
+            defaultExpanded: false,
+            collapsedSummary: exclusionsSummary,
             editorFilters: visibleFilters([
                 {
                     key: 'paths-exclusions',
@@ -333,23 +370,23 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
     ]
 
-    const leftFilterGroups = leftEditorFilterGroups.filter((g) => g.show !== false && g.editorFilters.length > 0)
-    const rightFilterGroups = rightEditorFilterGroups.filter((g) => g.show !== false && g.editorFilters.length > 0)
+    const visibleGroups = (groups: InsightEditorFilterGroup[]): InsightEditorFilterGroup[] =>
+        groups.filter((g) => g.show !== false && g.editorFilters.length > 0)
+
+    const allFilterGroups = [...visibleGroups(leftEditorFilterGroups), ...visibleGroups(rightEditorFilterGroups)]
 
     return (
         <EditorFiltersShell query={query} showing={showing} embedded={embedded}>
-            {[leftFilterGroups, rightFilterGroups].map((editorFilterGroups, i) => (
-                <div key={i} className="grow shrink basis-[28rem] flex flex-col gap-4 max-w-full">
-                    {editorFilterGroups.map((editorFilterGroup) => (
-                        <EditorFilterGroup
-                            key={editorFilterGroup.title}
-                            editorFilterGroup={editorFilterGroup}
-                            insightProps={insightProps}
-                            query={query}
-                        />
-                    ))}
-                </div>
-            ))}
+            <div className="flex flex-col gap-3">
+                {allFilterGroups.map((editorFilterGroup) => (
+                    <EditorFilterGroup
+                        key={editorFilterGroup.title}
+                        editorFilterGroup={editorFilterGroup}
+                        insightProps={insightProps}
+                        queryKind={querySource?.kind}
+                    />
+                ))}
+            </div>
         </EditorFiltersShell>
     )
 }

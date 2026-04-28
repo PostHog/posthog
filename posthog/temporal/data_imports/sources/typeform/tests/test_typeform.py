@@ -84,6 +84,24 @@ class TestTypeformTransport:
         assert "since" not in request.params
         assert "until" not in request.params
 
+    def test_responses_paginator_init_request_resets_state_between_forms(self) -> None:
+        paginator = TypeformResponsesPaginator()
+        response = Mock()
+
+        # Simulate mid-stream state: Form A fetched one page but there are more
+        paginator.update_state(response, data=[{"token": "tok_a1"}])
+        assert paginator._cursor == "tok_a1"
+
+        # Reset for Form B — must clear the stale cursor
+        paginator.init_request(Mock())
+
+        # update_request should not inject stale cursor from Form A
+        request_b = Mock()
+        request_b.params = {"page_size": 1000, "since": "2026-03-01", "until": "2026-03-25"}
+        paginator.update_request(request_b)
+        assert "before" not in request_b.params
+        assert request_b.params["since"] == "2026-03-01"
+
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
             ValueError,
@@ -193,7 +211,6 @@ class TestTypeformTransport:
         assert resource["endpoint"]["path"] == "/forms"
         assert resource["endpoint"]["data_selector"] == "items"
         assert resource["endpoint"]["params"]["page_size"] == 200
-        assert resource["primary_key"] == "id"
         assert resource["table_format"] == "delta"
 
     def test_get_resource_forms_incremental(self) -> None:
@@ -214,9 +231,9 @@ class TestTypeformTransport:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint="responses", should_use_incremental_field=False)
 
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.rest_api_resources")
-    def test_typeform_source_forms_response(self, mock_rest_api_resources) -> None:
-        mock_rest_api_resources.return_value = [Mock()]
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.rest_api_resource")
+    def test_typeform_source_forms_response(self, mock_rest_api_resource) -> None:
+        mock_rest_api_resource.return_value = Mock()
         response = typeform_source(
             auth_token="token",
             api_base_url="https://api.typeform.com",

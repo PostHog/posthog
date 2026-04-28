@@ -574,7 +574,7 @@ function NativeEmailTemplaterForm({
                                                   customFonts: [
                                                       {
                                                           label: 'Ubuntu',
-                                                          value: "'Ubuntu',sans-serif",
+                                                          value: "'Ubuntu',Tahoma,Verdana,Segoe,sans-serif",
                                                           url: 'https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700',
                                                           weights: [
                                                               { label: 'Light', value: 300 },

@@ -1,3 +1,4 @@
+import copy
 import uuid
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -11,6 +12,8 @@ from clickhouse_driver.errors import SocketTimeoutError
 from dateutil import parser
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import ProductKey
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -45,6 +48,7 @@ from posthog.models.cohort.sql import (
 )
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
+    INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
 )
@@ -157,7 +161,7 @@ def run_cohort_query(
     start_time = timezone.now()
 
     # Tag the query for tracking
-    tag_queries(kind="cohort_calculation", id=cohort_tag)
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, kind="cohort_calculation", id=cohort_tag)
 
     delayed_task = None
     # Use tags_context to protect tags during import (circular import resolution can corrupt context)
@@ -209,6 +213,7 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
         return None
 
     try:
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
         result = sync_execute(
             """
             SELECT
@@ -291,15 +296,42 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
     return query, params
 
 
+def _sanitize_query_for_cohort(query_dict: dict) -> dict:
+    """Strip fields unnecessary for cohort population.
+
+    Cohort population only needs person IDs, so we remove recordings data
+    (which can use complex UDFs like aggregate_funnel_array that may not
+    be available or are needlessly expensive) and search terms (the cohort
+    should include all matching persons, not just those matching a search).
+    """
+    query_dict = copy.deepcopy(query_dict)
+
+    if query_dict.get("kind") == "ActorsQuery":
+        select = query_dict.get("select", [])
+        query_dict["select"] = [s for s in select if s != "matched_recordings"]
+        if not query_dict["select"]:
+            query_dict["select"] = ["actor"]
+
+        # Intentionally strip search: the cohort should capture all persons matching
+        # the query, not just those matching an ad-hoc search in the persons modal.
+        query_dict.pop("search", None)
+
+        source = query_dict.get("source", {})
+        if isinstance(source, dict) and source.get("includeRecordings"):
+            source["includeRecordings"] = False
+
+    return query_dict
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
     if not cohort.query:
         raise ValueError("Cohort has no query")
 
-    query = get_query_runner(
-        cast(dict, cohort.query), team=team, limit_context=LimitContext.COHORT_CALCULATION
-    ).to_query()
+    query_dict = _sanitize_query_for_cohort(cast(dict, cohort.query))
+
+    query = get_query_runner(query_dict, team=team, limit_context=LimitContext.COHORT_CALCULATION).to_query()
 
     uses_distinct_id = False
     uses_actor_id = False
@@ -543,7 +575,13 @@ def format_cohort_subquery(
 
 
 def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
-    tag_queries(cohort_id=cohort_id, team_id=team_id, name="insert_static_cohort", feature=Feature.COHORT)
+    tag_queries(
+        product=ProductKey.COHORTS,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        name="insert_static_cohort",
+        feature=Feature.COHORT,
+    )
     persons = [
         {
             "id": str(uuid.uuid4()),
@@ -565,7 +603,13 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     for deterministic behavior. This is an exception to PostHog's usual pattern due to the table
     lacking an is_deleted and version columns.
     """
-    tag_queries(cohort_id=cohort_id, team_id=team_id, name="remove_person_from_static_cohort", feature=Feature.COHORT)
+    tag_queries(
+        product=ProductKey.COHORTS,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        name="remove_person_from_static_cohort",
+        feature=Feature.COHORT,
+    )
 
     # Use synchronous mutations in tests for deterministic behavior
     if settings.TEST:
@@ -607,7 +651,7 @@ def recalculate_cohortpeople(
     """
     relevant_teams = Team.objects.order_by("id").filter(project_id=cohort.team.project_id)
     count_by_team_id: dict[int, int] = {}
-    tag_queries(cohort_id=cohort.id)
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, cohort_id=cohort.id)
     if initiating_user_id:
         tag_queries(user_id=initiating_user_id)
     for team in relevant_teams:
@@ -624,7 +668,7 @@ def recalculate_cohortpeople(
 
 
 def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, team: Team) -> int:
-    tag_queries(name="recalculate_cohortpeople_for_team_hogql")
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, name="recalculate_cohortpeople_for_team_hogql")
 
     history = CohortCalculationHistory.objects.create(
         team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
@@ -671,6 +715,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
     def execute_query():
         tag_queries(
+            product=ProductKey.COHORTS,
             kind="cohort_calculation",
             query_type="CohortsQueryHogQL",
             feature=Feature.COHORT,
@@ -722,7 +767,9 @@ def _recalculate_cohortpeople_for_team_hogql(
 
 
 def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
-    tag_queries(name="get_cohort_size", feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id)
+    tag_queries(
+        product=ProductKey.COHORTS, name="get_cohort_size", feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id
+    )
     count_result = sync_execute(
         GET_COHORT_SIZE_SQL,
         {
@@ -809,7 +856,7 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    tag_queries(name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
+    tag_queries(product=ProductKey.COHORTS, name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     cohort_ids_from_cohortperson = [row[0] for row in res]
     cohorts = Cohort.objects.filter(deleted=False, team_id=team_id, pk__in=cohort_ids_from_cohortperson)
@@ -829,7 +876,7 @@ def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
 
 
 def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
-    tag_queries(name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
+    tag_queries(product=ProductKey.COHORTS, name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
     res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
     return [row[0] for row in res]
 
@@ -975,3 +1022,92 @@ def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[in
             dfs(cohort_id, seen, sorted_cohort_ids)
 
     return sorted_cohort_ids
+
+
+def cohort_filters_have_values(filters_dict: dict | None) -> bool:
+    """Check whether a cohort filters dict contains at least one filter criterion."""
+    properties = filters_dict.get("properties") if isinstance(filters_dict, dict) else None
+    values = properties.get("values") if isinstance(properties, dict) else None
+    return isinstance(values, list) and len(values) > 0
+
+
+def insert_actors_into_cohort_by_query(
+    cohort: "Cohort",
+    query: str,
+    params: dict[str, Any],
+    context: HogQLContext,
+    *,
+    team_id: int,
+):
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    sync_execute(
+        INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
+        {
+            "cohort_id": cohort.pk,
+            "_timestamp": datetime.now(),
+            "team_id": team_id,
+            **context.values,
+            **params,
+        },
+    )
+
+
+def insert_cohort_query_actors_into_ch(cohort: "Cohort", *, team: "Team"):
+    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    query = print_cohort_hogql_query(cohort, context, team=team)
+    insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
+
+
+def build_static_cohort_filters_query(cohort: "Cohort", *, team: "Team") -> tuple[str, dict[str, Any], HogQLContext]:
+    from posthog.queries.cohort_query import CohortQuery
+
+    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    query_builder = CohortQuery(
+        Filter(
+            data={"properties": cohort.properties},
+            team=team,
+            hogql_context=context,
+        ),
+        team,
+        cohort_pk=cohort.pk,
+        persons_on_events_mode=team.person_on_events_mode,
+    )
+    base_query, params = query_builder.get_query()
+    return f"SELECT id AS actor_id FROM ({base_query})", params, context
+
+
+def insert_cohort_filter_actors_into_ch(cohort: "Cohort", *, team: "Team"):
+    query, params, context = build_static_cohort_filters_query(cohort, team=team)
+    insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
+
+
+def insert_cohort_people_into_pg(cohort: "Cohort", *, team_id: int):
+    from posthog.helpers.batch_iterators import CursorBatchIterator
+
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+
+    CH_PAGE_SIZE = 10_000
+
+    # Use cursor-based pagination to stream from ClickHouse in pages instead of
+    # loading all rows into memory at once. Cursor-based avoids the O(n²) cost
+    # of LIMIT/OFFSET where later pages must scan and discard all preceding rows.
+    def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
+        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+        rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+            {
+                "cohort_id": cohort.pk,
+                "team_id": team_id,
+                "cursor": cursor,
+                "limit": batch_size,
+            },
+        )
+        if not rows:
+            return [], cursor
+        items = [str(r[0]) for r in rows]
+        return items, items[-1]
+
+    batch_iterator = CursorBatchIterator(
+        fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
+    )
+    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)

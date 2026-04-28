@@ -56,6 +56,26 @@ func (m *Model) forwardToViewport(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
+// Handles viewport navigation keys (home/end/pgup/pgdn). Returns true if the
+// key was consumed.
+func (m *Model) handleViewportNavKey(msg tea.KeyPressMsg, cmds *[]tea.Cmd) bool {
+	switch {
+	case key.Matches(msg, m.keys.GotoTop):
+		m.dbg("viewport: home → goto top")
+		m.viewport.GotoTop()
+		m.viewportAtBottom = false
+	case key.Matches(msg, m.keys.GotoBottom):
+		m.dbg("viewport: end → goto bottom")
+		m.viewport.GotoBottom()
+		m.viewportAtBottom = true
+	case key.Matches(msg, m.keys.ScrollUp), key.Matches(msg, m.keys.ScrollDown):
+		*cmds = append(*cmds, m.forwardToViewport(msg))
+	default:
+		return false
+	}
+	return true
+}
+
 // Cycles the focused pane forward (+1) or backward (-1).
 func (m *Model) cyclePane(dir int) {
 	panes := []focusPane{focusServices, focusOutput}
@@ -73,9 +93,18 @@ func (m *Model) cyclePane(dir int) {
 
 func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
-	case key.Matches(msg, m.keys.Quit), msg.Code == tea.KeyEscape:
+	case msg.Code == tea.KeyEscape:
 		m.searchMode = false
 		m.clearSearch()
+		m = m.applySize()
+	case key.Matches(msg, m.keys.CommitFilter):
+		// Preserve query; drop search-only match state before switching to filter
+		m.searchMatches = nil
+		m.searchCursor = 0
+		m.viewport.StyleLineFunc = nil
+		m.searchMode = false
+		m.filterMode = true
+		m.recomputeFilter()
 		m = m.applySize()
 	case key.Matches(msg, m.keys.SearchNext):
 		if len(m.searchMatches) > 0 {
@@ -96,6 +125,9 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []te
 			m.recomputeSearch()
 		}
 	default:
+		if m.handleViewportNavKey(msg, &cmds) {
+			break
+		}
 		// Search consumes all printable characters for the query
 		s := msg.String()
 		var ch string
@@ -107,6 +139,57 @@ func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []te
 		if ch != "" {
 			m.searchQuery += ch
 			m.recomputeSearch()
+		}
+	}
+	return m, cmds, true
+}
+
+func (m Model) handleFilterKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
+	switch {
+	case msg.Code == tea.KeyEscape:
+		m.filterMode = false
+		m.searchQuery = ""
+		m.reloadActiveLines()
+		m = m.applySize()
+		if m.viewportAtBottom {
+			m.viewport.GotoBottom()
+		}
+	case key.Matches(msg, m.keys.ToggleFilter):
+		// Preserve query; restore unfiltered viewport and rebuild search match state
+		m.filterMode = false
+		m.reloadActiveLines()
+		m.searchMode = true
+		m.recomputeSearch()
+		m.jumpToCurrentMatch()
+		m = m.applySize()
+	case key.Matches(msg, m.keys.Backspace):
+		if len(m.searchQuery) > 0 {
+			runes := []rune(m.searchQuery)
+			m.searchQuery = string(runes[:len(runes)-1])
+			m.recomputeFilter()
+		} else {
+			// Backspace on empty query exits filter back to search
+			m.filterMode = false
+			m.reloadActiveLines()
+			m.searchMode = true
+			m.recomputeSearch()
+			m.jumpToCurrentMatch()
+			m = m.applySize()
+		}
+	default:
+		if m.handleViewportNavKey(msg, &cmds) {
+			break
+		}
+		s := msg.String()
+		var ch string
+		if s == "space" {
+			ch = " "
+		} else if runes := []rune(s); len(runes) == 1 && runes[0] >= 32 {
+			ch = s
+		}
+		if ch != "" {
+			m.searchQuery += ch
+			m.recomputeFilter()
 		}
 	}
 	return m, cmds, true
@@ -137,14 +220,14 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 		}
 		m.applyCopyStyle()
 
-	case key.Matches(msg, m.keys.NextProc):
+	case key.Matches(msg, m.keys.NextProc), key.Matches(msg, m.keys.KeyDown):
 		if m.copyCursor < m.viewport.TotalLineCount()-1 {
 			m.copyCursor++
 			m.ensureCopyCursorVisible()
 			m.applyCopyStyle()
 		}
 
-	case key.Matches(msg, m.keys.PrevProc):
+	case key.Matches(msg, m.keys.PrevProc), key.Matches(msg, m.keys.KeyUp):
 		if m.copyCursor > 0 {
 			m.copyCursor--
 			m.ensureCopyCursorVisible()
@@ -172,10 +255,11 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.
 func (m Model) handleInfoKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []tea.Cmd, bool) {
 	switch {
 
-	case key.Matches(msg, m.keys.Info), msg.Code == tea.KeyEscape:
+	case key.Matches(msg, m.keys.InfoMode), msg.Code == tea.KeyEscape:
 		m.infoMode = false
+		m.disableAllMetrics()
 		if !m.isDockerMode() {
-			m.viewport.SetContent(m.buildContent())
+			m.reloadActiveLines()
 			m.viewport.GotoBottom()
 			m.viewportAtBottom = true
 		}
@@ -207,7 +291,87 @@ func (m Model) handleHedgehogKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (Model, []
 	return m, cmds, true
 }
 
+
+// updateProcKeys enables/disables start, stop, and restart bindings
+// based on the active process state.
+func (m *Model) updateProcKeys() {
+	p := m.activeProc()
+	if p == nil {
+		m.keys.Start.SetEnabled(false)
+		m.keys.Stop.SetEnabled(false)
+		m.keys.Restart.SetEnabled(false)
+		m.keys.ClearLogs.SetEnabled(false)
+		return
+	}
+	if p.IsStandby() {
+		m.keys.Start.SetEnabled(true)
+		m.keys.Stop.SetEnabled(false)
+		m.keys.Restart.SetEnabled(false)
+		m.keys.ClearLogs.SetEnabled(false)
+		return
+	}
+	running := p.IsRunning()
+	m.keys.Start.SetEnabled(!running)
+	m.keys.Stop.SetEnabled(running)
+	m.keys.Restart.SetEnabled(running)
+	m.keys.ClearLogs.SetEnabled(running)
+}
+
 func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
+	// When the active process is waiting for input, buffer keystrokes and send them on Enter.
+	p := m.activeProc()
+	procHasPrompt := p != nil && m.focusedPane == focusOutput && p.HasPrompt()
+	// Control keys are excluded so navigation still works.
+	isControlKey := key.Matches(msg, m.keys.NextPane) ||
+		key.Matches(msg, m.keys.PrevPane) ||
+		key.Matches(msg, m.keys.GotoTop) ||
+		key.Matches(msg, m.keys.GotoBottom) ||
+		key.Matches(msg, m.keys.ScrollDown) ||
+		key.Matches(msg, m.keys.ScrollUp)
+
+	if procHasPrompt && !isControlKey {
+		var input []byte
+
+		switch msg.Code {
+		case tea.KeyEnter:
+			input = []byte(m.inputBuffer + "\r")
+			m.inputBuffer = ""
+		case tea.KeyBackspace:
+			if len(m.inputBuffer) > 0 {
+				runes := []rune(m.inputBuffer)
+				m.inputBuffer = string(runes[:len(runes)-1])
+			}
+		case tea.KeySpace:
+			m.inputBuffer += " "
+		case tea.KeyDown:
+			input = []byte("\x1b[B")
+		case tea.KeyUp:
+			input = []byte("\x1b[A")
+		case tea.KeyRight:
+			input = []byte("\x1b[C")
+		case tea.KeyLeft:
+			input = []byte("\x1b[D")
+		case tea.KeyTab:
+			input = []byte("\t")
+		case tea.KeyDelete:
+			m.inputBuffer = ""
+		default:
+			s := msg.String()
+			if runes := []rune(s); len(runes) == 1 && runes[0] >= 32 {
+				m.inputBuffer += s
+			}
+		}
+
+		if input != nil {
+			if err := p.WriteInput(input); err != nil {
+				m.dbg("pty write error: %v", err)
+			} else {
+				m.dbg("pty send: %q", input)
+			}
+		}
+		return m, tea.Batch(cmds...)
+	}
+
 	switch {
 	case key.Matches(msg, m.keys.Quit):
 		m.mgr.StopAll()
@@ -224,13 +388,19 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 	case key.Matches(msg, m.keys.PrevPane):
 		m.cyclePane(-1)
 
-	case key.Matches(msg, m.keys.NextProc):
+	case key.Matches(msg, m.keys.NextProc), key.Matches(msg, m.keys.KeyDown):
 		if m.focusedPane == focusServices {
-			if m.servicesCursor < len(m.services)-1 {
-				prev := m.servicesCursor
+			moved := false
+			if m.isGrouped() {
+				moved = m.nextProcEntry()
+			} else if m.servicesCursor < len(m.services)-1 {
 				m.servicesCursor++
+				moved = true
+			}
+			if moved {
 				m.ensureSidebarCursorVisible()
-				m.dbg("proc selected: %d→%d (%s)", prev, m.servicesCursor, m.services[m.servicesCursor].Name)
+				m.updateProcKeys()
+				m.dbg("proc selected: %s", m.services[m.servicesCursor].Name)
 				var loadCmds []tea.Cmd
 				m, loadCmds = m.loadActiveProc()
 				cmds = append(cmds, loadCmds...)
@@ -246,13 +416,19 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			cmds = append(cmds, m.forwardToViewport(msg))
 		}
 
-	case key.Matches(msg, m.keys.PrevProc):
+	case key.Matches(msg, m.keys.PrevProc), key.Matches(msg, m.keys.KeyUp):
 		if m.focusedPane == focusServices {
-			if m.servicesCursor > 0 {
-				prev := m.servicesCursor
+			moved := false
+			if m.isGrouped() {
+				moved = m.prevProcEntry()
+			} else if m.servicesCursor > 0 {
 				m.servicesCursor--
+				moved = true
+			}
+			if moved {
 				m.ensureSidebarCursorVisible()
-				m.dbg("proc selected: %d→%d (%s)", prev, m.servicesCursor, m.services[m.servicesCursor].Name)
+				m.updateProcKeys()
+				m.dbg("proc selected: %s", m.services[m.servicesCursor].Name)
 				var loadCmds []tea.Cmd
 				m, loadCmds = m.loadActiveProc()
 				cmds = append(cmds, loadCmds...)
@@ -275,30 +451,45 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 			m.viewportAtBottom = true
 		}
 
-	case key.Matches(msg, m.keys.GotoTop):
-		m.dbg("viewport: home → goto top")
-		m.viewport.GotoTop()
-		m.viewportAtBottom = false
-
-	case key.Matches(msg, m.keys.GotoBottom):
-		m.dbg("viewport: end → goto bottom")
-		m.viewport.GotoBottom()
-		m.viewportAtBottom = true
+	case key.Matches(msg, m.keys.Start):
+		if p := m.activeProc(); p != nil {
+			if p.IsStandby() {
+				real, ok := m.promoteStandby()
+				if ok {
+					m.dbg("start: promoted standby proc=%s", real.Name)
+					send := m.mgr.Send()
+					go func() { _ = real.Start(send) }()
+				}
+			} else if !p.IsRunning() {
+				m.dbg("start: proc=%s", p.Name)
+				send := m.mgr.Send()
+				go func() { _ = p.Start(send) }()
+			}
+		}
 
 	case key.Matches(msg, m.keys.Restart):
-		if p := m.activeProc(); p != nil {
+		if p := m.activeProc(); p != nil && p.IsRunning() {
 			m.dbg("restart: proc=%s", p.Name)
 			send := m.mgr.Send()
 			go p.Restart(send)
 		}
 
 	case key.Matches(msg, m.keys.Stop):
-		if p := m.activeProc(); p != nil {
+		if p := m.activeProc(); p != nil && p.IsRunning() {
 			m.dbg("stop: proc=%s", p.Name)
 			p.Stop()
 		}
 
-	case key.Matches(msg, m.keys.Search):
+	case key.Matches(msg, m.keys.ClearLogs):
+		if p := m.activeProc(); p != nil && p.IsRunning() {
+			m.dbg("clear logs: proc=%s", p.Name)
+			p.ClearLines()
+			var loadCmds []tea.Cmd
+			m, loadCmds = m.loadActiveProc()
+			cmds = append(cmds, loadCmds...)
+		}
+
+	case key.Matches(msg, m.keys.SearchMode):
 		m.searchMode = true
 		m.clearSearch()
 		m = m.applySize()
@@ -316,11 +507,26 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.sortServices()
 		m.dbg("sort: %s", m.sortMode)
 
-	case key.Matches(msg, m.keys.Info):
+	case key.Matches(msg, m.keys.Group):
+		m.cycleGroup()
+		m.rebuildSidebarEntries()
+		m.ensureSidebarCursorVisible()
+		m.dbg("group: %s", m.activeGroupDim())
+
+	case key.Matches(msg, m.keys.ShowAll):
+		m.toggleShowAll()
+		m.dbg("show all: %v (%d standby)", m.showAllRegProcs, len(m.standbyRegProcs))
+
+	case key.Matches(msg, m.keys.InfoMode):
 		m.infoMode = true
+		m.toggleMetricsOnSelectedProc()
 		m.refreshInfoContent()
 		m.viewport.GotoTop()
 		m.dbg("info mode: enter")
+
+	case key.Matches(msg, m.keys.SetupMode):
+		m = m.enterSetupMode()
+		m.dbg("setup mode: enter")
 
 	case key.Matches(msg, m.keys.Hedgehog):
 		m.hedgehogMode = !m.hedgehogMode
@@ -355,6 +561,9 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		}
 
 	default:
+		if m.handleViewportNavKey(msg, &cmds) {
+			break
+		}
 		if m.focusedPane == focusOutput {
 			cmds = append(cmds, m.forwardToViewport(msg))
 		}

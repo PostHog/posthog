@@ -50,12 +50,31 @@ class GoogleAdsIsMccAccountConfig(config.Config):
 
 
 @config.config
+class HubspotCustomPropertiesConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+    contacts_properties: str | None = None
+    companies_properties: str | None = None
+    deals_properties: str | None = None
+    tickets_properties: str | None = None
+    quotes_properties: str | None = None
+    emails_properties: str | None = None
+    meetings_properties: str | None = None
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     selection: Literal["password", "keypair"] = "password"
     password: str | None = None
     private_key: str | None = None
     passphrase: str | None = None
+
+
+@config.config
+class StripeAuthMethodConfig(config.Config):
+    stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
+    selection: Literal["oauth", "api_key"] = "oauth"
+    stripe_secret_key: str | None = None
 
 
 @config.config
@@ -210,6 +229,18 @@ class CircleCISourceConfig(config.Config):
 @config.config
 class ClerkSourceConfig(config.Config):
     secret_key: str
+
+
+@config.config
+class ClickHouseSourceConfig(config.Config):
+    host: str
+    database: str
+    user: str
+    port: int = config.value(converter=int)
+    password: str | None = None
+    secure: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    verify: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+    ssh_tunnel: SSHTunnelConfig | None = None
 
 
 @config.config
@@ -369,18 +400,6 @@ class GreenhouseSourceConfig(config.Config):
 @config.config
 class HelpScoutSourceConfig(config.Config):
     pass
-
-
-@config.config
-class HubspotCustomPropertiesConfig(config.Config):
-    contacts_properties: str | None = None
-    companies_properties: str | None = None
-    deals_properties: str | None = None
-    tickets_properties: str | None = None
-    quotes_properties: str | None = None
-    emails_properties: str | None = None
-    meetings_properties: str | None = None
-    enabled: bool = config.value(converter=config.str_to_bool, default=False)
 
 
 @config.config
@@ -547,7 +566,7 @@ class OutreachSourceConfig(config.Config):
 
 @config.config
 class PaddleSourceConfig(config.Config):
-    pass
+    paddle_api_key: str
 
 
 @config.config
@@ -587,6 +606,11 @@ class PlaidSourceConfig(config.Config):
 
 
 @config.config
+class PlainSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class PolarSourceConfig(config.Config):
     pass
 
@@ -597,9 +621,9 @@ class PostgresSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
 
 
@@ -740,7 +764,7 @@ class SquareSourceConfig(config.Config):
 
 @config.config
 class StripeSourceConfig(config.Config):
-    stripe_secret_key: str
+    auth_method: StripeAuthMethodConfig
     stripe_account_id: str | None = None
 
 
@@ -889,6 +913,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CHARTMOGUL: ChartMogulSourceConfig,
         ExternalDataSourceType.CIRCLECI: CircleCISourceConfig,
         ExternalDataSourceType.CLERK: ClerkSourceConfig,
+        ExternalDataSourceType.CLICKHOUSE: ClickHouseSourceConfig,
         ExternalDataSourceType.CLICKUP: ClickUpSourceConfig,
         ExternalDataSourceType.CLOSE: CloseSourceConfig,
         ExternalDataSourceType.COCKROACHDB: CockroachDBSourceConfig,
@@ -957,6 +982,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
         ExternalDataSourceType.PLAID: PlaidSourceConfig,
+        ExternalDataSourceType.PLAIN: PlainSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.POSTMARK: PostmarkSourceConfig,

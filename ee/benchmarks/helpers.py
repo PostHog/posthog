@@ -3,6 +3,7 @@ import sys
 from contextlib import contextmanager
 from functools import wraps
 from os.path import dirname
+from typing import Any, cast
 
 from django.utils.timezone import now
 
@@ -14,7 +15,7 @@ import django  # noqa: E402
 
 django.setup()
 
-from posthog import client  # noqa: E402
+from posthog.clickhouse.client import sync_execute  # noqa: E402
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries  # noqa: E402
 from posthog.models.utils import UUIDT  # noqa: E402
 
@@ -34,9 +35,9 @@ def run_query(fn, *args):
 
 
 def get_clickhouse_query_stats(uuid):
-    client.sync_execute("SYSTEM FLUSH LOGS")
-    rows = client.sync_execute(
-        f"""
+    sync_execute("SYSTEM FLUSH LOGS")
+    rows = sync_execute(
+        """
         SELECT
             query_duration_ms,
             read_rows,
@@ -72,9 +73,9 @@ def benchmark_clickhouse(fn):
 @contextmanager
 def no_materialized_columns():
     "Allows running a function without any materialized columns being used in query"
-    get_enabled_materialized_columns._cache = {
+    cast(Any, get_enabled_materialized_columns)._cache = {
         ("events",): (now(), {}),
         ("person",): (now(), {}),
     }
     yield
-    get_enabled_materialized_columns._cache = {}
+    cast(Any, get_enabled_materialized_columns)._cache = {}

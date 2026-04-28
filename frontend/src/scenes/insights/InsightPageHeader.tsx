@@ -4,9 +4,7 @@ import { useMemo } from 'react'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { areAlertsSupportedForInsight } from 'lib/components/Alerts/insightAlertsLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
@@ -15,13 +13,24 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { isDataVisualizationNode } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isDataVisualizationNode,
+    isEventsQuery,
+    isGroupsQuery,
+    isInsightQueryNode,
+} from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { InsightSidePanelContent } from './SidePanel/InsightSidePanelContent'
 import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
+
+function supportsMetadataGeneration(node: Record<string, any> | null): boolean {
+    return isInsightQueryNode(node) || isActorsQuery(node) || isEventsQuery(node) || isGroupsQuery(node)
+}
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const { insightMode, filtersOverride, variablesOverride, dashboardId } = useValues(insightSceneLogic)
@@ -37,10 +46,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightDataLogic(insightProps)
     )
     const { cancelChanges, generateInsightMetadata } = useActions(insightDataLogic(insightProps))
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const canAccessAutoname = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_AUTONAME_INSIGHTS_WITH_AI]
-
     const { push } = useActions(router)
 
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -49,6 +54,26 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         typeof lastBreadcrumb?.name === 'string' ? lastBreadcrumb.name : insight.name || insight.derived_name
 
     const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+
+    const insightDisplayName = insight?.name || insight?.derived_name
+
+    const readDataMaxToolProps = useMemo(
+        () =>
+            hasDashboardItemId && insight?.short_id
+                ? {
+                      identifier: 'read_data' as const,
+                      context: {
+                          insight_id: insight.id,
+                          insight_short_id: insight.short_id,
+                      },
+                      contextDescription: {
+                          text: insightDisplayName || 'Insight',
+                          icon: iconForType(getInsightIconTypeFromQuery(query)),
+                      },
+                  }
+                : undefined,
+        [hasDashboardItemId, insight?.short_id, insight?.id, insightDisplayName, query]
+    )
 
     useMaxTool({
         identifier: 'upsert_alert',
@@ -87,14 +112,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         setInsightMetadata({ description })
                     }
                 }}
-                onGenerateMetadata={canAccessAutoname && insightQuery ? generateInsightMetadata : undefined}
-                isGeneratingMetadata={canAccessAutoname && generatedInsightMetadataLoading}
+                onGenerateMetadata={supportsMetadataGeneration(insightQuery) ? generateInsightMetadata : undefined}
+                isGeneratingMetadata={generatedInsightMetadataLoading}
                 canEdit={canEditInsight}
                 isLoading={insightLoading && !insight?.id}
                 forceEdit={insightMode === ItemMode.Edit}
                 renameDebounceMs={0}
                 saveOnBlur
                 descriptionMaxLength={400}
+                maxToolProps={readDataMaxToolProps}
                 actions={
                     <>
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (

@@ -10,6 +10,11 @@
 //	{"cmd":"status","process":"web"}
 //	{"cmd":"status_all"}
 //	{"cmd":"logs","process":"web","lines":100,"grep":"error"}
+//	{"cmd":"send-keys","process":"web","keys":"yes\n"}
+//	{"cmd":"add-proc","process":"my-proc","shell":"echo hello"}
+//	{"cmd":"remove-proc","process":"my-proc"}
+//	{"cmd":"focus","process":"web"}
+//	{"cmd":"toggle-proc","process":"web"}
 //
 // Responses (one JSON object per line):
 //
@@ -17,6 +22,7 @@
 //	{"ok":true,"process":"web","status":"running","pid":1234,...}
 //	{"ok":true,"processes":{"web":{...},"worker":{...}}}
 //	{"ok":true,"lines":["..."],"buffered":4832}
+//	{"ok":true}
 //	{"ok":false,"error":"process not found: web"}
 package ipc
 
@@ -56,13 +62,15 @@ type request struct {
 	Process string `json:"process,omitempty"`
 	Lines   int    `json:"lines,omitempty"`
 	Grep    string `json:"grep,omitempty"`
+	Keys    string `json:"keys,omitempty"`
+	Shell   string `json:"shell,omitempty"`
 }
 
 // Binds a Unix domain socket at path and returns the listener.
 // It removes any stale socket owned by the current user before binding.
 // The caller is responsible for closing the listener and removing the socket file.
 func Listen(path string) (net.Listener, error) {
-	// Only remove an existing socket file if it is a Unix socket owned by the
+	// Only touch an existing socket file if it is a Unix socket owned by the
 	// current user. This avoids clobbering arbitrary files in /tmp.
 	if fi, err := os.Lstat(path); err == nil {
 		if fi.Mode()&os.ModeSocket == 0 {
@@ -184,6 +192,70 @@ func dispatch(req request, mgr *process.Manager) any {
 			"lines":    tail,
 			"buffered": len(all),
 		}
+
+	case "send-keys":
+		p, ok := mgr.Get(req.Process)
+		if !ok {
+			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+		}
+		if req.Keys == "" {
+			return map[string]any{"ok": false, "error": "missing keys"}
+		}
+		if err := p.WriteInput([]byte(req.Keys)); err != nil {
+			return map[string]any{"ok": false, "error": err.Error()}
+		}
+		return map[string]any{"ok": true}
+
+	case "add-proc":
+		if req.Process == "" {
+			return map[string]any{"ok": false, "error": "missing process name"}
+		}
+		if req.Shell == "" {
+			return map[string]any{"ok": false, "error": "missing shell command"}
+		}
+		if _, exists := mgr.Get(req.Process); exists {
+			return map[string]any{"ok": false, "error": "process already exists: " + req.Process}
+		}
+		p := mgr.AddShell(req.Process, req.Shell)
+		if send := mgr.Send(); send != nil {
+			go func() { _ = p.Start(send) }()
+			send(process.StatusMsg{Name: req.Process, Status: process.StatusPending})
+		}
+		return map[string]any{"ok": true}
+
+	case "remove-proc":
+		if !mgr.Remove(req.Process) {
+			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+		}
+		// Notify TUI to refresh process list
+		send := mgr.Send()
+		if send != nil {
+			send(process.StatusMsg{Name: req.Process, Status: process.StatusStopped})
+		}
+		return map[string]any{"ok": true}
+
+	case "focus":
+		_, ok := mgr.Get(req.Process)
+		if !ok {
+			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+		}
+		send := mgr.Send()
+		if send != nil {
+			send(process.FocusMsg{Name: req.Process})
+		}
+		return map[string]any{"ok": true}
+
+	case "toggle-proc":
+		p, ok := mgr.Get(req.Process)
+		if !ok {
+			return map[string]any{"ok": false, "error": "process not found: " + req.Process}
+		}
+		if p.IsRunning() {
+			p.Stop()
+		} else if send := mgr.Send(); send != nil {
+			go func() { _ = p.Start(send) }()
+		}
+		return map[string]any{"ok": true}
 
 	default:
 		return map[string]any{"ok": false, "error": "unknown command: " + req.Cmd}

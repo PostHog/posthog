@@ -257,5 +257,36 @@ property_groups = PropertyGroupManager(
                 ),
             },
         },
+        "trace_spans_distributed": {
+            "attributes": {
+                "str": PropertyGroupDefinition(
+                    "key like '%__str'",
+                    lambda key: key.endswith("__str"),
+                    column_type_name="map",
+                    is_materialized=False,
+                ),
+                "float": PropertyGroupDefinition(
+                    "key like '%__float'",
+                    lambda key: key.endswith("__float"),
+                    column_type_name="map",
+                    is_materialized=False,
+                ),
+                "datetime": PropertyGroupDefinition(
+                    "key like '%__datetime'",
+                    lambda key: key.endswith("__datetime"),
+                    column_type_name="map",
+                    is_materialized=False,
+                ),
+            },
+            "resource_attributes": {
+                "all": PropertyGroupDefinition(
+                    "true",
+                    lambda key: True,
+                    column_type_name="map",
+                    is_materialized=False,
+                    column_name="resource_attributes",
+                ),
+            },
+        },
     }
 )

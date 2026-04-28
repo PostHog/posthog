@@ -10,6 +10,7 @@ import django.utils.timezone
 
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, ConfigDict, Field
+from rest_framework import serializers
 
 from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
 
@@ -17,6 +18,7 @@ from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
 from products.surveys.backend.models import Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
@@ -92,6 +94,11 @@ def _build_question(q: SimpleSurveyQuestion) -> dict[str, Any]:
     if q.button_text is not None:
         result["buttonText"] = q.button_text
     return result
+
+
+def _validate_and_sanitize_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    serializer = SurveySerializerCreateUpdateOnly()
+    return serializer.validate_questions(questions)
 
 
 def _build_appearance(team: Team) -> dict[str, Any]:
@@ -272,6 +279,7 @@ class CreateSurveyTool(MaxTool):
                 wait_period_days=wait_period_days,
                 responses_limit=responses_limit,
             )
+            survey_data["questions"] = _validate_and_sanitize_questions(survey_data["questions"])
 
             if should_launch:
                 survey_data["start_date"] = django.utils.timezone.now()
@@ -290,6 +298,12 @@ class CreateSurveyTool(MaxTool):
                 "survey_type": survey_type,
             }
 
+        except serializers.ValidationError as e:
+            error_message = str(e.detail if hasattr(e, "detail") else e)
+            return f"Survey validation failed: {error_message}", {
+                "error": "validation_failed",
+                "error_message": error_message,
+            }
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create survey: {str(e)}", {"error": "creation_failed", "details": str(e)}
@@ -436,7 +450,7 @@ class EditSurveyTool(MaxTool):
                     if simple_q.id and simple_q.id in id_map:
                         new_q["id"] = id_map[simple_q.id]
 
-                update_data["questions"] = new_questions
+                update_data["questions"] = _validate_and_sanitize_questions(new_questions)
             if linked_flag_id is not None:
                 update_data["linked_flag_id"] = linked_flag_id
             if responses_limit is not None:
@@ -490,6 +504,12 @@ class EditSurveyTool(MaxTool):
                 "updated_fields": list(update_data.keys()),
             }
 
+        except serializers.ValidationError as e:
+            error_message = str(e.detail if hasattr(e, "detail") else e)
+            return f"Survey validation failed: {error_message}", {
+                "error": "validation_failed",
+                "error_message": error_message,
+            }
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to edit survey: {str(e)}", {"error": "edit_failed", "details": str(e)}

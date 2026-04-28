@@ -1,19 +1,14 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
-import { LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonModal, LemonTable } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { SessionData } from '~/queries/schema/schema-general'
-import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 
@@ -25,43 +20,15 @@ export const parseTimestamp = (timestamp: string, timezone: string): Dayjs => {
     return dayjsLocalToTimezone(timestamp, timezone)
 }
 
-const getEventsUrl = (key: string, value: string): string => {
-    const eventsQuery = getDefaultEventsSceneQuery([
-        {
-            type: PropertyFilterType.EventMetadata,
-            key: key,
-            value: [value],
-            operator: PropertyOperator.Exact,
-        },
-    ])
-    // Override the default time range to 90 days
-    if ('after' in eventsQuery.source) {
-        eventsQuery.source.after = '-90d'
-    }
-    return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
-}
-
-const getLinkTextAndUrl = (session: SessionData): { text: string; url: string } => {
-    if (session.session_id) {
-        return {
-            text: session.session_id,
-            url: getEventsUrl('$session_id', session.session_id),
-        }
-    } else if (session.person_id) {
-        return {
-            text: session.person_id,
-            url: getEventsUrl('person_id', session.person_id),
-        }
-    }
-    return {
-        text: session.event_uuid,
-        url: getEventsUrl('uuid', session.event_uuid),
-    }
-}
-
 export function SampledSessionsModal(): JSX.Element {
-    const { isOpen, modalData, recordingAvailability, recordingAvailabilityLoading } =
-        useValues(sampledSessionsModalLogic)
+    const {
+        isOpen,
+        modalData,
+        recordingAvailability,
+        recordingAvailabilityLoading,
+        personDetails,
+        personDetailsLoading,
+    } = useValues(sampledSessionsModalLogic)
     const { closeModal } = useActions(sampledSessionsModalLogic)
     const { timezone } = useValues(teamLogic)
 
@@ -76,23 +43,14 @@ export function SampledSessionsModal(): JSX.Element {
             title: 'Person',
             key: 'personId',
             render: (_, session) => {
-                const { text, url } = getLinkTextAndUrl(session)
-                return (
-                    <div className="flex items-center gap-1">
-                        <Link
-                            to={url}
-                            onClick={(e) => {
-                                e.preventDefault()
-                                sceneLogic.actions.newTab(url)
-                            }}
-                            className="font-mono text-xs whitespace-nowrap"
-                            title={`View events for ${text}`}
-                        >
-                            {text}
-                            <IconOpenInNew style={{ fontSize: 14 }} />
-                        </Link>
-                    </div>
-                )
+                const person = personDetails.get(session.person_id)
+                if (person) {
+                    return <PersonDisplay person={person} withIcon />
+                }
+                if (personDetailsLoading) {
+                    return <span className="text-muted text-xs">Loading…</span>
+                }
+                return <span className="font-mono text-xs">{session.person_id}</span>
             },
             width: '40%',
         },
@@ -113,7 +71,7 @@ export function SampledSessionsModal(): JSX.Element {
                                 events: [{ uuid: session.event_uuid, timestamp: session.timestamp }],
                             },
                         ]}
-                        size="small"
+                        size="xsmall"
                         type="secondary"
                         openPlayerIn={RecordingPlayerType.Modal}
                         loading={recordingAvailabilityLoading}

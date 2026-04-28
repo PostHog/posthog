@@ -1,15 +1,34 @@
-import { BreakdownType, FunnelMathType, IntervalType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    BreakdownType,
+    ChartDisplayType,
+    FunnelMathType,
+    IntervalType,
+    LifecycleToggle,
+    PathType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import {
     ActionsNode,
     CompareFilter,
+    DateRange,
+    ErrorTrackingIssueAssignee,
+    ErrorTrackingOrderBy,
+    ErrorTrackingQueryStatus,
     EventsNode,
     FunnelExclusionSteps,
     FunnelsFilterLegacy,
+    LifecycleFilterLegacy,
     MultipleBreakdownType,
     Node,
     NodeKind,
+    type RecordingOrder,
+    type RecordingOrderDirection,
     RetentionFilterLegacy,
+    StickinessComputationMode,
+    StickinessFilterLegacy,
+    StickinessCriteria,
     TrendsFilterLegacy,
     TrendsFormulaNode,
 } from './schema-general'
@@ -210,6 +229,36 @@ export interface AssistantFlagPropertyFilter {
     value: boolean | string
 }
 
+export type AssistantRecordingPropertyFilter = AssistantBasePropertyFilter & {
+    type: PropertyFilterType.Recording
+    /**
+     * Recording metric to filter on.
+     * - `duration` — total recording duration in seconds.
+     * - `active_seconds` — seconds with user activity.
+     * - `inactive_seconds` — seconds without user activity.
+     * - `console_error_count` — number of console errors.
+     * - `console_log_count` — number of console log entries.
+     * - `console_warn_count` — number of console warnings.
+     * - `click_count` — number of clicks.
+     * - `keypress_count` — number of key presses.
+     * - `activity_score` — computed activity score (0-100).
+     * - `visited_page` — URL visited during the session.
+     * - `snapshot_source` — the recording source (e.g. "web", "mobile").
+     */
+    key:
+        | 'duration'
+        | 'active_seconds'
+        | 'inactive_seconds'
+        | 'console_error_count'
+        | 'console_log_count'
+        | 'console_warn_count'
+        | 'click_count'
+        | 'keypress_count'
+        | 'activity_score'
+        | 'visited_page'
+        | 'snapshot_source'
+}
+
 export type AssistantPropertyFilter =
     | AssistantGenericPropertyFilter
     | AssistantGroupPropertyFilter
@@ -217,6 +266,12 @@ export type AssistantPropertyFilter =
     | AssistantElementPropertyFilter
     | AssistantHogQLPropertyFilter
     | AssistantFlagPropertyFilter
+
+/**
+ * Extended property filter union for recordings queries that also supports
+ * recording-specific metric filters (e.g. duration, click_count, activity_score).
+ */
+export type AssistantRecordingsQueryPropertyFilter = AssistantPropertyFilter | AssistantRecordingPropertyFilter
 
 export interface AssistantInsightsQueryBase {
     /**
@@ -510,6 +565,12 @@ export interface AssistantFunnelNodeShared {
      */
     math?: AssistantFunnelsMath
     properties?: AssistantPropertyFilter[]
+    /**
+     * If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen.
+     * Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).
+     * @default false
+     */
+    optionalInFunnel?: boolean
 }
 
 export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'>, AssistantFunnelNodeShared {
@@ -673,9 +734,13 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
 export interface AssistantRetentionEventsNode {
     type: 'events'
     /**
-     * Event name from the plan.
+     * The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.
      */
-    name: string
+    id: string
+    /**
+     * Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.
+     */
+    name?: string
     /**
      * Custom name for the event if it is needed to be renamed.
      */
@@ -689,13 +754,13 @@ export interface AssistantRetentionEventsNode {
 export interface AssistantRetentionActionsNode {
     type: 'actions'
     /**
-     * Action ID from the plan.
+     * The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.
      */
     id: number
     /**
-     * Action name from the plan.
+     * Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching.
      */
-    name: string
+    name?: string
     /**
      * Property filters for the action.
      */
@@ -759,6 +824,162 @@ export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
     kind: NodeKind.RetentionQuery
     /** Properties specific to the retention insight */
     retentionFilter: AssistantRetentionFilter
+}
+
+/**
+ * Stickiness display types. Only time-series visualizations are supported:
+ * - `ActionsLineGraph` - line chart (default)
+ * - `ActionsBar` - bar chart
+ * - `ActionsAreaGraph` - area chart
+ */
+export type AssistantStickinessDisplayType =
+    | ChartDisplayType.ActionsLineGraph
+    | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsAreaGraph
+
+/**
+ * Defines the event series for the stickiness insight. Each series measures how many intervals
+ * (e.g. days) within the date range a user performed the event. The X-axis shows the number of
+ * intervals (1, 2, 3, ...) and the Y-axis shows the count of users.
+ * When math is omitted, the default aggregation is by unique persons (person_id).
+ */
+export interface AssistantStickinessEventsNode extends Pick<
+    EventsNode,
+    | 'kind'
+    | 'event'
+    | 'name'
+    | 'custom_name'
+    | 'math'
+    | 'math_multiplier'
+    | 'math_property'
+    | 'math_property_type'
+    | 'math_group_type_index'
+> {
+    properties?: AssistantPropertyFilter[]
+
+    /**
+     * Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient.
+     * When set, `math` must be set to `hogql`.
+     *
+     * Examples:
+     * - Sum a numeric property: `sum(toFloat(properties.$revenue))`
+     * - Average of a property: `avg(toFloat(properties.load_time))`
+     * - Count distinct values: `count(distinct properties.$session_id)`
+     * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
+     * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     */
+    math_hogql?: string
+}
+
+/**
+ * Defines the action series for the stickiness insight. You must provide the action ID in the `id` field and the name in the `name` field.
+ * When math is omitted, the default aggregation is by unique persons (person_id).
+ */
+export interface AssistantStickinessActionsNode extends Pick<
+    ActionsNode,
+    | 'kind'
+    | 'id'
+    | 'custom_name'
+    | 'math'
+    | 'math_multiplier'
+    | 'math_property'
+    | 'math_property_type'
+    | 'math_group_type_index'
+> {
+    properties?: AssistantPropertyFilter[]
+    /**
+     * Action name from the plan.
+     */
+    name: string
+
+    /**
+     * Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient.
+     * When set, `math` must be set to `hogql`.
+     *
+     * Examples:
+     * - Sum a numeric property: `sum(toFloat(properties.$revenue))`
+     * - Average of a property: `avg(toFloat(properties.load_time))`
+     * - Count distinct values: `count(distinct properties.$session_id)`
+     * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
+     * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     */
+    math_hogql?: string
+}
+
+export type AssistantStickinessNode = AssistantStickinessEventsNode | AssistantStickinessActionsNode
+
+export interface AssistantStickinessFilter {
+    /**
+     * Visualization type for the stickiness chart.
+     * `ActionsLineGraph` - line chart (default).
+     * `ActionsBar` - bar chart.
+     * `ActionsAreaGraph` - area chart.
+     * @default ActionsLineGraph
+     */
+    display?: AssistantStickinessDisplayType
+
+    /**
+     * Whether to show the legend describing series.
+     * @default false
+     */
+    showLegend?: StickinessFilterLegacy['show_legend']
+
+    /**
+     * Whether to show a value on each data point.
+     * @default false
+     */
+    showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
+
+    /**
+     * Filter which intervals count based on event frequency within each interval.
+     * For example, only count intervals where the user performed the event >= 3 times.
+     */
+    stickinessCriteria?: StickinessCriteria
+
+    /**
+     * Computation mode. `non_cumulative` (default) shows users active on exactly N intervals.
+     * `cumulative` shows users active on N or more intervals.
+     * @default non_cumulative
+     */
+    computedAs?: StickinessComputationMode
+}
+
+export interface AssistantStickinessQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.StickinessQuery
+
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`.
+     * This determines what counts as one "interval" for stickiness measurement.
+     * For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days,
+     * and each bar/point shows how many users performed the event on exactly that many days.
+     *
+     * @default day
+     */
+    interval?: IntervalType
+
+    /**
+     * How many base intervals comprise one stickiness period. Defaults to 1.
+     * For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods.
+     */
+    intervalCount?: integer
+
+    /**
+     * Events or actions to include. Each series measures how many intervals (e.g. days) within
+     * the date range a user performed the event. Prioritize the more popular and fresh events
+     * and actions. When the `math` field is omitted on a series, it defaults to counting
+     * unique persons.
+     */
+    series: AssistantStickinessNode[]
+
+    /**
+     * Properties specific to the stickiness insight
+     */
+    stickinessFilter?: AssistantStickinessFilter
+
+    /**
+     * Compare to date range. When enabled, shows the current and previous period side by side.
+     */
+    compareFilter?: CompareFilter
 }
 
 /**
@@ -863,8 +1084,378 @@ export interface AssistantPathsQuery extends AssistantInsightsQueryBase {
     pathsFilter: AssistantPathsFilter
 }
 
+export interface AssistantLifecycleEventsNode extends Pick<EventsNode, 'kind' | 'event' | 'name' | 'custom_name'> {
+    /**
+     * Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.
+     */
+    kind: NodeKind.EventsNode
+    properties?: AssistantPropertyFilter[]
+}
+
+export type AssistantLifecycleSeriesNode = AssistantLifecycleEventsNode | AssistantLifecycleActionsNode
+
+export interface AssistantLifecycleActionsNode extends Pick<ActionsNode, 'kind' | 'id' | 'custom_name'> {
+    /**
+     * Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations.
+     * You must provide the action ID in the `id` field and the name in the `name` field.
+     */
+    kind: NodeKind.ActionsNode
+    properties?: AssistantPropertyFilter[]
+    /**
+     * Action name from the plan.
+     */
+    name: string
+}
+
+export interface AssistantLifecycleFilter {
+    /**
+     * Whether to show a value on each data point.
+     * @default false
+     */
+    showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    /**
+     * Lifecycles that have been removed from display are not included in this array.
+     * Available values: `new`, `returning`, `resurrecting`, `dormant`.
+     * - `new` - users who performed the event for the first time during the period.
+     * - `returning` - users who were active in the previous period and are active in the current period.
+     * - `resurrecting` - users who were inactive for one or more periods and became active again.
+     * - `dormant` - users who were active in the previous period but are inactive in the current period.
+     */
+    toggledLifecycles?: LifecycleToggle[]
+    /**
+     * Whether to show the legend describing series.
+     * @default false
+     */
+    showLegend?: LifecycleFilterLegacy['show_legend']
+    /**
+     * Whether the lifecycle bars should be stacked.
+     * @default true
+     */
+    stacked?: boolean
+}
+
+export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
+    kind: NodeKind.LifecycleQuery
+
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     *
+     * @default day
+     */
+    interval?: IntervalType
+
+    /**
+     * Event or action to analyze. Lifecycle insights only support a single series.
+     * @maxLength 1
+     */
+    series: AssistantLifecycleSeriesNode[]
+
+    /**
+     * Properties specific to the lifecycle insight
+     */
+    lifecycleFilter?: AssistantLifecycleFilter
+}
+
+/**
+ * Drills into a trends insight to list the persons behind a specific data point. Returned rows
+ * are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.
+ *
+ * Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific
+ * cell in the source insight.
+ */
+export interface AssistantTrendsActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source insight query whose data point we are drilling into. */
+    source: AssistantTrendsQuery
+
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
+
+    /** Series index (0-based) when the source has multiple series. */
+    series?: integer
+
+    /**
+     * Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order.
+     * Array length must equal the number of breakdown dimensions.
+     */
+    breakdown?: string[]
+
+    /** Whether to pull from the previous period when `compare` is enabled in the source. */
+    compare?: 'current' | 'previous'
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
+}
+
+/**
+ * Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency,
+ * token usage, costs, errors, and other metadata. Use for AI observability — debugging
+ * slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.
+ *
+ * This is a listing tool, not a visualization/insight tool. It does not support series,
+ * breakdowns, or math aggregations. Use property filters and dateRange to narrow results.
+ */
+export interface AssistantTracesQuery {
+    kind: NodeKind.TracesQuery
+
+    /**
+     * Date range for the query.
+     */
+    dateRange?: AssistantDateRangeFilter
+
+    /**
+     * Maximum number of traces to return.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of traces to skip for pagination.
+     * @default 0
+     */
+    offset?: integer
+
+    /**
+     * Exclude internal and test users by applying the respective filters.
+     * @default true
+     */
+    filterTestAccounts?: boolean
+
+    /**
+     * Exclude support impersonation traces.
+     * @default false
+     */
+    filterSupportTraces?: boolean
+
+    /**
+     * Property filters to narrow results. Use event properties like `$ai_model`,
+     * `$ai_provider`, `$ai_trace_id`, etc. to filter traces.
+     * @default []
+     */
+    properties?: AssistantPropertyFilter[]
+
+    /**
+     * Filter traces by a specific person UUID.
+     */
+    personId?: string
+
+    /**
+     * Filter traces by group key. Requires `groupTypeIndex` to be set.
+     */
+    groupKey?: string
+
+    /**
+     * Group type index when filtering by group.
+     */
+    groupTypeIndex?: integer
+
+    /**
+     * Use random ordering instead of timestamp DESC.
+     * Useful for representative sampling to avoid recency bias.
+     * @default false
+     */
+    randomOrder?: boolean
+}
+
+/**
+ * Fetch a single LLM trace by ID. Returns the full trace with all child events
+ * and their complete properties — use for deep inspection of a specific trace
+ * found via `query-llm-traces-list`.
+ */
+export interface AssistantTraceQuery {
+    kind: NodeKind.TraceQuery
+
+    /**
+     * The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).
+     */
+    traceId: string
+
+    /**
+     * Date range for the query.
+     */
+    dateRange?: AssistantDateRangeFilter
+
+    /**
+     * Property filters to narrow events within the trace.
+     * @default []
+     */
+    properties?: AssistantPropertyFilter[]
+}
+
 export interface AssistantHogQLQuery {
     kind: NodeKind.HogQLQuery
     /** SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions. */
     query: string
 }
+
+export interface AssistantErrorTrackingQuery {
+    kind: NodeKind.ErrorTrackingQuery
+    /** Filter to a specific error tracking issue by ID. */
+    issueId?: string
+    /** Field to sort results by. */
+    orderBy?: ErrorTrackingOrderBy
+    /** Sort direction. */
+    orderDirection?: 'ASC' | 'DESC'
+    /** Date range to filter results. */
+    dateRange?: DateRange
+    /** Filter by issue status. */
+    status?: ErrorTrackingQueryStatus
+    /** Filter by assignee. */
+    assignee?: ErrorTrackingIssueAssignee | null
+    /** Whether to filter out test accounts. */
+    filterTestAccounts?: boolean
+    /** Free-text search across exception type, message, and stack frames. */
+    searchQuery?: string
+    /**
+     * Property filters for the query
+     *
+     * @default []
+     */
+    filterGroup?: AssistantPropertyFilter[]
+    /** Controls volume chart granularity. Use 1 for sparklines, 0 for counts only. */
+    volumeResolution?: integer
+    limit?: integer
+    offset?: integer
+}
+
+/**
+ * Simplified RecordingsQuery for MCP tool usage. Exposes the most useful
+ * filtering and pagination fields with LLM-friendly descriptions while
+ * hiding internal complexity (having_predicates, operand, actions, etc.).
+ */
+export interface AssistantRecordingsQuery {
+    kind: NodeKind.RecordingsQuery
+    /** Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d". */
+    date_from?: string | null
+    /** End of the date range. Supports relative dates or ISO 8601 format. Default: now. */
+    date_to?: string | null
+    /**
+     * Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`.
+     *
+     * Supported types:
+     * - `person`: Filter by person properties (e.g. email, country).
+     * - `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).
+     * - `event`: Filter by properties of events in the session (e.g. $current_url, $browser).
+     * - `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).
+     * - `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`.
+     */
+    properties?: AssistantRecordingsQueryPropertyFilter[]
+    /** Exclude internal and test users. Default: false. */
+    filter_test_accounts?: boolean
+    /** Sort field. Options: "start_time", "duration", "activity_score", "console_error_count", "click_count". Default: "start_time". */
+    order?: RecordingOrder
+    /** Sort direction: "ASC" or "DESC". Default: "DESC". */
+    order_direction?: RecordingOrderDirection
+    /** Maximum number of recordings to return. */
+    limit?: integer
+    /** Cursor for pagination from a previous response's next_cursor field. */
+    after?: string
+    /** Filter recordings to a specific person by their UUID. */
+    person_uuid?: string
+    /** Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call. */
+    session_ids?: string[]
+}
+
+export interface AssistantInsightVizNode {
+    kind: NodeKind.InsightVizNode
+    /** Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery */
+    source: Record<string, any>
+}
+
+/**
+ * Subset of `ChartDisplayType` values supported by `AssistantDataVisualizationNode`.
+ *
+ * - `ActionsTable` — render rows as a data table. This is the default when `display` is omitted.
+ * - `BoldNumber` — big-number display for single-value results (first numeric column of the first row).
+ * - `ActionsLineGraph` — line chart. Requires at least two columns, including one numeric column.
+ * - `ActionsBar` — bar chart with one bar per X-axis value.
+ * - `ActionsStackedBar` — bar chart stacked by a series breakdown column.
+ * - `ActionsAreaGraph` — area chart. Requires at least two columns, including one numeric column.
+ * - `TwoDimensionalHeatmap` — 2D heatmap. Requires an X column, a Y column, and a numeric value column.
+ */
+export type AssistantDataVisualizationDisplayType =
+    | ChartDisplayType.ActionsTable
+    | ChartDisplayType.BoldNumber
+    | ChartDisplayType.ActionsLineGraph
+    | ChartDisplayType.ActionsBar
+    | ChartDisplayType.ActionsStackedBar
+    | ChartDisplayType.ActionsAreaGraph
+    | ChartDisplayType.TwoDimensionalHeatmap
+
+export interface AssistantDataVisualizationAxis {
+    /** Name of a column returned by the SQL query to map onto this axis. */
+    column: string
+}
+
+export interface AssistantDataVisualizationGoalLine {
+    /** Label rendered next to the goal line. */
+    label: string
+    /** Y-axis value at which the goal line is drawn. */
+    value: number
+}
+
+export interface AssistantDataVisualizationChartSettings {
+    /** Column used as the X axis. Typically a time bucket or categorical column. */
+    xAxis?: AssistantDataVisualizationAxis
+    /** One or more numeric columns plotted as Y series. */
+    yAxis?: AssistantDataVisualizationAxis[]
+    /**
+     * Column that splits a single Y series into multiple colored series — e.g. breaking down
+     * a line chart by `country`. Set to `null` or omit to disable.
+     */
+    seriesBreakdownColumn?: string | null
+    /** Horizontal goal lines drawn across the chart. */
+    goalLines?: AssistantDataVisualizationGoalLine[]
+    /** Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`. */
+    stackBars100?: boolean
+    /** Show the chart legend. */
+    showLegend?: boolean
+    /** Replace null aggregation results with zero. */
+    showNullsAsZero?: boolean
+}
+
+export interface AssistantDataVisualizationTableSettings {
+    /** Columns to display and their order. Omit to show every column returned by the query. */
+    columns?: AssistantDataVisualizationAxis[]
+    /** Column names to pin to the left of the table. */
+    pinnedColumns?: string[]
+    /** Show a total row at the bottom of the table. */
+    showTotalRow?: boolean
+    /** Transpose rows and columns. */
+    transpose?: boolean
+}
+
+/**
+ * SQL-backed visualization. Use this when the analysis requires custom SQL that cannot be
+ * expressed as a standard product-analytics insight — cross-source joins with the data
+ * warehouse, window functions, or bespoke aggregations.
+ *
+ * Prefer `AssistantInsightVizNode` for standard product analytics (trends, funnels, retention,
+ * paths, stickiness, lifecycle). Only reach for this node when SQL is strictly necessary.
+ */
+export interface AssistantDataVisualizationNode {
+    kind: NodeKind.DataVisualizationNode
+    /** HogQL query object that produces the rows to visualize. */
+    source: Record<string, any>
+    /**
+     * Visualization type. Defaults to `ActionsTable` when omitted.
+     *
+     * Guidance:
+     * - Single-value result (one numeric column, one row) → `BoldNumber`.
+     * - Time series → `ActionsLineGraph` or `ActionsAreaGraph`.
+     * - Categorical comparison → `ActionsBar` or `ActionsStackedBar`.
+     * - Two-dimensional aggregation → `TwoDimensionalHeatmap`.
+     * - Otherwise → `ActionsTable`.
+     */
+    display?: AssistantDataVisualizationDisplayType
+    /** Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`. */
+    chartSettings?: AssistantDataVisualizationChartSettings
+    /** Table configuration. Only applies when `display` is `ActionsTable` or omitted. */
+    tableSettings?: AssistantDataVisualizationTableSettings
+}
+
+export type InsightQuery = AssistantInsightVizNode | AssistantDataVisualizationNode

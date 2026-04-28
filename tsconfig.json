@@ -39,6 +39,9 @@
         "declaration": true, // Generate corresponding .d.ts file
         "noUnusedLocals": true, // Report errors on unused locals
         "noUnusedParameters": true, // Report errors on unused parameters
+        "noImplicitOverride": true, // Require the `override` modifier when overriding a base class member
+        "allowUnreachableCode": false, // Raise errors on unreachable code
+        "allowUnusedLabels": false, // Raise errors on unused labels
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
         "lib": ["dom", "es2023"]

@@ -8,44 +8,8 @@ import {
     ProxyRecordsRetrieveParams,
     ProxyRecordsRetryCreateParams,
 } from '@/generated/proxy-records/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const ProxyListSchema = z.object({})
-
-const proxyList = (): ToolBase<
-    typeof ProxyListSchema,
-    Schemas.ProxyRecordListResponse[] & { _posthogUrl: string }
-> => ({
-    name: 'proxy-list',
-    schema: ProxyListSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ProxyListSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.ProxyRecordListResponse[]>({
-            method: 'GET',
-            path: `/api/organizations/${orgId}/proxy_records/`,
-        })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl('@current')}/settings/organization-proxy`,
-        }
-    },
-})
-
-const ProxyGetSchema = ProxyRecordsRetrieveParams.omit({ organization_id: true })
-
-const proxyGet = (): ToolBase<typeof ProxyGetSchema, Schemas.ProxyRecord> => ({
-    name: 'proxy-get',
-    schema: ProxyGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ProxyGetSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.ProxyRecord>({
-            method: 'GET',
-            path: `/api/organizations/${orgId}/proxy_records/${params.id}/`,
-        })
-        return result
-    },
-})
 
 const ProxyCreateSchema = ProxyRecordsCreateBody
 
@@ -60,23 +24,8 @@ const proxyCreate = (): ToolBase<typeof ProxyCreateSchema, Schemas.ProxyRecord> 
         }
         const result = await context.api.request<Schemas.ProxyRecord>({
             method: 'POST',
-            path: `/api/organizations/${orgId}/proxy_records/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/proxy_records/`,
             body,
-        })
-        return result
-    },
-})
-
-const ProxyRetrySchema = ProxyRecordsRetryCreateParams.omit({ organization_id: true })
-
-const proxyRetry = (): ToolBase<typeof ProxyRetrySchema, Schemas.ProxyRecord> => ({
-    name: 'proxy-retry',
-    schema: ProxyRetrySchema,
-    handler: async (context: Context, params: z.infer<typeof ProxyRetrySchema>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.ProxyRecord>({
-            method: 'POST',
-            path: `/api/organizations/${orgId}/proxy_records/${params.id}/retry/`,
         })
         return result
     },
@@ -91,16 +40,62 @@ const proxyDelete = (): ToolBase<typeof ProxyDeleteSchema, unknown> => ({
         const orgId = await context.stateManager.getOrgID()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/organizations/${orgId}/proxy_records/${params.id}/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/proxy_records/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ProxyGetSchema = ProxyRecordsRetrieveParams.omit({ organization_id: true })
+
+const proxyGet = (): ToolBase<typeof ProxyGetSchema, Schemas.ProxyRecord> => ({
+    name: 'proxy-get',
+    schema: ProxyGetSchema,
+    handler: async (context: Context, params: z.infer<typeof ProxyGetSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.ProxyRecord>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/proxy_records/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ProxyListSchema = z.object({})
+
+const proxyList = (): ToolBase<typeof ProxyListSchema, WithPostHogUrl<Schemas.ProxyRecordListResponse[]>> => ({
+    name: 'proxy-list',
+    schema: ProxyListSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof ProxyListSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.ProxyRecordListResponse[]>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/proxy_records/`,
+        })
+        return await withPostHogUrl(context, result, '/settings/organization-proxy')
+    },
+})
+
+const ProxyRetrySchema = ProxyRecordsRetryCreateParams.omit({ organization_id: true })
+
+const proxyRetry = (): ToolBase<typeof ProxyRetrySchema, Schemas.ProxyRecord> => ({
+    name: 'proxy-retry',
+    schema: ProxyRetrySchema,
+    handler: async (context: Context, params: z.infer<typeof ProxyRetrySchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.ProxyRecord>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/proxy_records/${encodeURIComponent(String(params.id))}/retry/`,
         })
         return result
     },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'proxy-list': proxyList,
-    'proxy-get': proxyGet,
     'proxy-create': proxyCreate,
-    'proxy-retry': proxyRetry,
     'proxy-delete': proxyDelete,
+    'proxy-get': proxyGet,
+    'proxy-list': proxyList,
+    'proxy-retry': proxyRetry,
 }

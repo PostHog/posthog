@@ -19,7 +19,6 @@ from posthog.queries.actor_base_query import (
     get_groups,
     get_serialized_people,
 )
-from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 
 class RelatedActorsQuery:
@@ -45,7 +44,7 @@ class RelatedActorsQuery:
     def is_aggregating_by_groups(self) -> bool:
         return self.group_type_index is not None
 
-    def run(self, variant: str = "control") -> list[SerializedActor]:
+    def run(self) -> list[SerializedActor]:
         tag_queries(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.QUERY)
         results: list[SerializedActor] = []
         results.extend(self._query_related_people())
@@ -57,13 +56,7 @@ class RelatedActorsQuery:
             .values_list("group_type_index", flat=True)
         )
 
-        if variant == "test":
-            tag_queries(name="optimized-related-groups-test")
-            results.extend(self._query_related_groups_optimized(group_type_indexes=group_type_indexes))
-        else:
-            tag_queries(name="optimized-related-groups-control")
-            for index in group_type_indexes:
-                results.extend(self._query_related_groups_control(index))
+        results.extend(self._query_related_groups(group_type_indexes=group_type_indexes))
         return results
 
     def _query_related_people(self) -> list[SerializedPerson]:
@@ -96,34 +89,7 @@ class RelatedActorsQuery:
             )
         )
 
-    def _query_related_groups_control(self, group_type_index: GroupTypeIndex) -> list:
-        group_ids = self._take_first(
-            # nosemgrep: clickhouse-injection-taint, clickhouse-fstring-param-audit - internal SQL fragments, values parameterized
-            sync_execute(
-                f"""
-            SELECT DISTINCT $group_{group_type_index} AS group_key
-            FROM events e
-            {"" if self.is_aggregating_by_groups else self._distinct_ids_join}
-            JOIN (
-                SELECT group_key
-                FROM groups
-                WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
-                GROUP BY group_key
-            ) groups ON $group_{group_type_index} = groups.group_key
-            WHERE team_id = %(team_id)s
-              AND timestamp > %(after)s
-              AND timestamp < %(before)s
-              AND group_key != ''
-              AND {self._filter_clause}
-            ORDER BY group_key
-            """,
-                {**self._params, "group_type_index": group_type_index},
-            )
-        )
-        _, serialized_groups = get_groups(self.team.pk, group_type_index, group_ids)
-        return serialized_groups
-
-    def _query_related_groups_optimized(self, group_type_indexes: list[int]) -> list:
+    def _query_related_groups(self, group_type_indexes: list[int]) -> list:
         if not list(group_type_indexes):
             return []
 
@@ -166,10 +132,6 @@ class RelatedActorsQuery:
             return f"$group_{self.group_type_index} = %(id)s"
         else:
             return f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id = %(id)s"
-
-    @property
-    def _distinct_ids_join(self):
-        return f"JOIN ({get_team_distinct_ids_query(self.team.pk)}) {self.DISTINCT_ID_TABLE_ALIAS} on e.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id"
 
     @cached_property
     def _params(self):

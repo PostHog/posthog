@@ -1,11 +1,11 @@
 import { Meta } from '@storybook/react'
 
-import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+import { ErrorDisplay, ErrorDisplayProps } from 'lib/components/Errors/ErrorDisplay'
 
 import { mswDecorator } from '~/mocks/browser'
 import { EventType } from '~/types'
 
-const meta: Meta<typeof ErrorDisplay> = {
+const meta: Meta<ErrorDisplayProps> = {
     title: 'Components/Errors/Error Display',
     component: ErrorDisplay,
     parameters: {

@@ -12,6 +12,7 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
@@ -23,7 +24,6 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
     AnyDataWarehouseNode,
@@ -32,7 +32,7 @@ import {
     CompareFilter,
     DatabaseSchemaField,
     DateRange,
-    FunnelExclusionSteps,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
     GroupNode,
@@ -44,6 +44,7 @@ import {
     NodeKind,
     ProductAnalyticsInsightQueryNode,
     RetentionQuery,
+    StickinessQuery,
     TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
@@ -90,14 +91,7 @@ import {
     nodeKindToFilterProperty,
     supportsPercentStackView,
 } from '~/queries/utils'
-import {
-    BaseMathType,
-    ChartDisplayType,
-    FilterType,
-    InsightLogicProps,
-    LabelGroupType,
-    SlowQueryPossibilities,
-} from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, LabelGroupType, SlowQueryPossibilities } from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
@@ -506,36 +500,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
 
-        /*
-         * Funnels
-         */
-        isFunnelWithEnoughSteps: [
-            (s) => [s.series],
-            (series) => {
-                return (series?.length || 0) > 1
-            },
-        ],
-
-        // Exclusion filters
-        exclusionDefaultStepRange: [
-            (s) => [s.querySource],
-            (querySource: FunnelsQuery): FunnelExclusionSteps => ({
-                funnelFromStep: 0,
-                funnelToStep: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
-            }),
-        ],
-        exclusionFilters: [
-            (s) => [s.funnelsFilter],
-            (funnelsFilter): FilterType => ({
-                events: funnelsFilter?.exclusions?.map(({ funnelFromStep, funnelToStep, ...rest }, index) => ({
-                    funnel_from_step: funnelFromStep,
-                    funnel_to_step: funnelToStep,
-                    order: index,
-                    ...seriesNodeToFilter(rest),
-                })),
-            }),
-        ],
-
         // all events used in the insight (useful for fetching only relevant property definitions)
         allEventNames: [
             (s) => [s.querySource, actionsModel.selectors.actions],
@@ -625,6 +589,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             if (!ignoreDebounce) {
                 await breakpoint(300)
             }
+            eventUsageLogic.actions.reportInsightDateRangeChanged(values.querySource?.kind)
             const updates = {
                 dateRange: {
                     ...values.dateRange,
@@ -654,11 +619,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
             await breakpoint(500) // extra debounce time because of number input
+            eventUsageLogic.actions.reportInsightBreakdownChanged(values.querySource?.kind)
             const update: Partial<TrendsQuery> = { breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter } }
             actions.updateQuerySource(update)
         },
         updateCompareFilter: async ({ compareFilter }, breakpoint) => {
             await breakpoint(500) // extra debounce time because of number input
+            eventUsageLogic.actions.reportInsightCompareChanged(values.querySource?.kind)
             const update: Partial<TrendsQuery> = { compareFilter: { ...values.compareFilter, ...compareFilter } }
             actions.updateQuerySource(update)
         },
@@ -766,7 +733,7 @@ const handleQuerySourceUpdateSideEffects = (
 ): QuerySourceUpdate => {
     const mergedUpdate = { ...update } as InsightQueryNode
 
-    const maybeChangedSeries = (update as TrendsQuery).series || null
+    const maybeChangedSeries = (update as TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery).series || null
     const maybeChangedActiveUsersMath = maybeChangedSeries ? getActiveUsersMath(maybeChangedSeries) : null
     const kind = (update as Partial<InsightQueryNode>).kind || currentState.kind
     const insightFilter = filterForQuery(currentState as ProductAnalyticsInsightQueryNode) as Partial<InsightFilter>
@@ -812,8 +779,8 @@ const handleQuerySourceUpdateSideEffects = (
             (insightFilter as FunnelsFilter)?.funnelToStep != null)
     ) {
         // Filter out GroupNode types as funnels only use AnyEntityNode
-        const funnelSeries = maybeChangedSeries.filter(
-            (node): node is AnyEntityNode => node.kind !== NodeKind.GroupNode
+        const funnelSeries: AnyEntityNode<FunnelsDataWarehouseNode>[] = maybeChangedSeries.filter(
+            (node): node is AnyEntityNode<FunnelsDataWarehouseNode> => node.kind !== NodeKind.GroupNode
         )
         ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
             ...(insightFilter as FunnelsFilter),
@@ -838,6 +805,22 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as LifecycleQuery).properties = undefined
         ;(mergedUpdate as LifecycleQuery).filterTestAccounts = undefined
         ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
+    }
+
+    // We do not support properties, filtering test accounts, and sampling for DWH nodes
+    // Disable them if there are any
+    if (
+        isTrendsQuery(currentState) &&
+        (currentState.filterTestAccounts || currentState.properties) &&
+        maybeChangedSeries?.some(isAnyDataWarehouseNode)
+    ) {
+        lemonToast.info(
+            'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'
+        )
+
+        ;(mergedUpdate as TrendsQuery).properties = undefined
+        ;(mergedUpdate as TrendsQuery).filterTestAccounts = undefined
+        ;(mergedUpdate as TrendsQuery).samplingFactor = undefined
     }
 
     /*

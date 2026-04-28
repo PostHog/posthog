@@ -52,7 +52,7 @@ interface ListBoxGroupContextType {
 const ListBoxGroupContext = createContext<ListBoxGroupContextType | null>(null)
 
 /** Props for ListBox */
-interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
     children: ReactNode
     className?: string
     focusedElement?: HTMLElement | null

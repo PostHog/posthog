@@ -63,7 +63,7 @@ export function Paths(): JSX.Element {
             onHoverClear: requestClearHover,
             isCardHovered: () => interactionLogic.values.cardHovered,
         }),
-        [canvasHeight]
+        [canvasHeight, interactionLogic.values.cardHovered, setNodes, hoverNode, hoverLink, requestClearHover]
     )
 
     useLayoutEffect(() => {
@@ -106,7 +106,17 @@ export function Paths(): JSX.Element {
             const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
             elements?.forEach((node) => node?.parentNode?.removeChild(node))
         }
-    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter, hoverHandlers])
+    }, [
+        paths,
+        insightDataLoading,
+        canvasWidth,
+        canvasHeight,
+        theme,
+        pathsFilter,
+        funnelPathsFilter,
+        hoverHandlers,
+        clearHover,
+    ])
 
     const handleCardMouseEnter = (node: PathNodeData): void => {
         setCardHovered(true)

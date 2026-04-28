@@ -2,7 +2,7 @@ import { IconTrash } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
 
-interface RecordingDeletedProps {
+export interface RecordingDeletedProps {
     deletedAt: number | null
     deletedBy: string | null
 }

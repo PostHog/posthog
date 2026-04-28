@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 
+use personhog_common::grpc::current_client_name;
+
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::DistinctIdLookup;
@@ -14,6 +16,7 @@ impl DistinctIdLookup for PostgresStorage {
         consistency: ConsistencyLevel,
         limit: Option<i64>,
     ) -> StorageResult<Vec<DistinctIdWithVersion>> {
+        let client = current_client_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -21,6 +24,7 @@ impl DistinctIdLookup for PostgresStorage {
                 "get_distinct_ids_for_person".to_string(),
             ),
             ("pool".to_string(), pool_label.to_string()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -62,10 +66,13 @@ impl DistinctIdLookup for PostgresStorage {
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
-            &[(
-                "operation".to_string(),
-                "get_distinct_ids_for_person".to_string(),
-            )],
+            &[
+                (
+                    "operation".to_string(),
+                    "get_distinct_ids_for_person".to_string(),
+                ),
+                ("client".to_string(), client.to_string()),
+            ],
             rows.len() as f64,
         );
 
@@ -83,6 +90,7 @@ impl DistinctIdLookup for PostgresStorage {
             return Ok(Vec::new());
         }
 
+        let client = current_client_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -90,6 +98,7 @@ impl DistinctIdLookup for PostgresStorage {
                 "get_distinct_ids_for_persons".to_string(),
             ),
             ("pool".to_string(), pool_label.to_string()),
+            ("client".to_string(), client.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -135,10 +144,13 @@ impl DistinctIdLookup for PostgresStorage {
 
         common_metrics::histogram(
             DB_ROWS_RETURNED,
-            &[(
-                "operation".to_string(),
-                "get_distinct_ids_for_persons".to_string(),
-            )],
+            &[
+                (
+                    "operation".to_string(),
+                    "get_distinct_ids_for_persons".to_string(),
+                ),
+                ("client".to_string(), client.to_string()),
+            ],
             rows.len() as f64,
         );
 

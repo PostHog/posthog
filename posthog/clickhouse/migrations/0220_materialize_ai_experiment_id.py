@@ -36,7 +36,7 @@ operations = [
     ),
     run_sql_with_exceptions(
         ADD_COLUMN_EVENTS,
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

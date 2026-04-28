@@ -232,7 +232,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
             label: 'Overview',
             key: FeatureFlagsTab.OVERVIEW,
             content: useFormUI ? (
-                <FeatureFlagOverviewV2 featureFlag={featureFlag} onGetFeedback={handleGetFeedback} />
+                <FeatureFlagOverviewV2 featureFlag={featureFlag} />
             ) : (
                 <>
                     <div className="flex flex-col gap-4">
@@ -1128,6 +1128,7 @@ function FeatureFlagRollout({
                 <>
                     <FeatureFlagConditionWarning
                         properties={properties}
+                        filterGroups={filterGroups}
                         evaluationRuntime={featureFlag.evaluation_runtime}
                     />
                     <div className="flex flex-col">

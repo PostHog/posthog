@@ -203,6 +203,9 @@ class Table(FieldOrTable):
     def to_printed_hogql(self) -> str:
         raise NotImplementedError("Table.to_printed_hogql not overridden")
 
+    def get_predicates(self) -> list[Expr]:
+        return []
+
     def avoid_asterisk_fields(self) -> list[str]:
         return []
 

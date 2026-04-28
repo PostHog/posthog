@@ -1502,9 +1502,10 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        flags::flag_models::{FeatureFlagRow, FlagFilters},
+        flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters},
+        mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-        utils::test_utils::{create_test_flag, TestContext},
+        utils::test_utils::TestContext,
     };
 
     use super::*;
@@ -1522,41 +1523,17 @@ mod tests {
             .unwrap();
 
         // Create a feature flag with ensure_experience_continuity = true
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            Some("Test Flag".to_string()),
-            Some("test_flag".to_string()),
-            Some(FlagFilters {
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
                 groups: vec![],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                feature_enrollment: None,
-
-                holdout: None,
-            }),
-            Some(false), // not deleted
-            Some(true),  // active
-            Some(true),  // ensure_experience_continuity
+                ..Default::default()
+            },
+            ensure_experience_continuity: Some(true)
         );
 
         // Convert flag to FeatureFlagRow
-        let flag_row = FeatureFlagRow {
-            id: flag.id,
-            team_id: flag.team_id,
-            name: flag.name,
-            key: flag.key,
-            filters: json!(flag.filters),
-            deleted: flag.deleted,
-            active: flag.active,
-            ensure_experience_continuity: flag.ensure_experience_continuity,
-            version: flag.version,
-            evaluation_runtime: flag.evaluation_runtime,
-            evaluation_tags: flag.evaluation_tags,
-            bucketing_identifier: flag.bucketing_identifier,
-        };
+        let flag_row = mock!(FeatureFlagRow, from: flag);
 
         // Insert the feature flag into the database
         context.insert_flag(team.id, Some(flag_row)).await.unwrap();

@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CopyExperimentToProjectApi,
     EndExperimentApi,
     ExperimentApi,
     ExperimentHoldoutApi,
@@ -16,6 +17,7 @@ import type {
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentsListParams,
+    ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentHoldoutListApi,
     PaginatedExperimentListApi,
     PaginatedExperimentSavedMetricListApi,
@@ -263,11 +265,7 @@ export const experimentSavedMetricsDestroy = async (
 }
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+ * List experiments for the current project. Supports filtering by status and archival state.
  */
 export const getExperimentsListUrl = (projectId: string, params?: ExperimentsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -297,11 +295,7 @@ export const experimentsList = async (
 }
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+ * Create a new experiment in draft status with optional metrics.
  */
 export const getExperimentsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/`
@@ -321,11 +315,7 @@ export const experimentsCreate = async (
 }
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+ * Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.
  */
 export const getExperimentsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
@@ -368,11 +358,7 @@ export const experimentsUpdate = async (
 }
 
 /**
- * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
-
-This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
-on serializer methods and converts them into proper HTTP 409 Conflict responses with
-change request details.
+ * Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.
  */
 export const getExperimentsPartialUpdateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/`
@@ -425,6 +411,31 @@ export const experimentsArchiveCreate = async (
     return apiMutator<ExperimentApi>(getExperimentsArchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+
+This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+on serializer methods and converts them into proper HTTP 409 Conflict responses with
+change request details.
+ */
+export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/copy_to_project/`
+}
+
+export const experimentsCopyToProjectCreate = async (
+    projectId: string,
+    id: number,
+    copyExperimentToProjectApi: CopyExperimentToProjectApi,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsCopyToProjectCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(copyExperimentToProjectApi),
     })
 }
 
@@ -685,16 +696,33 @@ This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate d
 on serializer methods and converts them into proper HTTP 409 Conflict responses with
 change request details.
  */
-export const getExperimentsTimeseriesResultsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/experiments/${id}/timeseries_results/`
+export const getExperimentsTimeseriesResultsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: ExperimentsTimeseriesResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/timeseries_results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/timeseries_results/`
 }
 
 export const experimentsTimeseriesResultsRetrieve = async (
     projectId: string,
     id: number,
+    params: ExperimentsTimeseriesResultsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id), {
+    return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

@@ -5,9 +5,9 @@ from typing import Optional
 from django.utils.timezone import now
 
 import structlog
-from kafka.producer.kafka import FutureRecordMetadata
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.client import ProduceResult
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC
 from posthog.models.team.team import Team
 from posthog.security.outbound_proxy import internal_httpx_async_client, internal_requests
@@ -73,7 +73,7 @@ async def async_generate_embedding(
     """Async equivalent of generate_embedding — uses httpx instead of requests to avoid blocking a thread."""
     logger.info(f"Generating ad-hoc embedding (async) for team {team.pk}")
     payload = _build_embedding_payload(team, content, model, no_truncate)
-    async with internal_httpx_async_client() as client:
+    async with internal_httpx_async_client(timeout=30.0) as client:
         response = await client.post(_EMBEDDING_URL, json=payload)
         response.raise_for_status()
         return _parse_embedding_response(response.json())
@@ -90,7 +90,7 @@ def emit_embedding_request(
     models: list[str],
     timestamp: Optional[datetime] = None,
     metadata: Optional[dict] = None,
-) -> FutureRecordMetadata:
+) -> ProduceResult:
     """
     Emit an embedding request to Kafka for processing by the embedding worker.
     The worker will generate embeddings and emit them to clickhouse_document_embeddings.
@@ -140,5 +140,5 @@ def emit_embedding_request(
         "models": models,
     }
 
-    producer = KafkaProducer()
+    producer = get_producer(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC)
     return producer.produce(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, data=payload)

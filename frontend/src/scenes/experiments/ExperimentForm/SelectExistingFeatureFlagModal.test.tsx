@@ -5,6 +5,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { teamLogic } from 'scenes/teamLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
@@ -94,6 +96,12 @@ describe('SelectExistingFeatureFlagModal', () => {
         initKeaTests()
         logic = selectExistingFeatureFlagModalLogic()
         logic.mount()
+
+        // Wait for teamLogic to have currentProjectId ready before opening modal
+        await waitFor(() => {
+            expect(teamLogic.values.currentProjectId).toBe(MOCK_TEAM_ID)
+        })
+
         logic.actions.openSelectExistingFeatureFlagModal()
 
         await waitFor(() => {

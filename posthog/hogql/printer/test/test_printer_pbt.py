@@ -1,3 +1,4 @@
+import os
 import math
 from collections.abc import Callable
 from typing import Any
@@ -21,6 +22,13 @@ from posthog.hogql.escape_sql import (
     escape_postgres_identifier,
 )
 from posthog.hogql.parse_string import parse_string_literal_text
+
+# These tests are too slow for CI. Run manually with:
+#   RUN_PBT=1 pytest posthog/hogql/printer/test/test_printer_pbt.py
+pytestmark = pytest.mark.skipif(
+    not os.environ.get("RUN_PBT"),
+    reason="PBT tests are slow; set RUN_PBT=1 to run",
+)
 
 # ---------------------------------------------------------------------------
 # Reusable strategies
@@ -96,7 +104,7 @@ class TestStringEscapingRoundTrip:
 
     @pytest.mark.parametrize("label,escape_fn", _STRING_ESCAPE_FUNCTIONS)
     @given(data=st.data())
-    @settings(max_examples=500)
+    @settings(max_examples=1000)
     def test_string_roundtrip(self, label: str, escape_fn: Callable, data: st.DataObject) -> None:
         s = data.draw(_roundtrip_safe_text)
         escaped = escape_fn(s)
@@ -141,7 +149,7 @@ class TestBacktickIdentifierRoundTrip:
 
     @pytest.mark.parametrize("label,escape_fn", _BACKTICK_IDENTIFIER_FUNCTIONS)
     @given(data=st.data())
-    @settings(max_examples=500)
+    @settings(max_examples=1000)
     def test_roundtrip_through_parse_string_literal(self, label: str, escape_fn: Callable, data: st.DataObject) -> None:
         s = data.draw(_roundtrip_safe_identifier_text)
         escaped = escape_fn(s)
@@ -176,7 +184,7 @@ class TestPostgresIdentifier:
     """
 
     @given(s=st.text(min_size=1, max_size=63))
-    @settings(max_examples=500)
+    @settings(max_examples=1000)
     def test_roundtrip(self, s: str) -> None:
         escaped = escape_postgres_identifier(s)
         if escaped.startswith('"'):

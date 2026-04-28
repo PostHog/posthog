@@ -178,12 +178,13 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                             type="secondary"
                                             onClick={() => {
                                                 posthog.capture('homepage configure set homepage', {
-                                                    value: 'launchpad',
+                                                    'homepage choice': 'launchpad',
                                                 })
                                                 setHomepage(null)
                                             }}
                                             data-attr="configure-homepage-modal-set-launchpad"
-                                            disabled={isUsingProjectDefault}
+                                            tooltip="An AI-powered home with quick actions and recent items"
+                                            disabledReason={isUsingProjectDefault ? 'Already your homepage' : undefined}
                                         >
                                             Launchpad{' '}
                                             <LemonTag size="small" type="highlight" className="ml-1">
@@ -194,11 +195,14 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                             size="small"
                                             type="secondary"
                                             onClick={() => {
-                                                posthog.capture('homepage configure set homepage', { value: 'search' })
+                                                posthog.capture('homepage configure set homepage', {
+                                                    'homepage choice': 'search',
+                                                })
                                                 setHomepage(newTabHomepage)
                                             }}
                                             data-attr="configure-homepage-modal-set-search"
-                                            disabled={isUsingNewTabHomepage}
+                                            tooltip="A search page to quickly find anything in your project"
+                                            disabledReason={isUsingNewTabHomepage ? 'Already your homepage' : undefined}
                                         >
                                             Search
                                         </LemonButton>
@@ -207,7 +211,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                             type="secondary"
                                             onClick={() => {
                                                 posthog.capture('homepage configure set homepage', {
-                                                    value: 'default_dashboard',
+                                                    'homepage choice': 'default_dashboard',
                                                 })
                                                 const dashboardId = currentTeam?.primary_dashboard
                                                 if (dashboardId) {
@@ -227,11 +231,13 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                                 }
                                             }}
                                             data-attr="configure-homepage-modal-set-default-dashboard"
-                                            disabled={isUsingDefaultDashboard || !currentTeam?.primary_dashboard}
+                                            tooltip="Open your project's default dashboard when you go home"
                                             disabledReason={
-                                                !currentTeam?.primary_dashboard
-                                                    ? 'No default dashboard configured'
-                                                    : undefined
+                                                isUsingDefaultDashboard
+                                                    ? 'Already your homepage'
+                                                    : !currentTeam?.primary_dashboard
+                                                      ? 'No default dashboard configured'
+                                                      : undefined
                                             }
                                         >
                                             Default dashboard
@@ -243,7 +249,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                             size="small"
                                             type="secondary"
                                             onClick={() => setHomepage(null)}
-                                            disabled={isUsingProjectDefault}
+                                            disabledReason={isUsingProjectDefault ? 'Already your homepage' : undefined}
                                         >
                                             Use default dashboard
                                         </LemonButton>
@@ -251,7 +257,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                             size="small"
                                             type="secondary"
                                             onClick={() => setHomepage(newTabHomepage)}
-                                            disabled={isUsingNewTabHomepage}
+                                            disabledReason={isUsingNewTabHomepage ? 'Already your homepage' : undefined}
                                         >
                                             Use new tab page
                                         </LemonButton>

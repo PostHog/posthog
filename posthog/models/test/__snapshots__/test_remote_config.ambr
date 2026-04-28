@@ -67,8 +67,6 @@
 # ---
 # name: TestRemoteConfigCaching.test_gets_array_js_via_redis_cache
   '''
-  [MOCKED_ARRAY_JS_CONTENT]
-  
   (function() {
     window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
     window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
@@ -76,12 +74,12 @@
       siteApps: []
     }
   })();
+  
+  [MOCKED_ARRAY_JS_CONTENT]
   '''
 # ---
 # name: TestRemoteConfigCaching.test_gets_array_js_via_redis_cache.1
   '''
-  [MOCKED_ARRAY_JS_CONTENT]
-  
   (function() {
     window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
     window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
@@ -89,6 +87,8 @@
       siteApps: []
     }
   })();
+  
+  [MOCKED_ARRAY_JS_CONTENT]
   '''
 # ---
 # name: TestRemoteConfigCaching.test_gets_js_reuses_config_cache

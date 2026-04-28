@@ -9,7 +9,7 @@ Tables to scan are configured via the PART_BREAKER_ELIGIBLE_TABLES env var
 
 The process per oversized part:
 1. Create non-replicated staging tables if needed (SQL)
-2. Pre-flight checks — disk space, no concurrent breaker, staging tables empty (SQL)
+2. Pre-flight checks — disk space, no concurrent breaker, staging tables empty, replication healthy, no in-flight mutations (SQL)
 3. Named FREEZE the partition containing the oversized part — creates hardlinks in shadow/<name>/ (SQL)
 4. Copy the frozen part to source staging table's detached dir (SSH, hardlink or real copy via store/ paths)
 5. ATTACH the part to source staging table (SQL)
@@ -18,7 +18,7 @@ The process per oversized part:
 8. DETACH new parts from target staging (SQL)
 9. Move detached parts to source table's detached dir (SSH)
 10. ATTACH PART on source table — adds each new broken part individually (SQL, replicated)
-11. Wait for replication — polls all replicas' log_pointer via ZooKeeper until past our ATTACHes (SQL)
+11. Wait for replication — polls all replicas' log_pointer via clusterAllReplicas(system.replicas) (SQL)
 12. DROP PART — removes only the original oversized part (SQL)
 13. Clean up — SYSTEM UNFREEZE BY NAME, truncate staging tables (SQL)
 
@@ -120,11 +120,12 @@ class BreakResult:
     """Result of breaking a single oversized part."""
 
     part: PartStats
-    source_count: int
-    post_count: int
-    new_largest_part_gib: float
-    new_part_count: int
-    duration_seconds: float
+    source_count: int = 0
+    post_count: int = 0
+    new_largest_part_gib: float = 0.0
+    new_part_count: int = 0
+    duration_seconds: float = 0.0
+    dry_run: bool = False
 
     @property
     def count_diff_pct(self) -> float:
@@ -337,6 +338,16 @@ def _check_no_active_breaker(client: Client, staging_source: str, staging_target
     return rows[0][0] == 0
 
 
+def _table_exists(client: Client, table: str) -> bool:
+    """Check if a table exists."""
+    database = _get_database()
+    rows = client.execute(
+        "SELECT count() FROM system.tables WHERE database = %(db)s AND name = %(table)s",
+        {"db": database, "table": table},
+    )
+    return rows[0][0] > 0
+
+
 def _check_staging_table_empty(client: Client, staging_table: str) -> bool:
     """Check that the staging table has no active parts."""
     database = _get_database()
@@ -355,6 +366,73 @@ def _check_replication_healthy(client: Client, source_table: str) -> bool:
         {"db": database, "table": source_table},
     )
     return rows[0][0] < 100
+
+
+def _parse_part_block_range(part_name: str) -> tuple[int, int]:
+    """Parse (min_block, max_block) from a part name.
+
+    Part names follow {partition_id}_{min_block}_{max_block}_{level}[_{mutation_version}].
+    """
+    pieces = part_name.split("_")
+    return int(pieces[1]), int(pieces[2])
+
+
+def _check_no_mutations_for_part(client: Client, source_table: str, partition_id: str, part_name: str) -> list[str]:
+    """Return mutation_ids of in-progress mutations whose block range covers this part.
+
+    A mutation's parts_to_do_names lists the exact part names still pending. If our
+    part appears there, the mutation will rewrite it — unsafe to break.
+    """
+    database = _get_database()
+    cluster = settings.CLICKHOUSE_CLUSTER
+    rows = client.execute(
+        "SELECT DISTINCT mutation_id "
+        "FROM clusterAllReplicas(%(cluster)s, system.mutations) "
+        "WHERE database = %(db)s AND table = %(table)s "
+        "AND is_done = 0 "
+        "AND has(parts_to_do_names, %(part)s)",
+        {"cluster": cluster, "db": database, "table": source_table, "part": part_name},
+    )
+    return [row[0] for row in rows]
+
+
+def _get_mutation_ids_for_part(client: Client, source_table: str, partition_id: str, part_name: str) -> set[str]:
+    """Return mutation_ids (any status) targeting this specific part.
+
+    A mutation includes our part iff both:
+      - its block_numbers array has an entry for our partition_id, AND
+      - that entry's block number is strictly greater than our part's min_block
+        (ClickHouse: "Only parts that contain blocks with numbers less than this
+        number will be mutated in the partition.")
+
+    We also OR against parts_to_do_names for in-progress mutations, since their
+    block_numbers logic still applies but parts_to_do_names is the authoritative
+    live signal.
+    """
+    database = _get_database()
+    cluster = settings.CLICKHOUSE_CLUSTER
+    min_block, _ = _parse_part_block_range(part_name)
+    rows = client.execute(
+        "SELECT DISTINCT mutation_id "
+        "FROM clusterAllReplicas(%(cluster)s, system.mutations) "
+        "WHERE database = %(db)s AND table = %(table)s "
+        "AND ("
+        "  has(parts_to_do_names, %(part)s) "
+        "  OR arrayExists("
+        "    (pid, bnum) -> pid = %(partition_id)s AND bnum > %(min_block)s, "
+        "    block_numbers.partition_id, block_numbers.number"
+        "  )"
+        ")",
+        {
+            "cluster": cluster,
+            "db": database,
+            "table": source_table,
+            "part": part_name,
+            "partition_id": partition_id,
+            "min_block": min_block,
+        },
+    )
+    return {row[0] for row in rows}
 
 
 def _ensure_staging_table(client: Client, source_table: str, staging_table: str) -> None:
@@ -549,65 +627,67 @@ def _get_staging_stats(client: Client, staging_table: str, partition_id: str) ->
     return row_count, part_count, largest_gib
 
 
-def _wait_for_replication(client: Client, source_table: str, target_log_index: int, max_wait: int = 0) -> None:
+def _wait_for_replication(
+    client: Client, source_table: str, target_log_index: int, shard_num: int, max_wait: int = 0
+) -> None:
     """Wait for ALL replicas to process past a specific replication log index.
 
     After ATTACHing new parts, we capture the current log_max_index and pass it here.
-    This function waits until every replica's log_pointer >= that index, meaning they
-    have all fetched the new parts. Only then is it safe to DROP the old part.
+    This function waits until every active replica's log_pointer >= that index, meaning
+    they have all fetched the new parts. Only then is it safe to DROP the old part.
 
     This handles active ingestion correctly — we don't need replicas to be fully
     caught up with everything, just past the point where our ATTACHes were recorded.
 
-    Raises if ZK is unreachable — we cannot safely drop the old part without confirming replication.
+    Uses clusterAllReplicas() to query system.replicas across all nodes via a single
+    connection — avoids querying internal ZooKeeper state directly.
     """
     if max_wait <= 0:
         max_wait = settings.PART_BREAKER_MAX_REPLICATION_WAIT_TIME
 
     database = _get_database()
-
-    # Get the ZooKeeper path for this replicated table
-    zk_rows = client.execute(
-        "SELECT zookeeper_path FROM system.replicas WHERE database = %(db)s AND table = %(table)s",
-        {"db": database, "table": source_table},
-    )
-    if not zk_rows or not zk_rows[0][0]:
-        raise dagster.Failure(
-            description=f"Could not get ZooKeeper path for {source_table} — "
-            "cannot safely verify replication before dropping the old part"
-        )
-
-    zk_path = zk_rows[0][0]
-
-    # Get list of replica names from ZK
-    replica_rows = client.execute(
-        "SELECT name FROM system.zookeeper WHERE path = %(path)s",
-        {"path": f"{zk_path}/replicas"},
-    )
-    replica_names = [row[0] for row in replica_rows]
-
-    logger.info(f"Waiting for {len(replica_names)} replicas to reach log index {target_log_index}...")
+    cluster = settings.CLICKHOUSE_CLUSTER
 
     behind_replicas: list[str] = []
+    first_poll = True
     start = time.time()
     while time.time() - start < max_wait:
+        # Query all replicas across the cluster, scoped to this shard via getMacro('shard').
+        # clusterAllReplicas returns rows for ALL shards, but log_pointer values differ
+        # per shard — we only care about replicas on the same shard.
+        rows = client.execute(
+            f"SELECT replica_name, log_pointer, is_session_expired "
+            f"FROM clusterAllReplicas(%(cluster)s, system.replicas) "
+            f"WHERE database = %(db)s AND table = %(table)s "
+            f"AND getMacro('shard') = %(shard)s",
+            {"cluster": cluster, "db": database, "table": source_table, "shard": str(shard_num)},
+        )
+
+        if not rows:
+            raise dagster.Failure(
+                description=f"No replicas found for {source_table} via clusterAllReplicas — "
+                "cannot safely verify replication before dropping the old part"
+            )
+
+        # Filter to active replicas (session not expired)
+        active = [(name, pointer) for name, pointer, expired in rows if not expired]
+        inactive = [name for name, _, expired in rows if expired]
+
+        if inactive:
+            logger.info(f"Skipping {len(inactive)} inactive replica(s): {', '.join(inactive)}")
+
+        if not active:
+            raise dagster.Failure(
+                description=f"No active replicas found for {source_table} — cannot verify replication"
+            )
+
+        if first_poll:
+            logger.info(f"Waiting for {len(active)} active replica(s) to reach log index {target_log_index}...")
+            first_poll = False
+
         all_synced = True
         behind_replicas = []
-        for replica_name in replica_names:
-            pointer_rows = client.execute(
-                "SELECT value FROM system.zookeeper WHERE path = %(path)s AND name = 'log_pointer'",
-                {"path": f"{zk_path}/replicas/{replica_name}"},
-            )
-            if not pointer_rows:
-                all_synced = False
-                behind_replicas.append(f"{replica_name} (no log_pointer — replica may be down/initializing)")
-                continue
-            try:
-                log_pointer = int(pointer_rows[0][0])
-            except (ValueError, TypeError):
-                all_synced = False
-                behind_replicas.append(f"{replica_name} (invalid log_pointer value: {pointer_rows[0][0]!r})")
-                continue
+        for replica_name, log_pointer in active:
             if log_pointer < target_log_index:
                 all_synced = False
                 behind_replicas.append(
@@ -616,7 +696,7 @@ def _wait_for_replication(client: Client, source_table: str, target_log_index: i
                 )
 
         if all_synced:
-            logger.info(f"All {len(replica_names)} replicas have reached log index {target_log_index}")
+            logger.info(f"All {len(active)} replicas have reached log index {target_log_index}")
             return
 
         elapsed = int(time.time() - start)
@@ -720,8 +800,106 @@ def break_part(
     )
 
     if config.dry_run:
-        context.log.info("DRY RUN — skipping actual processing")
-        return None
+
+        def _dry_run(client: Client) -> None:
+            """Run pre-flight checks and report what would happen without modifying anything."""
+            context.log.info("DRY RUN — running pre-flight checks only, no modifications will be made")
+
+            # Check disk space
+            has_space, free_bytes = _check_disk_space(client, part.part_bytes, config.min_free_space_multiplier)
+            free_gib = free_bytes / (1024**3)
+            required_gib = part.part_gib * config.min_free_space_multiplier
+            if has_space:
+                context.log.info(f"  Disk space: OK ({free_gib:.1f} GiB free, need {required_gib:.1f} GiB)")
+            else:
+                context.log.warning(
+                    f"  Disk space: INSUFFICIENT ({free_gib:.1f} GiB free, need {required_gib:.1f} GiB)"
+                )
+
+            # Check for active breaker
+            no_active = _check_no_active_breaker(client, staging_source, staging_target)
+            context.log.info(f"  No active breaker: {'OK' if no_active else 'BLOCKED — another INSERT SELECT running'}")
+
+            # Check staging tables
+            src_empty = (
+                _check_staging_table_empty(client, staging_source) if _table_exists(client, staging_source) else True
+            )
+            tgt_empty = (
+                _check_staging_table_empty(client, staging_target) if _table_exists(client, staging_target) else True
+            )
+            context.log.info(
+                f"  Staging source ({staging_source}): "
+                f"{'empty' if src_empty else 'NOT EMPTY — would truncate'}"
+                f"{' (does not exist — would create)' if not _table_exists(client, staging_source) else ''}"
+            )
+            context.log.info(
+                f"  Staging target ({staging_target}): "
+                f"{'empty' if tgt_empty else 'NOT EMPTY — would truncate'}"
+                f"{' (does not exist — would create)' if not _table_exists(client, staging_target) else ''}"
+            )
+
+            # Check replication health
+            repl_ok = _check_replication_healthy(client, source_table)
+            context.log.info(f"  Replication health: {'OK' if repl_ok else 'UNHEALTHY — queue > 100 entries'}")
+
+            # Check in-flight mutations targeting this specific part
+            blocking_mutations = _check_no_mutations_for_part(client, source_table, partition_id, part.part_name)
+            context.log.info(
+                f"  In-flight mutations for {part.part_name}: "
+                f"{'OK (none)' if not blocking_mutations else f'BLOCKED ({len(blocking_mutations)} targeting this part: {blocking_mutations})'}"
+            )
+
+            # Get disk/path info
+            disk_paths = _get_disk_paths(client)
+            part_disk = _get_part_disk(client, source_table, part.part_name)
+            primary_disk = _get_table_primary_disk(client, source_table)
+            copy_method = (
+                "hardlink (cp -rl)"
+                if part_disk == primary_disk
+                else f"real copy (cp -r, part on '{part_disk}', staging on '{primary_disk}')"
+            )
+            context.log.info(f"  Part disk: '{part_disk}' ({disk_paths[part_disk]})")
+            context.log.info(f"  Primary disk: '{primary_disk}' ({disk_paths[primary_disk]})")
+            context.log.info(f"  Copy method: {copy_method}")
+
+            # Get host info
+            host_rows = client.execute("SELECT hostName()")
+            context.log.info(f"  Target host: {host_rows[0][0]}")
+
+            # Replication status
+            cluster_name = settings.CLICKHOUSE_CLUSTER
+            replica_rows = client.execute(
+                f"SELECT replica_name, log_pointer, log_max_index, is_session_expired "
+                f"FROM clusterAllReplicas(%(cluster)s, system.replicas) "
+                f"WHERE database = %(db)s AND table = %(table)s "
+                f"AND getMacro('shard') = %(shard)s",
+                {"cluster": cluster_name, "db": database, "table": source_table, "shard": str(shard)},
+            )
+            context.log.info(f"  Replicas for shard {shard}:")
+            for rname, rpointer, rmax, rexpired in replica_rows:
+                status = "EXPIRED" if rexpired else "active"
+                behind = rmax - rpointer if rmax > rpointer else 0
+                context.log.info(
+                    f"    {rname}: log_pointer={rpointer}, log_max_index={rmax}, behind={behind}, status={status}"
+                )
+
+            # Summary
+            context.log.info(
+                f"  WOULD DO: FREEZE partition {partition_id} → {copy_method} → "
+                f"INSERT SELECT {part.part_gib:.1f} GiB ({part.part_rows:,} rows) → "
+                f"ATTACH new parts → wait for replication → DROP {part.part_name}"
+            )
+
+        workload = Workload[settings.PART_BREAKER_WORKLOAD]
+        try:
+            cluster.map_any_host_in_shards_by_role(
+                {shard: _dry_run},
+                node_role=NodeRole.DATA,
+                workload=workload,
+            ).result()
+        except Exception:
+            context.log.exception(f"Dry run failed for {source_table} shard {shard}, part {part.part_name}")
+        return BreakResult(part=part, dry_run=True)
 
     start_time = time.time()
 
@@ -759,6 +937,19 @@ def break_part(
 
             if not _check_replication_healthy(client, source_table):
                 raise dagster.Failure(description=f"Replication queue is backed up (>100 entries) for {source_table}")
+
+            blocking_mutations = _check_no_mutations_for_part(client, source_table, partition_id, part.part_name)
+            if blocking_mutations:
+                raise dagster.Failure(
+                    description=f"{len(blocking_mutations)} in-progress mutation(s) target part "
+                    f"{part.part_name} on {source_table}: {blocking_mutations}. "
+                    f"Part breaker would risk data inconsistency — skipping."
+                )
+
+            # Capture mutation_ids at start so we can detect any new mutations that
+            # cover this specific part during our run (even ones that start AND complete
+            # between FREEZE and ATTACH).
+            baseline_mutation_ids = _get_mutation_ids_for_part(client, source_table, partition_id, part.part_name)
 
             # -- Step 3: Get paths and establish SSH connection --
             disk_paths = _get_disk_paths(client)
@@ -878,18 +1069,24 @@ def break_part(
                     f"({config.max_part_size_gib} GiB). INSERT SELECT may not have broken sufficiently."
                 )
 
-            # -- Step 9: DETACH new parts from staging target --
-            # Check for stale detached parts from a previous failed run before detaching.
-            # TRUNCATE removes active parts but leaves detached/ contents.
+            # -- Step 9: Capture part hashes for post-ATTACH verification.
+            staging_hashes = client.execute(
+                "SELECT hash_of_all_files, rows FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s AND active "
+                "AND partition_id = %(partition_id)s",
+                {"db": database, "table": staging_target, "partition_id": partition_id},
+            )
+            expected_hashes = {row[0] for row in staging_hashes}
+            expected_rows_by_hash = {row[0]: row[1] for row in staging_hashes}
+
+            # Fail if stale detached parts exist from a previous failed run.
             pre_detach_ls = _ssh_exec(ssh, f"ls -1 {staging_tgt_detached}").strip()
             if pre_detach_ls:
-                # Only flag parts matching our partition — ignore CH-internal entries
                 stale_parts = [p for p in pre_detach_ls.split("\n") if p and p.startswith(f"{partition_id}_")]
                 if stale_parts:
                     raise dagster.Failure(
                         description=f"Staging target {staging_target} has {len(stale_parts)} stale detached part(s) "
-                        f"for partition {partition_id} from a previous run. "
-                        f"Clean up manually before retrying: {staging_tgt_detached}"
+                        f"for partition {partition_id}. Clean up manually: {staging_tgt_detached}"
                     )
 
             context.log.info(f"Detaching parts from {staging_target}...")
@@ -898,8 +1095,7 @@ def break_part(
                 settings={"max_partition_size_to_drop": "0"},
             )
 
-            # -- Step 10: Move detached parts to source table's detached dir --
-            # List the detached parts for this partition
+            # -- Step 10: Move detached parts to source table and ATTACH.
             ls_output = _ssh_exec(ssh, f"ls -1 {staging_tgt_detached}")
             detached_parts = [p for p in ls_output.strip().split("\n") if p and p.startswith(f"{partition_id}_")]
 
@@ -907,65 +1103,74 @@ def break_part(
             for dp in detached_parts:
                 _ssh_exec(ssh, f"mv {staging_tgt_detached}{dp} {source_detached}{dp}")
 
-            # -- Step 11: ATTACH the new parts to source table --
-            # Use ATTACH PART (not ATTACH PARTITION) to only attach the parts we moved,
-            # avoiding accidentally reattaching unrelated pre-existing detached parts.
-            # Other replicas will automatically fetch these parts via replication.
+            # Re-check for new mutations that appeared during our work and target this
+            # specific part — they'd have mutated the old part but not our staging data,
+            # producing inconsistent state.
+            current_mutation_ids = _get_mutation_ids_for_part(client, source_table, partition_id, part.part_name)
+            new_mutation_ids = current_mutation_ids - baseline_mutation_ids
+            if new_mutation_ids:
+                raise dagster.Failure(
+                    description=f"{len(new_mutation_ids)} new mutation(s) targeting part "
+                    f"{part.part_name} appeared during part break on {source_table}: "
+                    f"{sorted(new_mutation_ids)}. Aborting before ATTACH to avoid data inconsistency."
+                )
+
+            # ATTACH PART can silently succeed without activating the
+            # part when the block range doesn't fit existing state.
+            # Verify each ATTACH actually landed in system.parts before proceeding.
             context.log.info(f"Attaching {len(detached_parts)} new parts to {source_table}...")
             for dp in detached_parts:
                 client.execute(f"ALTER TABLE {database}.{source_table} ATTACH PART '{dp}'")
+                check = client.execute(
+                    "SELECT count() FROM system.parts "
+                    "WHERE database = %(db)s AND table = %(table)s "
+                    "AND name = %(name)s",
+                    {"db": database, "table": source_table, "name": dp},
+                )
+                if not check or check[0][0] == 0:
+                    raise dagster.Failure(
+                        description=f"ATTACH PART '{dp}' returned Ok but part did not land in "
+                        f"system.parts. CH may have silently skipped it (block range outside "
+                        f"existing state). See source detached dir ({source_detached}) for the stranded part."
+                    )
 
-            # Dedup window: both old oversized part and new broken parts are active.
-            # ReplacingMergeTree handles this transparently on read.
+            # -- Step 11: Verify our parts exist by hash_of_all_files.
+            current_parts = client.execute(
+                "SELECT hash_of_all_files FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s "
+                "AND partition_id = %(partition_id)s "
+                "AND name != %(old_part)s",
+                {"db": database, "table": source_table, "partition_id": partition_id, "old_part": part.part_name},
+            )
+            current_hashes = {row[0] for row in current_parts}
+            missing_hashes = expected_hashes - current_hashes
+            if missing_hashes:
+                missing_rows = sum(expected_rows_by_hash[h] for h in missing_hashes)
+                raise dagster.Failure(
+                    description=f"{len(missing_hashes)} of {len(expected_hashes)} parts missing after ATTACH "
+                    f"({missing_rows:,} rows). Skipping DROP to avoid data loss."
+                )
+            context.log.info(
+                f"Safety check passed: all {len(expected_hashes)} part hashes verified ({target_count:,} rows)"
+            )
 
-            # Capture the current log index — all replicas must reach at least this
-            # point before we drop the old part, ensuring they have the new parts.
+            # -- Step 12: Wait for replication before dropping.
             log_index_rows = client.execute(
                 "SELECT log_max_index FROM system.replicas WHERE database = %(db)s AND table = %(table)s",
                 {"db": database, "table": source_table},
             )
             if not log_index_rows or log_index_rows[0][0] is None:
-                raise dagster.Failure(
-                    description=f"Could not get log_max_index for {source_table} — cannot safely proceed with DROP"
-                )
+                raise dagster.Failure(description=f"Could not get log_max_index for {source_table}")
             target_log_index = log_index_rows[0][0]
 
-            # -- Step 12: Wait for replication before dropping --
-            # Wait for all replicas to fetch the new parts before dropping the old one.
-            # Without this, if the initiating replica goes down after DROP, other replicas
-            # would have neither the old part (dropped via replication) nor the new parts
-            # (not yet fetched). For large parts (hundreds of GiB to TiB) the fetch can
-            # take 30+ minutes, so this wait is critical for data safety.
             context.log.info(
                 f"Waiting for all replicas to reach log index {target_log_index} before dropping old part..."
             )
-            _wait_for_replication(client, source_table, target_log_index)
+            _wait_for_replication(client, source_table, target_log_index, part.shard_num)
             context.log.info("Replication complete — all replicas have the new parts")
 
-            # -- Step 13: DROP the original oversized part --
-            # Safety check: verify new parts exist on the source table before dropping.
-            # If ATTACHes failed silently or parts were merged away, dropping the old
-            # part would lose data.
-            new_attached = client.execute(
-                "SELECT count() FROM system.parts "
-                "WHERE database = %(db)s AND table = %(table)s AND active "
-                "AND partition_id = %(partition_id)s "
-                "AND name != %(old_part)s",
-                {"db": database, "table": source_table, "partition_id": partition_id, "old_part": part.part_name},
-            )
-            new_attached_count = new_attached[0][0] if new_attached else 0
-            if new_attached_count < len(detached_parts):
-                raise dagster.Failure(
-                    description=f"Expected at least {len(detached_parts)} new parts on {source_table} "
-                    f"partition {partition_id}, but only found {new_attached_count} (excluding original). "
-                    f"Skipping DROP to avoid data loss."
-                )
-
-            # Re-query the part by its min_block/max_block numbers which are stable
-            # across mutations (mutations only change the suffix, not the block range).
-            # Original part name format: {partition}_{min_block}_{max_block}_{level}
-            # Extract the block range from the original name for matching.
-            original_prefix = "_".join(part.part_name.split("_")[:3])  # e.g. "202108_1_1"
+            # -- Step 13: DROP the original part (re-query by prefix, mutations change suffix).
+            original_prefix = "_".join(part.part_name.split("_")[:3])
             current_parts = client.execute(
                 "SELECT name FROM system.parts "
                 "WHERE database = %(db)s AND table = %(table)s AND active "
@@ -986,12 +1191,33 @@ def break_part(
                         f"{[r[0] for r in current_parts]}. Dropping the first match."
                     )
                 current_part_name = current_parts[0][0]
+
+                # DROP PART requires a shard leader replica so we route the DROP
+                # to a (leader-eligible) replica on the same shard.
                 context.log.info(f"Dropping oversized part {current_part_name} from {source_table}...")
-                client.execute(
-                    f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
-                    settings={"max_partition_size_to_drop": "0"},
-                )
-                context.log.info(f"Dropped {current_part_name}")
+                try:
+                    client.execute(
+                        f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
+                        settings={"max_partition_size_to_drop": "0"},
+                    )
+                    context.log.info(f"Dropped {current_part_name}")
+                except Exception as drop_err:
+                    if "not a leader" not in str(drop_err):
+                        raise
+                    context.log.info(f"Current replica is not a leader — routing DROP to an online replica...")
+
+                    def _drop_on_leader(leader_client: Client) -> None:
+                        leader_client.execute(
+                            f"ALTER TABLE {database}.{source_table} DROP PART '{current_part_name}'",
+                            settings={"max_partition_size_to_drop": "0"},
+                        )
+
+                    cluster.map_any_host_in_shards_by_role(
+                        {shard: _drop_on_leader},
+                        node_role=NodeRole.DATA,
+                        workload=Workload.ONLINE,
+                    ).result()
+                    context.log.info(f"Dropped {current_part_name} (via leader replica)")
             else:
                 context.log.warning(
                     f"Original oversized part (prefix {original_prefix}) not found in "
@@ -1000,25 +1226,11 @@ def break_part(
                 )
 
             # -- Step 14: Get final stats --
-            new_parts_rows = client.execute(
-                "SELECT count(), max(bytes_on_disk) FROM system.parts "
-                "WHERE database = %(db)s AND table = %(table)s AND active AND partition_id = %(pid)s",
-                {"db": database, "table": source_table, "pid": partition_id},
-            )
-            new_part_count = new_parts_rows[0][0]
-            new_largest_bytes = new_parts_rows[0][1] if new_parts_rows[0][1] else 0
-            new_largest_gib = new_largest_bytes / (1024**3)
-
-            # Get post-break count for this partition
-            partition_key_expr = client.execute(
-                "SELECT partition_key FROM system.tables WHERE database = %(db)s AND name = %(table)s",
-                {"db": database, "table": source_table},
-            )[0][0]
-            post_count_rows = client.execute(
-                f"SELECT count() FROM {database}.{source_table} WHERE {partition_key_expr} = %(pid)s",
-                {"pid": _cast_partition_id(partition_id)},
-            )
-            post_count = post_count_rows[0][0]
+            # Use the verified staging target stats from Step 8 — these reflect exactly
+            # what we created, not the whole partition which includes unrelated parts.
+            new_part_count = target_parts
+            new_largest_gib = target_largest_gib
+            post_count = target_count
 
             # -- Step 15: Clean up --
             context.log.info("Cleaning up staging tables...")
@@ -1114,11 +1326,17 @@ def report_results(
     results: list[Optional[BreakResult]],
 ):
     """Summarize the results of the part breaking run."""
-    completed = [r for r in results if r is not None]
-    failed_count = len(results) - len(completed)
+    dry_runs = [r for r in results if r is not None and r.dry_run]
+    completed = [r for r in results if r is not None and not r.dry_run]
+    failed_count = len(results) - len(completed) - len(dry_runs)
+
+    if dry_runs and not completed and failed_count == 0:
+        context.log.info(f"DRY RUN complete — checked {len(dry_runs)} part(s), no modifications made")
+        context.add_output_metadata({"parts_checked": len(dry_runs), "status": "dry_run"})
+        return
 
     if not completed and failed_count == 0:
-        context.log.info("No parts were processed (dry run or nothing to do)")
+        context.log.info("No parts were processed (nothing to do)")
         context.add_output_metadata({"parts_processed": 0, "status": "no_work"})
         return
 
@@ -1145,15 +1363,9 @@ def report_results(
     )
 
     if failed_count > 0:
-        context.log.warning(f"{failed_count} part(s) failed — check individual op logs for details")
-
-
-def _cast_partition_id(partition_id: str):
-    """Cast partition_id to the appropriate type for WHERE clause comparison."""
-    try:
-        return int(partition_id)
-    except ValueError:
-        return partition_id
+        raise dagster.Failure(
+            description=f"{failed_count} part(s) failed out of {len(results)} — check individual op logs for details"
+        )
 
 
 # -- Dagster Job --
@@ -1162,8 +1374,6 @@ def _cast_partition_id(partition_id: str):
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
-        # Disable slack alerts during initial validation — remove once stable
-        "disable_slack_notifications": True,
     },
     resource_defs=PART_BREAKER_RESOURCE_DEFS,
     executor_def=dagster.multiprocess_executor.configured({"max_concurrent": settings.PART_BREAKER_MAX_CONCURRENT}),

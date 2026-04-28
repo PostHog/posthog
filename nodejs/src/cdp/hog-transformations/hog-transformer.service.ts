@@ -7,8 +7,7 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
-import { InternalCaptureService } from '../../common/services/internal-capture'
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { PostgresRouter } from '../../utils/db/postgres'
 import { GeoIPService, GeoIp } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
@@ -22,7 +21,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
 import { EmailService } from '../services/messaging/email.service'
 import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
-import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
+import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
@@ -105,10 +104,10 @@ export class HogTransformerService {
 
         const shouldRunHogWatcher = Math.random() < this.config.hogWatcherSampleRate
 
+        this.hogFunctionMonitoringService.queueInvocationResults(results)
+
         await Promise.allSettled([
-            this.hogFunctionMonitoringService
-                .queueInvocationResults(results)
-                .then(() => this.hogFunctionMonitoringService.flush()),
+            this.hogFunctionMonitoringService.flush(),
 
             shouldRunHogWatcher
                 ? this.hogWatcher.observeResults(results).catch((error) => {
@@ -138,7 +137,7 @@ export class HogTransformerService {
                 event: event.event,
                 distinct_id: event.distinct_id,
                 properties: event.properties || {},
-                elements_chain: event.properties?.elements_chain || '',
+                elements_chain: event.properties?.$elements_chain || '',
                 timestamp: event.timestamp || '',
                 url: event.properties?.$current_url || '',
             },
@@ -410,9 +409,8 @@ export interface HogTransformerServiceDeps {
     pubSub: PubSub
     encryptedFields: EncryptedFields
     integrationManager: IntegrationManagerService
-    kafkaProducer: KafkaProducerWrapper
+    monitoringOutputs: IngestionOutputs<MonitoringOutput>
     teamManager: TeamManager
-    internalCaptureService: InternalCaptureService
 }
 
 export function createHogTransformerService(
@@ -458,13 +456,7 @@ export function createHogTransformerService(
         recipientTokensService
     )
     const pluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
-    const hogFunctionMonitoringService = new HogFunctionMonitoringService(
-        deps.kafkaProducer,
-        deps.internalCaptureService,
-        deps.teamManager,
-        config.HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC,
-        config.HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC
-    )
+    const hogFunctionMonitoringService = new HogFunctionMonitoringService(deps.monitoringOutputs)
     const hogWatcher = new HogWatcherService(
         deps.teamManager,
         {

@@ -20,6 +20,7 @@ export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
     const onConfirmDisable = async (): Promise<boolean> => {
         try {
             await api.dataWarehouseManagedViewsets.toggle('revenue_analytics', false)
+            await api.revenueAnalyticsJoins.sync(false)
             lemonToast.success('Revenue analytics disabled successfully')
             loadCurrentTeam()
             return true

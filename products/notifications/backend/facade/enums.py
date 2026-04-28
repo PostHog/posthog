@@ -26,6 +26,17 @@ class TargetType(str, Enum):
     ROLE = "role"
 
 
+class SourceType(str, Enum):
+    REPLAY = "replay"
+    NOTEBOOK = "notebook"
+    INSIGHT = "insight"
+    FEATURE_FLAG = "feature_flag"
+    DASHBOARD = "dashboard"
+    SURVEY = "survey"
+    EXPERIMENT = "experiment"
+    ERROR_TRACKING = "error_tracking"
+
+
 class NotificationOnlyResourceType(str, Enum):
     """Resource types that only exist in the notification system (no AC counterpart)."""
 

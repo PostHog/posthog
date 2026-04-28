@@ -67,32 +67,6 @@ export interface UserBasicApi {
 }
 
 /**
- * * `21` - Everyone in the project can edit
- * `37` - Only those invited to this dashboard can edit
- */
-export type DashboardRestrictionLevelApi =
-    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
-
-export const DashboardRestrictionLevelApi = {
-    Number21: 21,
-    Number37: 37,
-} as const
-
-export interface DashboardCollaboratorApi {
-    readonly id: string
-    readonly dashboard_id: number
-    readonly user: UserBasicApi
-    /**
-     * @minimum 0
-     * @maximum 32767
-     */
-    level: DashboardRestrictionLevelApi
-    readonly added_at: string
-    readonly updated_at: string
-    user_uuid: string
-}
-
-/**
  * * `team` - Only team
  * `global` - Global
  * `feature_flag` - Feature Flag
@@ -127,8 +101,7 @@ export interface DashboardTemplateApi {
     deleted?: boolean | null
     /** @nullable */
     readonly created_at: string | null
-    /** @nullable */
-    created_by?: number | null
+    readonly created_by: UserBasicApi
     /**
      * @maxLength 8201
      * @nullable
@@ -152,6 +125,11 @@ export interface PaginatedDashboardTemplateListApi {
     results: DashboardTemplateApi[]
 }
 
+export interface CopyDashboardTemplateApi {
+    /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
+    source_template_id: string
+}
+
 /**
  * * `default` - Default
  * `template` - Template
@@ -167,10 +145,13 @@ export const CreationModeEnumApi = {
     Unlisted: 'unlisted',
 } as const
 
-export type EffectiveRestrictionLevelEnumApi =
-    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
+/**
+ * * `21` - Everyone in the project can edit
+ * `37` - Only those invited to this dashboard can edit
+ */
+export type RestrictionLevelEnumApi = (typeof RestrictionLevelEnumApi)[keyof typeof RestrictionLevelEnumApi]
 
-export const EffectiveRestrictionLevelEnumApi = {
+export const RestrictionLevelEnumApi = {
     Number21: 21,
     Number37: 37,
 } as const
@@ -211,8 +192,8 @@ export interface DashboardBasicApi {
 
 * `21` - Everyone in the project can edit
 * `37` - Only those invited to this dashboard can edit */
-    readonly restriction_level: DashboardRestrictionLevelApi
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly restriction_level: RestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -289,8 +270,8 @@ export interface DashboardApi {
      * @minimum 0
      * @maximum 32767
      */
-    restriction_level?: DashboardRestrictionLevelApi
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    restriction_level?: RestrictionLevelEnumApi
+    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -322,6 +303,20 @@ export interface DashboardApi {
     /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
+}
+
+export interface DashboardCollaboratorApi {
+    readonly id: string
+    readonly dashboard_id: number
+    readonly user: UserBasicApi
+    /**
+     * @minimum 0
+     * @maximum 32767
+     */
+    level: RestrictionLevelEnumApi
+    readonly added_at: string
+    readonly updated_at: string
+    user_uuid: string
 }
 
 export interface SharePasswordApi {
@@ -401,8 +396,8 @@ export interface PatchedDashboardApi {
      * @minimum 0
      * @maximum 32767
      */
-    restriction_level?: DashboardRestrictionLevelApi
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    restriction_level?: RestrictionLevelEnumApi
+    readonly effective_restriction_level?: EffectivePrivilegeLevelEnumApi
     readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -451,6 +446,76 @@ export interface ReorderTilesRequestApi {
     tile_order: number[]
 }
 
+/**
+ * InsightSerializer restricted to identifiers + result only.
+ */
+export interface InsightResultApi {
+    readonly id: number
+    readonly short_id: string
+    /** @nullable */
+    readonly name: string | null
+    /** @nullable */
+    readonly derived_name: string | null
+    readonly result: unknown
+}
+
+/**
+ * DashboardTileSerializer restricted to tile id + insight result fields.
+ */
+export interface DashboardTileResultApi {
+    id?: number
+    insight: InsightResultApi
+}
+
+export interface RunInsightsResponseApi {
+    /** Results for each insight tile on the dashboard. */
+    results: DashboardTileResultApi[]
+}
+
+/**
+ * * `add` - add
+ * `remove` - remove
+ * `set` - set
+ */
+export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+
+export const ActionEnumApi = {
+    Add: 'add',
+    Remove: 'remove',
+    Set: 'set',
+} as const
+
+export interface BulkUpdateTagsRequestApi {
+    /**
+     * List of object IDs to update tags on.
+     * @maxItems 500
+     */
+    ids: number[]
+    /** 'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.
+
+* `add` - add
+* `remove` - remove
+* `set` - set */
+    action: ActionEnumApi
+    /** Tag names to add, remove, or set. */
+    tags: string[]
+}
+
+export interface BulkUpdateTagsItemApi {
+    id: number
+    tags: string[]
+}
+
+export interface BulkUpdateTagsErrorApi {
+    id: number
+    reason: string
+}
+
+export interface BulkUpdateTagsResponseApi {
+    updated: BulkUpdateTagsItemApi[]
+    skipped: BulkUpdateTagsErrorApi[]
+}
+
 export interface DataColorThemeApi {
     readonly id: number
     /** @maxLength 100 */
@@ -484,6 +549,10 @@ export interface PatchedDataColorThemeApi {
 
 export type DashboardTemplatesListParams = {
     /**
+     * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
+     */
+    is_featured?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -491,7 +560,23 @@ export type DashboardTemplatesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. When not using `search`, results are sorted with featured templates first (`is_featured=true`), then by `template_name` (case-insensitive A–Z; `-template_name` for Z–A) or by `created_at` (`-created_at` for newest first). When `search` is set, order is featured first, then relevance rank, then case-insensitive name for ties.
+     */
+    ordering?: string
+    /**
+     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. Omit for both official and this project's templates (default dashboard template picker behavior).
+     */
+    scope?: DashboardTemplatesListScope
 }
+
+export type DashboardTemplatesListScope = (typeof DashboardTemplatesListScope)[keyof typeof DashboardTemplatesListScope]
+
+export const DashboardTemplatesListScope = {
+    FeatureFlag: 'feature_flag',
+    Global: 'global',
+    Team: 'team',
+} as const
 
 export type DashboardsListParams = {
     format?: DashboardsListFormat
@@ -616,6 +701,43 @@ export const DashboardsReorderTilesCreateFormat = {
     Txt: 'txt',
 } as const
 
+export type DashboardsRunInsightsRetrieveParams = {
+    format?: DashboardsRunInsightsRetrieveFormat
+    /**
+     * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
+     */
+    output_format?: DashboardsRunInsightsRetrieveOutputFormat
+    /**
+     * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
+     */
+    refresh?: DashboardsRunInsightsRetrieveRefresh
+}
+
+export type DashboardsRunInsightsRetrieveFormat =
+    (typeof DashboardsRunInsightsRetrieveFormat)[keyof typeof DashboardsRunInsightsRetrieveFormat]
+
+export const DashboardsRunInsightsRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsRunInsightsRetrieveOutputFormat =
+    (typeof DashboardsRunInsightsRetrieveOutputFormat)[keyof typeof DashboardsRunInsightsRetrieveOutputFormat]
+
+export const DashboardsRunInsightsRetrieveOutputFormat = {
+    Json: 'json',
+    Optimized: 'optimized',
+} as const
+
+export type DashboardsRunInsightsRetrieveRefresh =
+    (typeof DashboardsRunInsightsRetrieveRefresh)[keyof typeof DashboardsRunInsightsRetrieveRefresh]
+
+export const DashboardsRunInsightsRetrieveRefresh = {
+    Blocking: 'blocking',
+    ForceBlocking: 'force_blocking',
+    ForceCache: 'force_cache',
+} as const
+
 export type DashboardsSnapshotCreateParams = {
     format?: DashboardsSnapshotCreateFormat
 }
@@ -636,6 +758,18 @@ export type DashboardsStreamTilesRetrieveFormat =
     (typeof DashboardsStreamTilesRetrieveFormat)[keyof typeof DashboardsStreamTilesRetrieveFormat]
 
 export const DashboardsStreamTilesRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsBulkUpdateTagsCreateParams = {
+    format?: DashboardsBulkUpdateTagsCreateFormat
+}
+
+export type DashboardsBulkUpdateTagsCreateFormat =
+    (typeof DashboardsBulkUpdateTagsCreateFormat)[keyof typeof DashboardsBulkUpdateTagsCreateFormat]
+
+export const DashboardsBulkUpdateTagsCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

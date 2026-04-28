@@ -24,7 +24,7 @@ class Truth extends AsymmetricMatcher<(value: any) => boolean> {
         return this.inverse ? !result : result
     }
 
-    toString(): string {
+    override toString(): string {
         return `${this.inverse ? 'Not' : ''}Truth`
     }
 

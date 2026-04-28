@@ -387,9 +387,9 @@ export const ScheduleEnumApi = {
  * `person` - person
  * `group` - group
  */
-export type Type380EnumApi = (typeof Type380EnumApi)[keyof typeof Type380EnumApi]
+export type PropertyGroupTypeEnumApi = (typeof PropertyGroupTypeEnumApi)[keyof typeof PropertyGroupTypeEnumApi]
 
-export const Type380EnumApi = {
+export const PropertyGroupTypeEnumApi = {
     Cohort: 'cohort',
     Person: 'person',
     Group: 'group',
@@ -431,7 +431,7 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -463,9 +463,9 @@ export interface FeatureFlagFilterPropertyGenericSchemaApi {
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type Operator3e6EnumApi = (typeof Operator3e6EnumApi)[keyof typeof Operator3e6EnumApi]
+export type ExistenceOperatorEnumApi = (typeof ExistenceOperatorEnumApi)[keyof typeof ExistenceOperatorEnumApi]
 
-export const Operator3e6EnumApi = {
+export const ExistenceOperatorEnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -478,7 +478,7 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -493,23 +493,22 @@ export interface FeatureFlagFilterPropertyExistsSchemaApi {
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: Operator3e6EnumApi
+    operator: ExistenceOperatorEnumApi
     /** Optional value. Runtime behavior determines whether this is ignored. */
     value?: unknown
 }
 
 /**
  * * `is_date_exact` - is_date_exact
- * `is_date_after` - is_date_after
  * `is_date_before` - is_date_before
+ * `is_date_after` - is_date_after
  */
-export type FeatureFlagFilterPropertyDateSchemaOperatorEnumApi =
-    (typeof FeatureFlagFilterPropertyDateSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyDateSchemaOperatorEnumApi]
+export type DateOperatorEnumApi = (typeof DateOperatorEnumApi)[keyof typeof DateOperatorEnumApi]
 
-export const FeatureFlagFilterPropertyDateSchemaOperatorEnumApi = {
+export const DateOperatorEnumApi = {
     IsDateExact: 'is_date_exact',
-    IsDateAfter: 'is_date_after',
     IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
 } as const
 
 export interface FeatureFlagFilterPropertyDateSchemaApi {
@@ -520,7 +519,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -536,7 +535,7 @@ export interface FeatureFlagFilterPropertyDateSchemaApi {
 * `is_date_exact` - is_date_exact
 * `is_date_after` - is_date_after
 * `is_date_before` - is_date_before */
-    operator: FeatureFlagFilterPropertyDateSchemaOperatorEnumApi
+    operator: DateOperatorEnumApi
     /** Date value in ISO format or relative date expression. */
     value: string
 }
@@ -575,7 +574,7 @@ export interface FeatureFlagFilterPropertySemverSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -622,7 +621,7 @@ export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
 * `cohort` - cohort
 * `person` - person
 * `group` - group */
-    type?: Type380EnumApi
+    type?: PropertyGroupTypeEnumApi
     /**
      * Resolved cohort name for cohort-type filters.
      * @nullable
@@ -814,15 +813,15 @@ export const SurveyOpenQuestionSchemaTypeEnumApi = {
 } as const
 
 /**
- * * `text` - text
- * `html` - html
+ * * `html` - html
+ * `text` - text
  */
 export type DescriptionContentTypeEnumApi =
     (typeof DescriptionContentTypeEnumApi)[keyof typeof DescriptionContentTypeEnumApi]
 
 export const DescriptionContentTypeEnumApi = {
-    Text: 'text',
     Html: 'html',
+    Text: 'text',
 } as const
 
 export interface SurveyOpenQuestionSchemaApi {
@@ -1094,22 +1093,22 @@ export type SurveyQuestionInputSchemaApi =
     | SurveyMultipleChoiceQuestionSchemaApi
 
 /**
- * * `regex` - regex
- * `not_regex` - not_regex
- * `exact` - exact
+ * * `exact` - exact
  * `is_not` - is_not
  * `icontains` - icontains
  * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
  */
-export type UrlMatchTypeEnumApi = (typeof UrlMatchTypeEnumApi)[keyof typeof UrlMatchTypeEnumApi]
+export type StringMatchOperatorEnumApi = (typeof StringMatchOperatorEnumApi)[keyof typeof StringMatchOperatorEnumApi]
 
-export const UrlMatchTypeEnumApi = {
-    Regex: 'regex',
-    NotRegex: 'not_regex',
+export const StringMatchOperatorEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
 } as const
 
 export interface SurveyConditionEventValueSchemaApi {
@@ -1137,25 +1136,6 @@ export const DeviceTypesEnumApi = {
     Tablet: 'Tablet',
 } as const
 
-/**
- * * `regex` - regex
- * `not_regex` - not_regex
- * `exact` - exact
- * `is_not` - is_not
- * `icontains` - icontains
- * `not_icontains` - not_icontains
- */
-export type DeviceTypesMatchTypeEnumApi = (typeof DeviceTypesMatchTypeEnumApi)[keyof typeof DeviceTypesMatchTypeEnumApi]
-
-export const DeviceTypesMatchTypeEnumApi = {
-    Regex: 'regex',
-    NotRegex: 'not_regex',
-    Exact: 'exact',
-    IsNot: 'is_not',
-    Icontains: 'icontains',
-    NotIcontains: 'not_icontains',
-} as const
-
 export interface SurveyConditionsSchemaApi {
     url?: string
     selector?: string
@@ -1172,7 +1152,7 @@ export interface SurveyConditionsSchemaApi {
 * `is_not` - is_not
 * `icontains` - icontains
 * `not_icontains` - not_icontains */
-    urlMatchType?: UrlMatchTypeEnumApi
+    urlMatchType?: StringMatchOperatorEnumApi
     events?: SurveyEventsConditionSchemaApi
     /** Device types that should match for this survey to be shown. */
     deviceTypes?: DeviceTypesEnumApi[]
@@ -1184,22 +1164,10 @@ export interface SurveyConditionsSchemaApi {
 * `is_not` - is_not
 * `icontains` - icontains
 * `not_icontains` - not_icontains */
-    deviceTypesMatchType?: DeviceTypesMatchTypeEnumApi
+    deviceTypesMatchType?: StringMatchOperatorEnumApi
     /** The variant of the feature flag linked to this survey. */
     linkedFlagVariant?: string
 }
-
-/**
- * * `html` - html
- * `text` - text
- */
-export type ThankYouMessageDescriptionContentTypeEnumApi =
-    (typeof ThankYouMessageDescriptionContentTypeEnumApi)[keyof typeof ThankYouMessageDescriptionContentTypeEnumApi]
-
-export const ThankYouMessageDescriptionContentTypeEnumApi = {
-    Html: 'html',
-    Text: 'text',
-} as const
 
 /**
  * * `button` - button
@@ -1229,7 +1197,7 @@ export interface SurveyAppearanceSchemaApi {
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string
-    thankYouMessageDescriptionContentType?: ThankYouMessageDescriptionContentTypeEnumApi
+    thankYouMessageDescriptionContentType?: DescriptionContentTypeEnumApi
     thankYouMessageCloseButtonText?: string
     borderColor?: string
     placeholder?: string
@@ -1906,6 +1874,52 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     form_content?: unknown | null
 }
 
+/**
+ * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
+ */
+export type SurveyStatsResponseApiStats = { [key: string]: unknown }
+
+/**
+ * Calculated response and dismissal rates.
+ */
+export type SurveyStatsResponseApiRates = { [key: string]: unknown }
+
+export interface SurveyStatsResponseApi {
+    /** The survey ID these stats belong to. */
+    survey_id: string
+    /**
+     * When the survey started collecting responses.
+     * @nullable
+     */
+    start_date: string | null
+    /**
+     * When the survey stopped collecting responses.
+     * @nullable
+     */
+    end_date: string | null
+    /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
+    stats: SurveyStatsResponseApiStats
+    /** Calculated response and dismissal rates. */
+    rates: SurveyStatsResponseApiRates
+}
+
+/**
+ * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
+ */
+export type SurveyGlobalStatsResponseApiStats = { [key: string]: unknown }
+
+/**
+ * Calculated response and dismissal rates.
+ */
+export type SurveyGlobalStatsResponseApiRates = { [key: string]: unknown }
+
+export interface SurveyGlobalStatsResponseApi {
+    /** Event counts keyed by event name (survey shown, survey dismissed, survey sent). */
+    stats: SurveyGlobalStatsResponseApiStats
+    /** Calculated response and dismissal rates. */
+    rates: SurveyGlobalStatsResponseApiRates
+}
+
 export type SurveysListParams = {
     archived?: boolean
     /**
@@ -1922,7 +1936,7 @@ export type SurveysListParams = {
     search?: string
 }
 
-export type SurveysStatsRetrieve2Params = {
+export type SurveysStatsRetrieveParams = {
     /**
      * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
      */
@@ -1933,7 +1947,7 @@ export type SurveysStatsRetrieve2Params = {
     date_to?: string
 }
 
-export type SurveysStatsRetrieveParams = {
+export type SurveysGlobalStatsRetrieveParams = {
     /**
      * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
      */

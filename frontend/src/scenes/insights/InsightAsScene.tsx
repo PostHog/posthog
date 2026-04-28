@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -72,11 +73,19 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
         return null
     }
 
+    const isEditing = insightMode === ItemMode.Edit
+
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <InsightModals insightLogicProps={insightProps} />
-            <SceneContent className="Insight">
-                <InsightSceneHeader insightLogicProps={insightProps} />
+            <SceneContent className={clsx('Insight', isEditing && '!gap-0')}>
+                {isEditing ? (
+                    <div className="flex flex-col gap-y-4 shrink-0">
+                        <InsightSceneHeader insightLogicProps={insightProps} />
+                    </div>
+                ) : (
+                    <InsightSceneHeader insightLogicProps={insightProps} />
+                )}
 
                 <Query
                     attachTo={attachTo}

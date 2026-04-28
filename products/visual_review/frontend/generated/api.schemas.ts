@@ -15,6 +15,7 @@ export interface RepoApi {
     repo_external_id: number
     repo_full_name: string
     baseline_file_paths: RepoApiBaselineFilePaths
+    enable_pr_comments: boolean
     created_at: string
 }
 
@@ -41,6 +42,44 @@ export type PatchedUpdateRepoRequestInputApiBaselineFilePaths = { [key: string]:
 export interface PatchedUpdateRepoRequestInputApi {
     /** @nullable */
     baseline_file_paths?: PatchedUpdateRepoRequestInputApiBaselineFilePaths
+    /** @nullable */
+    enable_pr_comments?: boolean | null
+}
+
+export interface UserBasicInfoApi {
+    id: number
+    first_name: string
+    email: string
+}
+
+export interface QuarantinedIdentifierEntryApi {
+    created_by?: UserBasicInfoApi | null
+    id: string
+    identifier: string
+    run_type: string
+    reason: string
+    /** @nullable */
+    expires_at: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface PaginatedQuarantinedIdentifierEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: QuarantinedIdentifierEntryApi[]
+}
+
+export interface QuarantineInputApi {
+    /** @maxLength 512 */
+    identifier: string
+    /** @maxLength 255 */
+    reason: string
+    /** @nullable */
+    expires_at?: string | null
 }
 
 export interface RunSummaryApi {
@@ -49,11 +88,14 @@ export interface RunSummaryApi {
     new: number
     removed: number
     unchanged: number
+    unresolved?: number
+    tolerated_matched?: number
 }
 
 export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
+    approved_by?: UserBasicInfoApi | null
     id: string
     repo_id: string
     status: string
@@ -72,6 +114,8 @@ export interface RunApi {
     /** @nullable */
     completed_at: string | null
     is_stale?: boolean
+    /** @nullable */
+    superseded_by_id?: string | null
     metadata?: RunApiMetadata
 }
 
@@ -156,12 +200,13 @@ export interface AutoApproveResultApi {
     baseline_content: string
 }
 
-export type CompleteRunInputApiBaselineHashes = { [key: string]: string }
-
-export interface CompleteRunInputApi {
-    removed_identifiers?: string[]
-    unchanged_count?: number
-    baseline_hashes?: CompleteRunInputApiBaselineHashes
+export interface RecomputeResultApi {
+    run: RunApi
+    counts_changed: boolean
+    unresolved: number
+    ci_rerun_triggered: boolean
+    /** @nullable */
+    ci_rerun_error?: string | null
 }
 
 export interface SnapshotHistoryEntryApi {
@@ -198,9 +243,11 @@ export interface SnapshotApi {
     current_artifact?: ArtifactApi | null
     baseline_artifact?: ArtifactApi | null
     diff_artifact?: ArtifactApi | null
+    reviewed_by?: UserBasicInfoApi | null
     id: string
     identifier: string
     result: string
+    classification_reason: string
     /** @nullable */
     diff_percentage: number | null
     /** @nullable */
@@ -209,6 +256,9 @@ export interface SnapshotApi {
     /** @nullable */
     reviewed_at: string | null
     approved_hash: string
+    /** @nullable */
+    tolerated_hash_id?: string | null
+    is_quarantined?: boolean
     metadata?: SnapshotApiMetadata
 }
 
@@ -219,6 +269,31 @@ export interface PaginatedSnapshotListApi {
     /** @nullable */
     previous?: string | null
     results: SnapshotApi[]
+}
+
+export interface MarkToleratedInputApi {
+    snapshot_id: string
+}
+
+export interface ToleratedHashEntryApi {
+    id: string
+    alternate_hash: string
+    baseline_hash: string
+    reason: string
+    /** @nullable */
+    diff_percentage: number | null
+    created_at: string
+    /** @nullable */
+    source_run_id: string | null
+}
+
+export interface PaginatedToleratedHashEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ToleratedHashEntryApi[]
 }
 
 export interface ReviewStateCountsApi {
@@ -237,6 +312,25 @@ export type VisualReviewReposListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type VisualReviewReposQuarantineListParams = {
+    /**
+     * Filter by identifier (returns full history)
+     */
+    identifier?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by run type
+     */
+    run_type?: string
 }
 
 export type VisualReviewRunsListParams = {
@@ -270,6 +364,21 @@ export type VisualReviewRunsSnapshotHistoryListParams = {
 }
 
 export type VisualReviewRunsSnapshotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type VisualReviewRunsToleratedHashesListParams = {
+    /**
+     * Snapshot identifier
+     */
+    identifier: string
     /**
      * Number of results to return per page.
      */

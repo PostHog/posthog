@@ -12,7 +12,7 @@ import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
 
 const pendingJobsGauge = new Gauge({
     name: 'cdp_cyclotron_v2_pending_jobs',
-    help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/retry',
+    help: 'Number of postgres-v2 jobs currently held in memory awaiting ack/fail/reschedule',
 })
 
 /**
@@ -154,7 +154,10 @@ export class CyclotronJobQueuePostgresV2 {
                     await job.ack()
                 } else {
                     const stateBuffer = serializeState(result.invocation)
-                    await job.retry({ state: stateBuffer })
+                    await job.reschedule({
+                        state: stateBuffer,
+                        scheduledAt: result.invocation.queueScheduledAt?.toJSDate(),
+                    })
                 }
             })
         )

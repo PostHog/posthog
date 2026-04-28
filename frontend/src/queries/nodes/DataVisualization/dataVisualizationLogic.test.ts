@@ -452,4 +452,65 @@ describe('dataVisualizationLogic', () => {
         expect(logic.values.query.source).toEqual(defaultQuery.source)
         expect(logic.values.query.tableSettings?.transpose).toEqual(true)
     })
+
+    it('does not mutate the original query when updating y-axis formatting', async () => {
+        const queryWithAxisSettings: DataVisualizationNode = {
+            ...defaultQuery,
+            chartSettings: {
+                yAxis: [
+                    {
+                        column: 'value',
+                        settings: {
+                            formatting: {
+                                prefix: '',
+                                suffix: '',
+                            },
+                        },
+                    },
+                ],
+            },
+        }
+
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: queryWithAxisSettings,
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['label', 'value'],
+            types: [
+                ['label', 'String'],
+                ['value', 'Float64'],
+            ],
+            results: [['A', 1.2345]],
+        })
+
+        logic.actions.updateSeriesIndex(0, 'value', {
+            formatting: {
+                decimalPlaces: 2,
+            },
+        })
+
+        await expectLogic(logic).toMatchValues({
+            query: expect.objectContaining({
+                chartSettings: expect.objectContaining({
+                    yAxis: [
+                        expect.objectContaining({
+                            column: 'value',
+                            settings: expect.objectContaining({
+                                formatting: expect.objectContaining({
+                                    decimalPlaces: 2,
+                                }),
+                            }),
+                        }),
+                    ],
+                }),
+            }),
+        })
+
+        expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
+    })
 })

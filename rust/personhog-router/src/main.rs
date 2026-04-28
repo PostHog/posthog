@@ -4,6 +4,7 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use envconfig::Envconfig;
+use k8s_awareness::K8sAwareness;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
@@ -13,10 +14,11 @@ use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, Routin
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
-use personhog_router::backend::{LeaderBackend, ReplicaBackend};
+use personhog_router::backend::{LeaderBackend, ReplicaBackend, ReplicaBackendConfig};
 use personhog_router::config::{Config, RouterMode};
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
+use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -58,6 +60,10 @@ impl CutoverHandler for RouterCutoverHandler {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let config = Config::init_from_env().expect("Invalid configuration");
 
     // Initialize tracing
@@ -79,6 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Router mode: {}", config.router_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Replica URL: {}", config.replica_url);
+    tracing::info!("Replica channels: {}", config.replica_channels);
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!(
@@ -161,17 +168,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Create backend connection to personhog-replica
-    let replica_backend = ReplicaBackend::new(
-        &config.replica_url,
-        config.backend_timeout(),
-        config.retry_config(),
-        config.backend_keepalive_interval(),
-        config.backend_keepalive_timeout(),
-        config.grpc_max_send_message_size,
-        config.grpc_max_recv_message_size,
-    )
-    .expect("Failed to create replica backend");
+    // Create backend connection(s) to personhog-replica
+    let replica_backend = ReplicaBackend::new(ReplicaBackendConfig {
+        url: config.replica_url.clone(),
+        timeout: config.backend_timeout(),
+        retry_config: config.retry_config(),
+        keepalive_interval: config.backend_keepalive_interval(),
+        keepalive_timeout: config.backend_keepalive_timeout(),
+        max_send_message_size: config.grpc_max_send_message_size,
+        max_recv_message_size: config.grpc_max_recv_message_size,
+        num_channels: config.replica_channels,
+    });
 
     // Build the router — in leader mode, also wire up etcd coordination
     // and the leader backend for person writes / strong reads.
@@ -238,6 +245,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
+        // K8s awareness (optional)
+        let k8s_cancel = CancellationToken::new();
+        let k8s_awareness = if config.k8s_awareness_enabled {
+            let namespace = config
+                .resolve_k8s_namespace()
+                .expect("k8s awareness enabled but namespace resolution failed");
+            let client = kube::Client::try_default()
+                .await
+                .expect("failed to create K8s client");
+            tracing::info!(%namespace, "K8s awareness enabled");
+            Some(Arc::new(K8sAwareness::new(
+                client,
+                namespace,
+                k8s_cancel.child_token(),
+            )))
+        } else {
+            tracing::info!("K8s awareness disabled");
+            None
+        };
+
         // Start coordinator (leader election + partition assignment)
         let coordinator_handle =
             coordinator_handle.expect("coordinator handle must be registered in leader mode");
@@ -251,6 +278,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
             },
             Arc::new(StickyBalancedStrategy),
+            k8s_awareness,
         );
 
         tokio::spawn(async move {
@@ -258,6 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = coordinator.run(coordinator_handle.shutdown_token()).await {
                 coordinator_handle.signal_failure(format!("Coordinator error: {e}"));
             }
+            k8s_cancel.cancel();
         });
 
         PersonHogRouter::new(Arc::new(replica_backend)).with_leader(leader_backend)

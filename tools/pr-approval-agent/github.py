@@ -54,6 +54,37 @@ class PRData:
 _TRUSTED_ASSOCIATIONS = {"MEMBER", "OWNER", "COLLABORATOR"}
 
 
+def _normalize_reviews_for_prompt(reviews_raw: list[dict], head_sha: str) -> list[dict]:
+    """Normalize top-level reviews for the reviewer prompt.
+
+    Preserve trusted/bot reviews, and annotate whether each review was left on
+    the current PR head. This lets the LLM distinguish active feedback from
+    older context that may already have been addressed in follow-up commits.
+    """
+    normalized_reviews = []
+    for review in reviews_raw:
+        if not (
+            review.get("author_association") in _TRUSTED_ASSOCIATIONS
+            or review.get("author_association") == "BOT"
+            or review.get("user", {}).get("type") == "Bot"
+        ):
+            continue
+
+        commit_id = review.get("commit_id")
+        normalized_reviews.append(
+            {
+                "user": review["user"]["login"],
+                "state": review["state"],
+                "body": review.get("body", ""),
+                "commit_id": commit_id,
+                "is_current_head": commit_id == head_sha,
+                "submitted_at": review.get("submitted_at"),
+            }
+        )
+
+    return normalized_reviews
+
+
 def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     cmd = ["gh", "api", endpoint]
     if paginate:
@@ -246,17 +277,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
         base_sha=base_sha,
         head_sha=head_sha,
         files=files,
-        reviews=[
-            {
-                "user": r["user"]["login"],
-                "state": r["state"],
-                "body": r.get("body", ""),
-            }
-            for r in reviews_raw
-            if r.get("author_association") in _TRUSTED_ASSOCIATIONS
-            or r.get("author_association") == "BOT"
-            or r.get("user", {}).get("type") == "Bot"
-        ],
+        reviews=_normalize_reviews_for_prompt(reviews_raw, head_sha),
         review_comments=review_comments,
         check_runs=check_runs_resp.get("check_runs", []),
     )

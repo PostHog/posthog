@@ -1,12 +1,12 @@
 import { Meta } from '@storybook/react'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-const meta: Meta<typeof PropertyFilters> = {
+const meta: Meta<PropertyFiltersProps> = {
     title: 'Filters/PropertyFilters',
     component: PropertyFilters,
 }

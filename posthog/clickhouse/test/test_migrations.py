@@ -114,10 +114,8 @@ class TestUniqueMigrationPrefixes(TestCase):
         if sharded and node_roles != [NodeRole.DATA]:
             errors.append("ALTER TABLE on sharded tables must have node_role=NodeRole.DATA")
 
-        if not sharded and is_alter_on_replicated_table and set(node_roles) != {NodeRole.DATA, NodeRole.COORDINATOR}:
-            errors.append(
-                "ALTER TABLE on non-sharded tables must have node_role=NodeRole.DATA and NodeRole.COORDINATOR"
-            )
+        if not sharded and is_alter_on_replicated_table and set(node_roles) != {NodeRole.DATA}:
+            errors.append("ALTER TABLE on non-sharded tables must have node_role=NodeRole.DATA")
 
         return errors
 

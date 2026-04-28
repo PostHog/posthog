@@ -1,0 +1,45 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "analysis_level": {
+            "default": "trace",
+            "description": "* `trace` - trace\n* `generation` - generation",
+            "enum": ["trace", "generation"],
+            "type": "string"
+        },
+        "date_from": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "date_to": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "force_refresh": {
+            "default": false,
+            "type": "boolean"
+        },
+        "ids": {
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["ids"],
+    "type": "object"
+}

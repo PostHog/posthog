@@ -11,8 +11,13 @@ class SourceSchema:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     row_count: int | None = None
     supports_webhooks: bool = False
+    supports_cdc: bool = False
     columns: list[tuple[str, str, bool]] = field(default_factory=list)
     foreign_keys: list[tuple[str, str, str]] = field(default_factory=list)
     description: str | None = None
+    source_catalog: str | None = None
+    source_schema: str | None = None
+    source_table_name: str | None = None
     should_sync_default: bool = True
     label: str | None = None
+    detected_primary_keys: list[str] | None = None

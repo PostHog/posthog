@@ -1,7 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { IconGear } from '@posthog/icons'
+
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
 import {
@@ -53,7 +56,7 @@ export function ConnectionSelector(): JSX.Element | null {
                 }
 
                 if (nextValue === ADD_POSTGRES_DIRECT_CONNECTION) {
-                    router.actions.push(urls.dataWarehouseSourceNew('Postgres'))
+                    router.actions.push(urls.dataWarehouseSourceNew('Postgres', undefined, undefined, 'direct'))
                     return
                 }
 
@@ -76,6 +79,15 @@ export function ConnectionSelector(): JSX.Element | null {
                 options: group.options.map((option) => ({
                     ...option,
                     icon: option.iconSrc ? sourceIcon(option.iconSrc) : undefined,
+                    sideAction: option.managementUrl
+                        ? {
+                              onClick: () => newInternalTab(option.managementUrl),
+                              icon: <IconGear />,
+                              tooltip: 'Open source settings',
+                              'aria-label': `Open settings for ${option.label}`,
+                              'data-attr': 'connection-selector-source-settings',
+                          }
+                        : undefined,
                 })),
             }))}
         />

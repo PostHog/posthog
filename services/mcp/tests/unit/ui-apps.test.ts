@@ -102,7 +102,7 @@ describe('ui-apps', () => {
 
             await registerUiAppResources(server as any, context as any)
 
-            expect(server.registerResource).toHaveBeenCalledTimes(21)
+            expect(server.registerResource).toHaveBeenCalledTimes(23)
         })
 
         it('registers apps with correct names and URIs', async () => {
@@ -115,8 +115,8 @@ describe('ui-apps', () => {
             const registeredNames = server.registerResource.mock.calls.map((call: unknown[]) => call[0])
             expect(registeredNames).toContain('MCP Apps Debug')
             expect(registeredNames).toContain('Query Results')
-            expect(registeredNames).toContain('Feature flag')
-            expect(registeredNames).toContain('Experiment results')
+            expect(registeredNames).toContain('PostHog Feature Flag')
+            expect(registeredNames).toContain('PostHog Experiment Results')
         })
 
         it('includes base URL in CSP resourceDomains', async () => {

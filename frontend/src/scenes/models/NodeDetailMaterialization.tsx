@@ -3,12 +3,18 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { DataModelingJob } from '~/types'
+import { DataModelingJob, LogEntryLevel } from '~/types'
 
 import { STATUS_TAG_SETTINGS } from './nodeDetailConstants'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+
+const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
 function computeDuration(job: DataModelingJob): string {
     if (!job.created_at || !job.last_run_at) {
@@ -24,8 +30,13 @@ function computeDuration(job: DataModelingJob): string {
 }
 
 export function NodeDetailMaterialization({ id }: { id: string }): JSX.Element | null {
-    const { materializationJobs, materializationJobsLoading, jobsOffset } = useValues(nodeDetailSceneLogic({ id }))
+    const { materializationJobs, materializationJobsLoading, jobsOffset, savedQuery } = useValues(
+        nodeDetailSceneLogic({ id })
+    )
     const { setJobsOffset } = useActions(nodeDetailSceneLogic({ id }))
+    const { timezone } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    const showDebugLogs = user?.is_staff || user?.is_impersonated
 
     if (!materializationJobs && !materializationJobsLoading) {
         return null
@@ -79,6 +90,39 @@ export function NodeDetailMaterialization({ id }: { id: string }): JSX.Element |
                             ),
                     },
                 ]}
+                expandable={
+                    jobs.length > 0 && savedQuery
+                        ? {
+                              expandedRowRender: (job: DataModelingJob) => (
+                                  <div className="p-4">
+                                      <LogsViewer
+                                          logicKey={`data_modeling_run:${job.id}`}
+                                          sourceType="data_modeling_run"
+                                          sourceId={savedQuery.id}
+                                          groupByInstanceId={false}
+                                          hideDateFilter
+                                          hideLevelsFilter
+                                          hideInstanceIdColumn
+                                          defaultFilters={{
+                                              instanceId: job.workflow_run_id,
+                                              dateFrom: dayjsUtcToTimezone(job.created_at, timezone).format(
+                                                  'YYYY-MM-DD HH:mm:ss'
+                                              ),
+                                              dateTo: job.last_run_at
+                                                  ? dayjsUtcToTimezone(job.last_run_at, timezone)
+                                                        .add(1, 'hour')
+                                                        .format('YYYY-MM-DD HH:mm:ss')
+                                                  : undefined,
+                                              levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
+                                          }}
+                                      />
+                                  </div>
+                              ),
+                              rowExpandable: () => true,
+                              noIndent: true,
+                          }
+                        : undefined
+                }
             />
             {(materializationJobs?.next || materializationJobs?.previous) && (
                 <div className="flex gap-2 justify-end">

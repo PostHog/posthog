@@ -16,6 +16,7 @@ import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import {
     CachedNewExperimentQueryResponse,
     ExperimentMetric,
+    ExperimentQuery,
     NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
@@ -70,8 +71,12 @@ function convertExperimentResultToFunnelSteps(
                 const series = metric.series[stepIndex - 1]
                 if (series.kind === NodeKind.EventsNode) {
                     stepName = series.custom_name || series.name || series.event || `Step ${stepIndex}`
-                } else {
+                } else if (series.kind === NodeKind.ActionsNode) {
                     stepName = series.custom_name || series.name || `Action ${series.id}`
+                } else if (series.kind === NodeKind.ExperimentDataWarehouseNode) {
+                    stepName = series.custom_name || series.name || series.table_name || `Step ${stepIndex}`
+                } else {
+                    stepName = `Step ${stepIndex}`
                 }
             } else {
                 stepName = `Step ${stepIndex}`
@@ -80,6 +85,7 @@ function convertExperimentResultToFunnelSteps(
             return {
                 name: stepName,
                 custom_name: null,
+                order: stepIndex,
                 count: count,
                 type: 'events' as EntityType,
                 breakdown_value: variantResult.key,
@@ -288,6 +294,15 @@ export function ResultDetails({
         ...(result.variant_results || []),
     ]
 
+    // Construct ExperimentQuery for actors query
+    const experimentQuery: ExperimentQuery | undefined = experiment.id
+        ? ({
+              kind: NodeKind.ExperimentQuery,
+              experiment_id: experiment.id,
+              metric,
+          } as ExperimentQuery)
+        : undefined
+
     return (
         <div className="space-y-4">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
@@ -300,6 +315,7 @@ export function ResultDetails({
                     experimentResult={result}
                     experiment={experiment}
                     metric={metric}
+                    experimentQuery={experimentQuery}
                 />
             )}
             <SqlCollapsible

@@ -221,4 +221,15 @@ describe('dashboardsLogic', () => {
             filters: expect.objectContaining({ search: 'needle' }),
         })
     })
+
+    it('loads search from URL when the router coerces it to a number', async () => {
+        logic.unmount()
+        router.actions.push(urls.dashboards(), { search: 33333333 as unknown as string })
+        logic = dashboardsLogic({ tabId: '1' })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            filters: expect.objectContaining({ search: '33333333' }),
+        })
+    })
 })

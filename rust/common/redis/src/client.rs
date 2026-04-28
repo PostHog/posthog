@@ -234,14 +234,14 @@ impl Client for RedisClient {
         Ok(results)
     }
 
-    async fn hincrby(
-        &self,
-        k: String,
-        v: String,
-        count: Option<i32>,
-    ) -> Result<(), CustomRedisError> {
+    async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
         let mut conn = self.connection.clone();
-        let count = count.unwrap_or(1);
+        conn.zadd::<_, _, _, ()>(k, member, score).await?;
+        Ok(())
+    }
+
+    async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError> {
+        let mut conn = self.connection.clone();
         conn.hincr::<_, _, _, ()>(k, v, count).await?;
         Ok(())
     }
@@ -329,7 +329,17 @@ impl Client for RedisClient {
     }
 
     async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError> {
-        let final_bytes = self.serialize_and_compress(v, self.format)?;
+        self.setex_with_format(k, v, seconds, self.format).await
+    }
+
+    async fn setex_with_format(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError> {
+        let final_bytes = self.serialize_and_compress(v, format)?;
 
         let mut conn = self.connection.clone();
         conn.set_ex::<_, _, ()>(k, final_bytes, seconds).await?;

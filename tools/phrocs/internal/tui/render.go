@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
@@ -56,9 +57,14 @@ func (m Model) renderHeader() string {
 		sortInfo = headerMetaStyle.Render(fmt.Sprintf("▼ %s", m.sortMode))
 	}
 
-	spacerW := max(m.width-lipgloss.Width(stripesStyle)-lipgloss.Width(brand)-lipgloss.Width(sortInfo)-lipgloss.Width(procInfo)-lipgloss.Width(meta)-1, 0)
+	var groupInfo string
+	if m.isGrouped() {
+		groupInfo = headerMetaStyle.Render(fmt.Sprintf("☰ %s", m.activeGroupDim()))
+	}
+
+	spacerW := max(m.width-lipgloss.Width(stripesStyle)-lipgloss.Width(brand)-lipgloss.Width(groupInfo)-lipgloss.Width(sortInfo)-lipgloss.Width(procInfo)-lipgloss.Width(meta)-1, 0)
 	spacer := lipgloss.NewStyle().Width(spacerW).Render("")
-	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, sortInfo, procInfo, "•", meta)
+	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, groupInfo, sortInfo, procInfo, "•", meta)
 }
 
 func (m Model) renderSidebar() string {
@@ -66,6 +72,10 @@ func (m Model) renderSidebar() string {
 
 	// Usable column width inside the border
 	innerW := m.effectiveSidebarWidth() - 1
+
+	if m.isGrouped() {
+		return m.renderGroupedSidebar(h, innerW)
+	}
 
 	// Determine the vertical slice of the services list to render based
 	// on the current cursor position and servicesOffset
@@ -92,8 +102,16 @@ func (m Model) renderSidebar() string {
 		iconColor := statusIconColor(status)
 
 		name := truncate(p.Name, innerW-3)
-		cpuPct := p.CPUPercent()
-		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, cpuPct, innerW))
+		rows = append(rows, renderSidebarRow(sidebarRow{
+			icon:      iconChar,
+			name:      name,
+			iconColor: iconColor,
+			selected:  i == m.servicesCursor,
+			unread:    p.Unread(),
+			standby:   status.IsStandby(),
+			innerW:    innerW,
+			isDark:    m.isDark,
+		}))
 	}
 
 	if canScrollDown {
@@ -105,11 +123,76 @@ func (m Model) renderSidebar() string {
 		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
 	}
 
-	style := borderStyle
-	if m.focusedPane == focusServices {
-		style = borderFocusedStyle
+	return borderFor(m.isDark, m.focusedPane == focusServices).Height(h).Render(strings.Join(rows, "\n"))
+}
+
+// renderGroupedSidebar renders the sidebar with group headers interspersed.
+func (m Model) renderGroupedSidebar(h, innerW int) string {
+	entries := m.sidebarEntries
+	n := len(entries)
+
+	// Compute scroll state for entries (similar to sidebarScrollState but for entries)
+	start := min(max(m.servicesOffset, 0), max(0, n-1))
+	canScrollUp := start > 0
+	avail := h
+	if canScrollUp {
+		avail--
 	}
-	return style.Height(h).Render(strings.Join(rows, "\n"))
+	canScrollDown := start+avail < n
+	if canScrollDown {
+		avail--
+	}
+	avail = max(avail, 1)
+	visibleEnd := min(n, start+avail)
+
+	var rows []string
+
+	if canScrollUp {
+		rows = append(rows, scrollArrowStyle.Width(innerW).Render("▲"))
+	}
+
+	for i := start; i < visibleEnd; i++ {
+		e := entries[i]
+		if e.spacer {
+			rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
+			continue
+		}
+		if e.isHeader() {
+			label := truncate(e.groupHeader, innerW-1)
+			rows = append(rows, groupHeaderStyle.Width(innerW).Render(label))
+			continue
+		}
+
+		p := e.proc
+		status := p.Status()
+		iconChar := statusIconChar(status)
+		if status == process.StatusPending {
+			iconChar = ansi.Strip(m.spinner.View())
+		}
+		iconColor := statusIconColor(status)
+
+		name := truncate(p.Name, innerW-3)
+		rows = append(rows, renderSidebarRow(sidebarRow{
+			icon:      iconChar,
+			name:      name,
+			iconColor: iconColor,
+			selected:  i == m.entryCursor,
+			unread:    p.Unread(),
+			standby:   status.IsStandby(),
+			innerW:    innerW,
+			isDark:    m.isDark,
+		}))
+	}
+
+	if canScrollDown {
+		rows = append(rows, scrollArrowStyle.Width(innerW).Render("▼"))
+	}
+
+	for len(rows) < h {
+		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
+	}
+
+	return borderFor(m.isDark, m.focusedPane == focusServices).Height(h).Render(strings.Join(rows, "\n"))
 }
 
 func (m Model) sidebarHeight() int {
@@ -125,6 +208,9 @@ func (m Model) sidebarHeight() int {
 func (m Model) sidebarScrollState() (canScrollUp, canScrollDown bool, visibleH int) {
 	h := m.sidebarHeight()
 	n := len(m.services)
+	if m.isGrouped() {
+		n = len(m.sidebarEntries)
+	}
 	if n <= h {
 		return false, false, h
 	}
@@ -147,6 +233,10 @@ func (m Model) sidebarScrollState() (canScrollUp, canScrollDown bool, visibleH i
 // Keep selected process row within the visible
 // sidebar window by adjusting servicesOffset
 func (m *Model) ensureSidebarCursorVisible() {
+	if m.isGrouped() {
+		m.ensureGroupedCursorVisible()
+		return
+	}
 	_, _, h := m.sidebarScrollState()
 	if len(m.services) <= m.sidebarHeight() {
 		m.servicesOffset = 0
@@ -166,16 +256,55 @@ func (m *Model) ensureSidebarCursorVisible() {
 	}
 }
 
-func (m Model) renderOutput() string {
-	var style = borderStyle
-	if m.focusedPane == focusOutput {
-		style = borderFocusedStyle
+// ensureGroupedCursorVisible keeps the entryCursor visible in grouped mode.
+func (m *Model) ensureGroupedCursorVisible() {
+	n := len(m.sidebarEntries)
+	h := m.sidebarHeight()
+
+	if n <= h {
+		m.servicesOffset = 0
+		return
 	}
+
+	// Compute available rows accounting for scroll arrows
+	canScrollUp := m.servicesOffset > 0
+	avail := h
+	if canScrollUp {
+		avail--
+	}
+	canScrollDown := m.servicesOffset+avail < n
+	if canScrollDown {
+		avail--
+	}
+	avail = max(avail, 1)
+
+	maxOffset := n - avail
+	if m.servicesOffset > maxOffset {
+		m.servicesOffset = max(maxOffset, 0)
+	}
+
+	if m.entryCursor < m.servicesOffset {
+		m.servicesOffset = m.entryCursor
+		// Show the group header above if immediately preceding
+		if m.entryCursor > 0 && m.sidebarEntries[m.entryCursor-1].isHeader() {
+			m.servicesOffset = m.entryCursor - 1
+		}
+	}
+	if m.entryCursor >= m.servicesOffset+avail {
+		m.servicesOffset = m.entryCursor - avail + 1
+	}
+}
+
+func (m Model) renderOutput() string {
 	content := lipgloss.JoinHorizontal(lipgloss.Top, m.viewportWithIndicator())
-	return style.Render(content)
+	if m.isFullScreen() {
+		return content
+	}
+	return borderFor(m.isDark, m.focusedPane == focusOutput).Render(content)
 }
 
 // Overlays a -line counter in the top-right corner of the viewport
+// and appends the typed input buffer after the last output line.
 func (m Model) viewportWithIndicator() string {
 	view := m.viewport.View()
 	if m.hedgehogMode {
@@ -184,29 +313,30 @@ func (m Model) viewportWithIndicator() string {
 	if m.infoMode {
 		return view
 	}
-	total := m.viewport.TotalLineCount()
-	if total <= m.viewport.Height() {
-		return view
-	}
-
-	scrollLines := total - m.viewport.YOffset() - m.viewport.Height()
-	if scrollLines <= 0 {
-		return view
-	}
-
-	indicator := scrollIndicatorStyle.Render(fmt.Sprintf("-%d", scrollLines))
-	indicatorW := lipgloss.Width(indicator)
 
 	lines := strings.Split(view, "\n")
-	if len(lines) == 0 {
-		return view
+
+	// Show a cursor after the last line when the process is waiting for input.
+	if p := m.activeProc(); p != nil {
+		showCursor := m.focusedPane == focusOutput && p.HasPrompt()
+		if showCursor {
+			lastLine := len(lines) - 1
+			lines[lastLine] = strings.TrimRight(lines[lastLine], " ") + " " + m.inputBuffer + "▌"
+		}
 	}
-	firstLine := lines[0]
-	firstLineW := lipgloss.Width(firstLine)
-	if firstLineW >= indicatorW {
-		// Truncate the first line to make room for the indicator
-		lines[0] = ansi.Truncate(firstLine, firstLineW-indicatorW, "") + indicator
+
+	total := m.viewport.TotalLineCount()
+	scrollLines := total - m.viewport.YOffset() - m.viewport.Height()
+	if scrollLines > 0 && len(lines) > 0 {
+		indicator := scrollIndicatorStyle.Render(fmt.Sprintf("-%d", scrollLines))
+		indicatorW := lipgloss.Width(indicator)
+		firstLine := lines[0]
+		firstLineW := lipgloss.Width(firstLine)
+		if firstLineW >= indicatorW {
+			lines[0] = ansi.Truncate(firstLine, firstLineW-indicatorW, "") + indicator
+		}
 	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -228,17 +358,44 @@ func (m Model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorYellow).Render(hint),
 		)
+	} else if m.filterMode {
+		matchInfo := ""
+		if m.searchQuery != "" {
+			if count := m.viewport.TotalLineCount(); count == 0 {
+				matchInfo = "  [no matches]"
+			} else {
+				matchInfo = fmt.Sprintf("  [%d lines]", count)
+			}
+		}
+		prompt := lipgloss.NewStyle().Foreground(colorGreen).Render(fmt.Sprintf("| %s▌%s", m.searchQuery, matchInfo))
+		return footerStyle.Width(m.width - 2).Render(m.joinPromptWithHelp(prompt, m.keys.FilterModeHelp()))
 	} else if m.searchMode {
-		var matchInfo string
-		if m.searchQuery == "" {
-			matchInfo = ""
-		} else if len(m.searchMatches) == 0 {
-			matchInfo = "  [no matches]"
-		} else {
-			matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+		matchInfo := ""
+		if m.searchQuery != "" {
+			if len(m.searchMatches) == 0 {
+				matchInfo = "  [no matches]"
+			} else {
+				matchInfo = fmt.Sprintf("  [%d/%d]", m.searchCursor+1, len(m.searchMatches))
+			}
 		}
 		prompt := lipgloss.NewStyle().Foreground(colorYellow).Render(fmt.Sprintf("/ %s▌%s", m.searchQuery, matchInfo))
-		return footerStyle.Width(m.width - 2).Render(prompt)
+		return footerStyle.Width(m.width - 2).Render(m.joinPromptWithHelp(prompt, m.keys.SearchModeHelp()))
+	} else if m.setupMode {
+		var hint string
+		if m.setupError != "" {
+			escAction := "cancel"
+			if m.setupStep == 2 {
+				escAction = "back"
+			}
+			hint = "-- SETUP --  " + m.setupError + "  esc: " + escAction
+		} else if m.setupStep == 1 {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: next  esc: cancel"
+		} else {
+			hint = "-- SETUP --  ↑/↓: navigate  space: toggle  enter: save & apply  esc: back"
+		}
+		return footerStyle.Width(m.width - 2).Render(
+			lipgloss.NewStyle().Foreground(colorGreen).Render(hint),
+		)
 	}
 
 	if m.searchQuery != "" {
@@ -264,6 +421,15 @@ func (m Model) renderFooter() string {
 	return footerStyle.Width(m.width - 2).Render(content)
 }
 
+// Joins a prompt line with a help bar, or returns the prompt alone when help
+// is hidden — keeps search/filter footer height consistent with footerHeight().
+func (m Model) joinPromptWithHelp(prompt string, helpBindings []key.Binding) string {
+	if m.hideHelp {
+		return prompt
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, prompt, m.help.ShortHelpView(helpBindings))
+}
+
 // Rebuilds the info content and sets it on the viewport.
 func (m *Model) refreshInfoContent() {
 	info := m.renderInfo()
@@ -279,8 +445,8 @@ func (m Model) renderInfo() string {
 	snap := p.Snapshot()
 
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(colorYellow)
-	labelStyle := lipgloss.NewStyle().Foreground(colorGrey).Width(20)
-	valueStyle := lipgloss.NewStyle().Foreground(colorWhite)
+	labelStyle := lipgloss.NewStyle().Foreground(colorBrightBlack).Width(20)
+	valueStyle := lipgloss.NewStyle()
 
 	row := func(label, value string) string {
 		return labelStyle.Render(label) + valueStyle.Render(value)

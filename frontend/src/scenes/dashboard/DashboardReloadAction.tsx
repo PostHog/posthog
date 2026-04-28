@@ -92,7 +92,7 @@ export function DashboardReloadAction(): JSX.Element {
     })
 
     return (
-        <div className="relative flex items-center gap-2">
+        <div className="relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
             {/* Status text */}
             <span className="text-muted text-sm whitespace-nowrap">
                 {itemsLoading ? (

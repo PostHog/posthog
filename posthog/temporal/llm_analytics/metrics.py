@@ -26,6 +26,7 @@ EVAL_ACTIVITY_TYPES = {
     "emit_evaluation_event_activity",
     "emit_internal_telemetry_activity",
     "increment_trial_eval_count_activity",
+    "send_trial_usage_email_activity",
     "update_key_state_activity",
     "emit_eval_signal_activity",
 }

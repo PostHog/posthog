@@ -1,4 +1,4 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
@@ -9,10 +9,10 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { BaseMathType, InsightLogicProps } from '~/types'
 
-import { InsightsTable } from './InsightsTable'
+import { InsightsTable, InsightsTableProps } from './InsightsTable'
 
-type Story = StoryObj<typeof InsightsTable>
-const meta: Meta<typeof InsightsTable> = {
+type Story = StoryObj<InsightsTableProps>
+const meta: Meta<InsightsTableProps> = {
     title: 'Insights/InsightsTable',
     component: InsightsTable,
 }
@@ -20,7 +20,7 @@ export default meta
 
 let uniqueNode = 0
 
-const Template: StoryFn<typeof InsightsTable> = (props, { parameters }) => {
+const renderInsightsTable = (props: any, { parameters }: any): JSX.Element => {
     const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -55,39 +55,49 @@ const Template: StoryFn<typeof InsightsTable> = (props, { parameters }) => {
     )
 }
 
-export const Default: Story = Template.bind({})
-Default.args = {}
-
-export const IsLegend: Story = Template.bind({})
-IsLegend.args = {
-    isLegend: true,
+export const Default: Story = {
+    render: renderInsightsTable,
+    args: {},
 }
 
-export const Embedded: Story = Template.bind({})
-Embedded.args = {
-    embedded: true,
-}
-
-export const Hourly: Story = Template.bind({})
-Hourly.parameters = {
-    mergeQuerySource: { interval: 'hour' },
-}
-
-export const Aggregation: Story = Template.bind({})
-Aggregation.parameters = {
-    mergeQuerySource: {
-        series: [
-            {
-                event: '$pageview',
-                kind: 'EventsNode',
-                name: '$pageview',
-                math: BaseMathType.UniqueSessions,
-            },
-        ],
+export const IsLegend: Story = {
+    render: renderInsightsTable,
+    args: {
+        isLegend: true,
     },
 }
 
-const CompareTemplate: StoryFn<typeof InsightsTable> = (props) => {
+export const Embedded: Story = {
+    render: renderInsightsTable,
+    args: {
+        embedded: true,
+    },
+}
+
+export const Hourly: Story = {
+    render: renderInsightsTable,
+    parameters: {
+        mergeQuerySource: { interval: 'hour' },
+    },
+}
+
+export const Aggregation: Story = {
+    render: renderInsightsTable,
+    parameters: {
+        mergeQuerySource: {
+            series: [
+                {
+                    event: '$pageview',
+                    kind: 'EventsNode',
+                    name: '$pageview',
+                    math: BaseMathType.UniqueSessions,
+                },
+            ],
+        },
+    },
+}
+
+const renderCompareInsightsTable = (props: any): JSX.Element => {
     const [dashboardItemId] = useState(() => `InsightTableStory.${uniqueNode++}`)
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -144,7 +154,9 @@ const CompareTemplate: StoryFn<typeof InsightsTable> = (props) => {
     )
 }
 
-export const ComparePrevious: Story = CompareTemplate.bind({})
-ComparePrevious.args = {
-    isMainInsightView: true,
+export const ComparePrevious: Story = {
+    render: renderCompareInsightsTable,
+    args: {
+        isMainInsightView: true,
+    },
 }

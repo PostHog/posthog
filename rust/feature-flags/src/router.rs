@@ -18,7 +18,7 @@ use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
 use common_metrics::inc;
-use common_metrics::{setup_metrics_recorder, track_metrics};
+use common_metrics::setup_metrics_routes_for_product;
 use common_redis::Client as RedisClient;
 use health::{readiness_handler, HealthRegistry};
 use metrics::gauge;
@@ -42,8 +42,8 @@ use crate::{
     flags::flag_group_type_mapping::GroupTypeCacheManager,
     metrics::{
         consts::{
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_REQUEST_TIMEOUT_COUNTER,
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+            FLAG_DEFINITIONS_REQUESTS_COUNTER, FLAG_REQUEST_TIMEOUT_COUNTER,
         },
         utils::team_id_label_filter,
     },
@@ -122,8 +122,10 @@ pub fn router(
     let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
         config.flag_definitions_rate_limits.0.clone(),
+        config.rate_limiting_allow_list_teams.0.clone(),
         FLAG_DEFINITIONS_REQUESTS_COUNTER,
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
@@ -256,6 +258,16 @@ pub fn router(
             .route(
                 "/flags/definitions/",
                 any(flag_definitions::flags_definitions),
+            )
+            // Alias for Django's local_evaluation endpoint — allows Contour to route
+            // traffic to Rust without path rewriting (same pattern as /decide → /flags)
+            .route(
+                "/api/feature_flag/local_evaluation",
+                any(flag_definitions::flags_definitions),
+            )
+            .route(
+                "/api/feature_flag/local_evaluation/",
+                any(flag_definitions::flags_definitions),
             );
     }
 
@@ -286,7 +298,6 @@ pub fn router(
         .merge(flags_router)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
     // Don't install metrics unless asked to
@@ -294,8 +305,7 @@ pub fn router(
     // In other words, only turn these on in production
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
-        let recorder_handle = setup_metrics_recorder();
-        router.route("/metrics", get(move || ready(recorder_handle.render())))
+        setup_metrics_routes_for_product(router, "feature_flags")
     } else {
         router
     }

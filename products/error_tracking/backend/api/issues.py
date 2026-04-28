@@ -1,9 +1,12 @@
+from uuid import UUID
+
 from django.db import transaction
 from django.db.models.query import QuerySet
 from django.http import JsonResponse
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import OpenApiResponse
 from loginas.utils import is_impersonated_session
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -13,6 +16,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -21,21 +25,47 @@ from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import OrganizationMembership
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
+from products.error_tracking.backend.facade import api as facade_api
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueCohort,
-    ErrorTrackingIssueFingerprintV2,
+    sync_issues_to_clickhouse,
 )
 
 from .external_references import ErrorTrackingExternalReferenceSerializer
 from .utils import ErrorTrackingIssueAssignmentSerializer
+
+IssueNotFoundError = facade_api.IssueNotFoundError
 
 DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-large"
 DEFAULT_EMBEDDING_VERSION = 1
 DEFAULT_MIN_DISTANCE_THRESHOLD = 0.10
 
 logger = structlog.get_logger(__name__)
+
+
+class ErrorTrackingIssueAssigneeReadSerializer(serializers.Serializer):
+    id = serializers.CharField(allow_null=True)
+    type = serializers.CharField()
+
+
+class ErrorTrackingIssueCohortReadSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+
+
+class ErrorTrackingIssueReadSerializer(serializers.Serializer):
+    """Read-only serializer for issue contract types returned by the facade."""
+
+    id = serializers.UUIDField()
+    status = serializers.CharField()
+    name = serializers.CharField(allow_null=True)
+    description = serializers.CharField(allow_null=True)
+    first_seen = serializers.DateTimeField(allow_null=True)
+    assignee = ErrorTrackingIssueAssigneeReadSerializer(allow_null=True)
+    external_issues = ErrorTrackingExternalReferenceSerializer(many=True)
+    cohort = ErrorTrackingIssueCohortReadSerializer(allow_null=True)
 
 
 class ErrorTrackingIssuePreviewSerializer(serializers.ModelSerializer):
@@ -113,13 +143,71 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
                     changes=changes,
                 ),
             )
+            sync_issues_to_clickhouse(issue_ids=[updated_instance.id], team_id=team.id)
 
         return updated_instance
+
+
+class ErrorTrackingIssueMergeRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        help_text="IDs of the issues to merge into the current issue.",
+    )
+
+
+class ErrorTrackingIssueMergeResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the merge completed successfully.")
+
+
+class ErrorTrackingIssueSplitFingerprintSerializer(serializers.Serializer):
+    fingerprint = serializers.CharField(help_text="Fingerprint to split into a new issue.")
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the new issue created from this fingerprint.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional description for the new issue created from this fingerprint.",
+    )
+
+
+class ErrorTrackingIssueSplitRequestSerializer(serializers.Serializer):
+    fingerprints = serializers.ListField(
+        child=ErrorTrackingIssueSplitFingerprintSerializer(),
+        required=False,
+        default=list,
+        help_text="Fingerprints to split into new issues. Each fingerprint becomes its own new issue.",
+    )
+
+
+class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the split completed successfully.")
+    new_issue_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="IDs of the new issues created by the split.",
+    )
 
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "error_tracking"
+    # These override the base defaults, so keep the standard DRF actions too.
+    scope_object_read_actions = ["list", "retrieve", "values", "exists"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "merge",
+        "split",
+        "assign",
+        "cohort",
+        "bulk",
+    ]
     queryset = ErrorTrackingIssue.objects.with_first_seen().all()
     serializer_class = ErrorTrackingIssueFullSerializer
 
@@ -131,47 +219,52 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             .filter(team_id=self.team.id)
         )
 
+    @action(methods=["GET"], detail=False)
+    def exists(self, request, **kwargs):
+        has_issues = ErrorTrackingIssue.objects.filter(team_id=self.team.id).exists()
+        return Response({"exists": has_issues})
+
     def retrieve(self, request, *args, **kwargs):
+        issue_id = UUID(str(kwargs["pk"]))
         fingerprint = self.request.GET.get("fingerprint")
+
         if fingerprint:
-            fingerprint_queryset = ErrorTrackingIssueFingerprintV2.objects.select_related("issue").filter(
-                team=self.team
-            )
-            record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
+            resolved_id = facade_api.get_issue_id_for_fingerprint(team_id=self.team.id, fingerprint=fingerprint)
+            if resolved_id and resolved_id != issue_id:
+                return JsonResponse({"issue_id": resolved_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
-            if record:
-                if not str(record.issue_id) == self.kwargs.get("pk"):
-                    return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
+        try:
+            issue = facade_api.get_issue(issue_id=issue_id, team_id=self.team.id)
+        except IssueNotFoundError:
+            raise NotFound("Issue not found")
 
-                issue = (
-                    ErrorTrackingIssue.objects.with_first_seen()
-                    .select_related("assignment")
-                    .prefetch_related("external_issues__integration")
-                    .get(id=record.issue_id, team=self.team)
-                )
-                serializer = self.get_serializer(issue)
-                return Response(serializer.data)
+        serializer = ErrorTrackingIssueReadSerializer(issue)
+        return Response(serializer.data)
 
-        return super().retrieve(request, *args, **kwargs)
-
+    @validated_request(
+        request_serializer=ErrorTrackingIssueMergeRequestSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueMergeResponseSerializer)},
+    )
     @action(methods=["POST"], detail=True)
-    def merge(self, request, **kwargs):
+    def merge(self, request: ValidatedRequest, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
-        ids: list[str] = request.data.get("ids", [])
+        ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
         # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
         ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=issue.team_id)
         return Response({"success": True})
 
+    @validated_request(
+        request_serializer=ErrorTrackingIssueSplitRequestSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueSplitResponseSerializer)},
+    )
     @action(methods=["POST"], detail=True)
-    def split(self, request, **kwargs):
+    def split(self, request: ValidatedRequest, **kwargs):
         issue: ErrorTrackingIssue = self.get_object()
-        fingerprints = request.data.get("fingerprints", [])
-        if not isinstance(fingerprints, list) or not all(
-            isinstance(entry, dict) and isinstance(entry.get("fingerprint"), str) for entry in fingerprints
-        ):
-            raise ValidationError("fingerprints must be a list of objects with a 'fingerprint' string field")
+        fingerprints = request.validated_data["fingerprints"]
         new_issues = issue.split(fingerprints=fingerprints)
+        sync_issues_to_clickhouse(issue_ids=[issue.id] + [i.id for i in new_issues], team_id=issue.team_id)
         return Response({"success": True, "new_issue_ids": [str(i.id) for i in new_issues]})
 
     @action(methods=["PATCH"], detail=True)
@@ -182,6 +275,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         assign_issue(
             instance, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
         )
+        sync_issues_to_clickhouse(issue_ids=[instance.id], team_id=instance.team_id)
 
         return Response({"success": True})
 
@@ -266,8 +360,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                         issue, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
                     )
 
+        sync_issues_to_clickhouse(issue_ids=[issue.id for issue in issues], team_id=self.team_id)
+
         return Response({"success": True})
 
+    @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))

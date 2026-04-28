@@ -3,7 +3,6 @@ import { Message } from 'node-rdkafka'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EventHeaders, Team } from '../../types'
 import { TeamManager } from '../../utils/team-manager'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
@@ -25,7 +24,14 @@ import { IngestionOutputs } from '../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../pipelines/extensions/tophog'
 import { isDropResult } from '../pipelines/results'
-import { AsyncOutput, EVENTS_OUTPUT, EventOutput, HeatmapsOutput } from './outputs'
+import {
+    AsyncOutput,
+    EVENTS_OUTPUT,
+    EventOutput,
+    HeatmapsOutput,
+    PersonDistinctIdsOutput,
+    PersonsOutput,
+} from './outputs'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -36,13 +42,14 @@ export interface EventSubpipelineInput {
 
 export interface EventSubpipelineConfig {
     options: EventPipelineRunnerOptions
-    outputs: IngestionOutputs<EventOutput | HeatmapsOutput | IngestionWarningsOutput>
+    outputs: IngestionOutputs<
+        EventOutput | HeatmapsOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput
+    >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
     personsStore: PersonsStore
     groupStore: BatchWritingGroupStore
-    kafkaProducer: KafkaProducerWrapper
     groupId: string
     topHog: TopHogWrapper
 }
@@ -59,7 +66,6 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         hogTransformer,
         personsStore,
         groupStore,
-        kafkaProducer,
         groupId,
         topHog,
     } = config
@@ -99,7 +105,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
         .pipe(createNormalizeEventStep())
         .pipe(createProcessPersonlessStep(personsStore))
         .pipe(
-            topHog(createProcessPersonsStep(options, kafkaProducer, personsStore), [
+            topHog(createProcessPersonsStep(options, outputs, personsStore), [
                 timer('process_persons_time', (input) => ({
                     team_id: String(input.team.id),
                     distinct_id: input.normalizedEvent.distinct_id,

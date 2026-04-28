@@ -1,10 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic, Provider } from 'kea'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -38,6 +37,23 @@ function makeTrendsQuery(): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview', math: BaseMathType.TotalCount }],
+    }
+}
+
+function makeDataWarehouseTrendsQuery(): TrendsQuery {
+    return {
+        kind: NodeKind.TrendsQuery,
+        series: [
+            {
+                kind: NodeKind.DataWarehouseNode,
+                id: 'warehouse_orders',
+                table_name: 'warehouse_orders',
+                name: 'Orders',
+                timestamp_field: 'created_at',
+                id_field: 'order_id',
+                distinct_id_field: 'customer_id',
+            },
+        ],
     }
 }
 
@@ -103,7 +119,6 @@ describe('EditorFilters', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic().mount()
     })
 
     afterEach(() => {
@@ -114,38 +129,38 @@ describe('EditorFilters', () => {
         {
             name: 'trends',
             query: makeTrendsQuery(),
-            expectedPresent: ['Enable formula mode', 'Filters'],
+            expectedPresent: ['Filters'],
             expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types', 'Starts at'],
         },
         {
             name: 'lifecycle',
             query: makeLifecycleQuery(),
             expectedPresent: ['Lifecycle Toggles', 'Filters'],
-            expectedAbsent: ['Enable formula mode', 'Retention condition', 'Event Types', 'Stickiness Criteria'],
+            expectedAbsent: ['Retention condition', 'Event Types', 'Stickiness Criteria'],
         },
         {
             name: 'stickiness',
             query: makeStickinessQuery(),
-            expectedPresent: ['Stickiness Criteria', 'Compute as', 'Filters'],
-            expectedAbsent: ['Enable formula mode', 'Lifecycle Toggles', 'Retention condition', 'Event Types'],
+            expectedPresent: ['Stickiness Criteria', 'Filters'],
+            expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types'],
         },
         {
             name: 'retention',
             query: makeRetentionQuery(),
             expectedPresent: ['Retention condition', 'Calculation options', 'Filters'],
-            expectedAbsent: ['Enable formula mode', 'Lifecycle Toggles', 'Stickiness Criteria', 'Event Types'],
+            expectedAbsent: ['Lifecycle Toggles', 'Stickiness Criteria', 'Event Types'],
         },
         {
             name: 'funnels',
             query: makeFunnelsQuery(),
             expectedPresent: ['Filters', 'Advanced options'],
-            expectedAbsent: ['Enable formula mode', 'Lifecycle Toggles', 'Retention condition', 'Event Types'],
+            expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Event Types'],
         },
         {
             name: 'paths',
             query: makePathsQuery(),
             expectedPresent: ['Event Types', 'Starts at', 'Filters'],
-            expectedAbsent: ['Enable formula mode', 'Lifecycle Toggles', 'Retention condition', 'Stickiness Criteria'],
+            expectedAbsent: ['Lifecycle Toggles', 'Retention condition', 'Stickiness Criteria'],
         },
     ])('$name shows correct filter labels', ({ query, expectedPresent, expectedAbsent }) => {
         setupAndRender(query)
@@ -157,33 +172,46 @@ describe('EditorFilters', () => {
         }
     })
 
-    describe('formula mode toggle', () => {
-        it('toggles to "Disable formula mode" after clicking', async () => {
-            const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
-            jest.useFakeTimers()
-            setupAndRender(makeTrendsQuery())
-
-            await user.click(screen.getByText('Enable formula mode'))
-            await act(async () => {
-                jest.advanceTimersByTime(500)
-            })
-
-            expect(screen.getByText('Disable formula mode')).toBeInTheDocument()
-            jest.useRealTimers()
-        })
+    it('hides formula mode toggle for trends', () => {
+        setupAndRender(makeTrendsQuery())
+        expect(screen.queryByText('Enable formula mode')).not.toBeInTheDocument()
     })
 
-    describe('advanced options', () => {
-        it('expands advanced options section on click', async () => {
-            setupAndRender(makeFunnelsQuery())
+    it('expands advanced options section on click', async () => {
+        setupAndRender(makeFunnelsQuery())
 
-            // Starts collapsed — PoeFilter content not visible
-            expect(screen.queryByText('Use person properties from query time')).not.toBeInTheDocument()
+        const advancedButton = screen.getByRole('button', { name: /Advanced options/ })
+        expect(advancedButton).toHaveAttribute('title', 'Show more')
 
-            await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
+        await userEvent.click(advancedButton)
+        expect(advancedButton).toHaveAttribute('title', 'Show less')
+        expect(screen.getByText('Use person properties from query time')).toBeInTheDocument()
+    })
 
-            // Expanded — PoeFilter content now visible
-            expect(screen.getByText('Use person properties from query time')).toBeInTheDocument()
-        })
+    it('disables query-time person properties for data warehouse insights', async () => {
+        setupAndRender(makeDataWarehouseTrendsQuery())
+
+        await userEvent.click(screen.getByRole('button', { name: /Advanced options/ }))
+
+        const disabledArea = screen.getByText('Use person properties from query time').closest('.LemonDisabledArea')
+        expect(disabledArea).toHaveAttribute('aria-disabled', 'true')
+
+        await userEvent.hover(disabledArea as HTMLElement)
+
+        expect(
+            await screen.findByText('Data warehouse insights always use the latest table properties.')
+        ).toBeInTheDocument()
+        expect(within(disabledArea as HTMLElement).getByRole('switch')).toBeDisabled()
+    })
+
+    it('shows funnel settings collapsed by default and expandable', async () => {
+        setupAndRender(makeFunnelsQuery())
+
+        const settingsButton = screen.getByRole('button', { name: /Funnel settings/ })
+        expect(settingsButton).toBeInTheDocument()
+        expect(settingsButton).toHaveAttribute('title', 'Show more')
+
+        await userEvent.click(settingsButton)
+        expect(settingsButton).toHaveAttribute('title', 'Show less')
     })
 })

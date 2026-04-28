@@ -18,6 +18,7 @@ export type SettingLevelId = (typeof SettingLevelIds)[number]
 
 export type SettingSectionId =
     | 'environment-details'
+    | 'environment-conversations'
     | 'environment-customization'
     | 'environment-autocapture'
     | 'environment-heatmaps'
@@ -33,6 +34,7 @@ export type SettingSectionId =
     | 'environment-feature-flags'
     | 'environment-experiments'
     | 'environment-error-tracking'
+    | 'environment-error-tracking-configuration'
     | 'environment-logs'
     | 'environment-csp-reporting'
     | 'environment-max'
@@ -54,7 +56,6 @@ export type SettingSectionId =
     | 'organization-integrations'
     | 'organization-oauth-apps'
     | 'organization-members'
-    | 'organization-notifications'
     | 'organization-roles'
     | 'organization-authentication'
     | 'organization-proxy'
@@ -62,8 +63,10 @@ export type SettingSectionId =
     | 'environment-approvals'
     | 'organization-danger-zone'
     | 'organization-billing'
+    | 'organization-legal-documents'
     | 'organization-startup-program'
     | 'user-profile'
+    | 'user-connected-apps'
     | 'user-api-keys'
     | 'user-notifications'
     | 'user-customization'
@@ -73,6 +76,13 @@ export type SettingSectionId =
     | 'mcp-servers'
 
 export type SettingId =
+    | 'conversations-api'
+    | 'conversations-notifications'
+    | 'conversations-slack'
+    | 'conversations-email'
+    | 'conversations-widget'
+    | 'conversations-workflows'
+    | 'conversations-teams'
     | 'snippet-v2'
     | 'js-snippet-version'
     | 'replay-triggers'
@@ -117,6 +127,7 @@ export type SettingId =
     | 'environment-experiment-stats-method'
     | 'environment-experiment-confidence-level'
     | 'environment-experiment-recalculation-time'
+    | 'environment-experiment-matured-users'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-suppression-rules'
     | 'error-tracking-ingestion-controls'
@@ -145,7 +156,6 @@ export type SettingId =
     | 'organization-oauth-apps-list'
     | 'invites'
     | 'members'
-    | 'email-members'
     | 'authentication-domains'
     | 'organization-ai-consent'
     | 'organization-experiment-stats-method'
@@ -158,6 +168,7 @@ export type SettingId =
     | 'change-password'
     | '2fa'
     | 'passkeys'
+    | 'connected-apps'
     | 'personal-api-keys'
     | 'notifications'
     | 'feature-previews'
@@ -167,6 +178,7 @@ export type SettingId =
     | 'replay-ai-config'
     | 'heatmaps'
     | 'hedgehog-mode'
+    | 'sidebar-auto-suggest'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
     | 'session-join-mode'
@@ -201,6 +213,7 @@ export type SettingId =
     | 'discussion-mention-integrations'
     | 'logs'
     | 'logs-json-parse'
+    | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-alerting'
     | 'organization-ip-anonymization-default'
@@ -275,4 +288,11 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
      * Sections with the same group will be nested under a group header.
      */
     group?: string
+
+    /**
+     * When true, the section is hidden from the settings page navigation and search
+     * but remains accessible when referenced directly via sectionId (e.g. from a
+     * product's own configuration scene).
+     */
+    hideFromNavigation?: boolean
 }

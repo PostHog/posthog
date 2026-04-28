@@ -20,6 +20,15 @@ export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[
     { value: 'short', label: 'Short Number' },
 ]
 
+export const INSIGHT_UNIT_OPTIONS_SHORT: Record<AggregationAxisFormat, string> = {
+    numeric: '',
+    duration: 's',
+    duration_ms: 'ms',
+    percentage: '%',
+    percentage_scaled: '%',
+    currency: '$',
+    short: 'nr',
+}
 // this function needs to support a trendsFilter as part of an insight query and
 // legacy trend filters, as we still return these as part of a data response
 export const formatAggregationAxisValue = (

@@ -9,7 +9,7 @@ use crate::cohorts::membership::{
     CachedCohortMembershipProvider, CohortMembershipProvider, NoOpCohortMembershipProvider,
     RealtimeCohortMembershipProvider,
 };
-use crate::config::Config;
+use crate::config::{Config, TeamIdCollection};
 use crate::database_pools::DatabasePools;
 use crate::db_monitor::DatabasePoolMonitor;
 use crate::flags::flag_group_type_mapping::GroupTypeCacheManager;
@@ -127,11 +127,11 @@ pub async fn serve<F>(
     ));
 
     // Initialize the cohort membership provider for realtime/behavioral cohorts.
-    // Requires both the behavioral cohorts DB pool AND the explicit feature gate.
-    // When the gate is off (default), NoOp is used regardless of DB availability,
-    // so no realtime cohort queries hit the hot path until you flip the env var.
+    // Requires both the behavioral cohorts DB pool AND a non-empty team ID collection.
+    // When "none" (default), NoOp is used regardless of DB availability,
+    // so no realtime cohort queries hit the hot path.
     let cohort_membership_provider: Arc<dyn CohortMembershipProvider> =
-        if config.enable_realtime_cohort_evaluation {
+        if config.realtime_cohort_evaluation_team_ids != TeamIdCollection::None {
             if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
                 let realtime = RealtimeCohortMembershipProvider::new(pool);
                 Arc::new(CachedCohortMembershipProvider::new(

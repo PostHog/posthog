@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useMemo } from 'react'
 
@@ -162,28 +162,34 @@ const meta: Meta = {
 }
 export default meta
 
-export const WithTickets: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            'api/projects/:team_id/conversations/tickets/': ticketsResponse(sampleTickets),
-        },
-    })
-    return <AppWithProfileContext />
-}
-WithTickets.parameters = {
-    pageUrl: urls.notebook('st-with-tickets'),
-    testOptions: { waitForSelector: '.LemonTable' },
+type Story = StoryObj<{}>
+
+export const WithTickets: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                'api/projects/:team_id/conversations/tickets/': ticketsResponse(sampleTickets),
+            },
+        })
+        return <AppWithProfileContext />
+    },
+    parameters: {
+        pageUrl: urls.notebook('st-with-tickets'),
+        testOptions: { waitForSelector: '.LemonTable' },
+    },
 }
 
-export const Empty: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            'api/projects/:team_id/conversations/tickets/': ticketsResponse([]),
-        },
-    })
-    return <AppWithProfileContext />
-}
-Empty.parameters = {
-    pageUrl: urls.notebook('st-empty'),
-    testOptions: { waitForSelector: '.LemonTable' },
+export const Empty: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                'api/projects/:team_id/conversations/tickets/': ticketsResponse([]),
+            },
+        })
+        return <AppWithProfileContext />
+    },
+    parameters: {
+        pageUrl: urls.notebook('st-empty'),
+        testOptions: { waitForSelector: '.LemonTable' },
+    },
 }

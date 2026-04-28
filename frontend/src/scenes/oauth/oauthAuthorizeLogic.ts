@@ -11,6 +11,7 @@ import {
     getMinimumEquivalentScopes,
     getScopeDescription,
 } from 'lib/scopes'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
 import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicType, UserType } from '~/types'
@@ -64,7 +65,8 @@ const oauthAuthorize = async (
             }
         }
     } catch (error: any) {
-        lemonToast.error('Something went wrong while authorizing the application')
+        const detail = error?.detail || error?.message || 'Something went wrong while authorizing the application'
+        lemonToast.error(detail)
         throw error
     }
 
@@ -116,9 +118,11 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             null as OAuthApplicationPublicMetadata | null,
             {
                 loadOAuthApplication: async () => {
-                    return await api.oauthApplication.getPublicMetadata(
-                        router.values.searchParams['client_id'] as string
-                    )
+                    // The authorize view injects the application metadata into the page
+                    // context after resolving the client_id (including CIMD clients).
+                    // No API call needed.
+                    const preloaded = getAppContext()?.oauth_application
+                    return preloaded ?? null
                 },
             },
         ],

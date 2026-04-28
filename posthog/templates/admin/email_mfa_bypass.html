@@ -67,7 +67,7 @@
 </form>
 
 <script nonce="{{ request.csp_nonce }}">
-const API_BASE = '/api/admin/email-mfa-bypass/';
+const API_BASE = '/admin/api/email-mfa-bypass/';
 
 function getCSRFToken() {
     return document.querySelector('[name=csrfmiddlewaretoken]').value;

@@ -160,9 +160,16 @@ export function InlineRichMarkdownEditor({
     const bubbleMenuSafeToMount = useBubbleMenuSafeToMount(editor)
 
     useEffect(() => {
-        if (editor && autoFocus && getTiptapEditorDom(editor)) {
-            editor.commands.focus()
+        if (!editor || !autoFocus || !getTiptapEditorDom(editor)) {
+            return
         }
+        // Match RichMarkdownEditor: defer focus so Safari does not race TipTap transactions.
+        const id = window.setTimeout(() => {
+            if (!editor.isDestroyed) {
+                editor.commands.focus()
+            }
+        }, 0)
+        return () => window.clearTimeout(id)
     }, [editor, autoFocus, editor?.isInitialized])
 
     useMarkdownEditorControlledAndFormEffects({

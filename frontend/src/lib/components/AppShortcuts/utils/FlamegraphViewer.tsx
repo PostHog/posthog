@@ -71,7 +71,7 @@ export function FlamegraphViewer({ foldedStacks }: { foldedStacks: string[] }): 
         return () => {
             chart.destroy()
         }
-    }, [root])
+    }, [root, foldedStacks.length])
 
     if (!foldedStacks.length) {
         return <LemonBanner type="info">No profiling data. The query may have been too fast to sample.</LemonBanner>

@@ -350,6 +350,8 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         raise
     except (ConnectionError, TimeoutError, OSError):
         raise
+    except NonRetriableException:
+        raise
     except Exception as e:
         raise NonRetriableException(f"Unknown exception in wait_for_cloudflare_certificate: {e}") from e
 

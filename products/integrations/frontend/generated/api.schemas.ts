@@ -1,0 +1,376 @@
+/**
+ * Auto-generated from the Django backend OpenAPI schema.
+ * To modify these types, update the Django serializers or views, then run:
+ *   hogli build:openapi
+ * Questions or issues? #team-devex on Slack
+ *
+ * PostHog API - generated
+ * OpenAPI spec version: 1.0.0
+ */
+/**
+ * * `vercel` - Vercel
+ */
+export type OrganizationIntegrationKindEnumApi =
+    (typeof OrganizationIntegrationKindEnumApi)[keyof typeof OrganizationIntegrationKindEnumApi]
+
+export const OrganizationIntegrationKindEnumApi = {
+    Vercel: 'vercel',
+} as const
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+}
+
+/**
+ * Serializer for organization-level integrations.
+ */
+export interface PatchedOrganizationIntegrationApi {
+    readonly id?: string
+    readonly kind?: OrganizationIntegrationKindEnumApi
+    /** @nullable */
+    readonly integration_id?: string | null
+    readonly config?: unknown
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly created_by?: UserBasicApi
+}
+
+/**
+ * Serializer for organization-level integrations.
+ */
+export interface OrganizationIntegrationApi {
+    readonly id: string
+    readonly kind: OrganizationIntegrationKindEnumApi
+    /** @nullable */
+    readonly integration_id: string | null
+    readonly config: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface RoleExternalReferenceApi {
+    readonly id: string
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @maxLength 32
+     */
+    provider: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @maxLength 255
+     */
+    provider_organization_id: string
+    /**
+     * Stable provider role identifier.
+     * @maxLength 255
+     */
+    provider_role_id: string
+    /**
+     * Human-friendly provider role identifier.
+     * @maxLength 255
+     * @nullable
+     */
+    provider_role_slug?: string | null
+    /**
+     * Display name of the provider role.
+     * @maxLength 255
+     */
+    provider_role_name: string
+    /** PostHog role UUID this external role maps to. */
+    role: string
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+}
+
+export interface PaginatedRoleExternalReferenceListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: RoleExternalReferenceApi[]
+}
+
+export interface RoleLookupResponseApi {
+    /** Matching reference, or null if none exists. */
+    reference: RoleExternalReferenceApi | null
+}
+
+/**
+ * * `azure-blob` - Azure Blob
+ * `bing-ads` - Bing Ads
+ * `clickup` - Clickup
+ * `customerio-app` - Customerio App
+ * `customerio-track` - Customerio Track
+ * `customerio-webhook` - Customerio Webhook
+ * `databricks` - Databricks
+ * `email` - Email
+ * `firebase` - Firebase
+ * `github` - Github
+ * `gitlab` - Gitlab
+ * `google-ads` - Google Ads
+ * `google-cloud-service-account` - Google Cloud Service Account
+ * `google-cloud-storage` - Google Cloud Storage
+ * `google-pubsub` - Google Pubsub
+ * `google-sheets` - Google Sheets
+ * `hubspot` - Hubspot
+ * `intercom` - Intercom
+ * `jira` - Jira
+ * `linear` - Linear
+ * `linkedin-ads` - Linkedin Ads
+ * `meta-ads` - Meta Ads
+ * `pinterest-ads` - Pinterest Ads
+ * `postgresql` - Postgresql
+ * `reddit-ads` - Reddit Ads
+ * `salesforce` - Salesforce
+ * `slack` - Slack
+ * `slack-posthog-code` - Slack Posthog Code
+ * `snapchat` - Snapchat
+ * `stripe` - Stripe
+ * `tiktok-ads` - Tiktok Ads
+ * `twilio` - Twilio
+ * `vercel` - Vercel
+ */
+export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
+
+export const IntegrationKindEnumApi = {
+    AzureBlob: 'azure-blob',
+    BingAds: 'bing-ads',
+    Clickup: 'clickup',
+    CustomerioApp: 'customerio-app',
+    CustomerioTrack: 'customerio-track',
+    CustomerioWebhook: 'customerio-webhook',
+    Databricks: 'databricks',
+    Email: 'email',
+    Firebase: 'firebase',
+    Github: 'github',
+    Gitlab: 'gitlab',
+    GoogleAds: 'google-ads',
+    GoogleCloudServiceAccount: 'google-cloud-service-account',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GooglePubsub: 'google-pubsub',
+    GoogleSheets: 'google-sheets',
+    Hubspot: 'hubspot',
+    Intercom: 'intercom',
+    Jira: 'jira',
+    Linear: 'linear',
+    LinkedinAds: 'linkedin-ads',
+    MetaAds: 'meta-ads',
+    PinterestAds: 'pinterest-ads',
+    Postgresql: 'postgresql',
+    RedditAds: 'reddit-ads',
+    Salesforce: 'salesforce',
+    Slack: 'slack',
+    SlackPosthogCode: 'slack-posthog-code',
+    Snapchat: 'snapchat',
+    Stripe: 'stripe',
+    TiktokAds: 'tiktok-ads',
+    Twilio: 'twilio',
+    Vercel: 'vercel',
+} as const
+
+/**
+ * Standard Integration serializer.
+ */
+export interface IntegrationConfigApi {
+    readonly id: number
+    kind: IntegrationKindEnumApi
+    config?: unknown
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    readonly errors: string
+    readonly display_name: string
+}
+
+export interface PaginatedIntegrationConfigListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: IntegrationConfigApi[]
+}
+
+/**
+ * Standard Integration serializer.
+ */
+export interface PatchedIntegrationConfigApi {
+    readonly id?: number
+    kind?: IntegrationKindEnumApi
+    config?: unknown
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    readonly errors?: string
+    readonly display_name?: string
+}
+
+export interface GitHubBranchesResponseApi {
+    /** List of branch names */
+    branches: string[]
+    /**
+     * The default branch of the repository
+     * @nullable
+     */
+    default_branch?: string | null
+    /** Whether more branches exist beyond the returned page */
+    has_more: boolean
+}
+
+export interface GitHubRepoApi {
+    id: number
+    name: string
+    full_name: string
+}
+
+export interface GitHubReposResponseApi {
+    repositories: GitHubRepoApi[]
+    /** Whether more repositories are available beyond this page. */
+    has_more: boolean
+}
+
+export interface GitHubReposRefreshResponseApi {
+    /** The refreshed repository cache. */
+    repositories: GitHubRepoApi[]
+}
+
+export type RoleExternalReferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type RoleExternalReferencesLookupRetrieveParams = {
+    /**
+     * Integration kind (e.g., github, linear, jira, slack).
+     * @minLength 1
+     */
+    provider: string
+    /**
+     * Provider organization/workspace/site identifier.
+     * @minLength 1
+     */
+    provider_organization_id: string
+    /**
+     * Stable provider role identifier.
+     * @minLength 1
+     */
+    provider_role_id?: string
+    /**
+     * Human-friendly provider role identifier.
+     * @minLength 1
+     */
+    provider_role_slug?: string
+}
+
+export type IntegrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type IntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string
+}
+
+export type IntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string
+}

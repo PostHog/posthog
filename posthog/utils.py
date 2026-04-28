@@ -366,10 +366,15 @@ def get_js_url(request: HttpRequest) -> str:
     As the web app may be loaded from a non-localhost url (e.g. from the worker container calling the web container)
     it is necessary to set the JS_URL host based on the calling origin.
     """
-    if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
-        # given the strict usage of 'get_host()', this string is not susceptible to xss
+    from urllib.parse import urlparse
+
+    parsed = urlparse(settings.JS_URL)
+    if settings.DEBUG and parsed.hostname == "localhost":
+        # Rewrite the JS_URL hostname to match the request origin so the browser
+        # can reach the Vite dev server when accessed via a non-localhost address
+        # (e.g. from a Docker container or remote host).
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
-        return f"http://{request.get_host().split(':')[0]}:8234"
+        return f"http://{request.get_host().split(':')[0]}:{parsed.port}"
     return settings.JS_URL
 
 
@@ -399,17 +404,19 @@ def get_context_for_template(
         elif template_name == "render_query.html":
             source_path = "src/render-query/index.tsx"
         # Add vite dev scripts for development
+        js_url = get_js_url(request)
+        csp_nonce = getattr(request, "csp_nonce", "")
         context["vite_dev_scripts"] = f"""
-        <script nonce="{request.csp_nonce}" type="module">
-            import RefreshRuntime from 'http://localhost:8234/@react-refresh'
+        <script nonce="{csp_nonce}" type="module">
+            import RefreshRuntime from '{js_url}/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
             window.$RefreshReg$ = () => {{}}
             window.$RefreshSig$ = () => (type) => type
             window.__vite_plugin_react_preamble_installed__ = true
         </script>
         <!-- Vite development server -->
-        <script type="module" src="http://localhost:8234/@vite/client"></script>
-        <script type="module" src="http://localhost:8234/{source_path}"></script>"""
+        <script type="module" src="{js_url}/@vite/client"></script>
+        <script type="module" src="{js_url}/{source_path}"></script>"""
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
@@ -526,6 +533,10 @@ def get_context_for_template(
                 )
                 posthog_app_context["custom_products"] = user_product_list.data
 
+    # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
+    if "oauth_application" in context:
+        posthog_app_context["oauth_application"] = context.pop("oauth_application")
+
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
@@ -561,6 +572,19 @@ def get_context_for_template(
     context["posthog_bootstrap"] = json.dumps(posthog_bootstrap)
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
+
+    if posthog_distinct_id:
+        from posthog.models.instance_setting import get_instance_setting
+
+        support_secret = get_instance_setting("CONVERSATIONS_HMAC_SIGNING_SECRET")
+        if support_secret:
+            from products.conversations.backend.services.identity import compute_identity_hash
+
+            context["js_posthog_identity_distinct_id"] = posthog_distinct_id
+            context["js_posthog_identity_hash"] = compute_identity_hash(
+                posthog_distinct_id,
+                support_secret,
+            )
 
     return context
 
@@ -718,10 +742,11 @@ def _is_valid_ip_address(ip: str) -> bool:
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
     x_forwarded_for = request.headers.get("x-forwarded-for")
+    ip: str | None
     if x_forwarded_for:
-        ip: str | None = x_forwarded_for.split(",")[0].strip()
+        ip = x_forwarded_for.split(",")[0].strip()
     else:
-        ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
+        ip = request.META.get("REMOTE_ADDR")
 
     if not ip:
         return ""
@@ -1471,7 +1496,7 @@ def encode_get_request_params(data: dict[str, Any]) -> dict[str, str]:
 
 class DataclassJSONEncoder(json.JSONEncoder):
     def default(self, o):
-        if dataclasses.is_dataclass(o):
+        if dataclasses.is_dataclass(o) and not isinstance(o, type):
             return dataclasses.asdict(o)
         return super().default(o)
 

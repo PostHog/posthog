@@ -21,12 +21,14 @@ export interface CampaignNameMappingsConfigurationProps {
     sourceFilter?: string
     compact?: boolean
     initialUtmValue?: string
+    initialCampaignName?: string
 }
 
 export function CampaignNameMappingsConfiguration({
     sourceFilter,
     compact = false,
     initialUtmValue,
+    initialCampaignName,
 }: CampaignNameMappingsConfigurationProps): JSX.Element {
     const { marketingAnalyticsConfig, integrationCampaigns, integrationCampaignsLoading } = useValues(
         marketingAnalyticsSettingsLogic
@@ -36,7 +38,7 @@ export function CampaignNameMappingsConfiguration({
     const campaignMappings = marketingAnalyticsConfig?.campaign_name_mappings || {}
     const fieldPreferences = marketingAnalyticsConfig?.campaign_field_preferences || {}
     const [selectedSource, setSelectedSource] = useState<string>(sourceFilter || '')
-    const [newCleanName, setNewCleanName] = useState('')
+    const [newCleanName, setNewCleanName] = useState(initialCampaignName || '')
     const [newRawValues, setNewRawValues] = useState(initialUtmValue || '')
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -48,6 +50,12 @@ export function CampaignNameMappingsConfiguration({
             setNewRawValues(initialUtmValue)
         }
     }, [initialUtmValue])
+
+    useEffect(() => {
+        if (initialCampaignName) {
+            setNewCleanName(initialCampaignName)
+        }
+    }, [initialCampaignName])
 
     const currentIntegration = sourceFilter || selectedSource
 

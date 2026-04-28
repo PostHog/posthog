@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { DebugCHQueries } from 'lib/components/AppShortcuts/utils/DebugCHQueries'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { ReloadInsight } from 'scenes/saved-insights/ReloadInsight'
 import { urls } from 'scenes/urls'
@@ -20,6 +21,7 @@ export interface InsightSceneHeaderProps {
 export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProps): JSX.Element {
     const { insightMode, hasOverrides, freshQuery } = useValues(insightSceneLogic)
     const { showDebugPanel } = useValues(insightDataLogic(insightLogicProps))
+    const { insight } = useValues(insightLogic(insightLogicProps))
     const insightId = insightLogicProps.dashboardItemId
 
     return (
@@ -41,11 +43,15 @@ export function InsightSceneHeader({ insightLogicProps }: InsightSceneHeaderProp
                 </LemonBanner>
             )}
 
-            {insightMode === ItemMode.Edit && <InsightsNav />}
+            {insightMode === ItemMode.Edit && (
+                <div className="[&_.LemonTabs]:![--lemon-tabs-margin-bottom:0]">
+                    <InsightsNav />
+                </div>
+            )}
 
-            {showDebugPanel && (
+            {showDebugPanel && insight?.id && (
                 <div className="mb-4">
-                    <DebugCHQueries insightId={insightLogicProps.cachedInsight?.id} />
+                    <DebugCHQueries insightId={insight.id} />
                 </div>
             )}
 

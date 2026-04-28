@@ -76,36 +76,48 @@ export class CyclotronJobQueueKafka {
 
         const producer = this.getKafkaProducer()
 
+        // Pre-serialize all messages eagerly so the produce closures below only
+        // capture lightweight strings instead of full invocation objects (globals, vmState, etc.)
+        const messages = invocations.map((x) => {
+            const jsonString = JSON.stringify(serializeInvocation(x))
+            cdpJobSizeKb.labels('kafka').observe(jsonString.length / 1024)
+
+            return {
+                jsonString,
+                queue: x.queue,
+                id: x.id,
+                functionId: x.functionId,
+                teamId: x.teamId,
+            }
+        })
+
         await Promise.all(
-            invocations.map(async (x) => {
-                const serialized = serializeInvocation(x)
-
-                const jsonString = JSON.stringify(serialized)
-                cdpJobSizeKb.labels('kafka').observe(jsonString.length / 1024)
-
-                const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA ? await compress(jsonString) : jsonString
+            messages.map(async (msg) => {
+                const value = this.config.CDP_CYCLOTRON_COMPRESS_KAFKA_DATA
+                    ? await compress(msg.jsonString)
+                    : msg.jsonString
 
                 cdpJobSizeCompressedKb.labels('kafka').observe(value.length / 1024)
 
                 const headers: Record<string, string> = {
                     // NOTE: Later we should remove hogFunctionId as it is no longer used
-                    hogFunctionId: x.functionId,
-                    functionId: x.functionId,
-                    teamId: x.teamId.toString(),
+                    hogFunctionId: msg.functionId,
+                    functionId: msg.functionId,
+                    teamId: msg.teamId.toString(),
                 }
 
                 await producer
                     .produce({
                         value: Buffer.from(value),
-                        key: Buffer.from(x.id),
-                        topic: `cdp_cyclotron_${x.queue}`,
+                        key: Buffer.from(msg.id),
+                        topic: `cdp_cyclotron_${msg.queue}`,
                         headers,
                     })
                     .catch((e) => {
                         logger.error('🔄', 'Error producing kafka message', {
                             error: String(e),
-                            teamId: x.teamId,
-                            functionId: x.functionId,
+                            teamId: msg.teamId,
+                            functionId: msg.functionId,
                             payloadSizeKb: value.length / 1024,
                         })
 
@@ -117,13 +129,12 @@ export class CyclotronJobQueueKafka {
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // With kafka we are essentially re-queuing the work to the target topic if it isn't finished
-        const invocations = invocationResults.reduce((acc, res) => {
-            if (res.finished) {
-                return acc
+        const invocations: CyclotronJobInvocation[] = []
+        for (const res of invocationResults) {
+            if (!res.finished) {
+                invocations.push(res.invocation)
             }
-
-            return [...acc, res.invocation]
-        }, [] as CyclotronJobInvocation[])
+        }
 
         await this.queueInvocations(invocations)
     }

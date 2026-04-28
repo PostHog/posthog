@@ -115,6 +115,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                             }).url
                         }
                         className="font-mono text-xs"
+                        data-attr="llma-review-queue-trace-link"
                     >
                         {value}
                     </Link>
@@ -161,7 +162,12 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                     >
                         <More
                             overlay={
-                                <LemonButton status="danger" fullWidth onClick={() => requestRemoveQueueItem(item)}>
+                                <LemonButton
+                                    status="danger"
+                                    fullWidth
+                                    onClick={() => requestRemoveQueueItem(item)}
+                                    data-attr="llma-review-queue-item-remove"
+                                >
                                     Remove trace
                                 </LemonButton>
                             }
@@ -194,7 +200,12 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                         resourceType={AccessControlResourceType.LlmAnalytics}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
-                        <LemonButton type="secondary" size="small" onClick={() => openQueueEditor('create')}>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => openQueueEditor('create')}
+                            data-attr="llma-review-queue-create-button"
+                        >
                             New queue
                         </LemonButton>
                     </AccessControlAction>
@@ -212,7 +223,11 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                             resourceType={AccessControlResourceType.LlmAnalytics}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton type="secondary" onClick={() => openQueueEditor('create')}>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => openQueueEditor('create')}
+                                data-attr="llma-review-queue-create-button"
+                            >
                                 New queue
                             </LemonButton>
                         </AccessControlAction>
@@ -242,6 +257,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                             rowClassName="cursor-pointer"
                             onRow={(queue) => ({
                                 onClick: () => selectQueue(queue.id),
+                                'data-attr': 'llma-review-queue-row',
                             })}
                             loadingSkeletonRows={REVIEW_QUEUES_PER_PAGE}
                             nouns={['queue', 'queues']}
@@ -284,6 +300,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                                                         <LemonButton
                                                             fullWidth
                                                             onClick={() => openQueueEditor('rename', activeQueue)}
+                                                            data-attr="llma-review-queue-rename"
                                                         >
                                                             Rename queue
                                                         </LemonButton>
@@ -291,6 +308,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                                                             status="danger"
                                                             fullWidth
                                                             onClick={() => requestDeleteQueue(activeQueue)}
+                                                            data-attr="llma-review-queue-delete"
                                                         >
                                                             Delete queue
                                                         </LemonButton>
@@ -373,7 +391,12 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                         </div>
                     </LemonModalContent>
                     <LemonModalFooter>
-                        <LemonButton type="secondary" onClick={closeQueueEditor} disabled={queueEditorSubmitting}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={closeQueueEditor}
+                            disabled={queueEditorSubmitting}
+                            data-attr="llma-review-queue-cancel"
+                        >
                             Cancel
                         </LemonButton>
                         <LemonButton
@@ -381,6 +404,7 @@ export function LLMAnalyticsReviewQueues({ tabId }: { tabId?: string }): JSX.Ele
                             onClick={() => submitQueueEditor()}
                             loading={queueEditorSubmitting}
                             disabledReason={!queueEditorName.trim() ? 'Queue name is required' : undefined}
+                            data-attr="llma-review-queue-save"
                         >
                             {queueEditorMode === 'rename' ? 'Save queue' : 'Create queue'}
                         </LemonButton>

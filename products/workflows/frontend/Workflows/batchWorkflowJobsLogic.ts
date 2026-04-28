@@ -3,7 +3,6 @@ import { lazyLoaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import type { batchWorkflowJobsLogicType } from './batchWorkflowJobsLogicType'
@@ -32,18 +31,7 @@ export const batchWorkflowJobsLogic = kea<batchWorkflowJobsLogicType>([
         ],
     })),
     selectors({
-        pastJobs: [
-            (s) => [s.batchWorkflowJobs],
-            (batchWorkflowJobs) =>
-                (batchWorkflowJobs || []).filter(
-                    (job) => !job.scheduled_at || dayjs(job.scheduled_at).isBefore(dayjs())
-                ),
-        ],
-        futureJobs: [
-            (s) => [s.batchWorkflowJobs],
-            (batchWorkflowJobs) =>
-                (batchWorkflowJobs || []).filter((job) => job.scheduled_at && dayjs(job.scheduled_at).isAfter(dayjs())),
-        ],
+        jobs: [(s) => [s.batchWorkflowJobs], (batchWorkflowJobs) => batchWorkflowJobs || []],
     }),
     urlToAction(({ props, actions }) => ({
         [urls.workflow(props.id || 'new', 'logs')]: () => {

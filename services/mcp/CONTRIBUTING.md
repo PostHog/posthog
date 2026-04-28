@@ -16,7 +16,7 @@ services/mcp/
 │   ├── tools/                # Tool definitions and handlers
 │   ├── resources/            # MCP resources (skills, UI apps)
 │   │   ├── ui-apps.ts        # Registers UI apps with MCP server
-│   │   └── ui-apps-constants.ts  # URI constants for each UI app
+│   │   └── ui-apps.generated.ts  # URI constants for each UI app
 │   ├── ui-apps/
 │   │   ├── apps/             # UI apps (auto-discovered, one folder per app)
 │   │   │   ├── query-results/    # For query-run & insight-query tools
@@ -225,136 +225,109 @@ Default values are provided for light/dark mode via `prefers-color-scheme`.
 
 ### Adding UI to an Existing Tool
 
-To add UI visualization to a tool using an existing UI app:
+Use `withUiApp(appKey, config)` to wrap a tool definition with UI app metadata,
+`WithPostHogUrl<T>` for result types, and `withPostHogUrl(context, data, path)` to add the URL at runtime:
 
-1. Import the resource URI constant:
+```typescript
+import { withUiApp } from '@/resources/ui-apps'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase } from '@/tools/types'
 
-   ```typescript
-   import { QUERY_RESULTS_RESOURCE_URI } from '@/resources/ui-apps-constants'
+type Result = WithPostHogUrl<{ results: MyData[] }>
+
+export default (): ToolBase<typeof schema, Result> =>
+  withUiApp('my-app', {
+    name: 'my-tool',
+    schema,
+    handler: async (context, params) => {
+      const data = await fetchData(context, params)
+      return withPostHogUrl(context, { results: data }, '/my-feature')
+    },
+  })
+```
+
+`withUiApp` accepts the full tool config and injects `_meta` — you never construct `_meta` manually.
+The `appKey` parameter is type-checked against the generated `UiAppKey` union (invalid keys are compile-time errors).
+Valid keys are defined in `products/*/mcp/tools.yaml` under `ui_apps`.
+
+### Adding a New UI App (Generated)
+
+Most UI apps (detail and list views) are auto-generated from YAML.
+Add a `ui_apps` section to your product's `mcp/tools.yaml`.
+Most fields are derived by convention — you only specify what differs.
+
+**Detail app** — only `view_prop` is required (the prop name your view component accepts):
+
+```yaml
+ui_apps:
+  my-entity:
+    type: detail
+    view_prop: data
+```
+
+**List app** — only `detail_tool` is required (the tool to call when clicking an item):
+
+```yaml
+ui_apps:
+  my-entity-list:
+    type: list
+    detail_tool: my-entity-get
+```
+
+Convention defaults (derived from the app key and product directory):
+
+- `app_name` → `"PostHog My Entity"` / `"PostHog My Entity List"`
+- `component_import` → `products/{product}/mcp/apps`
+- `data_type` → `MyEntityData`, `view_component` → `MyEntityView`
+- `list_data_type` → `MyEntityListData`, `item_data_type` → `MyEntityData`
+- `click_prop` → `onMyEntityClick`, `detail_args` → `{ id: item.id }`
+- `item_name_field` → `name`, `entity_label` → `my entity`
+
+Override any field explicitly when the convention doesn't match
+(e.g. `click_prop: onFlagClick`, `detail_args: "{ flagId: item.id }"`).
+
+**Link tools to apps** with `ui_app`:
+
+```yaml
+tools:
+  my-entity-get:
+    ui_app: my-entity # references the key in ui_apps above
+```
+
+Then regenerate and build:
+
+```bash
+pnpm run generate:ui-apps   # generates entry points + registry
+pnpm run build               # builds all apps
+```
+
+### Adding a New UI App (Custom / Manual)
+
+For apps that need fully custom logic (like `debug.tsx` or `query-results.tsx`):
+
+1. **Add a `type: custom` entry** in the YAML to register the URI and app name:
+
+   ```yaml
+   ui_apps:
+     my-custom-app:
+       type: custom
+       app_name: My Custom App
+       description: Custom visualization for X
    ```
 
-2. Add `_meta.ui` to the tool definition:
+2. **Create the entry point** manually at `src/ui-apps/apps/my-custom-app.tsx`.
+   This file will NOT be overwritten by the generator.
 
-   ```typescript
-   const tool = (): ToolBase<typeof schema> => ({
-     name: 'my-tool',
-     schema,
-     handler: myHandler,
-     _meta: {
-       ui: { resourceUri: QUERY_RESULTS_RESOURCE_URI },
-     },
-   })
-   ```
-
-3. Return data that the UI app expects (check the UI app's `main.tsx` for expected shape):
-
-   ```typescript
-   return {
-     query: params.query,
-     results: queryResult.data.results,
-     _posthogUrl: buildUrl(context, params.query),
-   }
-   ```
-
-### Adding a New UI App
-
-When you need a completely new visualization (not just adding a tool to an existing UI app):
-
-1. **Create the UI app folder** in `src/ui-apps/apps/`:
+3. **Regenerate** to pick up the registry entry:
 
    ```bash
-   mkdir -p src/ui-apps/apps/my-new-app
+   pnpm run generate:ui-apps
    ```
-
-   Create `src/ui-apps/apps/my-new-app/index.html`:
-
-   ```html
-   <!DOCTYPE html>
-   <html lang="en">
-     <head>
-       <meta charset="UTF-8" />
-       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-       <title>My New App</title>
-     </head>
-     <body>
-       <div id="root"></div>
-       <script type="module" src="./main.tsx"></script>
-     </body>
-   </html>
-   ```
-
-   Create `src/ui-apps/apps/my-new-app/main.tsx`:
-
-   ```typescript
-   import { createRoot } from 'react-dom/client'
-   import { useToolResult } from '../../hooks/useToolResult'
-   import '../../styles/base.css'
-
-   function MyApp(): JSX.Element {
-       const { data, isConnected, error } = useToolResult({
-           appName: 'My New App',
-       })
-
-       if (error) return <div className="error">{error.message}</div>
-       if (!isConnected) return <div className="loading">Connecting...</div>
-       if (!data) return <div className="loading">Waiting for data</div>
-
-       // Render your visualization based on data
-       return <div>{JSON.stringify(data)}</div>
-   }
-
-   const container = document.getElementById('root')
-   if (container) {
-       createRoot(container).render(<MyApp />)
-   }
-   ```
-
-   The app is auto-discovered by the build script - no vite config changes needed.
-
-2. **Add URI constant** (`src/resources/ui-apps-constants.ts`):
-
-   ```typescript
-   /**
-    * My new app visualization.
-    * Used by: my-tool-name
-    */
-   export const MY_NEW_APP_RESOURCE_URI = 'ui://posthog/my-new-app.html'
-   ```
-
-3. **Register the resource** (`src/resources/ui-apps.ts`):
-
-   Add an entry to the `UI_APPS` array:
-
-   ```typescript
-   {
-       name: 'My New App',
-       uri: MY_NEW_APP_RESOURCE_URI,
-       description: 'Description of what this visualizes',
-       appDir: 'my-new-app',
-   },
-   ```
-
-   The stub HTML is generated at runtime, loading JS+CSS from Workers Static Assets.
 
 4. **Reference from your tool**:
 
    ```typescript
-   import { MY_NEW_APP_RESOURCE_URI } from '@/resources/ui-apps-constants'
-
-   const tool = (): ToolBase<typeof schema> => ({
-     name: 'my-tool',
-     schema,
-     handler: myHandler,
-     _meta: {
-       ui: { resourceUri: MY_NEW_APP_RESOURCE_URI },
-     },
-   })
-   ```
-
-5. **Build and test**:
-
-   ```bash
-   pnpm run build
+   export default () => withUiApp('my-custom-app', { name: 'my-tool', schema, handler })
    ```
 
 ## Deployment
@@ -376,7 +349,7 @@ pnpm run deploy
 
 The HTML import only works with wrangler's Text rule. If you see this error during `tsup` build, ensure:
 
-- Tools import from `@/resources/ui-apps-constants` (not `ui-apps.ts`)
+- Tools import `withUiApp` from `@/resources/ui-apps.generated` (not `ui-apps.ts`)
 - The HTML import is only in `src/resources/ui-apps.ts`
 
 ### UI not rendering in Claude Desktop

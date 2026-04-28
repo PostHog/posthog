@@ -16,8 +16,11 @@ import type { GenerationSentiment, MessageSentiment } from '../llmSentimentLazyL
 import { extractContentText } from '../sentimentUtils'
 import type { llmAnalyticsSentimentLogicType } from './llmAnalyticsSentimentLogicType'
 
-export type SentimentFilterLabel = 'positive' | 'negative' | 'both'
-export type SentimentFeedbackLabel = 'positive' | 'negative' | 'neutral'
+export type SentimentCategory = 'positive' | 'negative' | 'neutral'
+export type SentimentFeedbackLabel = SentimentCategory
+
+/** @deprecated Use SentimentCategory with activeFilters set instead */
+export type SentimentFilterLabel = SentimentCategory | 'both'
 
 export interface SentimentGeneration {
     uuid: string
@@ -106,12 +109,13 @@ function captureEngagementEvents(
     engagementType: 'expanded' | 'trace_clicked',
     card: SentimentCard,
     allVisibleCards: GroupedSentimentCard[],
-    sentimentFilter: SentimentFilterLabel,
+    activeFilters: Set<SentimentCategory>,
     intensityThreshold: number
 ): void {
     const interactionId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
     const engagedKey = cardKey(card)
     const cardPosition = allVisibleCards.findIndex((g) => cardKey(g.card) === engagedKey)
+    const sentimentFilterValue = Array.from(activeFilters).sort().join(',')
 
     // Positive example: the card the user engaged with
     posthog.capture('llma sentiment card engaged', {
@@ -124,7 +128,7 @@ function captureEngagementEvents(
         model_prediction_label: card.sentiment.label,
         model_prediction_score: card.sentiment.score,
         ai_model: card.generation.model,
-        sentiment_filter: sentimentFilter,
+        sentiment_filter: sentimentFilterValue,
         intensity_threshold: intensityThreshold,
         card_position: cardPosition,
         visible_card_count: allVisibleCards.length,
@@ -145,7 +149,7 @@ function captureEngagementEvents(
             model_prediction_score: impressedCard.sentiment.score,
             ai_model: impressedCard.generation.model,
             card_position: impressedPosition,
-            sentiment_filter: sentimentFilter,
+            sentiment_filter: sentimentFilterValue,
             intensity_threshold: intensityThreshold,
             trigger_event: engagementType,
             trigger_generation_uuid: card.generation.uuid,
@@ -206,7 +210,9 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
 
     actions({
         activate: true,
+        /** @deprecated Use toggleSentimentCategory instead */
         setSentimentFilter: (sentimentFilter: SentimentFilterLabel) => ({ sentimentFilter }),
+        toggleSentimentCategory: (category: SentimentCategory) => ({ category }),
         setIntensityThreshold: (intensityThreshold: number) => ({ intensityThreshold }),
         toggleCardExpanded: (cardKey: string) => ({ cardKey }),
         loadMoreGenerations: true,
@@ -224,6 +230,23 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
             'both' as SentimentFilterLabel,
             {
                 setSentimentFilter: (_, { sentimentFilter }) => sentimentFilter,
+            },
+        ],
+        activeFilters: [
+            new Set<SentimentCategory>(['positive', 'negative']) as Set<SentimentCategory>,
+            {
+                toggleSentimentCategory: (state, { category }) => {
+                    const next = new Set(state)
+                    if (next.has(category)) {
+                        // Don't allow deselecting all — keep at least one
+                        if (next.size > 1) {
+                            next.delete(category)
+                        }
+                    } else {
+                        next.add(category)
+                    }
+                    return next
+                },
             },
         ],
         intensityThreshold: [
@@ -312,11 +335,11 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
             ],
         ],
         sentimentCards: [
-            (s) => [s.generations, s.sentimentByGenerationId, s.sentimentFilter, s.intensityThreshold],
+            (s) => [s.generations, s.sentimentByGenerationId, s.activeFilters, s.intensityThreshold],
             (
                 generations: SentimentGeneration[],
                 sentimentByGenerationId: Record<string, GenerationSentiment | null>,
-                sentimentFilter: SentimentFilterLabel,
+                activeFilters: Set<SentimentCategory>,
                 intensityThreshold: number
             ): SentimentCard[] => {
                 const cards: SentimentCard[] = []
@@ -326,57 +349,65 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                         continue
                     }
 
-                    if (sentimentFilter !== 'both') {
-                        // Single filter: find the highest-intensity message matching the filter
-                        let bestIndex = -1
-                        let bestScore = 0
-                        let bestSentiment: MessageSentiment | null = null
-                        for (const [idx, msg] of Object.entries(sentimentData.messages)) {
-                            if (
-                                msg.label === sentimentFilter &&
-                                msg.score >= intensityThreshold &&
-                                msg.score > bestScore
-                            ) {
-                                bestIndex = Number(idx)
-                                bestScore = msg.score
-                                bestSentiment = msg
-                            }
-                        }
-                        if (bestSentiment && bestIndex >= 0) {
-                            cards.push({ generation: gen, messageIndex: bestIndex, sentiment: bestSentiment })
-                        }
-                    } else {
-                        // "Both" filter: surface up to two cards per generation — strongest positive and strongest negative
-                        let bestPosIndex = -1
-                        let bestPosScore = 0
-                        let bestPosSentiment: MessageSentiment | null = null
-                        let bestNegIndex = -1
-                        let bestNegScore = 0
-                        let bestNegSentiment: MessageSentiment | null = null
+                    // Find the best card per active category per generation
+                    const best: Record<string, { index: number; score: number; sentiment: MessageSentiment }> = {}
 
-                        for (const [idx, msg] of Object.entries(sentimentData.messages)) {
-                            if (msg.score < intensityThreshold) {
-                                continue
-                            }
-                            if (msg.label === 'positive' && msg.score > bestPosScore) {
-                                bestPosIndex = Number(idx)
-                                bestPosScore = msg.score
-                                bestPosSentiment = msg
-                            } else if (msg.label === 'negative' && msg.score > bestNegScore) {
-                                bestNegIndex = Number(idx)
-                                bestNegScore = msg.score
-                                bestNegSentiment = msg
-                            }
+                    for (const [idx, msg] of Object.entries(sentimentData.messages)) {
+                        if (!activeFilters.has(msg.label as SentimentCategory)) {
+                            continue
                         }
-                        if (bestPosSentiment && bestPosIndex >= 0) {
-                            cards.push({ generation: gen, messageIndex: bestPosIndex, sentiment: bestPosSentiment })
+                        // For neutral messages, skip the intensity threshold — neutral scores are
+                        // inherently lower and the threshold is designed for positive/negative signals
+                        if (msg.label !== 'neutral' && msg.score < intensityThreshold) {
+                            continue
                         }
-                        if (bestNegSentiment && bestNegIndex >= 0) {
-                            cards.push({ generation: gen, messageIndex: bestNegIndex, sentiment: bestNegSentiment })
+                        const prev = best[msg.label]
+                        if (!prev || msg.score > prev.score) {
+                            best[msg.label] = { index: Number(idx), score: msg.score, sentiment: msg }
                         }
+                    }
+
+                    for (const { index, sentiment } of Object.values(best)) {
+                        cards.push({ generation: gen, messageIndex: index, sentiment })
                     }
                 }
                 return cards
+            },
+        ],
+        /** Counts of displayable cards per sentiment category (best-per-generation, matching sentimentCards logic) */
+        sentimentSummary: [
+            (s) => [s.generations, s.sentimentByGenerationId, s.intensityThreshold],
+            (
+                generations: SentimentGeneration[],
+                sentimentByGenerationId: Record<string, GenerationSentiment | null>,
+                intensityThreshold: number
+            ): Record<SentimentCategory, number> => {
+                const counts: Record<SentimentCategory, number> = { positive: 0, negative: 0, neutral: 0 }
+                for (const gen of generations) {
+                    const sentimentData = sentimentByGenerationId[gen.uuid]
+                    if (!sentimentData?.messages) {
+                        continue
+                    }
+                    // Use the same best-per-category-per-generation logic as sentimentCards
+                    const best: Partial<Record<SentimentCategory, number>> = {}
+                    for (const msg of Object.values(sentimentData.messages)) {
+                        const label = msg.label as SentimentCategory
+                        if (!(label in counts)) {
+                            continue
+                        }
+                        if (label !== 'neutral' && msg.score < intensityThreshold) {
+                            continue
+                        }
+                        const prev = best[label]
+                        if (prev === undefined || msg.score > prev) {
+                            best[label] = msg.score
+                        }
+                    }
+                    for (const label of Object.keys(best) as SentimentCategory[]) {
+                        counts[label]++
+                    }
+                }
+                return counts
             },
         ],
         groupedSentimentCards: [
@@ -451,7 +482,7 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     'expanded',
                     group.card,
                     values.groupedSentimentCards,
-                    values.sentimentFilter,
+                    values.activeFilters,
                     values.intensityThreshold
                 )
             },
@@ -460,7 +491,7 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     'trace_clicked',
                     card,
                     values.groupedSentimentCards,
-                    values.sentimentFilter,
+                    values.activeFilters,
                     values.intensityThreshold
                 )
             },
@@ -528,7 +559,7 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                                       : 'no_matching_cards',
                             total_generations: totalGenerations,
                             failed_classifications: failedCount,
-                            sentiment_filter: values.sentimentFilter,
+                            sentiment_filter: Array.from(values.activeFilters).sort().join(','),
                             intensity_threshold: values.intensityThreshold,
                         })
                     }

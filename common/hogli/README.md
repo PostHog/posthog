@@ -55,9 +55,9 @@ hogli lint
 Run tests separately in another terminal:
 
 ```bash
-# Pick one—tests are slow and shouldn't run together
-hogli test:python posthog/api/test/test_foo.py
-hogli test:js frontend/src/scenes/Foo/
+# Auto-detects test type (Python, Jest, Playwright, Rust, Go)
+hogli test posthog/api/test/test_foo.py
+hogli test frontend/src/scenes/Foo/
 ```
 
 To see all available commands run:
@@ -72,14 +72,14 @@ A `man` page is generated from `--help` output automatically during `flox activa
 man hogli
 ```
 
-Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli test:python --help`.
+Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli test --help`.
 
 ### Design philosophy
 
 Hogli follows these principles:
 
 - **Thin wrapper layer** - hogli doesn't duplicate tool logic; it delegates to existing scripts (`bin/migrate`, `bin/start`, etc.). If you need advanced options, use the underlying tools directly.
-- **Explicit over implicit** - Commands require explicit choices (e.g., `hogli test:python` not `hogli test all`) to prevent accidental long-running operations.
+- **Explicit over implicit** - Commands require explicit choices (e.g., `hogli test <path>` not `hogli test` without arguments) to prevent accidental long-running operations.
 
 ---
 

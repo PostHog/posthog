@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 
 import requests
@@ -7,16 +8,23 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.buildbetter.queries import QUERIES, VIEWER_QUERY
 from posthog.temporal.data_imports.sources.buildbetter.settings import BUILDBETTER_API_URL, BUILDBETTER_ENDPOINTS
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
 class BuildBetterRetryableError(Exception):
     pass
 
 
+@dataclasses.dataclass
+class BuildBetterResumeConfig:
+    offset: int
+
+
 def _make_paginated_request(
     api_key: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
     incremental_field: str | None = None,
     incremental_field_last_value: str | None = None,
 ):
@@ -78,17 +86,22 @@ def _make_paginated_request(
         return payload
 
     page_size = endpoint_config.page_size
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    initial_offset = resume_config.offset if resume_config is not None else 0
+    if resume_config is not None:
+        logger.debug(f"BuildBetter: resuming {endpoint_name} from offset {initial_offset}")
+
     variables: dict[str, Any] = {
         "limit": page_size,
-        "offset": 0,
+        "offset": initial_offset,
     }
 
     if incremental_field and incremental_field_last_value:
         variables["where"] = {incremental_field: {"_gt": incremental_field_last_value}}
 
     try:
-        has_more = True
-        while has_more:
+        while True:
             logger.debug(f"Querying BuildBetter endpoint {endpoint_name} with variables: {variables}")
             payload = execute(variables)
 
@@ -98,9 +111,11 @@ def _make_paginated_request(
 
             yield data
 
-            has_more = len(data) >= page_size
-            if has_more:
-                variables["offset"] = variables["offset"] + len(data)
+            if len(data) < page_size:
+                break
+
+            variables["offset"] = variables["offset"] + len(data)
+            resumable_source_manager.save_state(BuildBetterResumeConfig(offset=variables["offset"]))
     finally:
         sess.close()
 
@@ -109,6 +124,7 @@ def buildbetter_source(
     api_key: str,
     endpoint_name: str,
     logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[BuildBetterResumeConfig],
     incremental_field: str | None = None,
     incremental_field_last_value: str | None = None,
 ) -> SourceResponse:
@@ -126,6 +142,7 @@ def buildbetter_source(
             api_key=api_key,
             endpoint_name=endpoint_name,
             logger=logger,
+            resumable_source_manager=resumable_source_manager,
             incremental_field=incremental_field,
             incremental_field_last_value=incremental_field_last_value,
         )

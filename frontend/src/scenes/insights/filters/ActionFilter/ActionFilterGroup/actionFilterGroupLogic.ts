@@ -45,7 +45,10 @@ export const actionFilterGroupLogic = kea<actionFilterGroupLogicType>([
             properties,
         }),
         removeNestedFilter: (nestedIndex: number) => ({ nestedIndex }),
-        setMath: (selectedMath: string | undefined) => ({ selectedMath }),
+        setMath: (selectedMath: string | undefined, defaultMathHogQLExpression: string) => ({
+            selectedMath,
+            defaultMathHogQLExpression,
+        }),
         setMathProperty: (property: string, propertyType: TaxonomicFilterGroupType) => ({ property, propertyType }),
         setMathHogQL: (hogql: string) => ({ hogql }),
         setHogQLDropdownVisible: (visible: boolean) => ({ visible }),
@@ -130,7 +133,7 @@ export const actionFilterGroupLogic = kea<actionFilterGroupLogicType>([
                 const newFilters = values.nestedFilters.filter((_, i) => i !== nestedIndex)
                 updateGroup(newFilters)
             },
-            setMath: ({ selectedMath }) => {
+            setMath: ({ selectedMath, defaultMathHogQLExpression }) => {
                 const groupFilter = values.groupFilter
                 if (!groupFilter) {
                     return
@@ -149,7 +152,7 @@ export const actionFilterGroupLogic = kea<actionFilterGroupLogicType>([
                                 : undefined,
                         math_hogql:
                             mathDef?.category === MathCategory.HogQLExpression
-                                ? (groupFilter.math_hogql ?? 'count()')
+                                ? (groupFilter.math_hogql ?? defaultMathHogQLExpression)
                                 : undefined,
                         math_property_type: groupFilter.math_property_type,
                     }

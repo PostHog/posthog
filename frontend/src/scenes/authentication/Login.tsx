@@ -61,6 +61,7 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     oauth_cancelled: "Sign in was cancelled. Please try again when you're ready.",
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
+    social_login_failure: 'Login failed. Please try again or contact your administrator.',
 }
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'

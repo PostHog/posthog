@@ -43,7 +43,34 @@ The assistant used the todo list because:
 3. Breaking this into steps ensures the assistant gets all necessary data before explaining
 """.strip()
 
-LLM_ANALYTICS_MODE_DESCRIPTION = "Specialized mode for analyzing LLM traces. Search and read LLM traces to understand model usage, costs, latency, and errors."
+POSITIVE_EXAMPLE_WRITE_AND_TEST_EVAL = """
+User: Write a Hog eval that checks if the output is longer than 10 characters
+Assistant: I'll write a Hog evaluation and test it against your recent events.
+*Uses run_hog_eval_test with source: 'let result := length(output) > 10; print(concat("Output length: ", toString(length(output)))); return result;'*
+""".strip()
+
+POSITIVE_EXAMPLE_WRITE_AND_TEST_EVAL_REASONING = """
+The assistant used run_hog_eval_test because:
+1. The user wants to create a Hog evaluation that checks output length
+2. The tool compiles and runs the code against real events to verify it works
+3. The results show whether the evaluation logic is correct
+""".strip()
+
+POSITIVE_EXAMPLE_FIX_EVAL_ERRORS = """
+User: The eval is failing with a null error on some events
+Assistant: I'll fix the null handling and test again.
+*Uses run_hog_eval_test with updated source that adds null checks*
+After seeing the results, the assistant explains what was fixed.
+""".strip()
+
+POSITIVE_EXAMPLE_FIX_EVAL_ERRORS_REASONING = """
+The assistant used run_hog_eval_test because:
+1. The user reported errors in the evaluation code
+2. Testing with the tool reveals which events cause null errors
+3. The assistant can iterate on the fix by running the tool again
+""".strip()
+
+LLM_ANALYTICS_MODE_DESCRIPTION = "Specialized mode for LLM analytics. Search and analyze LLM traces for usage, costs, latency, and errors. Write and test Hog evaluation code against real events."
 
 
 class LLMAnalyticsAgentToolkit(AgentToolkit):
@@ -56,12 +83,21 @@ class LLMAnalyticsAgentToolkit(AgentToolkit):
             example=POSITIVE_EXAMPLE_INVESTIGATE_EXPENSIVE,
             reasoning=POSITIVE_EXAMPLE_INVESTIGATE_EXPENSIVE_REASONING,
         ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_WRITE_AND_TEST_EVAL,
+            reasoning=POSITIVE_EXAMPLE_WRITE_AND_TEST_EVAL_REASONING,
+        ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_FIX_EVAL_ERRORS,
+            reasoning=POSITIVE_EXAMPLE_FIX_EVAL_ERRORS_REASONING,
+        ),
     ]
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        tools: list[type[MaxTool]] = [SearchLLMTracesTool]
-        return tools
+        from products.llm_analytics.backend.tools.run_hog_eval_test import RunHogEvalTestTool
+
+        return [SearchLLMTracesTool, RunHogEvalTestTool]
 
 
 llm_analytics_agent = AgentModeDefinition(

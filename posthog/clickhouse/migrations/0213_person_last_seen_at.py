@@ -26,7 +26,7 @@ operations = [
         f"ALTER TABLE {PERSONS_TABLE} ADD COLUMN IF NOT EXISTS last_seen_at Nullable(DateTime64)",
         sharded=False,
         is_alter_on_replicated_table=True,
-        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        node_roles=[NodeRole.DATA],
     ),
     # Recreate the Kafka table and MV (these live on ingestion nodes)
     run_sql_with_exceptions(KAFKA_PERSONS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.INGESTION_SMALL]),

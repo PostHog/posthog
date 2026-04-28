@@ -238,7 +238,11 @@ class TestVercelConnectComplete(VercelConnectTestBase):
     def test_expired_session_returns_400(self):
         response = self.client.post(
             self.url,
-            {"session": "bogus-token", "organization_id": str(self.organization.id)},
+            {
+                "session": "bogus-token",
+                "organization_id": str(self.organization.id),
+                "environment_mapping": {"production": self.team.pk},
+            },
             content_type="application/json",
         )
 
@@ -250,7 +254,6 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
-        mock_vercel_integration._build_secrets.return_value = [{"name": "TOKEN", "value": "tok"}]
         session_token = _seed_session()
 
         response = self.client.post(
@@ -258,7 +261,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             {
                 "session": session_token,
                 "organization_id": str(self.organization.id),
-                "team_id": self.team.pk,
+                "environment_mapping": {"production": self.team.pk},
             },
             content_type="application/json",
         )
@@ -283,13 +286,12 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert resource.integration_id == str(self.team.pk)
         assert resource.config["type"] == "connectable"
 
-        mock_client.import_resource.assert_called_once_with(
-            integration_config_id="icfg_connect_test",
-            resource_id=str(resource.pk),
-            product_id="posthog",
-            name=self.team.name,
-            secrets=mock_vercel_integration._build_secrets.return_value,
-        )
+        mock_client.import_resource.assert_called_once()
+        call_kwargs = mock_client.import_resource.call_args[1]
+        assert call_kwargs["integration_config_id"] == "icfg_connect_test"
+        assert call_kwargs["resource_id"] == str(resource.pk)
+        assert call_kwargs["product_id"] == "posthog"
+        assert call_kwargs["name"] == self.team.name
         mock_vercel_integration.bulk_sync_feature_flags_to_vercel.assert_called_once_with(self.team)
 
     def test_non_member_returns_403(self):
@@ -298,7 +300,11 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         response = self.client.post(
             self.url,
-            {"session": session_token, "organization_id": str(other_org.id), "team_id": self.team.pk},
+            {
+                "session": session_token,
+                "organization_id": str(other_org.id),
+                "environment_mapping": {"production": self.team.pk},
+            },
             content_type="application/json",
         )
 
@@ -315,7 +321,11 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         response = self.client.post(
             self.url,
-            {"session": session_token, "organization_id": str(other_org.id), "team_id": self.team.pk},
+            {
+                "session": session_token,
+                "organization_id": str(other_org.id),
+                "environment_mapping": {"production": self.team.pk},
+            },
             content_type="application/json",
         )
 
@@ -334,7 +344,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             {
                 "session": session_token,
                 "organization_id": str(self.organization.id),
-                "team_id": self.team.pk,
+                "environment_mapping": {"production": self.team.pk},
             },
             content_type="application/json",
         )
@@ -344,7 +354,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             {
                 "session": session_token,
                 "organization_id": str(self.organization.id),
-                "team_id": self.team.pk,
+                "environment_mapping": {"production": self.team.pk},
             },
             content_type="application/json",
         )
@@ -368,7 +378,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             {
                 "session": session_token,
                 "organization_id": str(self.organization.id),
-                "team_id": self.team.pk,
+                "environment_mapping": {"production": self.team.pk},
             },
             content_type="application/json",
         )
@@ -400,7 +410,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             {
                 "session": session_token,
                 "organization_id": str(self.organization.id),
-                "team_id": self.team.pk,
+                "environment_mapping": {"production": self.team.pk},
             },
             content_type="application/json",
         )
@@ -423,7 +433,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             {
                 "session": session_token,
                 "organization_id": str(self.organization.id),
-                "team_id": self.team.pk,
+                "environment_mapping": {"production": self.team.pk},
             },
             content_type="application/json",
         )
@@ -440,7 +450,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             {
                 "session": session_token,
                 "organization_id": str(self.organization.id),
-                "team_id": other_team.pk,
+                "environment_mapping": {"production": other_team.pk},
             },
             content_type="application/json",
         )
@@ -467,7 +477,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
             {
                 "session": session_token,
                 "organization_id": str(self.organization.id),
-                "team_id": self.team.pk,
+                "environment_mapping": {"production": self.team.pk},
             },
             content_type="application/json",
         )
@@ -490,7 +500,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
                 {
                     "session": session_token,
                     "organization_id": str(self.organization.id),
-                    "team_id": self.team.pk,
+                    "environment_mapping": {"production": self.team.pk},
                 },
                 content_type="application/json",
             )
@@ -536,7 +546,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
             {
                 "session": session_token,
                 "organization_id": str(self.organization.id),
-                "team_id": self.team.pk,
+                "environment_mapping": {"production": self.team.pk},
             },
             content_type="application/json",
         )
@@ -572,7 +582,7 @@ class TestVercelConnectEndToEnd(VercelConnectTestBase):
             {
                 "session": session_token,
                 "organization_id": str(self.organization.id),
-                "team_id": self.team.pk,
+                "environment_mapping": {"production": self.team.pk},
             },
             content_type="application/json",
         )

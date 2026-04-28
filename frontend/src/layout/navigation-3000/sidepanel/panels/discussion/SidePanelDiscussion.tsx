@@ -81,9 +81,7 @@ const DiscussionContent = ({
     const { setCommentsListRef } = useActions(sidePanelDiscussionLogic)
 
     useEffect(() => {
-        if (selectedTabOptions) {
-            setReplyingComment(selectedTabOptions)
-        }
+        setReplyingComment(selectedTabOptions ?? null)
     }, [selectedTabOptions]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (

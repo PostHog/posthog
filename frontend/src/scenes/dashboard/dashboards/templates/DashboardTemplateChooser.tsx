@@ -1,128 +1,152 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
 
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 
-import { DashboardTemplateType, TemplateAvailabilityContext } from '~/types'
-
-import BlankDashboardHog from 'public/blank-dashboard-hog.png'
-
+import { dashboardTemplateChooserLogic, DashboardTemplateChooserLogicProps } from './dashboardTemplateChooserLogic'
 import { TemplateItem } from './DashboardTemplateItem'
-import { DashboardTemplateProps, dashboardTemplatesLogic } from './dashboardTemplatesLogic'
+import { DashboardTemplateItemSkeleton } from './DashboardTemplateItemSkeleton'
+import { DashboardTemplateProps } from './dashboardTemplatesLogic'
 
-export function DashboardTemplateChooser({
-    scope = 'default',
-    onItemClick,
-    redirectAfterCreation = true,
-    availabilityContexts,
-}: DashboardTemplateProps): JSX.Element {
-    const templatesLogic = dashboardTemplatesLogic({ scope })
-    const { allTemplates, allTemplatesLoading } = useValues(templatesLogic)
+const gridClass = 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4'
 
-    const { isLoading, newDashboardModalVisible } = useValues(newDashboardLogic)
+/** Wider cells — team tiles are horizontal rows, not poster cards. */
+const teamTemplateGridClass = 'grid grid-cols-1 md:grid-cols-2 gap-3'
+
+/** Single column on small viewports; two columns from `lg` up (modal/tablet often still feels “small” at `md`) */
+const featuredGridClass = 'grid grid-cols-1 lg:grid-cols-2 gap-4'
+
+export function DashboardTemplateChooser(props: DashboardTemplateProps): JSX.Element {
+    const { className, availabilityContexts, ...chooserProps } = props
+    const logicProps: DashboardTemplateChooserLogicProps = { ...chooserProps, availabilityContexts }
+    const chooser = dashboardTemplateChooserLogic(logicProps)
     const {
-        setActiveDashboardTemplate,
-        createDashboardFromTemplate,
-        addDashboard,
-        setIsLoading,
-        showVariableSelectModal,
-    } = useActions(newDashboardLogic)
-
-    const filteredTemplates = useMemo(() => {
-        return allTemplates.filter((template) => {
-            if (availabilityContexts) {
-                return availabilityContexts.some((context) => template.availability_contexts?.includes(context))
-            }
-            return true
-        })
-    }, [allTemplates, availabilityContexts])
-
-    const handleTemplateClick = (template: DashboardTemplateType): void => {
-        if (isLoading) {
-            return
-        }
-        setIsLoading(true)
-        const variables = template.variables ?? []
-        if (variables.length === 0) {
-            createDashboardFromTemplate(template, variables, redirectAfterCreation)
-        } else {
-            if (!newDashboardModalVisible) {
-                showVariableSelectModal(template)
-            } else {
-                setActiveDashboardTemplate(template)
-            }
-        }
-        onItemClick?.(template)
-    }
+        allTemplatesLoading,
+        teamTemplates,
+        featuredTemplates,
+        nonFeaturedOfficial,
+        hasActiveFilter,
+        showDashedEmptyState,
+        allMatchesInFeaturedSection,
+        showOfficialSection,
+        showBlankTile,
+    } = useValues(chooser)
+    const { templateTileClicked, blankTileClicked, setTemplateFilter } = useActions(chooser)
 
     return (
-        <div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-w-[1000px]">
-                {!availabilityContexts || availabilityContexts.includes(TemplateAvailabilityContext.GENERAL) ? (
-                    <TemplateItem
-                        template={{
-                            template_name: 'Blank dashboard',
-                            dashboard_description: 'Create a blank dashboard',
-                            image_url: BlankDashboardHog,
-                        }}
-                        onClick={() => {
-                            if (isLoading) {
-                                return
-                            }
-                            setIsLoading(true)
-                            addDashboard({
-                                name: 'New Dashboard',
-                                show: true,
-                                _create_in_folder: 'Unfiled/Dashboards',
-                            })
-                        }}
-                        index={0}
-                        data-attr="create-dashboard-blank"
-                    />
-                ) : null}
-                {allTemplatesLoading ? (
-                    <>
-                        {Array.from({ length: 2 }).map((_, i) => (
-                            <TemplateItemSkeleton key={i} />
+        <div className={cn('flex flex-col gap-8', className)}>
+            {featuredTemplates.length > 0 ? (
+                <section>
+                    <div className="mb-3">
+                        <h3 className="text-base font-semibold m-0">Popular with teams like yours</h3>
+                        <p className="text-secondary text-sm m-0 mt-1">
+                            Users love these templates! Great starting points for your dashboards.
+                        </p>
+                    </div>
+                    <div className={featuredGridClass}>
+                        {featuredTemplates.map((template, index) => (
+                            <TemplateItem
+                                key={template.id}
+                                template={template}
+                                onClick={() => templateTileClicked(template, 'featured_row')}
+                                index={index}
+                                size="large"
+                                showFavourite={template.is_featured}
+                                data-attr="create-dashboard-from-template-featured"
+                            />
                         ))}
-                    </>
-                ) : (
-                    filteredTemplates.map((template, index) => (
-                        <TemplateItem
-                            key={template.id}
-                            template={template}
-                            onClick={() => handleTemplateClick(template)}
-                            index={index + 1}
-                            data-attr="create-dashboard-from-template"
-                        />
-                    ))
-                )}
-            </div>
-        </div>
-    )
-}
+                    </div>
+                </section>
+            ) : null}
 
-/** Placeholder grid cells that mirror `TemplateItem` layout (cover, title, description). */
-function TemplateItemSkeleton(): JSX.Element {
-    return (
-        <div
-            className="border rounded TemplateItem flex flex-col pointer-events-none select-none w-full h-[210px]"
-            aria-hidden
-        >
-            <div className="h-30 min-h-30 w-full overflow-hidden">
-                <LemonSkeleton className="h-30 w-full rounded-none" />
-            </div>
-            <div className="px-2 py-1">
-                <div className="mb-1">
-                    <LemonSkeleton className="h-5 w-4/5" />
+            {teamTemplates.length > 0 ? (
+                <section>
+                    <div className="mb-3">
+                        <h3 className="text-base font-semibold m-0">Team templates</h3>
+                        <p className="text-secondary text-sm m-0 mt-1">Templates saved for this project.</p>
+                    </div>
+                    <div className={teamTemplateGridClass}>
+                        {teamTemplates.map((template, index) => (
+                            <TemplateItem
+                                key={template.id}
+                                template={template}
+                                onClick={() => templateTileClicked(template, 'team_section')}
+                                index={index}
+                                showCover={false}
+                                data-attr="create-dashboard-from-template-team"
+                            />
+                        ))}
+                    </div>
+                </section>
+            ) : null}
+
+            {showDashedEmptyState ? (
+                <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-border bg-fill-secondary px-6 py-14 text-center">
+                    <h4 className="m-0 text-base font-semibold">
+                        {hasActiveFilter ? 'No templates match your search' : 'No templates to show here'}
+                    </h4>
+                    <p className="mt-2 mb-0 max-w-md text-secondary text-sm">
+                        {hasActiveFilter
+                            ? 'Try different keywords, clear the filter to see every template again, or start with a blank dashboard.'
+                            : showBlankTile
+                              ? 'Start with a blank dashboard, or check back later for new templates.'
+                              : 'No templates are available in this context.'}
+                    </p>
+                    <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                        {showBlankTile ? (
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlus />}
+                                onClick={() => blankTileClicked('main_grid')}
+                                data-attr="create-dashboard-blank-inline-empty"
+                            >
+                                Blank dashboard
+                            </LemonButton>
+                        ) : null}
+                        {hasActiveFilter ? (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => setTemplateFilter('')}
+                                data-attr="clear-dashboard-template-filter"
+                            >
+                                Clear filter
+                            </LemonButton>
+                        ) : null}
+                    </div>
                 </div>
-                <div className="py-1 grow flex flex-col gap-1">
-                    <LemonSkeleton className="h-3 w-full" />
-                    <LemonSkeleton className="h-3 w-[92%]" />
-                </div>
-            </div>
+            ) : showOfficialSection ? (
+                <section>
+                    <div className="mb-3">
+                        <h3 className="text-base font-semibold m-0">Official templates</h3>
+                        <p className="text-secondary text-sm m-0 mt-1">Browse official templates below.</p>
+                    </div>
+                    <div className={gridClass}>
+                        {allTemplatesLoading ? (
+                            <>
+                                {Array.from({ length: 3 }).map((_, i) => (
+                                    <DashboardTemplateItemSkeleton key={i} />
+                                ))}
+                            </>
+                        ) : allMatchesInFeaturedSection ? (
+                            <p className="col-span-full m-0 text-center text-secondary text-sm py-2">
+                                Every template that matches is in Popular above.
+                            </p>
+                        ) : (
+                            nonFeaturedOfficial.map((template, index) => (
+                                <TemplateItem
+                                    key={template.id}
+                                    template={template}
+                                    onClick={() => templateTileClicked(template, 'main_grid')}
+                                    index={index}
+                                    data-attr="create-dashboard-from-template"
+                                />
+                            ))
+                        )}
+                    </div>
+                </section>
+            ) : null}
         </div>
     )
 }

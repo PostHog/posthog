@@ -1,0 +1,287 @@
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+
+import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
+import {
+    DataWarehouseViewLink,
+    ExternalDataJobStatus,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
+
+import { joinsLogic } from './joinsLogic'
+import type { sourceManagementLogicType } from './sourceManagementLogicType'
+import { sourcesDataLogic } from './sourcesDataLogic'
+
+const REFRESH_INTERVAL = 10000
+
+export const sourceManagementLogic = kea<sourceManagementLogicType>([
+    path(['products', 'dataWarehouse', 'sourceManagementLogic']),
+    connect(() => ({
+        values: [
+            databaseTableListLogic,
+            ['database', 'dataWarehouseTables'],
+            sourcesDataLogic,
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
+        actions: [
+            databaseTableListLogic,
+            ['loadDatabase'],
+            joinsLogic,
+            ['loadJoins'],
+            sourcesDataLogic,
+            ['loadSources', 'loadSourcesSuccess', 'updateSource', 'updateSourceRevenueAnalyticsConfig'],
+        ],
+    })),
+    actions({
+        deleteSource: (source: ExternalDataSource) => ({ source }),
+        reloadSource: (source: ExternalDataSource) => ({ source }),
+        sourceLoadingFinished: (source: ExternalDataSource) => ({ source }),
+        schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
+        deleteSelfManagedTable: (tableId: string) => ({ tableId }),
+        refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setManagedSearchTerm: (managedSearchTerm: string) => ({ managedSearchTerm }),
+        deleteJoin: (join: DataWarehouseViewLink) => ({ join }),
+    }),
+    loaders(({ actions, values }) => ({
+        schemas: [
+            null,
+            {
+                updateSchema: async (schema: ExternalDataSourceSchema) => {
+                    // Optimistic UI updates before sending updates to the backend
+                    const clonedSources = JSON.parse(
+                        JSON.stringify(values.dataWarehouseSources?.results ?? [])
+                    ) as ExternalDataSource[]
+                    const sourceIndex = clonedSources.findIndex((n) => n.schemas?.find((m) => m.id === schema.id))
+                    if (sourceIndex !== -1) {
+                        const schemaIndex = clonedSources[sourceIndex].schemas.findIndex((n) => n.id === schema.id)
+                        clonedSources[sourceIndex].schemas[schemaIndex] = schema
+
+                        actions.loadSourcesSuccess({
+                            ...values.dataWarehouseSources,
+                            results: clonedSources,
+                        })
+                    }
+
+                    await api.externalDataSchemas.update(schema.id, schema)
+                    actions.loadSources()
+
+                    return null
+                },
+            },
+        ],
+    })),
+    reducers(() => ({
+        sourceReloadingById: [
+            {} as Record<string, boolean>,
+            {
+                reloadSource: (state, { source }) => ({
+                    ...state,
+                    [source.id]: true,
+                }),
+                deleteSource: (state, { source }) => ({
+                    ...state,
+                    [source.id]: true,
+                }),
+                sourceLoadingFinished: (state, { source }) => ({
+                    ...state,
+                    [source.id]: false,
+                }),
+            },
+        ],
+        schemaReloadingById: [
+            {} as Record<string, boolean>,
+            {
+                schemaLoadingFinished: (state, { schema }) => ({
+                    ...state,
+                    [schema.id]: false,
+                }),
+            },
+        ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        managedSearchTerm: [
+            '' as string,
+            {
+                setManagedSearchTerm: (_, { managedSearchTerm }) => managedSearchTerm,
+            },
+        ],
+    })),
+    selectors({
+        selfManagedTables: [
+            (s) => [s.dataWarehouseTables],
+            (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
+                return dataWarehouseTables.filter((table) => !table.source)
+            },
+        ],
+        filteredSelfManagedTables: [
+            (s) => [s.selfManagedTables, s.searchTerm],
+            (
+                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
+                searchTerm: string
+            ): DatabaseSchemaDataWarehouseTable[] => {
+                if (!searchTerm?.trim()) {
+                    return selfManagedTables
+                }
+                const normalizedSearch = searchTerm.toLowerCase()
+                return selfManagedTables.filter((table) => table.name.toLowerCase().includes(normalizedSearch))
+            },
+        ],
+        filteredManagedSources: [
+            (s) => [s.dataWarehouseSources, s.managedSearchTerm, s.featureFlags],
+            (dataWarehouseSources, managedSearchTerm, featureFlags): ExternalDataSource[] => {
+                const sources = featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
+                    ? (dataWarehouseSources?.results ?? []).filter(
+                          (source) => source.access_method?.toLowerCase() !== 'direct'
+                      )
+                    : (dataWarehouseSources?.results ?? [])
+                if (!managedSearchTerm?.trim()) {
+                    return sources
+                }
+                const normalizedSearch = managedSearchTerm.toLowerCase()
+                return sources.filter(
+                    (source) =>
+                        source.source_type.toLowerCase().includes(normalizedSearch) ||
+                        source.prefix?.toLowerCase().includes(normalizedSearch) ||
+                        source.description?.toLowerCase().includes(normalizedSearch)
+                )
+            },
+        ],
+        hasZendeskSource: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources): boolean => {
+                const sources = dataWarehouseSources?.results
+                if (!sources) {
+                    return false
+                }
+
+                return !!sources.some((source) => source?.source_type === 'Zendesk')
+            },
+        ],
+    }),
+    urlToAction(({ actions }) => ({
+        '/data-warehouse/*': () => {
+            actions.loadSources()
+        },
+    })),
+    listeners(({ actions, values, cache }) => ({
+        deleteSelfManagedTable: async ({ tableId }) => {
+            await api.dataWarehouseTables.delete(tableId)
+            actions.loadDatabase()
+        },
+        refreshSelfManagedTableSchema: async ({ tableId }) => {
+            lemonToast.info('Updating schema...')
+            await api.dataWarehouseTables.refreshSchema(tableId)
+            lemonToast.success('Schema updated')
+            actions.loadDatabase()
+        },
+        deleteSource: async ({ source }) => {
+            await api.externalDataSources.delete(source.id)
+            actions.loadSources()
+            actions.sourceLoadingFinished(source)
+
+            posthog.capture('source deleted', { sourceType: source.source_type })
+        },
+        reloadSource: async ({ source }) => {
+            // Optimistic UI updates before sending updates to the backend
+            const clonedSources = JSON.parse(
+                JSON.stringify(values.dataWarehouseSources?.results ?? [])
+            ) as ExternalDataSource[]
+            const sourceIndex = clonedSources.findIndex((n) => n.id === source.id)
+            clonedSources[sourceIndex].status = ExternalDataJobStatus.Running
+            clonedSources[sourceIndex].schemas = clonedSources[sourceIndex].schemas.map((n) => {
+                if (n.should_sync) {
+                    return {
+                        ...n,
+                        status: ExternalDataSchemaStatus.Running,
+                    }
+                }
+
+                return n
+            })
+
+            actions.loadSourcesSuccess({
+                ...values.dataWarehouseSources,
+                results: clonedSources,
+            })
+
+            try {
+                await api.externalDataSources.reload(source.id)
+                actions.loadSources()
+
+                posthog.capture('source reloaded', { sourceType: source.source_type })
+            } catch (e: any) {
+                if (e.message) {
+                    lemonToast.error(e.message)
+                } else {
+                    lemonToast.error('Cant refresh source at this time')
+                }
+            }
+            actions.sourceLoadingFinished(source)
+        },
+        updateSchema: (schema) => {
+            posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
+        },
+        loadSourcesSuccess: () => {
+            if (router.values.location.pathname.includes('data-warehouse')) {
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources()
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
+            }
+        },
+        loadSourcesFailure: () => {
+            if (router.values.location.pathname.includes('data-warehouse')) {
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources()
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
+            }
+        },
+        deleteJoin: ({ join }): void => {
+            void deleteWithUndo({
+                endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
+                object: {
+                    id: join.id,
+                    name: `${join.field_name} on ${join.source_table_name}`,
+                },
+                callback: () => {
+                    actions.loadDatabase()
+                    actions.loadJoins()
+                },
+            }).catch((e) => {
+                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
+            })
+        },
+    })),
+    afterMount(({ actions, values }) => {
+        if (!values.database) {
+            actions.loadDatabase()
+        }
+        actions.loadSources()
+    }),
+    beforeUnmount(() => {
+        // Disposables plugin handles cleanup automatically
+    }),
+])

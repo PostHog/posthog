@@ -32,7 +32,7 @@ from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailValidationHelper
+from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
@@ -101,6 +101,8 @@ class SignupSerializer(serializers.Serializer):
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True
     )
+    turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
+    challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
 
     # Slightly hacky: self vars for internal use
     is_social_signup: bool
@@ -127,13 +129,25 @@ class SignupSerializer(serializers.Serializer):
             password_validation.validate_password(value)
         return value
 
+    def validate_first_name(self, value: str) -> str:
+        return validate_display_name(value)
+
+    def validate_last_name(self, value: str) -> str:
+        return validate_display_name(value)
+
+    def validate_organization_name(self, value: str) -> str:
+        return validate_display_name(value)
+
     def validate(self, data):
         request = self.context.get("request")
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) if request else None
         password = data.get("password")
 
+        # Password signup: if a password is provided, use it even if passkey data exists
+        if password:
+            pass
         # Passkey signup: credential in session, no password needed
-        if passkey_credential:
+        elif passkey_credential:
             self.is_passkey_signup = True
         # Social signup: password not required
         elif self.is_social_signup:
@@ -142,7 +156,7 @@ class SignupSerializer(serializers.Serializer):
         elif settings.DEMO:
             pass
         # Regular signup: password required
-        elif not password:
+        else:
             raise serializers.ValidationError(
                 {"password": serializers.ErrorDetail("This field is required.", code="required")}
             )
@@ -153,15 +167,16 @@ class SignupSerializer(serializers.Serializer):
         request = self.context.get("request")
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) if request else None
         session_email = request.session.get(WEBAUTHN_SIGNUP_EMAIL_KEY) if request else None
+        password = request.data.get("password") if request else None
 
-        # For passkey signup, use the email from session (already validated during registration)
-        if passkey_credential and session_email:
+        # For passkey signup (only if no password provided), use the email from session (already validated during registration)
+        if passkey_credential and session_email and not password:
             if session_email.lower() != value.lower():
                 raise serializers.ValidationError(
                     "Email does not match the email used for passkey registration", code="email_mismatch"
                 )
 
-            return session_email
+            value = session_email
 
         if not settings.DEMO and EmailValidationHelper.user_exists(value):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
@@ -176,16 +191,31 @@ class SignupSerializer(serializers.Serializer):
 
         request = self.context["request"]
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
+        password = validated_data.get("password")
 
-        auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
-        evaluate_auth_attempt(
-            request=request._request,
-            email=validated_data["email"],
-            action=RadarAction.SIGNUP,
-            auth_method=auth_method,
-        )
+        # If a password is provided, clear passkey session data and use password signup
+        if password and passkey_credential:
+            request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
+            request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
+            request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
+            _save_session_with_recovery(request.session)
+            passkey_credential = None
+
+        if not self.is_social_signup:
+            auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
+            evaluate_auth_attempt(
+                request=request._request,
+                email=validated_data["email"],
+                action=RadarAction.SIGNUP,
+                auth_method=auth_method,
+                turnstile_token=validated_data.get("turnstile_token", ""),
+                challenge_nonce=validated_data.get("challenge_nonce", ""),
+            )
 
         is_instance_first_user: bool = not User.objects.exists()
+
+        validated_data.pop("turnstile_token", None)
+        validated_data.pop("challenge_nonce", None)
 
         default_org_name = f"{validated_data['first_name']}'s Organization"[:64]
         organization_name = validated_data.pop("organization_name", default_org_name)
@@ -344,10 +374,15 @@ class InviteSignupSerializer(serializers.Serializer):
     role_at_organization: serializers.Field = serializers.CharField(
         max_length=128, required=False, allow_blank=True, default=""
     )
+    turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
+    challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_password(self, value):
         password_validation.validate_password(value)
         return value
+
+    def validate_first_name(self, value: str) -> str:
+        return validate_display_name(value)
 
     def to_representation(self, instance):
         data = UserBasicSerializer(instance=instance).data
@@ -385,6 +420,16 @@ class InviteSignupSerializer(serializers.Serializer):
         session_email = request.session.get(WEBAUTHN_SIGNUP_EMAIL_KEY)
         session_user_uuid = request.session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY)
 
+        # If a password is provided, clear passkey session data and use password signup
+        if validated_data.get("password") and passkey_credential:
+            request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
+            request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
+            request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)
+            _save_session_with_recovery(request.session)
+            passkey_credential = None
+            session_email = None
+            session_user_uuid = None
+
         if request.user.is_authenticated:
             user = cast(User, request.user)
 
@@ -403,7 +448,12 @@ class InviteSignupSerializer(serializers.Serializer):
                 email=invite.target_email,
                 action=RadarAction.SIGNUP,
                 auth_method=auth_method,
+                turnstile_token=validated_data.get("turnstile_token", ""),
+                challenge_nonce=validated_data.get("challenge_nonce", ""),
             )
+
+        validated_data.pop("turnstile_token", None)
+        validated_data.pop("challenge_nonce", None)
 
         # Only check SSO enforcement if we're not already logged in
         if (
@@ -430,22 +480,29 @@ class InviteSignupSerializer(serializers.Serializer):
                     and session_email
                     and invite.target_email
                     and session_email.lower() != invite.target_email.lower()
+                    and not validated_data.get("password")
                 ):
                     raise serializers.ValidationError(
                         "Email does not match the email used for passkey registration", code="email_mismatch"
                     )
 
                 try:
-                    if passkey_credential:
+                    if passkey_credential and not validated_data.get("password"):
                         validated_data.pop("password", None)
-                    password = None if passkey_credential else validated_data.pop("password")
+                        password = None
+                    else:
+                        password = validated_data.pop("password")
                     first_name = validated_data.pop("first_name")
                     extra_fields: dict[str, Any] = {**validated_data}
-                    if passkey_credential and session_user_uuid:
+                    if passkey_credential and session_user_uuid and not password:
                         extra_fields["uuid"] = uuid_module.UUID(session_user_uuid)
 
+                    invite_email = invite.target_email
+                    if not invite_email:
+                        raise serializers.ValidationError("Invite is missing a target email")
+
                     user = User.objects.create_user(
-                        invite.target_email,
+                        invite_email,
                         password,
                         first_name,
                         is_email_verified=False,
@@ -558,6 +615,12 @@ class SocialSignupSerializer(serializers.Serializer):
     referral_source_ai_prompt: serializers.Field = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default=""
     )
+
+    def validate_first_name(self, value: str) -> str:
+        return validate_display_name(value)
+
+    def validate_organization_name(self, value: str) -> str:
+        return validate_display_name(value)
 
     def create(self, validated_data, **kwargs):
         request = self.context["request"]

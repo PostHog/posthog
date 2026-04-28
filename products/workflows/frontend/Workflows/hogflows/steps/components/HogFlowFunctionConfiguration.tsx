@@ -121,7 +121,7 @@ export function HogFlowFunctionConfiguration({
                 onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
             />
             <HogFlowFunctionMappings
-                useMapping={Array.isArray(mappings) ?? (template?.mapping_templates?.length ?? 0) > 0}
+                useMapping={Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0}
                 inputs={inputs}
                 inputs_schema={template?.inputs_schema ?? []}
                 mappings={mappings ?? []}

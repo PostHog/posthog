@@ -2,6 +2,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use metrics::counter;
+use personhog_common::grpc::current_client_name;
 use rand::Rng;
 use tonic::{Code, Status};
 use tracing::warn;
@@ -54,11 +55,13 @@ where
             Ok(value) => return Ok(value),
             Err(status) if attempt < config.max_retries && is_retryable(status.code()) => {
                 let code_str = code_as_str(status.code());
+                let client = current_client_name();
 
                 counter!(
                     "personhog_router_backend_retries_total",
                     "method" => method,
-                    "status_code" => code_str
+                    "status_code" => code_str,
+                    "client" => client.clone()
                 )
                 .increment(1);
 

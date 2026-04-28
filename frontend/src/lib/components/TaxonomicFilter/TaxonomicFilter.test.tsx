@@ -3,10 +3,15 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import posthog from 'posthog-js'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import {
     mockActionDefinition,
@@ -17,6 +22,10 @@ import {
 
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
+
+jest.mock('~/queries/query', () => ({
+    performQuery: jest.fn(),
+}))
 
 jest.mock('lib/components/AutoSizer', () => ({
     AutoSizer: ({ renderProp }: { renderProp: (size: { height: number; width: number }) => React.ReactNode }) =>
@@ -30,6 +39,10 @@ describe('TaxonomicFilter', () => {
     beforeEach(() => {
         onChangeMock = jest.fn()
         onCloseMock = jest.fn()
+        ;(performQuery as jest.Mock).mockResolvedValue({
+            tables: {},
+            joins: [],
+        })
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': mockGetEventDefinitions,
@@ -87,14 +100,14 @@ describe('TaxonomicFilter', () => {
             })
         })
 
-        it('does not render category tabs when only one group type is provided', async () => {
+        it('renders category tabs even with one explicit group type due to auto-injected meta groups', async () => {
             renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
 
-            expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+            expect(screen.getByText('Categories')).toBeInTheDocument()
         })
 
         it('renders category tabs when multiple group types are provided', async () => {
@@ -108,6 +121,20 @@ describe('TaxonomicFilter', () => {
 
             expect(screen.getByTestId('taxonomic-tab-events')).toBeInTheDocument()
             expect(screen.getByTestId('taxonomic-tab-actions')).toBeInTheDocument()
+        })
+
+        it.each([
+            { label: 'Suggested series', description: 'series context' },
+            { label: 'Suggested step', description: 'step context' },
+        ])('allows overriding the Suggested filters label with "$label" in $description', async ({ label }) => {
+            renderFilter({
+                suggestedFiltersLabel: label,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toHaveTextContent(label)
+            })
         })
 
         it('applies custom width and height via style', async () => {
@@ -132,6 +159,45 @@ describe('TaxonomicFilter', () => {
             })
 
             expect(container.querySelector('.one-taxonomic-tab')).not.toBeInTheDocument()
+        })
+
+        it('shows a loading empty state while data warehouse tables are still loading', async () => {
+            let resolveQuery: ((value: { tables: Record<string, never>; joins: never[] }) => void) | undefined
+            ;(performQuery as jest.Mock).mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveQuery = resolve
+                    })
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.DataWarehouse],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText('Loading data warehouse tables')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByText('Connect external data')).not.toBeInTheDocument()
+
+            resolveQuery?.({ tables: {}, joins: [] })
+
+            await waitFor(() => {
+                expect(screen.getByText('Connect external data')).toBeInTheDocument()
+            })
+        })
+
+        it('shows a loading empty state while data warehouse properties are still loading', async () => {
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.DataWarehouseProperties],
+                schemaColumnsLoading: true,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText('Loading data warehouse tables')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByText('Connect external data')).not.toBeInTheDocument()
         })
     })
 
@@ -296,6 +362,59 @@ describe('TaxonomicFilter', () => {
             const [group, value] = onChangeMock.mock.calls[0]
             expect(group.type).toBe(TaxonomicFilterGroupType.Actions)
             expect(value).toBe(3)
+        })
+
+        it.each([
+            {
+                name: 'browse — clicking a row in the events tab with no search query',
+                searchQuery: null,
+                rowIndex: 1,
+                expected: {
+                    groupType: TaxonomicFilterGroupType.Events,
+                    sourceGroupType: TaxonomicFilterGroupType.Events,
+                    wasFromPinnedList: false,
+                    wasFromRecents: false,
+                    wasQuickFilter: false,
+                    hadSearchInput: false,
+                    position: 1,
+                },
+            },
+            {
+                name: 'search_result — typing a query then clicking the top match',
+                searchQuery: 'event',
+                rowIndex: 0,
+                expected: {
+                    groupType: TaxonomicFilterGroupType.Events,
+                    sourceGroupType: TaxonomicFilterGroupType.Events,
+                    wasFromPinnedList: false,
+                    wasFromRecents: false,
+                    wasQuickFilter: false,
+                    hadSearchInput: true,
+                    position: 0,
+                },
+            },
+        ])('captures `taxonomic filter item selected`: $name', async ({ searchQuery, rowIndex, expected }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId(`prop-filter-events-${rowIndex}`)).toBeInTheDocument()
+            })
+
+            if (searchQuery) {
+                await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), searchQuery)
+                await waitFor(() => {
+                    expect(screen.getByTestId(`prop-filter-events-${rowIndex}`)).toBeInTheDocument()
+                })
+            }
+
+            await userEvent.click(screen.getByTestId(`prop-filter-events-${rowIndex}`))
+
+            await waitFor(() => {
+                const call = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter item selected')
+                expect(call).not.toBeUndefined()
+                expect(call?.[1]).toMatchObject(expected)
+            })
         })
 
         it('selecting different items in the same group calls onChange each time', async () => {
@@ -524,8 +643,8 @@ describe('TaxonomicFilter', () => {
                 expect(screen.getByTestId('prop-filter-wildcard-0')).toBeInTheDocument()
             })
 
-            expect(screen.getByText('custom_wildcard_1')).toBeInTheDocument()
-            expect(screen.getByText('custom_wildcard_2')).toBeInTheDocument()
+            expect(screen.getAllByText('custom_wildcard_1').length).toBeGreaterThanOrEqual(1)
+            expect(screen.getAllByText('custom_wildcard_2').length).toBeGreaterThanOrEqual(1)
         })
 
         it('selecting an option from props calls onChange correctly', async () => {
@@ -662,6 +781,37 @@ describe('TaxonomicFilter', () => {
         expect(onChangeMock.mock.calls[0][1]).toBe(expectedFirstProperty)
     })
 
+    describe('replay group selection', () => {
+        it.each([
+            { label: 'Visited page', expectedKey: 'visited_page', expectedPropertyFilterType: 'recording' },
+            { label: 'Platform', expectedKey: 'snapshot_source', expectedPropertyFilterType: 'recording' },
+            { label: 'Console log level', expectedKey: 'level', expectedPropertyFilterType: 'log_entry' },
+            { label: 'Console log message', expectedKey: 'message', expectedPropertyFilterType: 'log_entry' },
+            { label: 'Comment text', expectedKey: 'comment_text', expectedPropertyFilterType: 'recording' },
+        ])(
+            'selecting "$label" calls onChange with key "$expectedKey" and propertyFilterType "$expectedPropertyFilterType"',
+            async ({ label, expectedKey, expectedPropertyFilterType }) => {
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Replay],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getAllByText(label).length).toBeGreaterThanOrEqual(1)
+                })
+
+                await userEvent.click(screen.getAllByText(label)[0])
+
+                await waitFor(() => {
+                    expect(onChangeMock).toHaveBeenCalledTimes(1)
+                })
+                const [group, value, item] = onChangeMock.mock.calls[0]
+                expect(group.type).toBe(TaxonomicFilterGroupType.Replay)
+                expect(value).toBe(expectedKey)
+                expect(item.propertyFilterType).toBe(expectedPropertyFilterType)
+            }
+        )
+    })
+
     describe('autocapture context', () => {
         it.each([
             {
@@ -670,7 +820,9 @@ describe('TaxonomicFilter', () => {
             },
             {
                 eventNames: ['$pageview'],
-                expectedItems: [],
+                // Pageview's taxonomy promoted property ($pathname) bubbles up here so the
+                // user can filter by what the team has chosen to promote for that event.
+                expectedItems: ['Path name'],
             },
         ])(
             'SuggestedFilters shows $expectedItems.length items when eventNames=$eventNames',
@@ -740,5 +892,183 @@ describe('TaxonomicFilter', () => {
                 expect(elementsIndex).toBeGreaterThan(eventPropsIndex)
             }
         })
+    })
+
+    describe('enableKeywordShortcuts', () => {
+        it('threads the prop from TaxonomicFilter through to the shortcut row', async () => {
+            const user = userEvent.setup()
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                enableKeywordShortcuts: true,
+            })
+
+            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
+            await user.type(searchInput, 'click')
+
+            // The shortcut row carries a unique data-attr so the assertion isn't fooled by the
+            // definition popover which renders the same label text.
+            await waitFor(() => {
+                expect(document.querySelector('[data-attr="taxonomic-shortcut-click-series"]')).not.toBeNull()
+            })
+        })
+
+        it('does not render shortcut rows when enableKeywordShortcuts is omitted', async () => {
+            const user = userEvent.setup()
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+            })
+
+            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
+            await user.type(searchInput, 'click')
+
+            // Give the infinite list a moment to settle then assert the row is absent.
+            await waitFor(() => expect(searchInput).toHaveValue('click'))
+            expect(document.querySelector('[data-attr="taxonomic-shortcut-click-series"]')).toBeNull()
+        })
+    })
+
+    describe('category dropdown A/B test', () => {
+        let unmountFeatureFlagLogic: (() => void) | null = null
+
+        beforeEach(() => {
+            unmountFeatureFlagLogic = featureFlagLogic.mount()
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            unmountFeatureFlagLogic?.()
+            unmountFeatureFlagLogic = null
+        })
+
+        function setVariant(variant: string): void {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
+            })
+        }
+
+        it('control variant: renders the categories column and no in-input affordance', async () => {
+            setVariant('control')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText('Categories')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
+        })
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant with hideSearchInput: does not render the categories column or an in-filter dropdown; the host is expected to render CategoryDropdown inside its own input',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                    hideSearchInput: true,
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+                })
+
+                expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+                expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
+            }
+        )
+
+        it('control variant: default suggested-filters label is "Suggestions"', async () => {
+            setVariant('control')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toHaveTextContent('Suggestions')
+            })
+        })
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: default suggested-filters label is "All" (seen in the dropdown items)',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)).toBeInTheDocument()
+                })
+
+                await userEvent.click(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`))
+
+                const item = await screen.findByTestId('taxonomic-category-dropdown-item-suggested_filters')
+                expect(item).toHaveTextContent('All')
+            }
+        )
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: hides the categories column and renders the in-input affordance',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)).toBeInTheDocument()
+                })
+
+                expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+            }
+        )
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: opening the dropdown and picking a category switches the visible results',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+                })
+
+                await userEvent.click(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`))
+
+                await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-actions'))
+
+                await waitFor(() => {
+                    expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
+                })
+            }
+        )
+
+        it.each(['pill', 'icon'] as const)(
+            '%s variant: pressing Tab in the search input does not switch category',
+            async (variant) => {
+                setVariant(variant)
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                })
+
+                await waitFor(() => {
+                    expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+                })
+
+                const trigger = screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)
+                expect(trigger).toHaveAttribute('aria-label', expect.stringContaining('Events'))
+
+                const input = screen.getByTestId('taxonomic-filter-searchfield') as HTMLInputElement
+                input.focus()
+                await userEvent.keyboard('{Tab}')
+
+                expect(screen.getByTestId(`taxonomic-category-dropdown-trigger-${variant}`)).toHaveAttribute(
+                    'aria-label',
+                    expect.stringContaining('Events')
+                )
+            }
+        )
     })
 })

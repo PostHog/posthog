@@ -67,10 +67,18 @@ class TeamMetrics:
     ai_metric_count: int = 0
     ai_feedback_count: int = 0
     ai_evaluation_count: int = 0
+    ai_is_error_count: int = 0
     ai_trial_evaluation_count: int = 0
+    ai_trace_summary_count: int = 0
+    ai_generation_summary_count: int = 0
+    ai_trace_clusters_count: int = 0
+    ai_generation_clusters_count: int = 0
 
     # Cost metrics
     total_cost: float = 0.0
+    total_cost_count: int = 0
+    total_cost_negative_count: int = 0
+    total_cost_zero_count: int = 0
     input_cost: float = 0.0
     output_cost: float = 0.0
     request_cost: float = 0.0
@@ -266,7 +274,7 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
 
             metrics = team_metrics[team_id]
 
-            # Event counts (indices 1-7)
+            # Event counts (indices 1-11)
             metrics.ai_generation_count += row[1] or 0
             metrics.ai_embedding_count += row[2] or 0
             metrics.ai_span_count += row[3] or 0
@@ -274,22 +282,36 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             metrics.ai_metric_count += row[5] or 0
             metrics.ai_feedback_count += row[6] or 0
             metrics.ai_evaluation_count += row[7] or 0
+            metrics.ai_trace_summary_count += row[8] or 0
+            metrics.ai_generation_summary_count += row[9] or 0
+            metrics.ai_trace_clusters_count += row[10] or 0
+            metrics.ai_generation_clusters_count += row[11] or 0
 
-            # Cost metrics (indices 8-12)
-            metrics.total_cost += row[8] or 0.0
-            metrics.input_cost += row[9] or 0.0
-            metrics.output_cost += row[10] or 0.0
-            metrics.request_cost += row[11] or 0.0
-            metrics.web_search_cost += row[12] or 0.0
+            # Cost metrics (indices 12-16)
+            metrics.total_cost += row[12] or 0.0
+            metrics.input_cost += row[13] or 0.0
+            metrics.output_cost += row[14] or 0.0
+            metrics.request_cost += row[15] or 0.0
+            metrics.web_search_cost += row[16] or 0.0
 
-            # Token metrics (indices 13-18)
-            metrics.prompt_tokens += row[13] or 0
-            metrics.completion_tokens += row[14] or 0
-            metrics.total_tokens += row[15] or 0
-            metrics.reasoning_tokens += row[16] or 0
-            metrics.cache_read_tokens += row[17] or 0
-            metrics.cache_creation_tokens += row[18] or 0
-            metrics.ai_trial_evaluation_count += row[19] or 0
+            # Token metrics (indices 17-22)
+            metrics.prompt_tokens += row[17] or 0
+            metrics.completion_tokens += row[18] or 0
+            metrics.total_tokens += row[19] or 0
+            metrics.reasoning_tokens += row[20] or 0
+            metrics.cache_read_tokens += row[21] or 0
+            metrics.cache_creation_tokens += row[22] or 0
+
+            # Cost anomaly counts (indices 23-25)
+            metrics.total_cost_count += row[23] or 0
+            metrics.total_cost_negative_count += row[24] or 0
+            metrics.total_cost_zero_count += row[25] or 0
+
+            # Error count (index 26)
+            metrics.ai_is_error_count += row[26] or 0
+
+            # Trial evaluation count (index 27)
+            metrics.ai_trial_evaluation_count += row[27] or 0
 
     return team_metrics
 
@@ -322,6 +344,10 @@ def get_all_ai_metrics(
             countIf(event = '$ai_metric') as ai_metric_count,
             countIf(event = '$ai_feedback') as ai_feedback_count,
             countIf(event = '$ai_evaluation') as ai_evaluation_count,
+            countIf(event = '$ai_trace_summary') as ai_trace_summary_count,
+            countIf(event = '$ai_generation_summary') as ai_generation_summary_count,
+            countIf(event = '$ai_trace_clusters') as ai_trace_clusters_count,
+            countIf(event = '$ai_generation_clusters') as ai_generation_clusters_count,
             -- Cost metrics
             SUM(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd'])) as total_cost,
             SUM(toFloat64OrNull(properties_group_ai['$ai_input_cost_usd'])) as input_cost,
@@ -335,6 +361,12 @@ def get_all_ai_metrics(
             SUM(toInt64OrNull(properties_group_ai['$ai_reasoning_tokens'])) as reasoning_tokens,
             SUM(toInt64OrNull(properties_group_ai['$ai_cache_read_input_tokens'])) as cache_read_tokens,
             SUM(toInt64OrNull(properties_group_ai['$ai_cache_creation_input_tokens'])) as cache_creation_tokens,
+            -- Cost anomaly counts
+            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) IS NOT NULL) as total_cost_count,
+            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) < 0) as total_cost_negative_count,
+            countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) = 0) as total_cost_zero_count,
+            -- Error count
+            countIf(properties_group_ai['$ai_is_error'] = 'true') as ai_is_error_count,
             countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_key_type'] = 'posthog') as ai_trial_evaluation_count
         FROM events
         WHERE team_id IN %(team_ids)s
@@ -565,17 +597,18 @@ def get_llm_feedback_survey_metrics(
         dict mapping team_id to TeamLLMSurveyMetrics
     """
     ai_trace_id_expr, _ = get_property_string_expr("events", "$ai_trace_id", "'$ai_trace_id'", "properties")
+    survey_id_expr, _ = get_property_string_expr("events", "$survey_id", "'$survey_id'", "properties")
 
     query_template = f"""
         SELECT
             team_id,
-            JSONExtractString(properties, '$survey_id') as survey_id,
+            {survey_id_expr} as survey_id,
             countIf(event = 'survey sent') as response_count
         FROM events
         WHERE team_id IN %(team_ids)s
           AND event IN ('survey sent', 'survey shown')
           AND {ai_trace_id_expr} != ''
-          AND JSONExtractString(properties, '$survey_id') != ''
+          AND {survey_id_expr} != ''
           AND timestamp >= %(begin)s
           AND timestamp < %(end)s
         GROUP BY team_id, survey_id
@@ -680,11 +713,19 @@ def _get_all_llm_analytics_reports(
                 "ai_metric_count": 0,
                 "ai_feedback_count": 0,
                 "ai_evaluation_count": 0,
+                "ai_is_error_count": 0,
                 "ai_trial_evaluation_count": 0,
+                "ai_trace_summary_count": 0,
+                "ai_generation_summary_count": 0,
+                "ai_trace_clusters_count": 0,
+                "ai_generation_clusters_count": 0,
                 "llm_prompt_fetched_count": 0,
                 "active_llm_feedback_survey_count": 0,
                 "llm_feedback_survey_response_count": 0,
                 "total_ai_cost_usd": 0.0,
+                "total_ai_cost_usd_count": 0,
+                "total_ai_cost_usd_negative_count": 0,
+                "total_ai_cost_usd_zero_count": 0,
                 "input_cost_usd": 0.0,
                 "output_cost_usd": 0.0,
                 "request_cost_usd": 0.0,
@@ -717,9 +758,17 @@ def _get_all_llm_analytics_reports(
             report["ai_metric_count"] += metrics.ai_metric_count
             report["ai_feedback_count"] += metrics.ai_feedback_count
             report["ai_evaluation_count"] += metrics.ai_evaluation_count
+            report["ai_is_error_count"] += metrics.ai_is_error_count
             report["ai_trial_evaluation_count"] += metrics.ai_trial_evaluation_count
+            report["ai_trace_summary_count"] += metrics.ai_trace_summary_count
+            report["ai_generation_summary_count"] += metrics.ai_generation_summary_count
+            report["ai_trace_clusters_count"] += metrics.ai_trace_clusters_count
+            report["ai_generation_clusters_count"] += metrics.ai_generation_clusters_count
 
             report["total_ai_cost_usd"] += metrics.total_cost
+            report["total_ai_cost_usd_count"] += metrics.total_cost_count
+            report["total_ai_cost_usd_negative_count"] += metrics.total_cost_negative_count
+            report["total_ai_cost_usd_zero_count"] += metrics.total_cost_zero_count
             report["input_cost_usd"] += metrics.input_cost
             report["output_cost_usd"] += metrics.output_cost
             report["request_cost_usd"] += metrics.request_cost

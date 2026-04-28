@@ -18,7 +18,7 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-node @opentelemetry/resources
+                            npm install @posthog/ai @ai-sdk/openai ai @opentelemetry/sdk-trace-base @opentelemetry/resources @opentelemetry/api
                         `}
                     />
                 </>
@@ -59,23 +59,37 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Convex actions run in a Node.js-compatible environment when you add the `"use node"` directive.
-                        Create an action that initializes the OpenTelemetry SDK with PostHog's trace exporter and
-                        enables telemetry on your AI SDK calls.
+                        Create a Convex action that initializes a `BasicTracerProvider` with PostHog's trace exporter
+                        and enables telemetry on your AI SDK calls. The provider is initialized at module scope so it
+                        persists across warm V8 isolate invocations.
                     </Markdown>
 
                     <CodeBlock
                         language="typescript"
                         code={dedent`
-                            "use node"
-
-                            import { NodeSDK } from '@opentelemetry/sdk-node'
+                            import { trace } from '@opentelemetry/api'
+                            import { BasicTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
                             import { resourceFromAttributes } from '@opentelemetry/resources'
                             import { generateText } from 'ai'
                             import { openai } from '@ai-sdk/openai'
                             import { PostHogTraceExporter } from '@posthog/ai/otel'
                             import { action } from './_generated/server'
                             import { v } from 'convex/values'
+
+                            const provider = new BasicTracerProvider({
+                              resource: resourceFromAttributes({
+                                'service.name': 'my-convex-app',
+                              }),
+                              spanProcessors: [
+                                new SimpleSpanProcessor(
+                                  new PostHogTraceExporter({
+                                    apiKey: process.env.POSTHOG_API_KEY!,
+                                    host: process.env.POSTHOG_HOST,
+                                  })
+                                ),
+                              ],
+                            })
+                            trace.setGlobalTracerProvider(provider)
 
                             export const generate = action({
                               args: {
@@ -84,18 +98,6 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                               },
                               handler: async (_ctx, args) => {
                                 const distinctId = args.distinctId ?? 'anonymous'
-
-                                const sdk = new NodeSDK({
-                                  resource: resourceFromAttributes({
-                                    'service.name': 'my-convex-app',
-                                    'user.id': distinctId,
-                                  }),
-                                  traceExporter: new PostHogTraceExporter({
-                                    apiKey: process.env.POSTHOG_API_KEY!,
-                                    host: process.env.POSTHOG_HOST,
-                                  }),
-                                })
-                                sdk.start()
 
                                 const result = await generateText({
                                   model: openai('gpt-5-mini'),
@@ -108,8 +110,6 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     },
                                   },
                                 })
-
-                                await sdk.shutdown()
 
                                 return { text: result.text, usage: result.usage }
                               },
@@ -140,9 +140,8 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <CodeBlock
                         language="typescript"
                         code={dedent`
-                            "use node"
-
-                            import { NodeSDK } from '@opentelemetry/sdk-node'
+                            import { trace } from '@opentelemetry/api'
+                            import { BasicTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
                             import { resourceFromAttributes } from '@opentelemetry/resources'
                             import { Agent } from '@convex-dev/agent'
                             import { openai } from '@ai-sdk/openai'
@@ -151,6 +150,21 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             import { action } from './_generated/server'
                             import { v } from 'convex/values'
 
+                            const provider = new BasicTracerProvider({
+                              resource: resourceFromAttributes({
+                                'service.name': 'my-convex-app',
+                              }),
+                              spanProcessors: [
+                                new SimpleSpanProcessor(
+                                  new PostHogTraceExporter({
+                                    apiKey: process.env.POSTHOG_API_KEY!,
+                                    host: process.env.POSTHOG_HOST,
+                                  })
+                                ),
+                              ],
+                            })
+                            trace.setGlobalTracerProvider(provider)
+
                             export const generate = action({
                               args: {
                                 prompt: v.string(),
@@ -158,18 +172,6 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                               },
                               handler: async (ctx, args) => {
                                 const distinctId = args.distinctId ?? 'anonymous'
-
-                                const sdk = new NodeSDK({
-                                  resource: resourceFromAttributes({
-                                    'service.name': 'my-convex-app',
-                                    'user.id': distinctId,
-                                  }),
-                                  traceExporter: new PostHogTraceExporter({
-                                    apiKey: process.env.POSTHOG_API_KEY!,
-                                    host: process.env.POSTHOG_HOST,
-                                  }),
-                                })
-                                sdk.start()
 
                                 const supportAgent = new Agent(components.agent, {
                                   name: 'support-agent',
@@ -189,8 +191,6 @@ export const getConvexSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     },
                                   },
                                 })
-
-                                await sdk.shutdown()
 
                                 return { text: result.text, usage: result.totalUsage }
                               },

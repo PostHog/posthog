@@ -17,9 +17,9 @@
  * `churn` - Churn
  * `reactivation` - Reactivation
  */
-export type CategoryEnumApi = (typeof CategoryEnumApi)[keyof typeof CategoryEnumApi]
+export type CoreEventCategoryEnumApi = (typeof CoreEventCategoryEnumApi)[keyof typeof CoreEventCategoryEnumApi]
 
-export const CategoryEnumApi = {
+export const CoreEventCategoryEnumApi = {
     Acquisition: 'acquisition',
     Activation: 'activation',
     Monetization: 'monetization',
@@ -49,7 +49,7 @@ export interface CoreEventApi {
 * `retention` - Retention
 * `churn` - Churn
 * `reactivation` - Reactivation */
-    category: CategoryEnumApi
+    category: CoreEventCategoryEnumApi
     /** Filter configuration - event, action, or data warehouse node */
     filter: unknown
     readonly created_at: string
@@ -84,7 +84,7 @@ export interface PatchedCoreEventApi {
 * `retention` - Retention
 * `churn` - Churn
 * `reactivation` - Reactivation */
-    category?: CategoryEnumApi
+    category?: CoreEventCategoryEnumApi
     /** Filter configuration - event, action, or data warehouse node */
     filter?: unknown
     readonly created_at?: string

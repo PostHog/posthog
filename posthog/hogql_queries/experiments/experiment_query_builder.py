@@ -1,5 +1,7 @@
 from typing import Optional, Union, cast
 
+from django.utils import timezone
+
 from posthog.schema import (
     ActionsNode,
     Breakdown,
@@ -35,7 +37,9 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     validate_session_property,
 )
 from posthog.hogql_queries.experiments.breakdown_injector import BreakdownInjector
+from posthog.hogql_queries.experiments.cuped_config import CupedQueryConfig
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
+from posthog.hogql_queries.experiments.funnel_step_builder import FunnelStepBuilder
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
     aggregation_needs_numeric_input,
     build_aggregation_call,
@@ -83,10 +87,14 @@ class ExperimentQueryBuilder:
             ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
         ] = None,
         breakdowns: list[Breakdown] | None = None,
-        force_precomputation: bool = False,
+        only_count_matured_users: bool = False,
+        funnel_steps_data_disabled: bool = False,
+        cuped_config: CupedQueryConfig | None = None,
     ):
         self.team = team
         self.metric = metric
+        self.only_count_matured_users = only_count_matured_users
+        self.funnel_steps_data_disabled = funnel_steps_data_disabled
         self.feature_flag_key = feature_flag_key
         self.variants = variants
         self.date_range_query = date_range_query
@@ -97,7 +105,8 @@ class ExperimentQueryBuilder:
         self.breakdowns = breakdowns or []
         self.breakdown_injector = BreakdownInjector(self.breakdowns, metric) if metric else None
         self.preaggregation_job_ids: list[str] | None = None
-        self.force_precomputation = force_precomputation
+        self.metric_events_preaggregation_job_ids: list[str] | None = None
+        self.cuped_config = cuped_config or CupedQueryConfig()
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
     # bounded by num_variants × num_breakdown_values.  The HogQL executor injects
@@ -234,27 +243,145 @@ class ExperimentQueryBuilder:
             )
         return 0
 
+    def _get_maturity_window_seconds(self) -> int:
+        """
+        Returns the total maturity window in seconds.
+        For retention metrics: conversion_window + retention_window_end.
+        For other metrics: conversion_window.
+        Returns 0 if no conversion window is configured.
+        """
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds == 0:
+            return 0
+
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            retention_window_end_seconds = conversion_window_to_seconds(
+                self.metric.retention_window_end,
+                self.metric.retention_window_unit,
+            )
+            return conversion_window_seconds + retention_window_end_seconds
+
+        return conversion_window_seconds
+
+    def _build_maturity_having_clause(self, timestamp_expr: str = "timestamp") -> Optional[ast.Expr]:
+        """
+        Returns a HAVING clause expression to filter out users whose conversion window
+        hasn't elapsed yet, or None if the feature is not enabled.
+        """
+        if self.metric is None:
+            return None
+        if not self.only_count_matured_users:
+            return None
+
+        maturity_seconds = self._get_maturity_window_seconds()
+        if maturity_seconds == 0:
+            return None
+
+        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+        return parse_expr(
+            f"max({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
+            placeholders={
+                "maturity_seconds": ast.Constant(value=maturity_seconds),
+                "now": ast.Constant(value=now),
+            },
+        )
+
     def _build_funnel_query(self) -> ast.SelectQuery:
         """
         Builds query for funnel metrics.
+        Dispatches to optimized (single-scan) or legacy (double-scan) path.
+        """
+        if self._should_use_optimized_funnel_query():
+            return self._build_funnel_query_optimized()
+        return self._build_funnel_query_legacy()
+
+    def _should_use_optimized_funnel_query(self) -> bool:
+        """
+        Returns True when the optimized single-scan funnel query should be used.
+        The legacy path is kept for precomputed exposures, where the exposures CTE
+        reads from a cheap preaggregated table (no double-scan penalty).
+        """
+        if self.preaggregation_job_ids and not self.breakdowns:
+            return False
+        return True
+
+    def _build_funnel_query_legacy(self) -> ast.SelectQuery:
+        """
+        3-CTE funnel query: exposures, metric_events, entity_metrics.
+        Called "legacy" because it predates the single-scan optimized path,
+        but this is the primary path for precomputed queries — both exposures
+        and metric_events CTEs can read from precomputed tables here.
+
+        Supports two patterns:
+        1. Events-only: Single query with boolean step columns
+        2. With DW steps: UNION ALL pattern with separate subqueries per source
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
         num_steps = len(self.metric.series) + 1  #  +1 as we are including exposure criteria
 
-        metric_events_cte_str = """
-                metric_events AS (
-                    SELECT
-                        {entity_key} AS entity_id,
-                        {variant_property} as variant,
-                        timestamp,
-                        uuid,
-                        properties.$session_id AS session_id,
-                        -- step_0, step_1, ... step_N columns added programmatically below
-                    FROM events
-                    WHERE ({exposure_predicate} OR {funnel_steps_filter})
-                )
-        """
+        # Determine which query pattern to use
+        has_dw_steps = self._has_datawarehouse_steps()
+
+        # Track whether step columns need to be injected after parsing.
+        # Precomputed metric events already have steps extracted from the array.
+        inject_step_columns = True
+
+        if self.metric_events_preaggregation_job_ids and not has_dw_steps:
+            # Read from precomputed table instead of scanning events
+            inject_step_columns = False
+            step_extracts = ", ".join(f"arrayElement(t.steps, {i + 1}) AS step_{i}" for i in range(num_steps))
+            entity_id_cast = "toUUID(t.entity_id)" if self.entity_key == "person_id" else "t.entity_id"
+            session_id_col = "t.session_id AS session_id," if not self.funnel_steps_data_disabled else ""
+
+            # Filter by experiment date range: jobs can cover broader time ranges
+            # than the experiment for cache reusability, so we must filter on read.
+            # Upper bound includes conversion window since funnel step events can
+            # occur after experiment end.
+            conversion_window_seconds = self._get_conversion_window_seconds()
+            if conversion_window_seconds > 0:
+                upper_bound = f"{{metric_events_date_to}} + toIntervalSecond({conversion_window_seconds})"
+            else:
+                upper_bound = "{metric_events_date_to}"
+
+            metric_events_cte_str = f"""
+                    metric_events AS (
+                        SELECT
+                            {entity_id_cast} AS entity_id,
+                            t.timestamp AS timestamp,
+                            t.event_uuid AS uuid,
+                            {session_id_col}
+                            {step_extracts}
+                        FROM experiment_metric_events_preaggregated AS t
+                        WHERE t.job_id IN {{metric_events_job_ids}}
+                            AND t.team_id = {{metric_events_team_id}}
+                            AND t.timestamp >= {{metric_events_date_from}}
+                            AND t.timestamp <= {upper_bound}
+                    )
+            """
+        elif has_dw_steps:
+            # UNION ALL pattern for heterogeneous sources
+            metric_events_cte_str = self._build_funnel_metric_events_cte_with_union()
+        else:
+            session_id_column = (
+                """
+                            properties.$session_id AS session_id,"""
+                if not self.funnel_steps_data_disabled
+                else ""
+            )
+
+            metric_events_cte_str = f"""
+                    metric_events AS (
+                        SELECT
+                            {{entity_key}} AS entity_id,
+                            {{variant_property}} as variant,
+                            timestamp,
+                            uuid,{session_id_column}
+                            -- step_0, step_1, ... step_N columns added programmatically below
+                        FROM events
+                        WHERE ({{exposure_predicate}} OR {{funnel_steps_filter}})
+                    )
+            """
 
         is_unordered_funnel = self.metric.funnel_order_type == StepOrderValue.UNORDERED
 
@@ -269,6 +396,25 @@ class ExperimentQueryBuilder:
         # Build the JOIN clause with conditional temporal filter
         temporal_filter = "AND metric_events.timestamp >= exposures.first_exposure_time" if is_unordered_funnel else ""
 
+        if self.funnel_steps_data_disabled:
+            # When steps data is disabled, we skip the expensive session/event maps and
+            # the per-exposure columns that are only needed for steps_event_data.
+            # The exposures CTE already deduplicates to one row per (entity_id, variant),
+            # so removing these from GROUP BY doesn't change results.
+            extra_select_columns = ""
+            extra_group_by_columns = ""
+        else:
+            extra_select_columns = """,
+                    exposures.exposure_event_uuid AS exposure_event_uuid,
+                    exposures.exposure_session_id AS exposure_session_id,
+                    exposures.first_exposure_time AS exposure_timestamp,
+                    {uuid_to_session_map} AS uuid_to_session,
+                    {uuid_to_timestamp_map} AS uuid_to_timestamp"""
+            extra_group_by_columns = """,
+                    exposures.exposure_event_uuid,
+                    exposures.exposure_session_id,
+                    exposures.first_exposure_time"""
+
         ctes_sql = f"""
             exposures AS (
                 {{exposure_select_query}}
@@ -280,22 +426,14 @@ class ExperimentQueryBuilder:
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    exposures.exposure_event_uuid AS exposure_event_uuid,
-                    exposures.exposure_session_id AS exposure_session_id,
-                    exposures.first_exposure_time AS exposure_timestamp,
-                    {{funnel_aggregation}} AS value,
-                    {{uuid_to_session_map}} AS uuid_to_session,
-                    {{uuid_to_timestamp_map}} AS uuid_to_timestamp
+                    {{funnel_aggregation}} AS value{extra_select_columns}
                 FROM exposures
                 LEFT JOIN metric_events
                     ON exposures.entity_id = metric_events.entity_id
                     {temporal_filter}  -- Only for unordered: filters out events before exposure
                 GROUP BY
                     exposures.entity_id,
-                    exposures.variant,
-                    exposures.exposure_event_uuid,
-                    exposures.exposure_session_id,
-                    exposures.first_exposure_time
+                    exposures.variant{extra_group_by_columns}
             )
         """
 
@@ -307,10 +445,17 @@ class ExperimentQueryBuilder:
             "funnel_steps_filter": self._build_funnel_steps_filter(),
             "funnel_aggregation": self._build_funnel_aggregation_expr(),
             "num_steps_minus_1": ast.Constant(value=num_steps - 1),
-            "uuid_to_session_map": self._build_uuid_to_session_map(),
-            "uuid_to_timestamp_map": self._build_uuid_to_timestamp_map(),
             "exposure_select_query": self._get_exposure_query(),
         }
+        if not self.funnel_steps_data_disabled:
+            placeholders["uuid_to_session_map"] = self._build_uuid_to_session_map()
+            placeholders["uuid_to_timestamp_map"] = self._build_uuid_to_timestamp_map()
+
+        if self.metric_events_preaggregation_job_ids:
+            placeholders["metric_events_job_ids"] = ast.Constant(value=self.metric_events_preaggregation_job_ids)
+            placeholders["metric_events_team_id"] = ast.Constant(value=self.team.id)
+            placeholders["metric_events_date_from"] = self.date_range_query.date_from_as_hogql()
+            placeholders["metric_events_date_to"] = self.date_range_query.date_to_as_hogql()
 
         query = parse_select(
             f"""
@@ -342,12 +487,10 @@ class ExperimentQueryBuilder:
         if self.breakdown_injector:
             self.breakdown_injector.inject_funnel_breakdown_columns(query)
 
-        # Inject step columns into the metric_events CTE
-        # Find the metric_events CTE in the query
-        if query.ctes and "metric_events" in query.ctes:
+        # Inject step columns into the metric_events CTE (skip when precomputed — already extracted)
+        if inject_step_columns and query.ctes and "metric_events" in query.ctes:
             metric_events_cte = query.ctes["metric_events"]
             if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
-                # Add step columns to the SELECT
                 step_columns = self._build_funnel_step_columns()
                 metric_events_cte.expr.select.extend(step_columns)
 
@@ -358,25 +501,209 @@ class ExperimentQueryBuilder:
             step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
         step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
 
+        query.select.append(parse_expr(step_counts_expr))
+
         # For each step in the funnel, get at least 100 tuples of person_id, session_id, event uuid, and timestamp, that have
         # that step as their last step in the funnel.
         # For the users that have 0 matching steps in the funnel (-1), we return the event data for the exposure event.
-        event_uuids_exprs = []
-        for i in range(1, num_steps + 1):
-            event_uuids_expr = f"""
-                groupArraySampleIf(100)(
-                    if(
-                        entity_metrics.value.2 != '',
-                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2, toString(uuid_to_timestamp[entity_metrics.value.2])),
-                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))
-                    ),
-                    entity_metrics.value.1 = {i} - 1
-                )
-            """
-            event_uuids_exprs.append(event_uuids_expr)
-        event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
+        # This is skipped when funnel_steps_data_disabled is set, as it's expensive for high-traffic experiments.
+        if not self.funnel_steps_data_disabled:
+            event_uuids_exprs = []
+            for i in range(1, num_steps + 1):
+                event_uuids_expr = f"""
+                    groupArraySampleIf(100)(
+                        if(
+                            entity_metrics.value.2 != '',
+                            tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2, toString(uuid_to_timestamp[entity_metrics.value.2])),
+                            tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))
+                        ),
+                        entity_metrics.value.1 = {i} - 1
+                    )
+                """
+                event_uuids_exprs.append(event_uuids_expr)
+            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
+            query.select.append(parse_expr(event_uuids_exprs_sql))
 
-        query.select.extend([parse_expr(step_counts_expr), parse_expr(event_uuids_exprs_sql)])
+        return query
+
+    def _build_funnel_query_optimized(self) -> ast.SelectQuery:
+        """
+        Optimized funnel query: eliminates the second events table scan and the
+        intermediate JOIN. Uses 2 CTEs for ordered funnels, 3 for unordered:
+
+        Ordered:   base_events -> entity_metrics -> final SELECT
+        Unordered: base_events -> first_exposures -> entity_metrics -> final SELECT
+
+        base_events: single scan of events, computes step_0/step_1/variant_value inline
+        first_exposures: (unordered only) min exposure time per entity for temporal filtering
+        entity_metrics: GROUP BY entity_id, conditional aggregation for variant, funnel UDF
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+
+        num_steps = len(self.metric.series) + 1  # +1 as we are including exposure criteria
+
+        session_id_column = (
+            """
+                        properties.$session_id AS session_id,"""
+            if not self.funnel_steps_data_disabled
+            else ""
+        )
+
+        # CTE 1: base_events - single scan of events table
+        # WHERE admits both exposure and conversion events. Exclusion filters are
+        # embedded in step_0 only, not the WHERE clause, so conversion events from
+        # internal users pass through (they only matter if the user has a valid exposure).
+        base_events_cte_str = f"""
+                base_events AS (
+                    SELECT
+                        {{entity_key}} AS entity_id,
+                        {{variant_property}} AS variant_value,
+                        timestamp,
+                        uuid,{session_id_column}
+                        -- step_0, step_1, ... step_N columns added programmatically below
+                    FROM events
+                    WHERE ({{exposure_predicate}} OR {{funnel_steps_filter}})
+                )
+        """
+
+        is_unordered_funnel = self.metric.funnel_order_type == StepOrderValue.UNORDERED
+
+        # CTE 2: entity_metrics - GROUP BY entity_id, no JOIN
+        if self.funnel_steps_data_disabled:
+            extra_select_columns = ""
+        else:
+            extra_select_columns = """,
+                    argMinIf(uuid, timestamp, step_0 = 1) AS exposure_event_uuid,
+                    argMinIf(session_id, timestamp, step_0 = 1) AS exposure_session_id,
+                    minIf(timestamp, step_0 = 1) AS exposure_timestamp,
+                    {uuid_to_session_map} AS uuid_to_session,
+                    {uuid_to_timestamp_map} AS uuid_to_timestamp"""
+
+        # Unordered funnels need temporal filtering: the UDF doesn't enforce that
+        # step_0 (exposure) happens before step_1..N, so we must exclude events
+        # before first exposure. Add a lightweight first_exposures sub-CTE.
+        if is_unordered_funnel:
+            first_exposures_cte_str = """
+            first_exposures AS (
+                SELECT entity_id, min(timestamp) AS first_exposure_time
+                FROM base_events
+                WHERE step_0 = 1
+                GROUP BY entity_id
+            ),"""
+            temporal_join = """INNER JOIN first_exposures
+                    ON base_events.entity_id = first_exposures.entity_id
+                WHERE base_events.timestamp >= first_exposures.first_exposure_time"""
+            # INNER JOIN implicitly filters to exposed entities, no HAVING needed
+            having_clause = ""
+        else:
+            first_exposures_cte_str = ""
+            temporal_join = ""
+            having_clause = """
+                HAVING countIf(step_0 = 1) > 0"""
+
+        ctes_sql = f"""
+            {base_events_cte_str},
+            {first_exposures_cte_str}
+            entity_metrics AS (
+                SELECT
+                    base_events.entity_id AS entity_id,
+                    {{variant_expr}} AS variant,
+                    {{funnel_aggregation}} AS value{extra_select_columns}
+                FROM base_events
+                {temporal_join}
+                GROUP BY base_events.entity_id{having_clause}
+            )
+        """
+
+        placeholders: dict[str, ast.Expr | ast.SelectQuery] = {
+            "exposure_predicate": self._build_exposure_predicate(),
+            "variant_property": self._build_variant_property(),
+            "variant_expr": self._build_variant_expr_for_funnel_optimized(),
+            "entity_key": parse_expr(self.entity_key),
+            "funnel_steps_filter": self._build_funnel_steps_filter(),
+            "funnel_aggregation": self._build_funnel_aggregation_expr_optimized(),
+            "num_steps_minus_1": ast.Constant(value=num_steps - 1),
+        }
+        if not self.funnel_steps_data_disabled:
+            placeholders["uuid_to_session_map"] = self._build_uuid_to_session_map_optimized()
+            placeholders["uuid_to_timestamp_map"] = self._build_uuid_to_timestamp_map_optimized()
+
+        query = parse_select(
+            f"""
+            WITH
+            {ctes_sql}
+
+            SELECT
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                -- The return value from the funnel eval is zero indexed. So reaching first step means
+                -- it return 0, and so on. So reaching the last step means it will return
+                -- num_steps - 1
+                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
+                countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
+                -- step_counts added programmatically below
+                -- steps_event_data added programmatically below
+                -- breakdown columns added programmatically below
+            FROM entity_metrics
+            WHERE notEmpty(variant)
+            GROUP BY entity_metrics.variant
+            -- breakdown columns added programmatically below
+            """,
+            placeholders=placeholders,
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        # Inject breakdown columns into the query AST
+        if self.breakdown_injector:
+            self.breakdown_injector.inject_funnel_breakdown_columns_optimized(query)
+
+        # Inject step columns into the base_events CTE
+        if query.ctes and "base_events" in query.ctes:
+            base_events_cte = query.ctes["base_events"]
+            if isinstance(base_events_cte, ast.CTE) and isinstance(base_events_cte.expr, ast.SelectQuery):
+                step_columns = self._build_funnel_step_columns()
+                base_events_cte.expr.select.extend(step_columns)
+
+        # Inject maturity HAVING clause into entity_metrics CTE
+        # Use maxIf to only consider exposure events for maturity
+        maturity_having = self._build_maturity_having_clause_optimized()
+        if maturity_having is not None:
+            if query.ctes and "entity_metrics" in query.ctes:
+                entity_metrics_cte = query.ctes["entity_metrics"]
+                if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                    if entity_metrics_cte.expr.having is None:
+                        entity_metrics_cte.expr.having = maturity_having
+                    else:
+                        entity_metrics_cte.expr.having = ast.And(
+                            exprs=[entity_metrics_cte.expr.having, maturity_having]
+                        )
+
+        # Add step counts - how many users reached each step
+        step_count_exprs = []
+        for i in range(1, num_steps):
+            step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
+        step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
+
+        query.select.append(parse_expr(step_counts_expr))
+
+        # For each step in the funnel, get sample tuples of person_id, session_id, event uuid, and timestamp
+        if not self.funnel_steps_data_disabled:
+            event_uuids_exprs = []
+            for i in range(1, num_steps + 1):
+                event_uuids_expr = f"""
+                    groupArraySampleIf(100)(
+                        if(
+                            entity_metrics.value.2 != '',
+                            tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2, toString(uuid_to_timestamp[entity_metrics.value.2])),
+                            tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))
+                        ),
+                        entity_metrics.value.1 = {i} - 1
+                    )
+                """
+                event_uuids_exprs.append(event_uuids_expr)
+            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
+            query.select.append(parse_expr(event_uuids_exprs_sql))
 
         return query
 
@@ -463,6 +790,16 @@ class ExperimentQueryBuilder:
         else:
             join_condition = "exposures.entity_id = metric_events.entity_id"
 
+        if self.cuped_config.enabled:
+            join_window_predicate = "({conversion_window_predicate} OR {cuped_pre_window_predicate})"
+            entity_metric_selects = """
+                    {value_agg} AS value,
+                    {covariate_value_agg} AS covariate_value"""
+        else:
+            join_window_predicate = "{conversion_window_predicate}"
+            entity_metric_selects = """
+                    {value_agg} AS value"""
+
         return f"""
             exposures AS (
                 {{exposure_select_query}}
@@ -482,11 +819,11 @@ class ExperimentQueryBuilder:
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    {{value_agg}} AS value
+{entity_metric_selects}
                     -- breakdown columns added programmatically below
                 FROM exposures
                 LEFT JOIN metric_events ON {join_condition}
-                    AND {{conversion_window_predicate}}
+                    AND {join_window_predicate}
                 GROUP BY exposures.entity_id, exposures.variant
                 -- breakdown columns added programmatically below
             )
@@ -524,16 +861,33 @@ class ExperimentQueryBuilder:
             if exposure_query.group_by:
                 exposure_query.group_by.append(ast.Field(chain=events_join_key_parts))
 
+        metric_predicate = self._build_metric_predicate(
+            table_alias=source_info.table_name,
+            cuped_lookback_days=self.cuped_config.lookback_days if self.cuped_config.enabled else None,
+        )
+        conversion_window_predicate = self._build_conversion_window_predicate()
+
         placeholders: dict = {
             "exposure_select_query": exposure_query,
             "entity_key": source_info.entity_key,
             "metric_timestamp_field": ast.Field(chain=[source_info.timestamp_field]),
             "metric_table": ast.Field(chain=[source_info.table_name]),
-            "metric_predicate": self._build_metric_predicate(table_alias=source_info.table_name),
+            "metric_predicate": metric_predicate,
             "value_expr": self._build_value_expr(),
-            "value_agg": self._build_value_aggregation_expr(),
-            "conversion_window_predicate": self._build_conversion_window_predicate(),
+            "value_agg": self._build_value_aggregation_expr(
+                value_expr=self._build_windowed_metric_value_expr(conversion_window_predicate)
+                if self.cuped_config.enabled
+                else None
+            ),
+            "conversion_window_predicate": conversion_window_predicate,
         }
+
+        if self.cuped_config.enabled:
+            cuped_pre_window_predicate = self._build_cuped_pre_window_predicate()
+            placeholders["cuped_pre_window_predicate"] = cuped_pre_window_predicate
+            placeholders["covariate_value_agg"] = self._build_value_aggregation_expr(
+                value_expr=self._build_windowed_metric_value_expr(cuped_pre_window_predicate)
+            )
 
         # Add join condition for data warehouse
         if source_info.kind == "datawarehouse":
@@ -575,6 +929,14 @@ class ExperimentQueryBuilder:
             return self._build_mean_query_with_winsorization()
 
         common_ctes = self._get_mean_query_common_ctes()
+        cuped_selects = (
+            """,
+                sum(entity_metrics.covariate_value) AS covariate_sum,
+                sum(power(entity_metrics.covariate_value, 2)) AS covariate_sum_squares,
+                sum(entity_metrics.value * entity_metrics.covariate_value) AS main_covariate_sum_product"""
+            if self.cuped_config.enabled
+            else ""
+        )
 
         query = parse_select(
             f"""
@@ -584,7 +946,7 @@ class ExperimentQueryBuilder:
                 entity_metrics.variant AS variant,
                 count(entity_metrics.entity_id) AS num_users,
                 sum(entity_metrics.value) AS total_sum,
-                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares{cuped_selects}
                 -- breakdown columns added programmatically below
             FROM entity_metrics
             GROUP BY entity_metrics.variant
@@ -611,7 +973,7 @@ class ExperimentQueryBuilder:
         # Build lower bound expression
         if self.metric.lower_bound_percentile is not None:
             lower_bound_expr = parse_expr(
-                "quantile({level})(entity_metrics.value)",
+                "quantileExact({level})(entity_metrics.value)",
                 placeholders={"level": ast.Constant(value=self.metric.lower_bound_percentile)},
             )
         else:
@@ -622,12 +984,12 @@ class ExperimentQueryBuilder:
             # Handle ignore_zeros flag for upper bound calculation
             if getattr(self.metric, "ignore_zeros", False):
                 upper_bound_expr = parse_expr(
-                    "quantile({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
+                    "quantileExact({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
                     placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
                 )
             else:
                 upper_bound_expr = parse_expr(
-                    "quantile({level})(entity_metrics.value)",
+                    "quantileExact({level})(entity_metrics.value)",
                     placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
                 )
         else:
@@ -635,6 +997,20 @@ class ExperimentQueryBuilder:
 
         common_ctes = self._get_mean_query_common_ctes()
         placeholders = self._get_mean_query_common_placeholders()
+        winsorized_cuped_select = (
+            """,
+                    entity_metrics.covariate_value AS covariate_value"""
+            if self.cuped_config.enabled
+            else ""
+        )
+        cuped_selects = (
+            """,
+                sum(winsorized_entity_metrics.covariate_value) AS covariate_sum,
+                sum(power(winsorized_entity_metrics.covariate_value, 2)) AS covariate_sum_squares,
+                sum(winsorized_entity_metrics.value * winsorized_entity_metrics.covariate_value) AS main_covariate_sum_product"""
+            if self.cuped_config.enabled
+            else ""
+        )
 
         # Add winsorization-specific placeholders
         placeholders["lower_bound"] = lower_bound_expr
@@ -657,7 +1033,7 @@ class ExperimentQueryBuilder:
                 SELECT
                     entity_metrics.entity_id AS entity_id,
                     entity_metrics.variant AS variant,
-                    least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value
+                    least(greatest(percentiles.lower_bound, entity_metrics.value), percentiles.upper_bound) AS value{winsorized_cuped_select}
                     -- breakdown columns added programmatically below
                 FROM entity_metrics
                 CROSS JOIN percentiles
@@ -668,7 +1044,7 @@ class ExperimentQueryBuilder:
                 winsorized_entity_metrics.variant AS variant,
                 count(winsorized_entity_metrics.entity_id) AS num_users,
                 sum(winsorized_entity_metrics.value) AS total_sum,
-                sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares
+                sum(power(winsorized_entity_metrics.value, 2)) AS total_sum_of_squares{cuped_selects}
                 -- breakdown columns added programmatically below
             FROM winsorized_entity_metrics
             GROUP BY winsorized_entity_metrics.variant
@@ -919,7 +1295,32 @@ class ExperimentQueryBuilder:
         else:
             return parse_expr(f"{events_alias}.timestamp >= exposures.first_exposure_time")
 
-    def _build_metric_predicate(self, source=None, table_alias: str = "events") -> ast.Expr:
+    def _build_cuped_pre_window_predicate(self, events_alias: str = "metric_events") -> ast.Expr:
+        return parse_expr(
+            f"""
+            {events_alias}.timestamp >= exposures.first_exposure_time - toIntervalDay({{lookback_days}})
+            AND {events_alias}.timestamp < exposures.first_exposure_time
+            """,
+            placeholders={"lookback_days": ast.Constant(value=self.cuped_config.lookback_days)},
+        )
+
+    def _build_windowed_metric_value_expr(
+        self, window_predicate: ast.Expr, events_alias: str = "metric_events"
+    ) -> ast.Expr:
+        return parse_expr(
+            "if({window_predicate}, {metric_value}, NULL)",
+            placeholders={
+                "window_predicate": window_predicate,
+                "metric_value": ast.Field(chain=[events_alias, "value"]),
+            },
+        )
+
+    def _build_metric_predicate(
+        self,
+        source=None,
+        table_alias: str = "events",
+        cuped_lookback_days: int | None = None,
+    ) -> ast.Expr:
         """
         Builds the metric predicate as an AST expression.
         For ratio metrics, pass the specific source (numerator or denominator) and table_alias.
@@ -943,6 +1344,15 @@ class ExperimentQueryBuilder:
             metric_event_filter = event_or_action_to_filter(self.team, source)
 
         conversion_window_seconds = self._get_conversion_window_seconds()
+        date_from = self.date_range_query.date_from_as_hogql()
+        if cuped_lookback_days is not None:
+            date_from = parse_expr(
+                "{date_from} - toIntervalDay({lookback_days})",
+                placeholders={
+                    "date_from": date_from,
+                    "lookback_days": ast.Constant(value=cuped_lookback_days),
+                },
+            )
 
         return parse_expr(
             """
@@ -952,7 +1362,7 @@ class ExperimentQueryBuilder:
             """,
             placeholders={
                 "timestamp_field": ast.Field(chain=timestamp_field_chain),
-                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_from": date_from,
                 "date_to": self.date_range_query.date_to_as_hogql(),
                 "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
                 "metric_event_filter": metric_event_filter,
@@ -1006,7 +1416,11 @@ class ExperimentQueryBuilder:
         return ast.Call(name="coalesce", args=[float_expr, ast.Constant(value=0)])
 
     def _build_value_aggregation_expr(
-        self, source=None, events_alias: str = "metric_events", column_name: str = "value"
+        self,
+        source=None,
+        events_alias: str = "metric_events",
+        column_name: str = "value",
+        value_expr: ast.Expr | None = None,
     ) -> ast.Expr:
         """
         Returns the value aggregation expression based on math type.
@@ -1035,6 +1449,22 @@ class ExperimentQueryBuilder:
             ExperimentMetricMathType.DAU,
             ExperimentMetricMathType.UNIQUE_GROUP,
         ]:
+            if value_expr is not None:
+                # Count distinct values, filtering out null UUIDs and empty strings.
+                # Conditional CUPED expressions can be Nullable, so handle NULL before
+                # applying the same empty-value filtering as the base path.
+                return parse_expr(
+                    """toFloat(count(distinct
+                        multiIf(
+                            isNull({value_expr}), NULL,
+                            toTypeName({value_expr}) IN ('UUID', 'Nullable(UUID)') AND reinterpretAsUInt128(assumeNotNull({value_expr})) = 0, NULL,
+                            toString({value_expr}) = '', NULL,
+                            {value_expr}
+                        )
+                    ))""",
+                    placeholders={"value_expr": value_expr},
+                )
+
             # Count distinct values, filtering out null UUIDs and empty strings
             return parse_expr(
                 f"""toFloat(count(distinct
@@ -1047,29 +1477,44 @@ class ExperimentQueryBuilder:
             )
         elif math_type == ExperimentMetricMathType.MIN:
             # Outer coalesce ensures 0 (not NULL) when entity has no events of this type
+            if value_expr is not None:
+                return parse_expr("coalesce(min(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
             return parse_expr(f"coalesce(min(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.MAX:
+            if value_expr is not None:
+                return parse_expr("coalesce(max(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
             return parse_expr(f"coalesce(max(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.AVG:
+            if value_expr is not None:
+                return parse_expr("coalesce(avg(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
             return parse_expr(f"coalesce(avg(toFloat({column_ref})), 0)")
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
                 aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    inner_value_expr = parse_expr(column_ref)
+                    inner_value_expr = value_expr or parse_expr(column_ref)
                     if aggregation_needs_numeric_input(aggregation_function):
                         inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
                     agg_call = build_aggregation_call(
                         aggregation_function, inner_value_expr, params=params, distinct=distinct
                     )
+                    # Non-numeric aggregations (count, uniq, etc.) return UInt64, which is
+                    # incompatible with Float64 in ClickHouse greatest/least functions used
+                    # by winsorization. Wrap with toFloat to ensure consistent Float64 type.
+                    if not aggregation_needs_numeric_input(aggregation_function):
+                        agg_call = ast.Call(name="toFloat", args=[agg_call])
                     return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
             # Fallback to SUM
+            if value_expr is not None:
+                return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
         else:
             # SUM (default) - coalesce is needed here because sum(NULL) returns NULL.
             # For ratio metrics with combined_events, when there are no events of one type,
             # all values for that type are NULL (from UNION ALL structure), and we want 0 not NULL.
+            if value_expr is not None:
+                return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})
             return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
 
     def _build_test_accounts_filter(self) -> ast.Expr:
@@ -1172,11 +1617,6 @@ class ExperimentQueryBuilder:
         if self.preaggregation_job_ids and not self.breakdowns:
             return self._build_exposure_from_precomputed(self.preaggregation_job_ids)
 
-        if self.force_precomputation:
-            raise Exception(
-                "Precomputation required but not available. preaggregation_job_ids is None or breakdowns are present."
-            )
-
         return self._build_exposure_select_query()
 
     def _build_exposure_select_query(self) -> ast.SelectQuery:
@@ -1216,6 +1656,14 @@ class ExperimentQueryBuilder:
                 # This matches the variant attribution logic
                 breakdown_attributed = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
                 exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
+
+        # Filter out users whose conversion window hasn't elapsed yet
+        maturity_having = self._build_maturity_having_clause()
+        if maturity_having is not None:
+            if exposure_query.having is None:
+                exposure_query.having = maturity_having
+            else:
+                exposure_query.having = ast.And(exprs=[exposure_query.having, maturity_having])
 
         return exposure_query
 
@@ -1270,6 +1718,15 @@ class ExperimentQueryBuilder:
             },
         )
         assert isinstance(query, ast.SelectQuery)
+
+        # Filter out users whose conversion window hasn't elapsed yet
+        maturity_having = self._build_maturity_having_clause(timestamp_expr="t.last_exposure_time")
+        if maturity_having is not None:
+            if query.having is None:
+                query.having = maturity_having
+            else:
+                query.having = ast.And(exprs=[query.having, maturity_having])
+
         return query
 
     def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
@@ -1288,6 +1745,11 @@ class ExperimentQueryBuilder:
         # Note: uses < for time_window_max (exclusive end for bucket boundaries)
         # vs <= in normal query (inclusive end for experiment boundary)
         # Keep in sync with _build_exposure_select_query
+        #
+        # The time_window_min/max placeholders define the job's cache window
+        # (UTC-day-aligned). The experiment_date_from/to placeholders tighten
+        # the scan to the actual experiment dates so that variant aggregation
+        # only considers events within the experiment.
         query_string = """
             SELECT
                 {entity_key} AS entity_id,
@@ -1300,6 +1762,8 @@ class ExperimentQueryBuilder:
             FROM events
             WHERE timestamp >= {time_window_min}
                 AND timestamp < {time_window_max}
+                AND timestamp >= {experiment_date_from}
+                AND timestamp <= {experiment_date_to}
                 AND {event_predicate}
                 AND {test_accounts_filter}
                 AND {variant_property} IN {variants}
@@ -1313,6 +1777,67 @@ class ExperimentQueryBuilder:
             "test_accounts_filter": self._build_test_accounts_filter(),
             "variant_property": self._build_variant_property(),
             "variants": ast.Constant(value=self.variants),
+            "experiment_date_from": self.date_range_query.date_from_as_hogql(),
+            "experiment_date_to": self.date_range_query.date_to_as_hogql(),
+        }
+
+        return query_string, placeholders
+
+    def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+        """
+        Returns the SELECT query that the lazy computation system wraps in an
+        INSERT INTO experiment_metric_events_preaggregated. This is the write
+        path — it scans the events table and stores one row per matching event
+        with step indicators packed into an Array(UInt8).
+
+        The query uses {time_window_min} and {time_window_max} placeholders filled
+        by the lazy computation system for each daily bucket.
+
+        Returns:
+            Tuple of (query_string, placeholders_dict)
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+
+        # Build step indicator expressions for the steps array.
+        # step_0 = exposure predicate, step_1..N = funnel step filters.
+        # These are the same expressions used in build_boolean_columns().
+        exposure_filter = self._build_exposure_predicate()
+        step_exprs: list[ast.Expr] = [exposure_filter]
+
+        step_builder = FunnelStepBuilder(self.metric.series, self.team)
+        for _step_index, step_source in enumerate(self.metric.series, start=1):
+            step_filter = step_builder._build_step_filter(step_source)
+            step_exprs.append(step_filter)
+
+        # Pack into Array(UInt8): [toUInt8(if(step_0, 1, 0)), toUInt8(if(step_1, 1, 0)), ...]
+        steps_array = ast.Array(
+            exprs=[
+                ast.Call(
+                    name="toUInt8",
+                    args=[ast.Call(name="if", args=[expr, ast.Constant(value=1), ast.Constant(value=0)])],
+                )
+                for expr in step_exprs
+            ]
+        )
+
+        query_string = """
+            SELECT
+                {entity_key} AS entity_id,
+                timestamp AS timestamp,
+                uuid AS event_uuid,
+                `$session_id` AS session_id,
+                {steps_array} AS steps
+            FROM events
+            WHERE timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+                AND ({exposure_predicate} OR {funnel_steps_filter})
+        """
+
+        placeholders: dict[str, ast.Expr] = {
+            "entity_key": parse_expr(self.entity_key),
+            "steps_array": steps_array,
+            "exposure_predicate": exposure_filter,
+            "funnel_steps_filter": self._build_funnel_steps_filter(),
         }
 
         return query_string, placeholders
@@ -1344,18 +1869,19 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
 
-        step_columns: list[ast.Alias] = [ast.Alias(alias="step_0", expr=self._build_exposure_predicate())]
+        # Check if any step is a data warehouse node
+        has_dw_nodes = any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series)
 
-        for i, funnel_step in enumerate(self.metric.series):
-            step_filter = event_or_action_to_filter(self.team, funnel_step)
-            step_columns.append(
-                ast.Alias(
-                    alias=f"step_{i + 1}",
-                    expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
-                )
+        if has_dw_nodes:
+            raise NotImplementedError(
+                "ExperimentDataWarehouseNode is not yet supported in funnel metrics. "
+                "Mixed-source UNION ALL query pattern needs to be implemented."
             )
 
-        return step_columns
+        # Use FunnelStepBuilder abstraction for boolean columns
+        step_builder = FunnelStepBuilder(self.metric.series, self.team)
+        exposure_filter = self._build_exposure_predicate()
+        return step_builder.build_boolean_columns(exposure_filter)
 
     def _build_funnel_steps_filter(self) -> ast.Expr:
         """
@@ -1409,6 +1935,105 @@ class ExperimentQueryBuilder:
         """
         return parse_expr(
             "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0))))"
+        )
+
+    def _has_datawarehouse_steps(self) -> bool:
+        """
+        Check if funnel metric has any datawarehouse steps.
+
+        Returns:
+            True if any step in the series is ExperimentDataWarehouseNode
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+        return any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series)
+
+    def _build_funnel_metric_events_cte_with_union(self) -> str:
+        """
+        Build metric_events CTE using UNION ALL pattern for funnels with DW steps.
+
+        TODO: Full implementation requires:
+        1. Building step-specific filters for each subquery (event_or_action_to_filter for events, property filters for DW)
+        2. Building constant step columns for each subquery (using FunnelStepBuilder.build_constant_columns)
+        3. Handling timestamp filtering within conversion window
+        4. Ensuring all subqueries have compatible schema (entity_id as String, placeholder uuid/session_id for DW)
+
+        Pattern:
+        - Exposure subquery (step_0=1, others=0): SELECT FROM events WHERE exposure_predicate
+        - Each event/action step subquery (step_N=1, others=0): SELECT FROM events WHERE step_filter
+        - Each DW step subquery (step_N=1, others=0): SELECT FROM dw_table WHERE timestamp_filter AND property_filters
+
+        For now, raise NotImplementedError to prevent runtime errors.
+        """
+        raise NotImplementedError(
+            "UNION ALL pattern for datawarehouse funnel steps not yet fully implemented. "
+            "The abstractions (FunnelStepBuilder, MetricSourceInfo, FunnelDWValidator) are in place. "
+            "See experiment_query_builder.py:_build_funnel_metric_events_cte_with_union for implementation TODO."
+        )
+
+    # --- Optimized funnel query helpers ---
+
+    def _build_variant_expr_for_funnel_optimized(self) -> ast.Expr:
+        """
+        Variant expression for the optimized funnel path.
+        References variant_value (raw property) instead of variant (column in legacy metric_events).
+        """
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            return parse_expr(
+                "argMinIf(variant_value, timestamp, step_0 = 1)",
+            )
+        else:
+            return parse_expr(
+                "if(uniqExactIf(variant_value, step_0 = 1) > 1, {multiple_key}, anyIf(variant_value, step_0 = 1))",
+                placeholders={
+                    "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                },
+            )
+
+    def _build_funnel_aggregation_expr_optimized(self) -> ast.Expr:
+        """
+        Funnel aggregation for the optimized path. References base_events instead of metric_events.
+        """
+        assert isinstance(self.metric, ExperimentFunnelMetric)
+        return funnel_evaluation_expr(self.team, self.metric, events_alias="base_events", include_exposure=True)
+
+    def _build_uuid_to_session_map_optimized(self) -> ast.Expr:
+        """
+        UUID-to-session map for the optimized path. References base_events columns.
+        """
+        return parse_expr(
+            "mapFromArrays(groupArray(coalesce(toString(uuid), '')), groupArray(coalesce(toString(session_id), '')))"
+        )
+
+    def _build_uuid_to_timestamp_map_optimized(self) -> ast.Expr:
+        """
+        UUID-to-timestamp map for the optimized path. References base_events columns.
+        """
+        return parse_expr(
+            "mapFromArrays(groupArray(coalesce(toString(uuid), '')), groupArray(coalesce(timestamp, toDateTime(0))))"
+        )
+
+    def _build_maturity_having_clause_optimized(self) -> Optional[ast.Expr]:
+        """
+        Maturity HAVING clause for the optimized path.
+        Uses maxIf to only consider exposure events (step_0 = 1) for maturity,
+        since entity_metrics groups over all events, not just exposures.
+        """
+        if self.metric is None:
+            return None
+        if not self.only_count_matured_users:
+            return None
+
+        maturity_seconds = self._get_maturity_window_seconds()
+        if maturity_seconds == 0:
+            return None
+
+        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+        return parse_expr(
+            "maxIf(timestamp, step_0 = 1) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
+            placeholders={
+                "maturity_seconds": ast.Constant(value=maturity_seconds),
+                "now": ast.Constant(value=now),
+            },
         )
 
     def _build_retention_query(self) -> ast.SelectQuery:

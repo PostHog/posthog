@@ -1,34 +1,46 @@
-import { Counter, Gauge, Histogram } from 'prom-client'
+import { Counter, Gauge, Summary } from 'prom-client'
+
+const QUANTILES = [0.5, 0.95, 0.99]
+const MAX_AGE_SECONDS = 600
+const AGE_BUCKETS = 5
 
 export class RasterizationMetrics {
     // --- Activity timing ---
 
-    private static readonly activityDuration = new Histogram({
+    private static readonly activityDuration = new Summary({
         name: 'recording_rasterizer_activity_duration_seconds',
         help: 'Total time for the rasterization activity',
         labelNames: ['result'],
-        buckets: [1, 5, 10, 30, 60, 120, 300, 600],
+        percentiles: QUANTILES,
+        maxAgeSeconds: MAX_AGE_SECONDS,
+        ageBuckets: AGE_BUCKETS,
     })
 
-    private static readonly setupDuration = new Histogram({
+    private static readonly setupDuration = new Summary({
         name: 'recording_rasterizer_setup_duration_seconds',
         help: 'Time spent on browser setup, player load, and recording data fetch',
         labelNames: ['result'],
-        buckets: [0.5, 1, 2, 5, 10, 20, 30, 60],
+        percentiles: QUANTILES,
+        maxAgeSeconds: MAX_AGE_SECONDS,
+        ageBuckets: AGE_BUCKETS,
     })
 
-    private static readonly captureDuration = new Histogram({
+    private static readonly captureDuration = new Summary({
         name: 'recording_rasterizer_capture_duration_seconds',
         help: 'Time spent on screen capture of the recording playback',
         labelNames: ['result'],
-        buckets: [1, 5, 10, 30, 60, 120, 300, 600],
+        percentiles: QUANTILES,
+        maxAgeSeconds: MAX_AGE_SECONDS,
+        ageBuckets: AGE_BUCKETS,
     })
 
-    private static readonly uploadDuration = new Histogram({
+    private static readonly uploadDuration = new Summary({
         name: 'recording_rasterizer_upload_duration_seconds',
         help: 'Time spent uploading the video to S3',
         labelNames: ['result'],
-        buckets: [0.1, 0.5, 1, 2, 5, 10, 30, 60],
+        percentiles: QUANTILES,
+        maxAgeSeconds: MAX_AGE_SECONDS,
+        ageBuckets: AGE_BUCKETS,
     })
 
     private static readonly activitiesTotal = new Counter({
@@ -39,16 +51,20 @@ export class RasterizationMetrics {
 
     // --- Video output ---
 
-    private static readonly videoDuration = new Histogram({
+    private static readonly videoDuration = new Summary({
         name: 'recording_rasterizer_video_duration_seconds',
         help: 'Duration of the output video',
-        buckets: [1, 5, 10, 30, 60, 120, 300, 600],
+        percentiles: QUANTILES,
+        maxAgeSeconds: MAX_AGE_SECONDS,
+        ageBuckets: AGE_BUCKETS,
     })
 
-    private static readonly videoFileSize = new Histogram({
+    private static readonly videoFileSize = new Summary({
         name: 'recording_rasterizer_video_file_size_bytes',
         help: 'Size of the output video file',
-        buckets: [1024, 10240, 102400, 512000, 1048576, 5242880, 10485760, 52428800],
+        percentiles: QUANTILES,
+        maxAgeSeconds: MAX_AGE_SECONDS,
+        ageBuckets: AGE_BUCKETS,
     })
 
     private static readonly videoFramesTotal = new Counter({
@@ -56,10 +72,12 @@ export class RasterizationMetrics {
         help: 'Total number of frames captured across all activities',
     })
 
-    private static readonly recordingDuration = new Histogram({
+    private static readonly recordingDuration = new Summary({
         name: 'recording_rasterizer_recording_duration_seconds',
         help: 'Total real-world duration of the recording including inactive periods',
-        buckets: [10, 30, 60, 300, 600, 1800, 3600, 7200],
+        percentiles: QUANTILES,
+        maxAgeSeconds: MAX_AGE_SECONDS,
+        ageBuckets: AGE_BUCKETS,
     })
 
     // --- Errors ---

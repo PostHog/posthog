@@ -178,11 +178,9 @@ def _process_events_data(
         "All events",
     ]
     for item in response.results:
-        if len(response.results) > 25 and item.count <= 3:
-            continue
-        if event_core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(item.event):
-            if event_core_definition.get("system") or event_core_definition.get("ignored_in_assistant"):
-                continue  # Skip system or ignored events (safety net, already filtered in SQL)
+        event_def = CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).get(item.event)
+        if event_def and (event_def.get("system") or event_def.get("ignored_in_assistant")):
+            continue  # Skip system or ignored events (safety net, already filtered in SQL)
         events.append(item.event)
 
     event_to_description: dict[str, str] = {}

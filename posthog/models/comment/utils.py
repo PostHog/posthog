@@ -13,6 +13,17 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+SCOPE_TO_SOURCE_TYPE: dict[str, str] = {
+    "Replay": "replay",
+    "Notebook": "notebook",
+    "Insight": "insight",
+    "FeatureFlag": "feature_flag",
+    "Dashboard": "dashboard",
+    "Survey": "survey",
+    "Experiment": "experiment",
+    "ErrorTracking": "error_tracking",
+}
+
 SCOPE_TO_PATH_MAPPING: dict[str, str] = {
     "Replay": "/replay/{item_id}",
     "Notebook": "/notebooks/{item_id}",
@@ -134,6 +145,7 @@ def send_mention_notifications(
         from products.notifications.backend.facade.api import (
             NotificationData,
             NotificationType,
+            SourceType,
             TargetType,
             create_notification,
         )
@@ -143,7 +155,6 @@ def send_mention_notifications(
         if not commenter:
             return
 
-        item_url = build_comment_item_url(comment.scope, comment.item_id, slug)
         comment_content = extract_plain_text_from_rich_content(comment.rich_content) or comment.content
         body = comment_content[:200] if comment_content else ""
 
@@ -160,9 +171,10 @@ def send_mention_notifications(
                     target_id=str(user_id),
                     resource_type=NotificationOnlyResourceType.COMMENT,
                     resource_id=str(comment.id),
-                    source_url=item_url.replace(settings.SITE_URL, "")
-                    if item_url.startswith(settings.SITE_URL)
-                    else item_url,
+                    source_type=SourceType(scope_type)
+                    if (scope_type := SCOPE_TO_SOURCE_TYPE.get(comment.scope))
+                    else None,
+                    source_id=comment.item_id,
                 )
             )
     except Exception as e:

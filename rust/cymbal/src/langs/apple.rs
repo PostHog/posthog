@@ -106,7 +106,7 @@ impl RawAppleFrame {
         team_id: i32,
         catalog: &C,
         debug_images: &[AppleDebugImage],
-    ) -> Result<Frame, UnhandledError>
+    ) -> Result<Vec<Frame>, UnhandledError>
     where
         C: SymbolCatalog<OrChunkId<AppleRef>, ParsedAppleSymbols>,
     {
@@ -116,22 +116,23 @@ impl RawAppleFrame {
         );
 
         match self.resolve_impl(team_id, catalog, debug_images).await {
-            Ok(frame) => {
+            Ok(frames) => {
                 tracing::debug!(
-                    "[apple-debug] resolve() SUCCESS: resolved_name={:?}, source={:?}, line={:?}",
-                    frame.resolved_name,
-                    frame.source,
-                    frame.line
+                    "[apple-debug] resolve() SUCCESS: {} frame(s), first resolved_name={:?}",
+                    frames.len(),
+                    frames.first().and_then(|f| f.resolved_name.as_deref())
                 );
-                Ok(frame)
+                Ok(frames)
             }
             Err(ResolveError::ResolutionError(FrameError::Apple(e))) => {
                 tracing::debug!("[apple-debug] resolve() Apple error: {:?}", e);
-                Ok(self.handle_resolution_error(e))
+                Ok(vec![self.handle_resolution_error(e)])
             }
             Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 tracing::debug!("[apple-debug] resolve() MissingChunkIdData: {}", chunk_id);
-                Ok(self.handle_resolution_error(AppleError::MissingDsym(chunk_id)))
+                Ok(vec![self.handle_resolution_error(AppleError::MissingDsym(
+                    chunk_id,
+                ))])
             }
             Err(ResolveError::ResolutionError(e)) => {
                 unreachable!("Should not have received error {:?}", e)
@@ -148,7 +149,7 @@ impl RawAppleFrame {
         team_id: i32,
         catalog: &C,
         debug_images: &[AppleDebugImage],
-    ) -> Result<Frame, ResolveError>
+    ) -> Result<Vec<Frame>, ResolveError>
     where
         C: SymbolCatalog<OrChunkId<AppleRef>, ParsedAppleSymbols>,
     {
@@ -173,9 +174,16 @@ impl RawAppleFrame {
         );
 
         let relative_addr = self.calculate_relative_addr(instruction_addr, debug_image)?;
+
+        // Subtract 1 from return-address frames so the lookup targets the call instruction
+        // rather than the instruction after it, giving the correct source line.
+        // This is safe for top (crash-site) frames too: addr-1 still falls within the
+        // same function body, so the function and line resolve correctly.
+        let lookup_addr = relative_addr.saturating_sub(1);
         tracing::debug!(
-            "[apple-debug] resolve_impl: relative_addr=0x{:x}",
-            relative_addr
+            "[apple-debug] resolve_impl: relative_addr=0x{:x}, lookup_addr=0x{:x}",
+            relative_addr,
+            lookup_addr
         );
 
         tracing::debug!(
@@ -187,38 +195,54 @@ impl RawAppleFrame {
             .await?;
         tracing::debug!("[apple-debug] resolve_impl: symbols loaded successfully");
 
-        let symbol_info = symbols
-            .lookup(relative_addr)?
-            .ok_or(AppleError::SymbolNotFound(relative_addr))?;
+        let symbol_infos = symbols.lookup(lookup_addr)?;
+        if symbol_infos.is_empty() {
+            return Err(AppleError::SymbolNotFound(lookup_addr).into());
+        }
         tracing::debug!(
-            "[apple-debug] resolve_impl: found symbol={}, file={:?}, line={}",
-            symbol_info.display_name,
-            symbol_info.filename,
-            symbol_info.line
+            "[apple-debug] resolve_impl: found {} logical frame(s) (including inlined)",
+            symbol_infos.len()
         );
 
-        let mut frame = self.build_resolved_frame(&symbol_info, debug_image);
+        // Build one resolved Frame per logical layer.
+        //
+        // The symcache returns layers innermost-first:
+        //   [inlined_leaf, mid_inline, physical_function]
+        //
+        // We reverse to outermost-first so that when the caller flattens all
+        // per-raw-frame Vecs, the overall stack stays in bottom-up order
+        // (main first, crash site last).
+        let frames: Vec<Frame> = symbol_infos
+            .iter()
+            .rev()
+            .map(|info| {
+                let mut frame = self.build_resolved_frame(info, debug_image);
 
-        // Attach source context if available (graceful — never fails frame resolution)
-        // symcache line numbers are 1-based (0 = unknown); get_context_lines also expects 0-based
-        if let Some(full_path) = &symbol_info.full_path {
-            if let Some(source_text) = symbols.get_source(full_path) {
-                // Use the reported line if known, otherwise default to line 1
-                // (e.g. @main entry points have line 0 but we still want to show the file)
-                let target_line = if symbol_info.line > 0 {
-                    (symbol_info.line - 1) as usize
-                } else {
-                    0
-                };
-                frame.context = get_context_lines(
-                    source_text.lines(),
-                    target_line,
-                    FRAME_CONTEXT_LINES.load(Ordering::Relaxed),
-                );
-            }
-        }
+                // Attach source context to every inlined layer independently.
+                // Each layer has its own line number, and each gets a unique
+                // FrameId via the /part suffix, so there is no risk of
+                // clobbering another layer's context.
+                if let Some(full_path) = &info.full_path {
+                    if let Some(source_text) = symbols.get_source(full_path) {
+                        // symcache line numbers are 1-based (0 = unknown)
+                        let target_line = if info.line > 0 {
+                            (info.line - 1) as usize
+                        } else {
+                            0
+                        };
+                        frame.context = get_context_lines(
+                            source_text.lines(),
+                            target_line,
+                            FRAME_CONTEXT_LINES.load(Ordering::Relaxed),
+                        );
+                    }
+                }
 
-        Ok(frame)
+                frame
+            })
+            .collect();
+
+        Ok(frames)
     }
 
     fn find_debug_image<'a>(
@@ -719,10 +743,13 @@ mod test {
 
         let catalog = Catalog::new(smp, hmp, pgp, apple);
 
-        // Create a frame with instruction_addr pointing to inner_function
-        // From dwarfdump output: inner_function is at 0x0000000100000328
+        // Use 0x100000334 (line 7 of inner_function, "(void)x").
+        // After the -1 call-site adjustment (0x334 - 1 = 0x333), the symcache
+        // lookup still falls inside inner_function and resolves correctly.
+        // Avoid using 0x100000328 (the very first instruction) because addr-1
+        // would land before the function start.
         let raw_frame = RawAppleFrame {
-            instruction_addr: Some("0x100000328".to_string()),
+            instruction_addr: Some("0x100000334".to_string()),
             symbol_addr: None,
             image_addr: Some("0x100000000".to_string()),
             image_uuid: Some(chunk_id.clone()),
@@ -767,5 +794,188 @@ mod test {
             data: DSYM_ZIP.to_vec(),
         })
         .unwrap()
+    }
+
+    fn get_inline_dsym_bytes() -> Vec<u8> {
+        use posthog_symbol_data::write_symbol_data;
+
+        // This ZIP was built from test_binary_inline.c compiled with:
+        //   -fdebug-prefix-map=$(srcdir)=/cymbal_tests/apple
+        // so DWARF paths are stable across machines (always /cymbal_tests/apple/...).
+        // The ZIP includes __source/manifest.json and the source file content,
+        // enabling source-context tests without requiring the file to exist on disk.
+        const DSYM_ZIP: &[u8] =
+            include_bytes!("../../tests/static/apple/test_binary_inline.dSYM.zip");
+        write_symbol_data(posthog_symbol_data::AppleDsym {
+            data: DSYM_ZIP.to_vec(),
+        })
+        .unwrap()
+    }
+
+    /// Verify that a single raw frame at an address inside an inlined function expands
+    /// into multiple resolved frames: one per logical layer (inlined + physical).
+    ///
+    /// Source layout of `test_binary_inline.c`:
+    ///   inlined_leaf()    — always_inline, lines 4-8 (`volatile int x = 99` at line 6)
+    ///   inner_function()  — calls inlined_leaf (line 12); inlined_leaf is inlined here
+    ///   outer_function()  — calls inner_function (line 17); both get inlined here
+    ///
+    /// Address 0x10000034c is inside the body of inlined_leaf as inlined into
+    /// outer_function (via inner_function). Lookup of 0x34c-1=0x34b resolves to
+    /// three logical frames: inlined_leaf → inner_function → outer_function.
+    ///
+    /// The test ZIP includes source files with DWARF paths remapped to the stable
+    /// prefix `/cymbal_tests/apple/`, so source context is verified end-to-end.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn test_apple_inlined_frame_expansion(db: sqlx::PgPool) {
+        use chrono::Utc;
+        use mockall::predicate;
+        use std::sync::Arc;
+        use uuid::Uuid;
+
+        use crate::{
+            config::Config,
+            frames::RawFrame,
+            symbol_store::{
+                apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
+                proguard::ProguardProvider, saving::SymbolSetRecord, sourcemap::SourcemapProvider,
+                Catalog, MockS3Client,
+            },
+        };
+
+        let team_id = 1;
+        let mut config = Config::init_with_defaults().unwrap();
+        config.object_storage_bucket = "test-bucket".to_string();
+
+        let chunk_id = Uuid::now_v7().to_string();
+
+        let mut record = SymbolSetRecord {
+            id: Uuid::now_v7(),
+            team_id,
+            set_ref: chunk_id.clone(),
+            storage_ptr: Some(chunk_id.clone()),
+            failure_reason: None,
+            created_at: Utc::now(),
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
+        };
+        record.save(&db).await.unwrap();
+
+        let mut client = MockS3Client::default();
+        client
+            .expect_get()
+            .with(
+                predicate::eq(config.object_storage_bucket.clone()),
+                predicate::eq(chunk_id.clone()),
+            )
+            .returning(|_, _| Ok(Some(get_inline_dsym_bytes())));
+        let client = Arc::new(client);
+
+        let catalog = Catalog::new(
+            ChunkIdFetcher::new(
+                SourcemapProvider::new(&config),
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                HermesMapProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                ProguardProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+            ChunkIdFetcher::new(
+                AppleProvider {},
+                client.clone(),
+                db.clone(),
+                config.object_storage_bucket.clone(),
+            ),
+        );
+
+        // 0x10000034c is inside inlined_leaf as inlined into outer_function.
+        // After the -1 call-site adjustment (0x34c - 1 = 0x34b), the symcache
+        // should expand this into three logical frames:
+        //   outermost (returned first from our Vec): outer_function
+        //   middle:                                  inner_function
+        //   innermost (returned last):               inlined_leaf
+        let raw_frame = RawAppleFrame {
+            instruction_addr: Some("0x10000034c".to_string()),
+            symbol_addr: None,
+            image_addr: Some("0x100000000".to_string()),
+            image_uuid: Some(chunk_id.clone()),
+            module: Some("test_binary_inline".to_string()),
+            function: None,
+            filename: None,
+            lineno: None,
+            colno: None,
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let debug_images = vec![AppleDebugImage {
+            debug_id: chunk_id.clone(),
+            image_addr: "0x100000000".to_string(),
+            image_vmaddr: Some("0x100000000".to_string()),
+            image_size: Some(0x10000),
+            code_file: Some("test_binary_inline".to_string()),
+            image_type: Some("macho".to_string()),
+            arch: Some("arm64".to_string()),
+        }];
+
+        let frames = RawFrame::Apple(raw_frame)
+            .resolve(team_id, &catalog, &debug_images)
+            .await
+            .unwrap();
+
+        // Three logical frames from one physical address
+        assert_eq!(
+            frames.len(),
+            3,
+            "expected 3 frames (inlined expansion), got: {:#?}",
+            frames
+        );
+
+        // All must be resolved
+        assert!(frames.iter().all(|f| f.resolved));
+
+        // Bottom-up order: outermost first, innermost last
+        assert_eq!(frames[0].resolved_name, Some("outer_function".to_string()));
+        assert_eq!(frames[1].resolved_name, Some("inner_function".to_string()));
+        assert_eq!(frames[2].resolved_name, Some("inlined_leaf".to_string()));
+
+        // Source file populated
+        assert!(frames.iter().all(|f| f
+            .source
+            .as_ref()
+            .is_some_and(|s| s.contains("test_binary_inline.c"))));
+
+        // Source context populated for every frame — the ZIP includes source
+        // files, so all three layers should have context lines.
+        for (i, frame) in frames.iter().enumerate() {
+            assert!(
+                frame.context.is_some(),
+                "frame[{i}] ({:?}) has no source context",
+                frame.resolved_name
+            );
+        }
+
+        // The innermost frame (inlined_leaf) should have the `volatile int x = 99` line.
+        let leaf_ctx = frames[2].context.as_ref().unwrap();
+        let all_lines: Vec<&str> = leaf_ctx
+            .before
+            .iter()
+            .chain(std::iter::once(&leaf_ctx.line))
+            .chain(leaf_ctx.after.iter())
+            .map(|l| l.line.as_str())
+            .collect();
+        assert!(
+            all_lines.iter().any(|l| l.contains("volatile int x = 99")),
+            "expected 'volatile int x = 99' in inlined_leaf context, got: {all_lines:?}"
+        );
     }
 }

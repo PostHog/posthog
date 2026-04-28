@@ -2,11 +2,11 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -61,6 +61,7 @@ You can generate a personal access token in your [Typeform account settings](htt
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="tfp_...",
+                        secret=True,
                     ),
                     SourceFieldSelectConfig(
                         name="api_base_url",
@@ -68,14 +69,20 @@ You can generate a personal access token in your [Typeform account settings](htt
                         required=False,
                         defaultValue=DEFAULT_TYPEFORM_API_BASE_URL,
                         options=[
-                            Option(label=DEFAULT_TYPEFORM_API_BASE_URL, value=DEFAULT_TYPEFORM_API_BASE_URL),
-                            Option(label="https://api.eu.typeform.com", value="https://api.eu.typeform.com"),
-                            Option(label="https://api.typeform.eu", value="https://api.typeform.eu"),
+                            SourceFieldSelectConfigOption(
+                                label=DEFAULT_TYPEFORM_API_BASE_URL, value=DEFAULT_TYPEFORM_API_BASE_URL
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="https://api.eu.typeform.com", value="https://api.eu.typeform.com"
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="https://api.typeform.eu", value="https://api.typeform.eu"
+                            ),
                         ],
                     ),
                 ],
             ),
-            betaSource=True,
+            releaseStatus="beta",
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

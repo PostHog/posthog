@@ -237,9 +237,9 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 	var sb strings.Builder
 	sb.WriteByte('\n')
 	header := fmt.Sprintf("  %-*s  %-*s  %s", svcW, "SERVICE", stateW, "STATE", "STATUS")
-	sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(sharedpalette.ColorWhite).Render(header))
+	sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(sharedpalette.ColorBrightWhite).Render(header))
 	sb.WriteByte('\n')
-	sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorDarkGrey).Render("  " + strings.Repeat("─", max(width-4, 0))))
+	sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorBrightBlack).Render("  " + strings.Repeat("─", max(width-4, 0))))
 	sb.WriteByte('\n')
 
 	for _, c := range containers {
@@ -258,10 +258,10 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 			svc = svc[:svcW]
 		}
 		sb.WriteString("  ")
-		sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorWhite).Render(fmt.Sprintf("%-*s", svcW, svc)))
+		sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorBrightWhite).Render(fmt.Sprintf("%-*s", svcW, svc)))
 		sb.WriteString("  ")
 		sb.WriteString(lipgloss.NewStyle().Foreground(stateColor).Render(fmt.Sprintf("%-*s", stateW, c.State)))
-		sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorGrey).Render(fmt.Sprintf("  %s", c.Status)))
+		sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorWhite).Render(fmt.Sprintf("  %s", c.Status)))
 		sb.WriteByte('\n')
 	}
 
@@ -290,6 +290,6 @@ func ContainerStateColor(state string) color.Color {
 	case "paused":
 		return sharedpalette.ColorYellow
 	default:
-		return sharedpalette.ColorGrey
+		return sharedpalette.ColorWhite
 	}
 }

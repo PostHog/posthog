@@ -4,8 +4,8 @@ set -e
 export PROMETHEUS_MULTIPROC_DIR=$(mktemp -d)
 trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
 
-export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
-export SESSION_RECORDING_V2_S3_ENDPOINT=http://localhost:8333
+export OBJECT_STORAGE_ENDPOINT=${OBJECT_STORAGE_ENDPOINT:-http://objectstorage:19000}
+export SESSION_RECORDING_V2_S3_ENDPOINT=${SESSION_RECORDING_V2_S3_ENDPOINT:-http://localhost:8333}
 
 export CLICKHOUSE_API_USER="api"
 export CLICKHOUSE_API_PASSWORD="apipass"
@@ -18,7 +18,9 @@ export PYDEVD_DISABLE_FILE_VALIDATION=1
 # Cross-platform Docker host access
 # On macOS/Windows: Docker runs in a VM, use 127.0.0.1 for the host bind
 # On Linux: Use bridge gateway IP for container access while maintaining security
-if [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "msys" ]]; then
+if [[ -n "$HOST_BIND" ]]; then
+    echo "Using pre-configured HOST_BIND: $HOST_BIND"
+elif [[ "$OSTYPE" == "darwin"* ]] || [[ "$OSTYPE" == "msys" ]]; then
     HOST_BIND="127.0.0.1"
     echo "🍎 macOS/Windows detected, using secure localhost binding"
 else

@@ -6,6 +6,7 @@ from many providers. It is BYOKEY-only (no PostHog trial key).
 
 import logging
 from collections.abc import Generator
+from typing import Any
 
 import httpx
 import openai
@@ -56,7 +57,7 @@ class OpenRouterAdapter(OpenAIAdapter):
         yield from super().stream(request, api_key, analytics, base_url=OPENROUTER_BASE_URL)
 
     @staticmethod
-    def validate_key(api_key: str) -> tuple[str, str | None]:
+    def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate an OpenRouter API key using the auth/key endpoint."""
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
@@ -88,7 +89,7 @@ class OpenRouterAdapter(OpenAIAdapter):
         return set()
 
     @staticmethod
-    def list_models(api_key: str | None = None) -> list[str]:
+    def list_models(api_key: str | None = None, **kwargs: Any) -> list[str]:
         """List available OpenRouter models. Returns empty list without a key (BYOKEY-only)."""
         if not api_key:
             return []

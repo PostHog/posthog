@@ -238,3 +238,69 @@ class TestExperimentSavedMetricService(APIBaseTest):
             self._service().update_saved_metric(saved_metric, {"query": {}})
 
         save_mock.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # Legacy query update restrictions
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("trends_name", "ExperimentTrendsQuery", {"name": "Updated Name"}),
+            ("trends_description", "ExperimentTrendsQuery", {"description": "New description"}),
+            ("trends_query", "ExperimentTrendsQuery", {"query": {"kind": "ExperimentMetric"}}),
+            ("funnels_name", "ExperimentFunnelsQuery", {"name": "Updated Name"}),
+            ("funnels_description", "ExperimentFunnelsQuery", {"description": "New description"}),
+            ("funnels_query", "ExperimentFunnelsQuery", {"query": {"kind": "ExperimentMetric"}}),
+        ]
+    )
+    def test_update_saved_metric_with_legacy_query_is_blocked(
+        self, test_name: str, legacy_kind: str, update_data: dict
+    ) -> None:
+        """Test that saved metrics with legacy query formats cannot be updated."""
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name=f"Legacy {legacy_kind} Metric",
+            query={"kind": legacy_kind, "count_query": {}},
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_saved_metric(saved_metric, update_data)
+
+        self.assertIn("legacy query format", str(ctx.exception))
+        self.assertIn("cannot be updated", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("name", {"name": "Updated Modern Metric"}),
+            ("description", {"description": "Updated description"}),
+            (
+                "query",
+                {
+                    "query": {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageleave"},
+                    }
+                },
+            ),
+        ]
+    )
+    def test_update_saved_metric_with_experiment_metric_is_allowed(self, field_name: str, update_data: dict) -> None:
+        """Test that saved metrics with ExperimentMetric can be updated normally."""
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Modern Metric",
+            description="Original description",
+            query=self._valid_experiment_metric(),
+        )
+
+        updated = self._service().update_saved_metric(saved_metric, update_data)
+
+        if field_name == "name":
+            assert updated.name == "Updated Modern Metric"
+        elif field_name == "description":
+            assert updated.description == "Updated description"
+        elif field_name == "query":
+            assert updated.query["source"]["event"] == "$pageleave"

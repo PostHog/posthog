@@ -16,7 +16,16 @@ export const LlmPromptsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const llmPromptsListQueryContentDefault = `full`
+
 export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
+    content: zod
+        .enum(['full', 'preview', 'none'])
+        .default(llmPromptsListQueryContentDefault)
+        .describe(
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+        ),
+    created_by_id: zod.number().optional().describe('Filter prompts by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
@@ -51,7 +60,15 @@ export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
     prompt_name: zod.string().regex(llmPromptsNameRetrievePathPromptNameRegExp),
 })
 
+export const llmPromptsNameRetrieveQueryContentDefault = `full`
+
 export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    content: zod
+        .enum(['full', 'preview', 'none'])
+        .default(llmPromptsNameRetrieveQueryContentDefault)
+        .describe(
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n* `full` - full\n* `preview` - preview\n* `none` - none"
+        ),
     version: zod
         .number()
         .min(1)
@@ -71,7 +88,21 @@ export const LlmPromptsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
 })
 
 export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
-    prompt: zod.unknown().optional().describe('Prompt payload to publish as a new version.'),
+    prompt: zod
+        .unknown()
+        .optional()
+        .describe('Full prompt payload to publish as a new version. Mutually exclusive with edits.'),
+    edits: zod
+        .array(
+            zod.object({
+                old: zod.string().describe('Text to find in the current prompt. Must match exactly once.'),
+                new: zod.string().describe('Replacement text.'),
+            })
+        )
+        .optional()
+        .describe(
+            "List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
+        ),
     base_version: zod
         .number()
         .min(1)

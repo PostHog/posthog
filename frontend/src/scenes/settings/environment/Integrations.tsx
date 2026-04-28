@@ -15,9 +15,13 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 export function GitLabIntegration(): JSX.Element {
     const [isOpen, setIsOpen] = useState<boolean>(false)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
     return (
         <Integration kind="gitlab">
-            <LemonButton type="secondary" onClick={() => setIsOpen(true)}>
+            <LemonButton type="secondary" onClick={() => setIsOpen(true)} disabledReason={restrictedReason}>
                 Connect project
             </LemonButton>
             <GitLabSetupModal isOpen={isOpen} onComplete={() => setIsOpen(false)} />
@@ -43,9 +47,7 @@ const OAuthIntegration = ({ kind, connectText }: { kind: IntegrationKind; connec
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
     const authorizationUrl = api.integrations.authorizeUrl({
-        next: urls.errorTrackingConfiguration({
-            tab: 'error-tracking-integrations',
-        }),
+        next: urls.settings('environment-error-tracking', 'error-tracking-integrations'),
         kind,
     })
 

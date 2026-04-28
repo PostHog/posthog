@@ -77,7 +77,7 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
 
     const handleDuplicate = (endpoint: EndpointType): void => {
         if (isHogQLQuery(endpoint.query)) {
-            router.actions.push(urls.sqlEditor({ query: endpoint.query.query }))
+            router.actions.push(urls.sqlEditor({ query: endpoint.query.query, source: 'endpoint' }))
         } else {
             setDuplicateEndpoint(endpoint)
         }

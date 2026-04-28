@@ -73,6 +73,7 @@ const SurveysNuxtInstructionsWrapper = withOnboardingDocsWrapper({
 const SurveysReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysReactRouterInstallation,
     snippets: SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const SurveysRemixInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: SurveysRemixInstallation,

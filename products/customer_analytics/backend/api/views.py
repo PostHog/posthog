@@ -2,6 +2,7 @@ from rest_framework import viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import log_activity_from_viewset
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from products.customer_analytics.backend.models import CustomerJourney, CustomerProfileConfig
 
@@ -35,8 +36,8 @@ class CustomerProfileConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         log_customer_profile_config_activity(viewset=self, instance=temp_instance, activity="deleted")
 
 
-class CustomerJourneyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+class CustomerJourneyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "customer_journey"
     queryset = CustomerJourney.objects.order_by("created_at").all()
     serializer_class = CustomerJourneySerializer
 

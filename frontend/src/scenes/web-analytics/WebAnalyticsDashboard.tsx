@@ -12,6 +12,7 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -26,6 +27,7 @@ import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { BotDetail } from 'scenes/web-analytics/BotDetail'
 import {
     ProductTab,
     QueryTile,
@@ -53,7 +55,7 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { LiveWebAnalyticsMetrics } from './LiveMetricsDashboard/LiveWebAnalyticsMetrics'
 import { WebAnalyticsExport } from './WebAnalyticsExport'
-import { WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { BotAnalyticsFilters, WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -414,13 +416,15 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
         case ProductTab.HEALTH:
         case ProductTab.LIVE:
             return null
+        case ProductTab.BOT_ANALYTICS:
+            return <BotAnalyticsFilters tabs={tabs} />
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
 }
 
 const MainContent = (): JSX.Element => {
-    const { productTab } = useValues(webAnalyticsLogic)
+    const { productTab, botDetailName } = useValues(webAnalyticsLogic)
 
     if (productTab === ProductTab.PAGE_REPORTS) {
         return <PageReports />
@@ -432,6 +436,24 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.LIVE) {
         return <LiveWebAnalyticsMetrics />
+    }
+
+    if (productTab === ProductTab.BOT_ANALYTICS && botDetailName) {
+        return <BotDetail />
+    }
+
+    if (productTab === ProductTab.BOT_ANALYTICS) {
+        return (
+            <>
+                <LemonBanner type="info" dismissKey="bot-analytics-detection-info" className="mb-4">
+                    Bot detection is based on user agent pattern matching. Events with no user agent are excluded from
+                    these results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events —
+                    most bots don't execute JavaScript, so client-side tracking alone misses the majority of crawler
+                    traffic.
+                </LemonBanner>
+                <Tiles />
+            </>
+        )
     }
 
     return <Tiles />
@@ -461,7 +483,7 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
         {
             key: ProductTab.HEALTH,
             label: <HealthTabLabel />,
-            link: '/web/health',
+            link: urls.webAnalyticsHealth(),
         },
     ]
 }
@@ -483,6 +505,29 @@ const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: strin
                 </div>
             ),
             link: '/web/live',
+        },
+    ]
+}
+
+const botAnalyticsTab = (
+    featureFlags: FeatureFlagsSet
+): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.BOT_ANALYTICS,
+            label: (
+                <div className="flex items-center gap-1">
+                    Bot analytics
+                    <LemonTag type="warning" className="uppercase">
+                        Beta
+                    </LemonTag>
+                </div>
+            ),
+            link: urls.webAnalyticsBotAnalytics(),
         },
     ]
 }
@@ -603,6 +648,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 },
                 ...liveTab(featureFlags),
                 ...healthTab(featureFlags),
+                ...botAnalyticsTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"

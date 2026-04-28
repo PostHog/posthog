@@ -121,8 +121,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -270,8 +270,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -399,7 +399,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -415,8 +415,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -537,7 +537,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -553,8 +553,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -676,7 +676,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -692,8 +692,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -815,7 +815,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -831,8 +831,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -954,7 +954,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -970,8 +970,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1106,8 +1106,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1255,8 +1255,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1384,7 +1384,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -1400,8 +1400,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1503,7 +1503,7 @@
                             FROM events
                             WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -1516,8 +1516,8 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (1=1) )))
-           WHERE step_0 = 1 ))
+                      AND (1=1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1620,7 +1620,7 @@
                             FROM events
                             WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -1633,8 +1633,8 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (1=1) )))
-           WHERE step_0 = 1 ))
+                      AND (1=1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1737,7 +1737,7 @@
                             FROM events
                             WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -1750,8 +1750,8 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (1=1) )))
-           WHERE step_0 = 1 ))
+                      AND (1=1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -1854,7 +1854,7 @@
                             FROM events
                             WHERE team_id = 99999
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -1867,8 +1867,8 @@
                     WHERE team_id = 99999
                       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-                      AND (1=1) )))
-           WHERE step_0 = 1 ))
+                      AND (1=1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -2003,8 +2003,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -2152,8 +2152,8 @@
                             AND notEmpty(e.person_id)
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -2281,7 +2281,7 @@
                                   WHERE team_id = 99999
                                     AND event IN ['buy', 'play movie', 'sign up']
                                     AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                              GROUP BY distinct_id
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           LEFT JOIN
@@ -2297,8 +2297,8 @@
                             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
-                                 OR step_2 = 1) )))))
-           WHERE step_0 = 1 ))
+                                 OR step_2 = 1))))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -2445,7 +2445,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2461,7 +2461,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -2509,7 +2509,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2525,7 +2525,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -2573,7 +2573,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2589,8 +2589,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
-           WHERE step_0 = 1 ))
+                           OR step_2 = 1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -2738,7 +2738,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2754,7 +2754,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -2802,7 +2802,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2818,7 +2818,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -2866,7 +2866,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -2882,8 +2882,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
-           WHERE step_0 = 1 ))
+                           OR step_2 = 1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -3031,7 +3031,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3047,7 +3047,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -3095,7 +3095,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3111,7 +3111,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -3159,7 +3159,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3175,8 +3175,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
-           WHERE step_0 = 1 ))
+                           OR step_2 = 1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop
@@ -3324,7 +3324,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3340,7 +3340,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -3388,7 +3388,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3404,7 +3404,7 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
+                           OR step_2 = 1))))
            WHERE step_0 = 1
            UNION ALL SELECT *,
                             arraySort([latest_0,latest_1,latest_2]) as event_times,
@@ -3452,7 +3452,7 @@
                             WHERE team_id = 99999
                               AND event IN ['buy', 'play movie', 'sign up']
                               AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') )
+                              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC'))
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     LEFT JOIN
@@ -3468,8 +3468,8 @@
                       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
-                           OR step_2 = 1) )))
-           WHERE step_0 = 1 ))
+                           OR step_2 = 1))))
+           WHERE step_0 = 1))
      GROUP BY aggregation_target,
               steps,
               prop

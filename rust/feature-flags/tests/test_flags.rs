@@ -15,8 +15,9 @@ use crate::common::*;
 use feature_flags::cohorts::cohort_models::CohortType;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
-    insert_config_in_hypercache, insert_flags_for_team_in_redis, insert_new_team_in_redis,
-    setup_pg_reader_client, setup_redis_client, TestContext,
+    insert_config_in_hypercache, insert_flags_for_team_in_redis,
+    insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
+    setup_redis_client, TestContext,
 };
 
 pub mod common;
@@ -4010,7 +4011,24 @@ async fn test_flag_keys_should_include_dependency_graph() -> Result<()> {
         }
     ]);
 
-    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+    // Dependency chain: parent(3) -> intermediate(2) -> leaf(1), independent(4) has no deps.
+    // Mirrors Django's precomputed metadata: stages ordered by depth, transitive deps resolved.
+    let evaluation_metadata = json!({
+        "dependency_stages": [
+            [LEAF_FLAG_ID, INDEPENDENT_FLAG_ID],
+            [INTERMEDIATE_FLAG_ID],
+            [PARENT_FLAG_ID]
+        ],
+        "flags_with_missing_deps": [],
+        "transitive_deps": {
+            LEAF_FLAG_ID.to_string(): [],
+            INTERMEDIATE_FLAG_ID.to_string(): [LEAF_FLAG_ID],
+            PARENT_FLAG_ID.to_string(): [INTERMEDIATE_FLAG_ID, LEAF_FLAG_ID],
+            INDEPENDENT_FLAG_ID.to_string(): []
+        }
+    });
+    insert_flags_with_metadata_for_team_in_redis(client, team.id, flag_json, evaluation_metadata)
+        .await?;
 
     let server = ServerHandle::for_config(config).await;
 

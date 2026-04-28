@@ -3,6 +3,7 @@ from .data_modeling_job import *
 from .datawarehouse_managed_viewset import *
 from .datawarehouse_saved_query import *
 from .datawarehouse_saved_query_draft import *
+from .datawarehouse_saved_query_folder import *
 from .external_data_job import *
 from .external_data_schema import *
 from .external_data_source import *

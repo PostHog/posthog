@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Any, Optional, cast
 from uuid import UUID
 
 from freezegun import freeze_time
@@ -12,12 +13,39 @@ from posthog.test.base import (
 
 from django.utils import timezone
 
+from posthog.schema import FunnelsQuery
+
 from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors_legacy_filters
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.models import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
+
+
+def get_actors_legacy_filters(
+    filters: dict[str, Any],
+    team: Team,
+    funnel_step: Optional[int] = None,
+    funnel_step_breakdown: Optional[str | float | list[str | float]] = None,
+    funnel_trends_drop_off: Optional[bool] = None,
+    funnel_trends_entrance_period_start: Optional[str] = None,
+    offset: Optional[int] = None,
+    include_recordings: bool = False,
+) -> list[list]:
+    funnels_query = cast(FunnelsQuery, filter_to_query(filters))
+    return get_actors(
+        funnels_query,
+        team,
+        funnel_step,
+        funnel_step_breakdown,
+        funnel_trends_drop_off,
+        funnel_trends_entrance_period_start,
+        offset,
+        include_recordings,
+    )
 
 
 class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):

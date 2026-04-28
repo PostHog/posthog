@@ -16,8 +16,9 @@ from products.tasks.backend.temporal.exceptions import (
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
-    get_github_token,
-    get_sandbox_api_url,
+    build_sandbox_environment_variables,
+    get_git_identity_env_vars,
+    get_sandbox_github_token,
     get_sandbox_name_for_task,
 )
 
@@ -46,7 +47,7 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         snapshot_id=input.snapshot_id,
         **ctx.to_log_context(),
     ):
-        emit_agent_log(ctx.run_id, "info", "Creating development environment from snapshot")
+        emit_agent_log(ctx.run_id, "debug", "Creating development environment from snapshot")
 
         try:
             snapshot = SandboxSnapshot.objects.get(id=input.snapshot_id)
@@ -70,7 +71,14 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
         github_token = ""
         if ctx.github_integration_id is not None:
             try:
-                github_token = get_github_token(ctx.github_integration_id) or ""
+                github_token = (
+                    get_sandbox_github_token(
+                        ctx.github_integration_id,
+                        run_id=ctx.run_id,
+                        state=ctx.state,
+                    )
+                    or ""
+                )
             except Exception as e:
                 raise GitHubAuthenticationError(
                     f"Failed to get GitHub token for integration {ctx.github_integration_id}",
@@ -92,12 +100,14 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
                 cause=e,
             )
 
-        environment_variables = {
-            "GITHUB_TOKEN": github_token,
-            "POSTHOG_PERSONAL_API_KEY": access_token,
-            "POSTHOG_API_URL": get_sandbox_api_url(),
-            "POSTHOG_PROJECT_ID": str(ctx.team_id),
-        }
+        sandbox_env = ctx.get_sandbox_environment()
+        environment_variables = build_sandbox_environment_variables(
+            github_token=github_token,
+            access_token=access_token,
+            team_id=ctx.team_id,
+            sandbox_environment=sandbox_env,
+        )
+        environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),

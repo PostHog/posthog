@@ -85,6 +85,7 @@ const WebAnalyticsNuxtJSInstructionsWrapper = withOnboardingDocsWrapper({
 const WebAnalyticsReactRouterInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactRouterInstallation,
     snippets: WEB_SNIPPETS,
+    wizardIntegrationName: 'React Router',
 })
 const WebAnalyticsRemixJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: RemixInstallation,

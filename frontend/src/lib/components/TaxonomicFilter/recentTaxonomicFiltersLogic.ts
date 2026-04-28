@@ -7,18 +7,15 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { AnyPropertyFilter } from '~/types'
 
 import type { recentTaxonomicFiltersLogicType } from './recentTaxonomicFiltersLogicType'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
+import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
 
 export const MAX_RECENT_FILTERS = 20
 export const RECENT_FILTER_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
-
-const EXCLUDED_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
-    TaxonomicFilterGroupType.HogQLExpression,
-    TaxonomicFilterGroupType.SuggestedFilters,
-    TaxonomicFilterGroupType.RecentFilters,
-    TaxonomicFilterGroupType.Empty,
-    TaxonomicFilterGroupType.Wildcards,
-    TaxonomicFilterGroupType.MaxAIContext,
+const EXCLUDED_RECENT_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
+    ...META_GROUP_TYPES,
+    TaxonomicFilterGroupType.DataWarehouse,
+    TaxonomicFilterGroupType.DataWarehouseProperties,
+    TaxonomicFilterGroupType.DataWarehousePersonProperties,
 ])
 
 export interface RecentTaxonomicFilter {
@@ -113,7 +110,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
             {
                 clearRecentFilters: () => [],
                 recordRecentFilter: (state, { groupType, groupName, value, item, teamId, propertyFilter }) => {
-                    if (EXCLUDED_GROUP_TYPES.has(groupType) || value == null) {
+                    if (EXCLUDED_RECENT_FILTER_GROUP_TYPES.has(groupType) || value == null) {
                         return state
                     }
 
