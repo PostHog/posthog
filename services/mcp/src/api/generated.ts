@@ -25195,6 +25195,51 @@ export namespace Schemas {
       results: TraceReview[];
     }
 
+    export interface UserGitHubAccount {
+      /**
+       * GitHub account type for the installation (e.g. User or Organization).
+       * @nullable
+       */
+      type?: string | null;
+      /**
+       * GitHub login or organization name tied to the installation.
+       * @nullable
+       */
+      name?: string | null;
+    }
+
+    export interface UserGitHubIntegrationItem {
+      /** Integration kind; always `github` for this API. */
+      kind: string;
+      /** GitHub App installation id. */
+      installation_id: string;
+      /**
+       * Repository selection mode from GitHub (e.g. selected or all).
+       * @nullable
+       */
+      repository_selection?: string | null;
+      /** Installation account metadata from GitHub. */
+      account?: UserGitHubAccount | null;
+      /** True when this installation id matches a team-level GitHub integration on the active project. */
+      uses_shared_installation: boolean;
+      /** When this integration row was created. */
+      created_at: string;
+    }
+
+    export interface UserGitHubIntegrationListResponse {
+      /** GitHub personal integrations for the authenticated user. */
+      results: UserGitHubIntegrationItem[];
+    }
+
+    export interface PaginatedUserGitHubIntegrationListResponseList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UserGitHubIntegrationListResponse[];
+    }
+
     export interface UserInterview {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -36570,6 +36615,23 @@ export namespace Schemas {
       total: number;
     }
 
+    export interface UserGitHubLinkStartRequest {
+      /**
+       * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+       * @nullable
+       */
+      team_id?: number | null;
+      /** Optional client hint (e.g. posthog_code) for return routing after OAuth. */
+      connect_from?: string;
+    }
+
+    export interface UserGitHubLinkStartResponse {
+      /** URL to open in the browser to install or authorize the GitHub App for this user. */
+      install_url: string;
+      /** oauth_authorize when using user OAuth against an existing team installation; app_install for the GitHub App installation UI. */
+      connect_flow: string;
+    }
+
     export interface UtmEvent {
       /** UTM campaign value from pageview events */
       utm_campaign: string;
@@ -44223,6 +44285,35 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type UsersIntegrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string;
     };
 
 

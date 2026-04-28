@@ -249,7 +249,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         responses={204: OpenApiResponse(description="Integration removed.")},
     )
     @action(methods=["DELETE"], detail=False, url_path=r"github/(?P<installation_id>\d+)")
-    def github_destroy(self, request: Request, installation_id: str) -> Response:
+    def github_destroy(self, request: Request, installation_id: str, **_kwargs) -> Response:
         """Remove a specific GitHub installation by its installation_id."""
         user = self._get_user()
         integration = UserIntegration.objects.filter(user=user, kind="github", integration_id=installation_id).first()
@@ -264,7 +264,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         responses={200: GitHubReposResponseSerializer},
     )
     @action(methods=["GET"], detail=False, url_path=r"github/(?P<installation_id>\d+)/repos")
-    def github_repos(self, request: Request, installation_id: str) -> Response:
+    def github_repos(self, request: Request, installation_id: str, **_kwargs) -> Response:
         """List repositories accessible to a specific GitHub installation (paginated, cached)."""
         query_serializer = GitHubReposQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
@@ -293,8 +293,12 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         url_path="github/start",
         throttle_classes=[UserAuthenticationThrottle],
     )
-    def github_start(self, request: Request) -> Response:
+    def github_start(self, request: Request, **_kwargs) -> Response:
         """Start GitHub linking: either full App install or OAuth-only (user-to-server).
+
+        ``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
+        ``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
+        under projects).
 
         - If the current project has **no** team-level GitHub ``Integration``, returns
           ``install_url`` pointing at ``/installations/new`` (configure org + repos).
