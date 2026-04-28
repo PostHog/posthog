@@ -425,10 +425,15 @@ class TestSerializerHooksFireTasksOnCommit(APIBaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
 
+        # ``rollout_percentage > 100`` is rejected by ``validate_filters`` before
+        # ``update()`` enters its atomic block — exactly the codepath we want to
+        # exercise. ``{"groups": "not-a-list"}`` raises an unhandled
+        # AttributeError inside the validator (DRF doesn't type-guard ``groups``)
+        # which surfaces as 500 instead of 400 and would mask the contract.
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-                data={"key": "renamed", "filters": {"groups": "not-a-list"}},
+                data={"key": "renamed", "filters": {"groups": [{"properties": [], "rollout_percentage": 150}]}},
                 content_type="application/json",
             )
 
