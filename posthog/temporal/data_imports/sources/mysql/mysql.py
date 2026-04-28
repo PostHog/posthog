@@ -245,7 +245,7 @@ class MySQLColumn(Column):
             case "tinyint":
                 arrow_type = pa.uint16() if is_unsigned else pa.int8()
             case "decimal" | "numeric":
-                if not self.numeric_precision or not self.numeric_scale:
+                if self.numeric_precision is None or self.numeric_scale is None:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
                 arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
             case "float":
@@ -456,8 +456,14 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         columns = []
         for name, data_type, column_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
             if data_type in numeric_data_types:
-                numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
-                numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+                numeric_precision = (
+                    numeric_precision_candidate
+                    if numeric_precision_candidate is not None
+                    else DEFAULT_NUMERIC_PRECISION
+                )
+                numeric_scale = (
+                    numeric_scale_candidate if numeric_scale_candidate is not None else DEFAULT_NUMERIC_SCALE
+                )
             else:
                 numeric_precision = None
                 numeric_scale = None
