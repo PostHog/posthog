@@ -54,13 +54,36 @@ export function getCoreFilterDefinition(
             }
         }
     } else if (value.startsWith('$survey_response_')) {
-        const surveyIndex = value.replace(/^\$survey_response_/, '')
-        if (surveyIndex) {
-            const index = Number(surveyIndex) + 1
-            const suffix = index === 2 ? 'nd' : index === 3 ? 'rd' : 'th'
+        const surveyIndexOrId = value.replace(/^\$survey_response_/, '')
+        if (surveyIndexOrId) {
+            // Two key formats exist:
+            //   - index-based: `$survey_response_<n>` where n is 0-based question index
+            //   - id-based:    `$survey_response_<question_uuid>` (stable across reorders/deletions)
+            const numericIndex = Number(surveyIndexOrId)
+            if (!Number.isNaN(numericIndex)) {
+                const oneBasedIndex = numericIndex + 1
+                const lastTwo = oneBasedIndex % 100
+                const lastOne = oneBasedIndex % 10
+                const suffix =
+                    lastTwo >= 11 && lastTwo <= 13
+                        ? 'th'
+                        : lastOne === 1
+                            ? 'st'
+                            : lastOne === 2
+                                ? 'nd'
+                                : lastOne === 3
+                                    ? 'rd'
+                                    : 'th'
+                return {
+                    label: `Survey response for ${oneBasedIndex}${suffix} question`,
+                    description: `The response value for the ${oneBasedIndex}${suffix} question in the survey.`,
+                }
+            }
+            // Non-numeric — treat as an id-based response key. We cannot resolve the
+            // question text without the survey context, so surface the id instead.
             return {
-                label: `Survey response for ${index}${suffix} question`,
-                description: `The response value for the ${index}${suffix} question in the survey.`,
+                label: `Survey response for question ${surveyIndexOrId}`,
+                description: `The response value for the survey question with id "${surveyIndexOrId}". This key is stable across question reorders and deletions.`,
             }
         }
     } else if (value.startsWith('$feature/')) {
