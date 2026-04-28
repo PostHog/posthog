@@ -490,6 +490,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
         team = self.team
         filter = Filter(request=request, team=self.team)
 
