@@ -5314,6 +5314,7 @@ export type APIScopeObject =
     | 'task'
     | 'ticket'
     | 'uploaded_media'
+    | 'usage_metric'
     | 'user'
     | 'visual_review'
     | 'warehouse_table'

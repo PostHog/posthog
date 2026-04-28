@@ -21,6 +21,7 @@ import {
     ExperimentTrendsQuery,
     GroupNode,
     NodeKind,
+    ProductKey,
     TrendsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
@@ -830,6 +831,9 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         },
         interval: 'day',
         filterTestAccounts: isDWQuery ? false : filterTestAccounts,
+        tags: {
+            productKey: ProductKey.PRODUCT_ANALYTICS,
+        },
     }
 }
 

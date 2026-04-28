@@ -1498,7 +1498,7 @@
         }
     },
     "experiment-archive": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later by setting archived=false via update.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later via the unarchive tool.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Archive experiment",
@@ -1735,6 +1735,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "experiment-unarchive": {
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nUnarchive an archived experiment to restore it to the default list view.\n\nReturns 400 if the experiment is not currently archived (\"Experiment is not archived.\").\n\nNo request body needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Unarchive experiment",
+        "title": "Unarchive experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "experiment-update": {
@@ -3990,6 +4005,81 @@
             "readOnlyHint": false
         }
     },
+    "usage-metrics-create": {
+        "description": "Create a new usage metric for the project. The metric will surface on both group and person Customer Analytics profile pages — usage metrics are not scoped to a specific group type. `filters` takes the same shape as HogFunction filters (a dict with an `events` list and optional `properties` list). When `math` is `sum`, `math_property` is required; when `math` is `count`, `math_property` must be empty. Pass `group_type_index: 0`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create usage metric",
+        "title": "Create usage metric",
+        "required_scopes": ["usage_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "usage-metrics-destroy": {
+        "description": "Permanently delete a usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete usage metric",
+        "title": "Delete usage metric",
+        "required_scopes": ["usage_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "usage-metrics-list": {
+        "description": "List usage metrics defined for the project. Usage metrics apply to both groups and persons on Customer Analytics profile pages — they are NOT scoped to a specific group type despite the legacy URL shape. Returns each metric's id, name, format, interval (days), display mode, math aggregation, and filter definition. Pass `group_type_index: 0`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List usage metrics",
+        "title": "List usage metrics",
+        "required_scopes": ["usage_metric:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "usage-metrics-partial-update": {
+        "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update usage metric",
+        "title": "Update usage metric",
+        "required_scopes": ["usage_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "usage-metrics-retrieve": {
+        "description": "Fetch a single usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get usage metric",
+        "title": "Get usage metric",
+        "required_scopes": ["usage_metric:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "user-get": {
         "description": "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff callers may only access their own account.",
         "category": "Core",
@@ -4003,6 +4093,36 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "user-home-settings-get": {
+        "description": "Get the authenticated user's pinned navigation tabs and configured homepage for the current team. The homepage is the page opened when the user clicks the PostHog logo or hits `/` — it can point at any PostHog destination (dashboard, insight, search, scene, etc.). Pass `@me` as the UUID.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get pinned tabs and homepage.",
+        "title": "Get pinned tabs and homepage.",
+        "required_scopes": ["user:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "user-home-settings-update": {
+        "description": "Update the authenticated user's pinned tabs and/or homepage for the current team. Pass `@me` as the UUID. The homepage can be set to any PostHog destination by passing a tab descriptor with `pathname` (and optional `search`/`hash`) — for example `{ \"pathname\": \"/project/123/dashboard/45\" }` to make a dashboard the home, or `{ \"pathname\": \"/project/123/insights\", \"search\": \"?q=funnel\" }` for a search. Send `homepage: null` to clear it and fall back to the project default. `tabs` replaces the full pinned list when provided. Always confirm the destination with the user before applying — this changes their landing page on every login.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Update pinned tabs and homepage.",
+        "title": "Update pinned tabs and homepage.",
+        "required_scopes": ["user:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "user-settings-update": {

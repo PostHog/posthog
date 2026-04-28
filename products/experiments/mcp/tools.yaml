@@ -43,7 +43,7 @@ tools:
             ended before it can be archived.").
 
 
-            No request body needed. Can be restored later by setting archived=false via update.
+            No request body needed. Can be restored later via the unarchive tool.
         ui_app: experiment
     experiment-create:
         operation: experiments_create
@@ -450,6 +450,30 @@ tools:
             overall status ("pending", "completed", "partial", "failed"), computed_at timestamp, and
             recalculation_status if a recalculation is in progress.
         ui_app: experiment-results
+    experiment-unarchive:
+        operation: experiments_unarchive_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{id}'
+        title: Unarchive experiment
+        description: >
+            Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
+            user's reference first.
+
+
+            Unarchive an archived experiment to restore it to the default list view.
+
+
+            Returns 400 if the experiment is not currently archived ("Experiment is not archived.").
+
+
+            No request body needed.
+        ui_app: experiment
     experiment-update:
         operation: experiments_partial_update
         enabled: true
