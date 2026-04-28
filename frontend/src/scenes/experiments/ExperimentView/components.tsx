@@ -68,7 +68,7 @@ import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getVariantColor, isLegacyExperiment } from '../utils'
+import { getDefaultVariantToKeep, getVariantColor, isLegacyExperiment } from '../utils'
 
 export function VariantTag({
     variantKey,
@@ -659,18 +659,9 @@ export function FinishExperimentModal(): JSX.Element {
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
 
     useEffect(() => {
-        const variants = experiment.parameters?.feature_flag_variants
-        if (!variants?.length) {
-            return
-        }
-        if (experiment.conclusion === ExperimentConclusion.Lost) {
-            // The test variant(s) underperformed, so default to keeping the control
-            const controlVariant = variants.find((v) => v.key === 'control') ?? variants[0]
-            setSelectedVariantKey(controlVariant.key)
-        } else if (variants.length > 1) {
-            // First test variant selected by default
-            setSelectedVariantKey(variants[1].key)
-        }
+        setSelectedVariantKey(
+            getDefaultVariantToKeep(experiment.parameters?.feature_flag_variants, experiment.conclusion)
+        )
     }, [
         experiment.id,
         experiment.conclusion,

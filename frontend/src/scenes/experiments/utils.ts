@@ -31,6 +31,7 @@ import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperim
 import {
     ChartDisplayType,
     Experiment,
+    ExperimentConclusion,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
     FeatureFlagType,
@@ -76,6 +77,38 @@ export function getExposureConfigDisplayName(config: ExperimentExposureConfig): 
 export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {
     const variantIndex = featureFlagVariants.findIndex((v) => v.key === variantKey)
     return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--text-muted)'
+}
+
+/**
+ * Picks a sensible default for the "Variant to keep" selector when ending an
+ * experiment, based on the chosen conclusion. Only `Won` implies positive
+ * evidence to ship a change; everything else defaults to control so we don't
+ * encourage rolling out an unproven variant.
+ */
+export function getDefaultVariantToKeep(
+    variants: MultivariateFlagVariant[] | undefined,
+    conclusion: ExperimentConclusion | null | undefined
+): string | null {
+    if (!variants?.length) {
+        return null
+    }
+    const controlVariant = variants.find((v) => v.key === 'control') ?? variants[0]
+    const firstTestVariant = variants.find((v) => v.key !== controlVariant.key)
+    const fallbackTestKey = firstTestVariant?.key ?? controlVariant.key
+
+    switch (conclusion) {
+        case ExperimentConclusion.Lost:
+        case ExperimentConclusion.Inconclusive:
+        case ExperimentConclusion.StoppedEarly:
+        case ExperimentConclusion.Invalid:
+            return controlVariant.key
+        case ExperimentConclusion.Won:
+            return fallbackTestKey
+        default:
+            // No conclusion picked yet: keep the historical default of suggesting
+            // a test variant, since most users open this modal to ship a winner.
+            return fallbackTestKey
+    }
 }
 
 export function formatUnitByQuantity(value: number, unit: string): string {

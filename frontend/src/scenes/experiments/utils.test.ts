@@ -17,6 +17,7 @@ import {
 import {
     AccessControlLevel,
     Experiment,
+    ExperimentConclusion,
     ExperimentMetricMathType,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
@@ -31,6 +32,7 @@ import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
+    getDefaultVariantToKeep,
     getOrderedMetricsWithResults,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
@@ -63,6 +65,66 @@ describe('utils', () => {
             expect(percentageDistribution(18)).toEqual([6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5])
             expect(percentageDistribution(19)).toEqual([6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
             expect(percentageDistribution(20)).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
+        })
+    })
+
+    describe('getDefaultVariantToKeep', () => {
+        const variants = [
+            { key: 'control', rollout_percentage: 50 },
+            { key: 'test', rollout_percentage: 50 },
+        ]
+        const multiVariantTest = [
+            { key: 'control', rollout_percentage: 25 },
+            { key: 'test-a', rollout_percentage: 25 },
+            { key: 'test-b', rollout_percentage: 25 },
+            { key: 'test-c', rollout_percentage: 25 },
+        ]
+
+        it.each([
+            { conclusion: ExperimentConclusion.Won, expected: 'test' },
+            { conclusion: ExperimentConclusion.Lost, expected: 'control' },
+            { conclusion: ExperimentConclusion.Inconclusive, expected: 'control' },
+            { conclusion: ExperimentConclusion.StoppedEarly, expected: 'control' },
+            { conclusion: ExperimentConclusion.Invalid, expected: 'control' },
+            { conclusion: undefined, expected: 'test' },
+            { conclusion: null, expected: 'test' },
+        ])('maps conclusion=$conclusion to "$expected" with a control + test pair', ({ conclusion, expected }) => {
+            expect(getDefaultVariantToKeep(variants, conclusion)).toBe(expected)
+        })
+
+        it('picks the first non-control variant for "Won" in multi-variant experiments', () => {
+            expect(getDefaultVariantToKeep(multiVariantTest, ExperimentConclusion.Won)).toBe('test-a')
+        })
+
+        it('picks control for any non-positive conclusion regardless of variant count', () => {
+            for (const conclusion of [
+                ExperimentConclusion.Lost,
+                ExperimentConclusion.Inconclusive,
+                ExperimentConclusion.StoppedEarly,
+                ExperimentConclusion.Invalid,
+            ]) {
+                expect(getDefaultVariantToKeep(multiVariantTest, conclusion)).toBe('control')
+            }
+        })
+
+        it('falls back to the first variant when no key is named "control"', () => {
+            const unconventional = [
+                { key: 'baseline', rollout_percentage: 50 },
+                { key: 'experimental', rollout_percentage: 50 },
+            ]
+            expect(getDefaultVariantToKeep(unconventional, ExperimentConclusion.Lost)).toBe('baseline')
+            expect(getDefaultVariantToKeep(unconventional, ExperimentConclusion.Won)).toBe('experimental')
+        })
+
+        it('returns the only variant when there is just one (degenerate case)', () => {
+            const single = [{ key: 'control', rollout_percentage: 100 }]
+            expect(getDefaultVariantToKeep(single, ExperimentConclusion.Won)).toBe('control')
+            expect(getDefaultVariantToKeep(single, ExperimentConclusion.Lost)).toBe('control')
+        })
+
+        it('returns null for empty or missing variants', () => {
+            expect(getDefaultVariantToKeep([], ExperimentConclusion.Won)).toBeNull()
+            expect(getDefaultVariantToKeep(undefined, ExperimentConclusion.Won)).toBeNull()
         })
     })
 
