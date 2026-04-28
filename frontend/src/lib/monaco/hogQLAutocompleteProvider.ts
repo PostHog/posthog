@@ -8,6 +8,7 @@ import {
     AutocompleteCompletionItemKind,
     HogLanguage,
     HogQLAutocomplete,
+    HogQLAutocompleteResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
@@ -138,7 +139,7 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
             },
             { recursion: false }
         )
-        let response: HogQLAutocomplete
+        let response: HogQLAutocompleteResponse
         try {
             response = await performQuery<HogQLAutocomplete>(query)
         } catch (err) {
