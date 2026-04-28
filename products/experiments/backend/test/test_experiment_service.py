@@ -1725,6 +1725,28 @@ class TestExperimentService(APIBaseTest):
         assert "must be ended" in str(ctx.exception)
 
     # ------------------------------------------------------------------
+    # Unarchive
+    # ------------------------------------------------------------------
+
+    def test_unarchive_experiment_success(self):
+        experiment = self._create_ended_experiment(name="Unarchive Test", feature_flag_key="unarchive-flag")
+        service = self._service()
+        service.archive_experiment(experiment)
+
+        unarchived = service.unarchive_experiment(experiment)
+
+        assert unarchived.archived is False
+        assert unarchived.status == Experiment.Status.STOPPED
+
+    def test_unarchive_experiment_not_archived_raises(self):
+        experiment = self._create_ended_experiment(name="Not Archived", feature_flag_key="not-archived-flag")
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().unarchive_experiment(experiment)
+
+        assert "not archived" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
     # End
     # ------------------------------------------------------------------
 

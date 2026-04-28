@@ -933,7 +933,7 @@ class ExperimentQueryBuilder:
             """,
                 sum(entity_metrics.covariate_value) AS covariate_sum,
                 sum(power(entity_metrics.covariate_value, 2)) AS covariate_sum_squares,
-                sum(entity_metrics.value * entity_metrics.covariate_value) AS main_covariate_sum_product"""
+                sum(entity_metrics.value * entity_metrics.covariate_value) AS covariate_sum_product"""
             if self.cuped_config.enabled
             else ""
         )
@@ -1007,7 +1007,7 @@ class ExperimentQueryBuilder:
             """,
                 sum(winsorized_entity_metrics.covariate_value) AS covariate_sum,
                 sum(power(winsorized_entity_metrics.covariate_value, 2)) AS covariate_sum_squares,
-                sum(winsorized_entity_metrics.value * winsorized_entity_metrics.covariate_value) AS main_covariate_sum_product"""
+                sum(winsorized_entity_metrics.value * winsorized_entity_metrics.covariate_value) AS covariate_sum_product"""
             if self.cuped_config.enabled
             else ""
         )
