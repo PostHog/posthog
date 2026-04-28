@@ -46,29 +46,50 @@ interface InitKeaProps {
 // closure still holds them.
 //
 // kea v4's `unmountLogic` removes a built logic from `mounted`, `counter`,
-// and `wrapperContexts.builtLogics`, but does NOT clear the BuiltLogic
-// object's own `connections`, `events`, `listeners`, `selectors`, etc. Each
-// logic's `connections` map points at every transitively connected logic, so
-// once any single unmounted BuiltLogic is rooted from outside (e.g. by a
-// React fiber alternate, a redux middleware closure, or a stale Monaco model
-// ref), the entire connected graph stays alive.
+// and `wrapperContexts.builtLogics`, but the `BuiltLogic` object's own
+// `connections`, `events`, and `listeners` fields stay populated. The
+// `connections` map points at every transitively connected logic, so once
+// any single unmounted `BuiltLogic` is rooted from outside (e.g. by a React
+// fiber alternate, a redux middleware closure, or a stale Monaco model ref),
+// the whole connected graph stays alive.
 //
 // Heap-snapshot diffs on /sql showed 5 BuiltLogic instances per visit for
-// every connected logic, including singletons. Nulling these fields on
-// afterUnmount caps the leak at the empty BuiltLogic shell.
+// every connected logic, including singletons. Nulling these three fields
+// on afterUnmount caps the leak at the empty BuiltLogic shell. We only clear
+// these three because heap diffs show they hold the bulk of the retention;
+// `selectors` and `cache` are intentionally left alone — `cache.disposables`
+// is managed by `disposablesPlugin.beforeUnmount`, and selector closures
+// haven't been observed as a primary retainer once `connections` is gone.
 //
 // Safe because kea doesn't guarantee post-unmount logic access. `isMounted()`
 // lives in the BuiltLogic's closure (not in a data field) and continues to
 // work. Plugins that need `logic.cache` etc. read it in `beforeUnmount`,
 // which runs before this `afterUnmount`.
+//
+// IMPORTANT — `events.afterUnmount` will NOT fire while this plugin is
+// active. kea calls `connectedLogic.events.afterUnmount?.()` at mount.ts:69
+// immediately after our plugin returns, but we wipe `events` here, so that
+// call is a no-op. Verified via grep that no PostHog code uses kea's
+// `afterUnmount` builder or sets `events.afterUnmount` directly. If you
+// need post-unmount cleanup, use `beforeUnmount` (runs before this) or
+// `cache.disposables` (managed by `disposablesPlugin`). Preserving
+// `afterUnmount` here would re-introduce most of the leak — measured
+// ~1400 detached vs ~550 with full clear over the same /sql workload.
+type MutableBuiltLogic = {
+    events: Record<string, unknown>
+    listeners: Record<string, unknown>
+    connections: Record<string, unknown>
+}
+
 const cycleBreakerPlugin: KeaPlugin = {
     name: 'cycleBreaker',
     events: {
         afterUnmount(logic) {
-            const l = logic as any
+            const l = logic as unknown as MutableBuiltLogic
+
             // Clear the heavy closure-bearing fields synchronously. These
             // are what retain reselect machinery, listener bodies, and
-            // propsChanged/beforeUnmount2 closures that hold an unmounted
+            // propsChanged2/beforeUnmount2 closures that hold an unmounted
             // BuiltLogic alive when any external closure still references it.
             l.events = {}
             l.listeners = {}
@@ -81,14 +102,14 @@ const cycleBreakerPlugin: KeaPlugin = {
             // dereference `undefined.events` and crash.
             //
             // setTimeout(0) waits until kea's full unmount sweep completes.
-            // We don't gate on `isMounted()` because that checks the counter
-            // for `pathString`, which can be true again if a fresh build at
-            // the same path was mounted in the interim — but that's a
-            // DIFFERENT BuiltLogic instance with its own `connections` map,
-            // so clearing this stale instance's `connections` is safe.
-            setTimeout(() => {
-                l.connections = {}
-            }, 0)
+            // Skipped when `setTimeout` isn't available (e.g. SSR). The
+            // clear is purely a memory optimisation; missing it doesn't
+            // break correctness.
+            if (typeof setTimeout === 'function') {
+                setTimeout(() => {
+                    l.connections = {}
+                }, 0)
+            }
         },
     },
 }
