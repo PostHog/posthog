@@ -91,6 +91,32 @@ def dot_get(d: Any, path: str, default: Any = None) -> Any:
     return d
 
 
+def _extract_oauth_error_message(res: requests.Response) -> str | None:
+    """Pull a human-readable error from a failed OAuth token-exchange response.
+
+    Most providers (Stripe, Google, etc.) return JSON of the shape
+    `{"error": "...", "error_description": "..."}`. Fall back to plain text if
+    the body isn't JSON. Truncate so we don't dump multi-KB HTML error pages
+    into a frontend toast.
+    """
+    try:
+        body = res.json()
+    except Exception:
+        text = (res.text or "").strip()
+        return text[:300] if text else None
+
+    if isinstance(body, dict):
+        description = body.get("error_description") or body.get("message")
+        code = body.get("error")
+        if description and code:
+            return f"{code}: {description}"
+        if description:
+            return str(description)
+        if code:
+            return str(code)
+    return None
+
+
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 
@@ -683,7 +709,12 @@ class OauthIntegration:
                 },
             )
 
-        config: dict = res.json()
+        try:
+            config: dict = res.json()
+        except ValueError:
+            # Non-JSON body (e.g. an HTML 502 from a proxy). Keep going so the status-code
+            # branch below can surface a structured ValidationError to the frontend.
+            config = {}
 
         access_token = None
         if kind == "tiktok-ads":
@@ -707,11 +738,17 @@ class OauthIntegration:
                     },
                 )
 
-                config = res.json()
+                try:
+                    config = res.json()
+                except ValueError:
+                    config = {}
 
                 if res.status_code != 200 or not config.get("access_token"):
                     logger.error(f"Oauth error for {kind}", response=res.text)
-                    raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
+                    provider_error = _extract_oauth_error_message(res)
+                    if provider_error:
+                        raise ValidationError(f"{kind} OAuth failed: {provider_error}")
+                    raise ValidationError(f"{kind} OAuth failed (status {res.status_code}). Please try again.")
             else:
                 # Include request context so on-call can compare what we sent against what
                 # the merchant authorized with in Stripe. Code prefix only, full grant is
@@ -724,7 +761,13 @@ class OauthIntegration:
                     redirect_uri=OauthIntegration.redirect_uri(kind),
                     code_prefix=str(params.get("code", ""))[:12],
                 )
-                raise Exception(f"Oauth error. Status code = {res.status_code}")
+                # Surface the provider's error to the frontend toast — without this, DRF turns
+                # the bare Exception into a generic 500 and the user sees "Something went wrong"
+                # with no actionable detail. ValidationError → 400 with `detail` set.
+                provider_error = _extract_oauth_error_message(res)
+                if provider_error:
+                    raise ValidationError(f"{kind} OAuth failed: {provider_error}")
+                raise ValidationError(f"{kind} OAuth failed (status {res.status_code}). Please try again.")
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there

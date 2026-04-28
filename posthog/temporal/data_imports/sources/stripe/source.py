@@ -46,6 +46,7 @@ from posthog.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
+    StripeAuthenticationError,
     StripePermissionError,
     StripeResumeConfig,
     create_webhook,
@@ -283,6 +284,11 @@ If automatic creation failed due to a permissions error and you're using a restr
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
+        except StripeAuthenticationError as e:
+            return (
+                False,
+                f"Stripe rejected the API key: {e.stripe_message}. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
+            )
         except StripePermissionError as e:
             missing_resources = ", ".join(e.missing_permissions.keys())
             return False, f"Stripe credentials lack permissions for {missing_resources}"

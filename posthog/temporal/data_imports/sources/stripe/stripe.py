@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any, Optional, Union, get_args, get_type_hints
 
 import orjson
+import stripe as stripe_lib
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 from stripe import ListObject, StripeClient
@@ -306,7 +307,7 @@ def stripe_source(
 
 
 class StripePermissionError(Exception):
-    """Exception raised when Stripe API key lacks permissions for specific resources."""
+    """Raised when Stripe API key is valid but lacks read permission for a resource."""
 
     def __init__(self, missing_permissions: dict[str, str]):
         self.missing_permissions = missing_permissions
@@ -314,13 +315,21 @@ class StripePermissionError(Exception):
         super().__init__(message)
 
 
+class StripeAuthenticationError(Exception):
+    """Raised when Stripe API key itself is invalid (401) — distinct from per-resource permission denial."""
+
+    def __init__(self, stripe_message: str):
+        self.stripe_message = stripe_message
+        super().__init__(stripe_message)
+
+
 def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
     """
     Validates Stripe API credentials and checks permissions for all required resources.
-    This function will:
-    - Return True if the API key is valid and has all required permissions
-    - Raise StripePermissionError if the API key is valid but lacks permissions for specific resources
-    - Raise Exception if the API key is invalid or there's any other error
+    Returns True if the API key is valid and has all required permissions.
+    Raises StripeAuthenticationError if the key is invalid/expired (401) — short-circuits the per-resource loop
+    so the user does not see a misleading "lacks permissions for ALL resources" message.
+    Raises StripePermissionError if the key is valid but lacks permissions for specific resources (403).
     """
     client = StripeClient(api_key, base_addresses=_stripe_base_addresses())
 
@@ -341,7 +350,7 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
         {"name": CREDIT_NOTE_RESOURCE_NAME, "method": client.credit_notes.list, "params": {"limit": 1}},
     ]
 
-    missing_permissions = {}
+    missing_permissions: dict[str, str] = {}
 
     if table_name:
         resources_to_check = [r for r in resources_to_check if r.get("name") == table_name]
@@ -350,15 +359,22 @@ def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool
         raise StripePermissionError({table_name: f"{table_name} does not exist"})
 
     for resource in resources_to_check:
+        resource_name = str(resource["name"])
         try:
-            # This will raise an exception if we don't have access
             resource["method"](params=resource["params"])  # type: ignore
+        except stripe_lib.AuthenticationError as e:
+            # 401 — key itself is bad; no point checking other resources, every call will 401 the same way.
+            raise StripeAuthenticationError(str(e)) from e
+        except stripe_lib.PermissionError as e:
+            # 403 — this specific resource is not authorized for the key.
+            missing_permissions[resource_name] = str(e)
         except Exception as e:
-            # Store the resource name and error message
-            missing_permissions[resource["name"]] = str(e)
+            # Treat unknown errors as permission failures so the user still gets actionable output,
+            # but include the raw Stripe message so they can see what actually went wrong.
+            missing_permissions[resource_name] = str(e)
 
     if missing_permissions:
-        raise StripePermissionError(missing_permissions)  # type: ignore
+        raise StripePermissionError(missing_permissions)
 
     return True
 
