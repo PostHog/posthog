@@ -17,15 +17,17 @@ export function createSharedDomRoot(): SharedDomRoot {
 }
 
 export function ensureSharedDomRoot(target: SharedDomRoot, config: SharedDomRootConfig): [Root, HTMLElement] {
-    if (!target.element || !target.root) {
-        const element = document.createElement('div')
-        element.id = config.elementId
-        config.setupElement(element)
-        document.body.appendChild(element)
-        target.element = element
-        target.root = createRoot(element)
+    if (target.root && target.element) {
+        return [target.root, target.element]
     }
-    return [target.root, target.element]
+    const element = document.createElement('div')
+    element.id = config.elementId
+    config.setupElement(element)
+    document.body.appendChild(element)
+    const root = createRoot(element)
+    target.element = element
+    target.root = root
+    return [root, element]
 }
 
 export function createOwnedRender(target: SharedDomRoot, ownerId: string): Root {
