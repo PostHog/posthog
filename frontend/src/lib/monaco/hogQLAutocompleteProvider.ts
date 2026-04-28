@@ -87,15 +87,25 @@ const kindToSortText = (kind: AutocompleteCompletionItemKind, label: string): st
     return `3-${label}`
 }
 
+const EMPTY_COMPLETIONS: languages.CompletionList = { suggestions: [], incomplete: false }
+
+// Monaco aborts in-flight language-service requests by rejecting with a "Canceled" error
+// (e.g. when the active model is swapped during tab switches). The rejection is benign and
+// should not surface to global error tracking.
+const isMonacoCancellation = (err: unknown): boolean => {
+    if (!err || typeof err !== 'object') {
+        return false
+    }
+    const { name, message } = err as { name?: unknown; message?: unknown }
+    return name === 'Canceled' || message === 'Canceled'
+}
+
 export const hogQLAutocompleteProvider = (type: HogLanguage): languages.CompletionItemProvider => ({
     triggerCharacters: [' ', ',', '.', '{'],
-    provideCompletionItems: async (model, position) => {
+    provideCompletionItems: async (model, position, _context, token) => {
         const logic: BuiltLogic<codeEditorLogicType> | undefined = (model as any).codeEditorLogic
         if (!logic || !logic.isMounted()) {
-            return {
-                suggestions: [],
-                incomplete: false,
-            }
+            return EMPTY_COMPLETIONS
         }
         const word = model.getWordUntilPosition(position)
         const startOffset = model.getOffsetAt({
@@ -128,7 +138,18 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
             },
             { recursion: false }
         )
-        const response = await performQuery<HogQLAutocomplete>(query)
+        let response: HogQLAutocomplete
+        try {
+            response = await performQuery<HogQLAutocomplete>(query)
+        } catch (err) {
+            if (isMonacoCancellation(err)) {
+                return EMPTY_COMPLETIONS
+            }
+            throw err
+        }
+        if (token?.isCancellationRequested) {
+            return EMPTY_COMPLETIONS
+        }
         const completionItems = response.suggestions
         const suggestions = completionItems.map<languages.CompletionItem>((item) => {
             const kind = convertCompletionItemKind(item.kind)
