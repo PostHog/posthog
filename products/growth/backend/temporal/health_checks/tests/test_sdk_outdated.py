@@ -6,8 +6,8 @@ from django.test import TestCase
 
 from posthog.models.health_issue import HealthIssue
 
+from products.growth.backend.constants import SDK_TYPES
 from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck
-from products.growth.dags.github_sdk_versions import SDK_TYPES
 
 
 def _make_github_data(latest_version: str, release_dates: dict | None = None) -> dict:

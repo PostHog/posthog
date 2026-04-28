@@ -24,6 +24,7 @@ import {
     ClusteringLevel,
     TraceSummary,
     getTimestampBoundsFromRunId,
+    parseClusterMetrics,
 } from './types'
 
 export interface ClusterDetailLogicProps {
@@ -115,7 +116,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                 loadClusterData: async () => {
                     const { dayStart, dayEnd } = getTimestampBoundsFromRunId(props.runId)
 
-                    // Query both trace and generation cluster events
+                    // Query all three cluster event types so a single URL works regardless of level
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
@@ -126,7 +127,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                                 timestamp,
                                 JSONExtractString(properties, '$ai_clustering_level') as clustering_level
                             FROM events
-                            WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters')
+                            WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
                                 AND timestamp >= ${dayStart}
                                 AND timestamp <= ${dayEnd}
                                 AND JSONExtractString(properties, '$ai_clustering_run_id') = ${props.runId}
@@ -145,7 +146,20 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
 
                     let clustersData: Cluster[] = []
                     try {
-                        clustersData = JSON.parse(row[3] || '[]') as Cluster[]
+                        const rawClusters: Array<Record<string, unknown>> = JSON.parse(row[3] || '[]')
+                        // Normalize snake_case metrics dict to camelCase ClusterMetrics — matches
+                        // clustersLogic so the detail page's cluster object has the same shape as
+                        // the list page's cluster cards.
+                        clustersData = rawClusters.map((raw) => {
+                            const { metrics: rawMetrics, ...rest } = raw as {
+                                metrics?: unknown
+                            } & Record<string, unknown>
+                            const parsed = parseClusterMetrics(rawMetrics)
+                            return {
+                                ...(rest as unknown as Cluster),
+                                ...(parsed ? { metrics: parsed } : {}),
+                            }
+                        })
                     } catch {
                         console.error('Failed to parse clusters data')
                         return null
@@ -335,6 +349,14 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         loadClusterMetricsForCluster: async () => {
             const { cluster, windowStart, windowEnd, clusteringLevel } = values
             if (!cluster || !windowStart || !windowEnd) {
+                return
+            }
+
+            // Evaluation clusters ship with metrics baked into the event — use them
+            // directly rather than re-computing via the HogQL items query. Matches
+            // clustersLogic's short-circuit.
+            if (clusteringLevel === 'evaluation') {
+                actions.setClusterMetrics(cluster.metrics || null)
                 return
             }
 

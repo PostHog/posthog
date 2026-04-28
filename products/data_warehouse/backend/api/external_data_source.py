@@ -12,7 +12,7 @@ from django.db.models import Prefetch, Q
 import structlog
 import temporalio
 from dateutil import parser
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -96,7 +96,9 @@ def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that contain sensitive data from a source config's fields."""
     sensitive: set[str] = set()
     for field in fields:
-        if isinstance(field, SourceFieldInputConfig) and field.type == SourceFieldInputConfigType.PASSWORD:
+        if isinstance(field, SourceFieldInputConfig) and (
+            field.type == SourceFieldInputConfigType.PASSWORD or field.secret
+        ):
             sensitive.add(field.name)
         elif isinstance(field, SourceFieldFileUploadConfig):
             sensitive.add(field.name)
@@ -132,7 +134,7 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
 
     for field in fields:
         if isinstance(field, SourceFieldInputConfig):
-            if field.type == SourceFieldInputConfigType.PASSWORD:
+            if field.type == SourceFieldInputConfigType.PASSWORD or field.secret:
                 _add_name_variants(sensitive, field.name)
             else:
                 _add_name_variants(nonsensitive, field.name)
@@ -569,22 +571,26 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
 
-        # auth_method is a nested config - deep-merge to preserve sensitive fields (stripe_secret_key)
-        existing_auth_method = existing_job_inputs.get("auth_method")
-        incoming_auth_method = incoming_job_inputs.get("auth_method")
-        if incoming_auth_method is not None and not isinstance(incoming_auth_method, dict):
-            raise ValidationError({"job_inputs": {"auth_method": "Must be an object."}})
-        if isinstance(existing_auth_method, dict) and isinstance(incoming_auth_method, dict):
-            selection_changed = existing_auth_method.get("selection") != incoming_auth_method.get("selection")
+        # Nested SourceFieldSelectConfig containers (e.g. Stripe `auth_method`, Snowflake `auth_type`) need
+        # a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge above
+        # would otherwise wipe redacted credentials nested inside these containers.
+        for container_key in ("auth_method", "auth_type"):
+            existing_container = existing_job_inputs.get(container_key)
+            incoming_container = incoming_job_inputs.get(container_key)
+            if incoming_container is not None and not isinstance(incoming_container, dict):
+                raise ValidationError({"job_inputs": {container_key: "Must be an object."}})
+            if not (isinstance(existing_container, dict) and isinstance(incoming_container, dict)):
+                continue
+            selection_changed = existing_container.get("selection") != incoming_container.get("selection")
             if selection_changed:
-                # Auth method switched (e.g. api_key→oauth) — use only incoming, don't carry over old secrets
-                new_job_inputs["auth_method"] = incoming_auth_method
+                # Selection switched (e.g. password→keypair) — use only incoming, don't carry over old secrets
+                new_job_inputs[container_key] = incoming_container
             else:
-                merged_auth_method = {**existing_auth_method, **incoming_auth_method}
+                merged_container = {**existing_container, **incoming_container}
                 for key in sensitive_fields:
-                    if existing_auth_method.get(key) and not incoming_auth_method.get(key):
-                        merged_auth_method[key] = existing_auth_method[key]
-                new_job_inputs["auth_method"] = merged_auth_method
+                    if existing_container.get(key) and not incoming_container.get(key):
+                        merged_container[key] = existing_container[key]
+                new_job_inputs[container_key] = merged_container
 
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
         if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
@@ -682,6 +688,42 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return updated_source
 
 
+class ExternalDataSourceCreateSerializer(serializers.Serializer):
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        help_text="The source type (e.g. 'Postgres', 'Stripe').",
+    )
+    payload = serializers.DictField(
+        help_text="Connection credentials and a 'schemas' array. Keys depend on source_type.",
+    )
+    prefix = serializers.CharField(
+        max_length=100, required=False, allow_null=True, allow_blank=True, help_text="Table name prefix in HogQL."
+    )
+    description = serializers.CharField(
+        max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
+    )
+    access_method = serializers.ChoiceField(
+        choices=ExternalDataSource.AccessMethod.choices,
+        required=False,
+        default=ExternalDataSource.AccessMethod.WAREHOUSE,
+        help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
+    )
+
+
+class DatabaseSchemaRequestSerializer(serializers.Serializer):
+    """Validate credentials and preview available tables from a remote database.
+
+    The request body contains source_type plus flat source-specific credential fields
+    (e.g. host, port, database, user, password, schema for Postgres). The credential
+    fields vary per source_type and are validated dynamically by the source registry.
+    """
+
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        help_text="The source type to validate against.",
+    )
+
+
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSource
@@ -725,6 +767,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     search_fields = ["source_id"]
     ordering = "-created_at"
 
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        if self.action == "create":
+            return ExternalDataSourceCreateSerializer
+        if self.action == "database_schema":
+            return DatabaseSchemaRequestSerializer
+        return ExternalDataSourceSerializers
+
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["database"] = Database.create_for(team_id=self.team_id)
@@ -764,11 +813,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .order_by(self.ordering)
         )
 
+    @extend_schema(request=ExternalDataSourceCreateSerializer, responses=ExternalDataSourceSerializers)
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        prefix = request.data.get("prefix", None)
-        description = request.data.get("description", None)
-        source_type = request.data["source_type"]
-        access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        prefix = serializer.validated_data.get("prefix")
+        description = serializer.validated_data.get("description")
+        source_type = serializer.validated_data["source_type"]
+        access_method = serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
         is_direct_postgres = (
             access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
         )
@@ -809,7 +862,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
         # Strip leading and trailing whitespace
-        payload = request.data["payload"]
+        payload = serializer.validated_data["payload"]
         if payload is not None:
             for key, value in payload.items():
                 if isinstance(value, str):
@@ -978,11 +1031,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             is_cdc_schema = sync_type == "cdc"
             if requires_incremental_fields and new_source_model.supports_scheduled_sync:
+                # If the caller didn't provide primary_key_columns, fall back to whatever the
+                # source detected during schema discovery. Otherwise we rely on sync-time
+                # re-detection, which can disagree with discovery (e.g. permissions differences
+                # across query paths) and leave incremental syncs without a primary key.
+                effective_primary_key_columns = primary_key_columns or (
+                    source_schema.detected_primary_keys if source_schema else None
+                )
                 sync_type_config = {
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
-                    **({"primary_key_columns": primary_key_columns} if primary_key_columns else {}),
+                    **({"primary_key_columns": effective_primary_key_columns} if effective_primary_key_columns else {}),
                 }
             elif is_cdc_schema:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
@@ -1373,6 +1433,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             data={"added": len(schemas_created), "deleted": len(schemas_deleted)},
         )
 
+    @extend_schema(request=DatabaseSchemaRequestSerializer)
     @action(methods=["POST"], detail=False)
     def database_schema(self, request: Request, *arg: Any, **kwargs: Any):
         source_type = request.data.get("source_type", None)
@@ -1564,7 +1625,33 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         return Response(status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="after",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="ISO timestamp — only return jobs created after this date.",
+            ),
+            OpenApiParameter(
+                name="before",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="ISO timestamp — only return jobs created before this date.",
+            ),
+            OpenApiParameter(
+                name="schemas",
+                type={"type": "array", "items": {"type": "string"}},
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter jobs by table schema names.",
+            ),
+        ],
+        responses=ExternalDataJobSerializers(many=True),
+    )
     def jobs(self, request: Request, *arg: Any, **kwargs: Any):
         instance: ExternalDataSource = self.get_object()
         after = request.query_params.get("after", None)

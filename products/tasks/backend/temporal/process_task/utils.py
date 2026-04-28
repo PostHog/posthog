@@ -153,6 +153,7 @@ class RunState(BaseModel, extra="allow"):
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
     resume_from_run_id: str | None = None
+    handoff_resumed: bool = False
     snapshot_external_id: str | None = None
     sandbox_id: str | None = None
     sandbox_url: str | None = None
@@ -357,6 +358,9 @@ def get_sandbox_github_token(
 
 
 def format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
+    if not domains:
+        return "no custom domains"
+
     preview = ", ".join(domains[:limit])
     remaining = len(domains) - limit
     if remaining > 0:

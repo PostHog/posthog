@@ -1437,14 +1437,15 @@
         },
         "AssistantEventMultipleBreakdownFilterType": {
             "enum": [
-                "cohort",
                 "person",
                 "event",
                 "event_metadata",
                 "session",
                 "hogql",
-                "data_warehouse_person_property",
-                "revenue_analytics"
+                "cohort",
+                "revenue_analytics",
+                "data_warehouse",
+                "data_warehouse_person_property"
             ],
             "type": "string"
         },
@@ -2848,6 +2849,13 @@
                         "$ref": "#/definitions/AssistantRecordingsQueryPropertyFilter"
                     },
                     "type": "array"
+                },
+                "session_ids": {
+                    "description": "Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["kind"],
@@ -4008,6 +4016,18 @@
                 "first_matching_event_for_user"
             ],
             "type": "string"
+        },
+        "BiasRisk": {
+            "additionalProperties": false,
+            "description": "Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE` handling + observed `$multiple` share above the threshold. Present on the response only when the experiment is currently at risk.",
+            "properties": {
+                "multiple_variant_percentage": {
+                    "description": "Observed share of users assigned to `$multiple`, as a percentage (0-100).",
+                    "type": "number"
+                }
+            },
+            "required": ["multiple_variant_percentage"],
+            "type": "object"
         },
         "BillingSpendResponseBreakdownType": {
             "enum": ["type", "team", "multiple"],
@@ -5440,6 +5460,9 @@
         "CachedExperimentExposureQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "bias_risk": {
+                    "$ref": "#/definitions/BiasRisk"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -12989,10 +13012,6 @@
             "enum": ["data_warehouse", "endpoint", "managed_viewset"],
             "type": "string"
         },
-        "DataWarehouseSyncInterval": {
-            "enum": ["1min", "5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
-            "type": "string"
-        },
         "DataWarehouseViewLink": {
             "additionalProperties": false,
             "properties": {
@@ -14063,8 +14082,9 @@
                     "description": "Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).",
                     "type": "object"
                 },
-                "cache_age_seconds": {
-                    "type": "number"
+                "data_freshness_seconds": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
                 },
                 "deleted": {
                     "description": "Set to true to soft-delete this endpoint",
@@ -14095,10 +14115,6 @@
                             "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
-                },
-                "sync_frequency": {
-                    "$ref": "#/definitions/DataWarehouseSyncInterval",
-                    "description": "How frequently should the underlying materialized view be updated"
                 },
                 "version": {
                     "$ref": "#/definitions/integer",
@@ -15190,6 +15206,64 @@
             "title": "ErrorTrackingOrderBy",
             "type": "string"
         },
+        "ErrorTrackingPendingFingerprintIssueStateUpdate": {
+            "additionalProperties": false,
+            "description": "Client-side pending fingerprint issue state update UNIONed into the argMax subquery to hide Kafka->CH sync lag after mutations. This has to be kept in sync with the CH schema",
+            "properties": {
+                "assigned_role_id": {
+                    "type": ["string", "null"]
+                },
+                "assigned_user_id": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "fingerprint": {
+                    "type": "string"
+                },
+                "first_seen": {
+                    "description": "ISO 8601 datetime string.",
+                    "type": "string"
+                },
+                "is_deleted": {
+                    "$ref": "#/definitions/integer"
+                },
+                "issue_description": {
+                    "type": ["string", "null"]
+                },
+                "issue_id": {
+                    "type": "string"
+                },
+                "issue_name": {
+                    "type": ["string", "null"]
+                },
+                "issue_status": {
+                    "type": "string"
+                },
+                "version": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Client-stamped monotonic version (`Date.now()` ms at mutation success)."
+                }
+            },
+            "required": [
+                "fingerprint",
+                "issue_id",
+                "issue_name",
+                "issue_description",
+                "issue_status",
+                "assigned_user_id",
+                "assigned_role_id",
+                "first_seen",
+                "is_deleted",
+                "version"
+            ],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -15246,6 +15320,13 @@
                     "description": "Sort direction.",
                     "enum": ["ASC", "DESC"],
                     "type": "string"
+                },
+                "pendingFingerprintIssueStateUpdates": {
+                    "description": "Pending fingerprint issue state updates UNIONed into the fingerprint issue state subquery (V3 only). The backend caps the list at 50 entries; extras are dropped silently.",
+                    "items": {
+                        "$ref": "#/definitions/ErrorTrackingPendingFingerprintIssueStateUpdate"
+                    },
+                    "type": "array"
                 },
                 "personId": {
                     "type": "string"
@@ -16608,6 +16689,9 @@
         "ExperimentExposureQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "bias_risk": {
+                    "$ref": "#/definitions/BiasRisk"
+                },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -17576,6 +17660,15 @@
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17619,6 +17712,15 @@
         "ExperimentStatsBaseValidated": {
             "additionalProperties": false,
             "properties": {
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "denominator_sum": {
                     "type": "number"
                 },
@@ -17828,6 +17930,15 @@
                 "chance_to_win": {
                     "type": "number"
                 },
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
+                },
                 "credible_interval": {
                     "items": {
                         "type": "number"
@@ -17899,6 +18010,15 @@
                     "maxItems": 2,
                     "minItems": 2,
                     "type": "array"
+                },
+                "covariate_sum": {
+                    "type": "number"
+                },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
+                "covariate_sum_squares": {
+                    "type": "number"
                 },
                 "denominator_sum": {
                     "type": "number"
@@ -18119,7 +18239,8 @@
                 "BuildBetter",
                 "Convex",
                 "ClickHouse",
-                "Plain"
+                "Plain",
+                "Resend"
             ],
             "type": "string"
         },
@@ -25321,15 +25442,16 @@
         },
         "MultipleBreakdownType": {
             "enum": [
-                "cohort",
                 "person",
                 "event",
                 "event_metadata",
                 "group",
                 "session",
                 "hogql",
-                "data_warehouse_person_property",
-                "revenue_analytics"
+                "cohort",
+                "revenue_analytics",
+                "data_warehouse",
+                "data_warehouse_person_property"
             ],
             "type": "string"
         },
@@ -28075,6 +28197,9 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "bias_risk": {
+                            "$ref": "#/definitions/BiasRisk"
+                        },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
                         },
@@ -35195,11 +35320,15 @@
                 "required": {
                     "type": "boolean"
                 },
+                "secret": {
+                    "description": "Marks this field as containing sensitive data. The value is stripped from API responses regardless of the rendering `type` (so a multi-line PEM blob can use `textarea` and still be redacted). Required: source authors must explicitly classify every field.",
+                    "type": "boolean"
+                },
                 "type": {
                     "$ref": "#/definitions/SourceFieldInputConfigType"
                 }
             },
-            "required": ["type", "name", "label", "required", "placeholder"],
+            "required": ["type", "name", "label", "required", "placeholder", "secret"],
             "type": "object"
         },
         "SourceFieldInputConfigType": {

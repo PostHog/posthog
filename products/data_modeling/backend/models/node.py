@@ -31,7 +31,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     # for nodes with a saved_query, this is automatically synced from saved_query.name
     name = models.TextField(max_length=2048, db_index=True)
     # type of the node (source table, view, or mat view)
-    type = models.TextField(max_length=16, choices=NodeType.choices, default=NodeType.TABLE)
+    type = models.TextField(max_length=16, choices=NodeType, default=NodeType.TABLE)
     description = models.TextField(max_length=1024, default="", blank=True)
     source_control_path = models.TextField(
         blank=True, default="", help_text="File path in the source control repository for synced nodes"
@@ -51,7 +51,7 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         constraints = [
             models.CheckConstraint(
                 name="saved_query_required_on_non_table_node_type",
-                check=Q(type=NodeType.TABLE) | Q(saved_query__isnull=False),
+                condition=Q(type=NodeType.TABLE) | Q(saved_query__isnull=False),
             ),
             models.UniqueConstraint(
                 condition=models.Q(saved_query__isnull=False),

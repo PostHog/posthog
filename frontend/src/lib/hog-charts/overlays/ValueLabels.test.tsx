@@ -1,9 +1,9 @@
 import { cleanup, render } from '@testing-library/react'
 import React from 'react'
 
-import type { BaseChartContext } from '../core/chart-context'
-import { ChartContext } from '../core/chart-context'
-import type { Series } from '../core/types'
+import type { BaseChartContext, ChartLayoutContextValue } from '../core/chart-context'
+import { ChartHoverContext, ChartLayoutContext } from '../core/chart-context'
+import type { ChartTheme, ResolveValueFn, Series } from '../core/types'
 import { ValueLabels } from './ValueLabels'
 
 const DIMENSIONS = {
@@ -22,6 +22,9 @@ const xScale = (label: string): number | undefined => X_POSITIONS[label]
 // Left axis: 0 -> 368, 100 -> 16
 const yScale = (v: number): number => 368 - (v / 100) * 352
 
+const DEFAULT_THEME: ChartTheme = { colors: ['#000'], backgroundColor: '#ffffff' }
+const DEFAULT_RESOLVE: ResolveValueFn = (s, i) => s.data[i] ?? 0
+
 function makeContext(series: Series[], overrides: Partial<BaseChartContext> = {}): BaseChartContext {
     return {
         dimensions: DIMENSIONS,
@@ -32,13 +35,25 @@ function makeContext(series: Series[], overrides: Partial<BaseChartContext> = {}
             y: yScale,
             yTicks: () => [0, 50, 100],
         },
+        theme: DEFAULT_THEME,
+        resolveValue: DEFAULT_RESOLVE,
+        canvasBounds: () => null,
         hoverIndex: -1,
         ...overrides,
     }
 }
 
+function toLayout(ctx: BaseChartContext): ChartLayoutContextValue {
+    const { hoverIndex: _hoverIndex, ...layout } = ctx
+    return layout
+}
+
 function renderInChart(context: BaseChartContext, node: React.ReactNode): ReturnType<typeof render> {
-    return render(<ChartContext.Provider value={context}>{node}</ChartContext.Provider>)
+    return render(
+        <ChartLayoutContext.Provider value={toLayout(context)}>
+            <ChartHoverContext.Provider value={{ hoverIndex: context.hoverIndex }}>{node}</ChartHoverContext.Provider>
+        </ChartLayoutContext.Provider>
+    )
 }
 
 function labelDivs(container: HTMLElement): HTMLDivElement[] {
@@ -67,16 +82,22 @@ describe('ValueLabels', () => {
         expect(divs.map((d) => d.textContent)).toEqual(expected)
     })
 
-    it('skips data points equal to zero', () => {
+    it('renders zero values as legitimate data points', () => {
         const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 0, 30, 0, 50] }]
+        const { container } = renderInChart(makeContext(series), <ValueLabels />)
+        expect(labelDivs(container).map((d) => d.textContent)).toEqual(['10', '0', '30', '0', '50'])
+    })
+
+    it('skips non-finite values (NaN, Infinity)', () => {
+        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [10, NaN, 30, Infinity, 50] }]
         const { container } = renderInChart(makeContext(series), <ValueLabels />)
         expect(labelDivs(container).map((d) => d.textContent)).toEqual(['10', '30', '50'])
     })
 
-    it('skips series where hidden is true', () => {
+    it('skips series where visibility.excluded is true', () => {
         const series: Series[] = [
             { key: 'a', label: 'A', color: '#f00', data: [10, 20, 30, 40, 50] },
-            { key: 'b', label: 'B', color: '#0f0', data: [60, 70, 80, 90, 100], hidden: true },
+            { key: 'b', label: 'B', color: '#0f0', data: [60, 70, 80, 90, 100], visibility: { excluded: true } },
         ]
         const { container } = renderInChart(makeContext(series), <ValueLabels />)
         const divs = labelDivs(container)
@@ -195,9 +216,35 @@ describe('ValueLabels', () => {
     })
 
     it('renders null when nothing survives filtering', () => {
-        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [0, 0, 0] }]
+        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [NaN, NaN, NaN] }]
         const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
         const { container } = renderInChart(ctx, <ValueLabels />)
         expect(labelDivs(container)).toHaveLength(0)
+    })
+
+    it('positions labels at the resolved (e.g. stacked) y, not the raw series.data y', () => {
+        // Raw value 25 sits at y=278 on the left axis; stacking lifts it to top-of-stack=75 → y=104.
+        // The resolveValue closure mimics what LineChart provides for stacked series.
+        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [25] }]
+        const stackedTops: Record<string, number[]> = { s: [75] }
+        const resolveValue: ResolveValueFn = (s, i) => stackedTops[s.key]?.[i] ?? s.data[i] ?? 0
+        const ctx = makeContext(series, { labels: ['Mon'], resolveValue })
+        const { container } = renderInChart(ctx, <ValueLabels />)
+        const divs = labelDivs(container)
+        expect(divs).toHaveLength(1)
+        // Label text comes from the raw value (25), but position uses the resolved 75.
+        expect(divs[0].textContent).toBe('25')
+        // yScale(75) = 368 - (75/100)*352 = 104
+        expect(divs[0].style.top).toBe('104px')
+    })
+
+    it('uses theme.backgroundColor for the label border (dark-mode safe)', () => {
+        const series: Series[] = [{ key: 's', label: 'S', color: '#f00', data: [50] }]
+        const darkTheme: ChartTheme = { colors: ['#f00'], backgroundColor: '#222222' }
+        const ctx = makeContext(series, { labels: ['Mon'], theme: darkTheme })
+        const { container } = renderInChart(ctx, <ValueLabels />)
+        const divs = labelDivs(container)
+        expect(divs).toHaveLength(1)
+        expect(divs[0].style.borderColor).toBe('#222222')
     })
 })

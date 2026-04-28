@@ -4,10 +4,11 @@ import time
 import base64
 import socket
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast
-from urllib.parse import urlencode
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Optional, cast
+from urllib.parse import urlencode, urlparse
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
@@ -27,7 +28,7 @@ from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 from requests.auth import HTTPBasicAuth
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -78,6 +79,34 @@ oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
 )
 
+github_api_request_counter = Counter(
+    "github_integration_api_requests",
+    "Number of GitHub API requests made through a GitHub integration.",
+    labelnames=["integration_id", "method", "endpoint", "status_code"],
+)
+
+GITHUB_API_VERSION = "2022-11-28"
+github_api_rate_limit_remaining_gauge = Gauge(
+    "github_integration_api_rate_limit_remaining",
+    "Most recently observed GitHub API rate limit remaining count by integration and resource.",
+    labelnames=["integration_id", "resource"],
+)
+github_api_rate_limit_limit_gauge = Gauge(
+    "github_integration_api_rate_limit_limit",
+    "Most recently observed GitHub API rate limit limit by integration and resource.",
+    labelnames=["integration_id", "resource"],
+)
+github_api_rate_limit_reset_timestamp_gauge = Gauge(
+    "github_integration_api_rate_limit_reset_timestamp_seconds",
+    "Most recently observed GitHub API rate limit reset timestamp by integration and resource.",
+    labelnames=["integration_id", "resource"],
+)
+github_cache_access_counter = Counter(
+    "github_integration_cache_accesses",
+    "Number of GitHub integration cache accesses by cache type, repository, and result.",
+    labelnames=["integration_id", "cache", "repository", "result"],
+)
+
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
 
@@ -96,43 +125,44 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
-        SLACK = "slack"
-        SLACK_POSTHOG_CODE = "slack-posthog-code"
-        SALESFORCE = "salesforce"
-        HUBSPOT = "hubspot"
-        GOOGLE_PUBSUB = "google-pubsub"
-        GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
-        GOOGLE_ADS = "google-ads"
-        GOOGLE_SHEETS = "google-sheets"
-        GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
-        SNAPCHAT = "snapchat"
-        LINKEDIN_ADS = "linkedin-ads"
-        REDDIT_ADS = "reddit-ads"
-        TIKTOK_ADS = "tiktok-ads"
+        AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
-        INTERCOM = "intercom"
+        CLICKUP = "clickup"
+        CUSTOMERIO_APP = "customerio-app"
+        CUSTOMERIO_TRACK = "customerio-track"
+        CUSTOMERIO_WEBHOOK = "customerio-webhook"
+        DATABRICKS = "databricks"
         EMAIL = "email"
-        LINEAR = "linear"
+        FIREBASE = "firebase"
         GITHUB = "github"
         GITLAB = "gitlab"
-        META_ADS = "meta-ads"
-        TWILIO = "twilio"
-        CLICKUP = "clickup"
-        VERCEL = "vercel"
-        DATABRICKS = "databricks"
-        AZURE_BLOB = "azure-blob"
-        FIREBASE = "firebase"
+        GOOGLE_ADS = "google-ads"
+        GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
+        GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
+        GOOGLE_PUBSUB = "google-pubsub"
+        GOOGLE_SHEETS = "google-sheets"
+        HUBSPOT = "hubspot"
+        INTERCOM = "intercom"
         JIRA = "jira"
+        LINEAR = "linear"
+        LINKEDIN_ADS = "linkedin-ads"
+        META_ADS = "meta-ads"
         PINTEREST_ADS = "pinterest-ads"
+        POSTGRESQL = "postgresql"
+        REDDIT_ADS = "reddit-ads"
+        SALESFORCE = "salesforce"
+        SLACK = "slack"
+        SLACK_POSTHOG_CODE = "slack-posthog-code"
+        SNAPCHAT = "snapchat"
         STRIPE = "stripe"
-        CUSTOMERIO_APP = "customerio-app"
-        CUSTOMERIO_WEBHOOK = "customerio-webhook"
-        CUSTOMERIO_TRACK = "customerio-track"
+        TIKTOK_ADS = "tiktok-ads"
+        TWILIO = "twilio"
+        VERCEL = "vercel"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # The integration type identifier
-    kind = field_access_control(models.CharField(max_length=32, choices=IntegrationKind.choices), "project", "admin")
+    kind = field_access_control(models.CharField(max_length=32, choices=IntegrationKind), "project", "admin")
     # The ID of the integration in the external system
     integration_id = field_access_control(models.TextField(null=True, blank=True), "project", "admin")
     # Any config that COULD be passed to the frontend
@@ -560,7 +590,7 @@ class OauthIntegration:
             )
             return OauthConfig(
                 authorize_url=authorize_url,
-                token_url="https://connect.stripe.com/oauth/token",
+                token_url="https://api.stripe.com/v1/oauth/token",
                 client_id=settings.STRIPE_APP_CLIENT_ID,
                 client_secret=settings.STRIPE_APP_SECRET_KEY,
                 scope="",
@@ -648,14 +678,27 @@ class OauthIntegration:
                 },
                 headers={"Content-Type": "application/json"},
             )
+        elif kind == "stripe":
+            # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
+            # username and does not accept client_id/redirect_uri in the token-exchange body.
+            # Connect OAuth (client_id+client_secret in body) is a different system.
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
+                data={
+                    "code": params["code"],
+                    "grant_type": "authorization_code",
+                },
+            )
         else:
+            redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
                 oauth_config.token_url,
                 data={
                     "client_id": oauth_config.client_id,
                     "client_secret": oauth_config.client_secret,
                     "code": params["code"],
-                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "redirect_uri": redirect_uri,
                     "grant_type": "authorization_code",
                 },
             )
@@ -690,7 +733,17 @@ class OauthIntegration:
                     logger.error(f"Oauth error for {kind}", response=res.text)
                     raise Exception(f"Oauth error for {kind}. Status code = {res.status_code}")
             else:
-                logger.error(f"Oauth error for {kind}", response=res.text)
+                # Include request context so on-call can compare what we sent against what
+                # the merchant authorized with in Stripe. Code prefix only, full grant is
+                # short-lived but still a credential during its TTL. Never log client_secret.
+                logger.error(
+                    f"Oauth error for {kind}",
+                    response=res.text,
+                    status_code=res.status_code,
+                    client_id=oauth_config.client_id,
+                    redirect_uri=OauthIntegration.redirect_uri(kind),
+                    code_prefix=str(params.get("code", ""))[:12],
+                )
                 raise Exception(f"Oauth error. Status code = {res.status_code}")
 
         if oauth_config.token_info_url:
@@ -925,6 +978,16 @@ class OauthIntegration:
                     "refresh_token": self.integration.sensitive_config["refresh_token"],
                     "grant_type": "refresh_token",
                     "scope": oauth_config.scope,
+                },
+            )
+        elif self.integration.kind == "stripe":
+            # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
+                data={
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
                 },
             )
         else:
@@ -2038,6 +2101,56 @@ class GitHubIntegrationError(Exception):
     pass
 
 
+class GitHubRateLimitError(GitHubIntegrationError):
+    """GitHub API rate limit exhausted for this installation."""
+
+    def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
+        super().__init__(message)
+        self.reset_at = reset_at
+        self.retry_after = retry_after
+
+
+def raise_if_github_rate_limited(response: requests.Response) -> None:
+    """Raise GitHubRateLimitError when the response signals a GitHub rate limit.
+
+    Handles both primary (403 + body) and secondary (429) rate limit formats.
+    Safe to call unconditionally after every GitHub API response.
+    """
+    if response.status_code == 429:
+        is_rate_limited = True
+    elif response.status_code == 403:
+        try:
+            body = response.text
+        except Exception:
+            body = ""
+        is_rate_limited = "rate limit" in body.lower()
+    else:
+        return
+
+    if not is_rate_limited:
+        return
+
+    def _int_header(name: str) -> int | None:
+        val = response.headers.get(name)
+        if not val:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    reset_at = _int_header("x-ratelimit-reset")
+    retry_after = _int_header("retry-after")
+    if retry_after is None and reset_at is not None:
+        retry_after = max(1, reset_at - int(time.time()))
+
+    raise GitHubRateLimitError(
+        f"GitHub API rate limit exceeded (resets at {reset_at})",
+        reset_at=reset_at,
+        retry_after=retry_after,
+    )
+
+
 class GitHubIntegration:
     integration: Integration
 
@@ -2076,7 +2189,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {jwt_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -2164,7 +2277,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=10,
             )
@@ -2205,6 +2318,93 @@ class GitHubIntegration:
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
+    @staticmethod
+    def _rate_limit_header(headers: Mapping[str, str] | None, name: str) -> float | None:
+        if headers is None:
+            return None
+        value = headers.get(name)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _record_github_api_response(self, response: requests.Response, method: str, endpoint: str) -> None:
+        integration_id = str(self.integration.id)
+        status_code = str(response.status_code)
+        github_api_request_counter.labels(integration_id, method, endpoint, status_code).inc()
+
+        headers = response.headers if isinstance(response.headers, Mapping) else None
+        resource = headers.get("X-RateLimit-Resource", "unknown") if headers is not None else "unknown"
+        remaining = self._rate_limit_header(headers, "X-RateLimit-Remaining")
+        limit = self._rate_limit_header(headers, "X-RateLimit-Limit")
+        reset_at = self._rate_limit_header(headers, "X-RateLimit-Reset")
+
+        if remaining is not None:
+            github_api_rate_limit_remaining_gauge.labels(integration_id, resource).set(remaining)
+        if limit is not None:
+            github_api_rate_limit_limit_gauge.labels(integration_id, resource).set(limit)
+        if reset_at is not None:
+            github_api_rate_limit_reset_timestamp_gauge.labels(integration_id, resource).set(reset_at)
+
+    def _record_github_api_exception(self, method: str, endpoint: str) -> None:
+        github_api_request_counter.labels(str(self.integration.id), method, endpoint, "exception").inc()
+
+    def _record_github_cache_access(
+        self, cache_type: Literal["repositories", "branches"], result: Literal["hit", "miss"], repository: str
+    ) -> None:
+        github_cache_access_counter.labels(str(self.integration.id), cache_type, repository.casefold(), result).inc()
+
+    def _github_api_get(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        headers: dict[str, str],
+        params: dict[str, str | int] | None = None,
+        timeout: int | None = None,
+    ) -> requests.Response:
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=timeout)
+        except requests.RequestException:
+            self._record_github_api_exception("GET", endpoint)
+            raise
+        self._record_github_api_response(response, "GET", endpoint)
+        return response
+
+    def _github_api_post(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        headers: dict[str, str],
+        json_body: Mapping[str, object] | None = None,
+    ) -> requests.Response:
+        try:
+            response = requests.post(url, json=json_body, headers=headers)
+        except requests.RequestException:
+            self._record_github_api_exception("POST", endpoint)
+            raise
+        self._record_github_api_response(response, "POST", endpoint)
+        return response
+
+    def _github_api_put(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        headers: dict[str, str],
+        json_body: Mapping[str, object],
+    ) -> requests.Response:
+        try:
+            response = requests.put(url, json=json_body, headers=headers)
+        except requests.RequestException:
+            self._record_github_api_exception("PUT", endpoint)
+            raise
+        self._record_github_api_response(response, "PUT", endpoint)
+        return response
+
     def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
         expires_in = self.integration.config.get("expires_in")
         refreshed_at = self.integration.config.get("refreshed_at")
@@ -2220,7 +2420,15 @@ class GitHubIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        response = self.client_request(f"installations/{self.integration.integration_id}/access_tokens", method="POST")
+        endpoint = "/app/installations/{installation_id}/access_tokens"
+        try:
+            response = self.client_request(
+                f"installations/{self.integration.integration_id}/access_tokens", method="POST"
+            )
+        except requests.RequestException:
+            self._record_github_api_exception("POST", endpoint)
+            raise
+        self._record_github_api_response(response, "POST", endpoint)
         config = response.json()
 
         if response.status_code != status.HTTP_201_CREATED or not config.get("token"):
@@ -2240,10 +2448,21 @@ class GitHubIntegration:
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
             self.integration.save()
 
+    def get_access_token(self) -> str:
+        """Return a valid installation access token, refreshing it if expired."""
+        if self.access_token_expired():
+            self.refresh_access_token()
+        token = self.integration.sensitive_config.get("access_token")
+        if not token:
+            raise GitHubIntegrationError("Access token unavailable after refresh")
+        return token
+
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
-    def _installation_authenticated_get(self, url: str, *, timeout: int = 10) -> requests.Response | None:
+    def _installation_authenticated_get(
+        self, url: str, *, endpoint: str, timeout: int = 10
+    ) -> requests.Response | None:
         """GET with installation token; refreshes on expiry or 401."""
         try:
             if self.access_token_expired():
@@ -2253,12 +2472,13 @@ class GitHubIntegration:
 
         def fetch() -> requests.Response:
             access_token = self.integration.sensitive_config.get("access_token")
-            return requests.get(
+            return self._github_api_get(
                 url,
+                endpoint=endpoint,
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=timeout,
             )
@@ -2279,14 +2499,18 @@ class GitHubIntegration:
 
     def installation_can_access_repository(self, repository: str) -> bool:
         """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
-        response = self._installation_authenticated_get(f"https://api.github.com/repos/{repository}")
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repository}", endpoint="/repos/{owner}/{repo}"
+        )
         if response is None:
             return False
         return response.status_code == 200
 
     def get_commit_author_info(self, repository: str, sha: str) -> GitHubCommitAuthor | None:
         """Resolve a commit SHA to author metadata via the GitHub API."""
-        response = self._installation_authenticated_get(f"https://api.github.com/repos/{repository}/commits/{sha}")
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repository}/commits/{sha}", endpoint="/repos/{owner}/{repo}/commits/{sha}"
+        )
         if response is None:
             return None
         if response.status_code != 200:
@@ -2333,12 +2557,13 @@ class GitHubIntegration:
 
         def fetch(page: int) -> requests.Response:
             access_token = self.integration.sensitive_config.get("access_token")
-            return requests.get(
+            return self._github_api_get(
                 f"https://api.github.com/installation/repositories?page={page}&per_page={GITHUB_PER_PAGE}",
+                endpoint="/installation/repositories",
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
 
@@ -2562,6 +2787,7 @@ class GitHubIntegration:
         has_cached_snapshot = updated_at is not None
         cache_is_stale = self.repository_cache_is_stale()
         should_refresh = cached_repositories is None or cache_is_stale
+        self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:
             try:
@@ -2589,6 +2815,7 @@ class GitHubIntegration:
         has_cached_snapshot = updated_at is not None
         cache_is_stale = self.repository_cache_is_stale()
         should_refresh = cached_repositories is None or cache_is_stale
+        self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
 
         if should_refresh:
             try:
@@ -2704,6 +2931,7 @@ class GitHubIntegration:
     ) -> tuple[list[str], str | None, bool]:
         cached = self._get_branch_cache(repo)
         should_refresh = cached is None or self.branch_cache_is_stale(repo)
+        self._record_github_cache_access("branches", "miss" if should_refresh else "hit", repo)
 
         if should_refresh:
             try:
@@ -2748,12 +2976,13 @@ class GitHubIntegration:
 
         def fetch(page: int = 1) -> requests.Response:
             access_token = self.integration.sensitive_config.get("access_token")
-            return requests.get(
+            return self._github_api_get(
                 f"https://api.github.com/installation/repositories?page={page}&per_page=100",
+                endpoint="/installation/repositories",
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
 
@@ -2808,12 +3037,13 @@ class GitHubIntegration:
 
         def fetch(page: int) -> requests.Response:
             access_token = self.integration.sensitive_config.get("access_token")
-            return requests.get(
+            return self._github_api_get(
                 f"https://api.github.com/repos/{repo}/branches?per_page={GITHUB_PER_PAGE}&page={page}",
+                endpoint="/repos/{owner}/{repo}/branches",
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=10,
             )
@@ -2908,13 +3138,14 @@ class GitHubIntegration:
         org = self.organization()
         access_token = self.integration.sensitive_config["access_token"]
 
-        response = requests.post(
+        response = self._github_api_post(
             f"https://api.github.com/repos/{org}/{repository}/issues",
-            json={"title": title, "body": body},
+            endpoint="/repos/{owner}/{repo}/issues",
+            json_body={"title": title, "body": body},
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -2935,12 +3166,13 @@ class GitHubIntegration:
         if not access_token:
             raise ValueError("GitHub access token not configured")
 
-        response = requests.get(
+        response = self._github_api_get(
             f"https://api.github.com/repos/{repo_path}",
+            endpoint="/repos/{owner}/{repo}",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
             timeout=10,
         )
@@ -2963,12 +3195,13 @@ class GitHubIntegration:
             base_branch = self.get_default_branch(repository)
 
         # Get the SHA of the base branch
-        ref_response = requests.get(
+        ref_response = self._github_api_get(
             f"https://api.github.com/repos/{org}/{repository}/git/ref/heads/{base_branch}",
+            endpoint="/repos/{owner}/{repo}/git/ref/heads/{branch}",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -2981,16 +3214,17 @@ class GitHubIntegration:
         base_sha = ref_response.json()["object"]["sha"]
 
         # Create the new branch
-        response = requests.post(
+        response = self._github_api_post(
             f"https://api.github.com/repos/{org}/{repository}/git/refs",
-            json={
+            endpoint="/repos/{owner}/{repo}/git/refs",
+            json_body={
                 "ref": f"refs/heads/{branch_name}",
                 "sha": base_sha,
             },
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3018,13 +3252,14 @@ class GitHubIntegration:
 
         # If no SHA provided, try to get existing file's SHA
         if not sha:
-            get_response = requests.get(
+            get_response = self._github_api_get(
                 f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
+                endpoint="/repos/{owner}/{repo}/contents/{path}",
                 params={"ref": branch},
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
             if get_response.status_code == 200:
@@ -3041,13 +3276,14 @@ class GitHubIntegration:
         if sha:
             data["sha"] = sha
 
-        response = requests.put(
+        response = self._github_api_put(
             f"https://api.github.com/repos/{org}/{repository}/contents/{file_path}",
-            json=data,
+            endpoint="/repos/{owner}/{repo}/contents/{path}",
+            json_body=data,
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3076,9 +3312,10 @@ class GitHubIntegration:
         if not base_branch:
             base_branch = self.get_default_branch(repository)
 
-        response = requests.post(
+        response = self._github_api_post(
             f"https://api.github.com/repos/{org}/{repository}/pulls",
-            json={
+            endpoint="/repos/{owner}/{repo}/pulls",
+            json_body={
                 "title": title,
                 "body": body,
                 "head": head_branch,
@@ -3087,7 +3324,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3112,12 +3349,13 @@ class GitHubIntegration:
         org = self.organization()
         access_token = self.integration.sensitive_config["access_token"]
 
-        response = requests.get(
+        response = self._github_api_get(
             f"https://api.github.com/repos/{org}/{repository}/branches/{branch_name}",
+            endpoint="/repos/{owner}/{repo}/branches/{branch}",
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3149,13 +3387,14 @@ class GitHubIntegration:
         access_token = self.integration.sensitive_config["access_token"]
 
         params: dict[str, str | int] = {"state": state, "per_page": 100}
-        response = requests.get(
+        response = self._github_api_get(
             f"https://api.github.com/repos/{org}/{repository}/pulls",
+            endpoint="/repos/{owner}/{repo}/pulls",
             params=params,
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3183,6 +3422,94 @@ class GitHubIntegration:
                 "error": f"Failed to list pull requests: {response.text}",
                 "status_code": response.status_code,
             }
+
+    @staticmethod
+    def parse_pull_request_url(pr_url: str) -> tuple[str, str, int] | None:
+        """Parse a GitHub pull request URL into ``(owner, repo, pr_number)``.
+
+        Returns ``None`` if the URL does not look like a GitHub PR URL.
+        """
+        try:
+            parsed = urlparse(pr_url)
+        except Exception:
+            return None
+        if parsed.netloc not in {"github.com", "www.github.com"}:
+            return None
+        parts = [p for p in parsed.path.split("/") if p]
+        # Expected path: /{owner}/{repo}/pull/{number}[/...]
+        if len(parts) < 4 or parts[2] != "pull":
+            return None
+        owner, repo, _, pr_number_str = parts[:4]
+        try:
+            pr_number = int(pr_number_str)
+        except ValueError:
+            return None
+        return owner, repo, pr_number
+
+    def get_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
+        """Fetch a pull request by repository (``owner/repo`` or just ``repo``) and PR number."""
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+        )
+        if response is None:
+            return {"success": False, "error": "Network error fetching pull request"}
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "error": f"Failed to fetch pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        try:
+            pr = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: get_pull_request non-JSON response",
+                repository=repo_path,
+                pr_number=pr_number,
+            )
+            return {"success": False, "error": "Failed to parse pull request JSON"}
+
+        head = pr.get("head") or {}
+        base = pr.get("base") or {}
+        user = pr.get("user") or {}
+
+        return {
+            "success": True,
+            "number": pr.get("number"),
+            "title": pr.get("title"),
+            "body": pr.get("body"),
+            "url": pr.get("html_url"),
+            "state": pr.get("state"),
+            "merged": pr.get("merged", False),
+            "draft": pr.get("draft", False),
+            "head_branch": head.get("ref"),
+            "base_branch": base.get("ref"),
+            "head_sha": head.get("sha"),
+            "base_sha": base.get("sha"),
+            "repository": repo_path,
+            "author": user.get("login"),
+            "created_at": pr.get("created_at"),
+            "updated_at": pr.get("updated_at"),
+            "merged_at": pr.get("merged_at"),
+            "closed_at": pr.get("closed_at"),
+            "comments": pr.get("comments", 0),
+            "review_comments": pr.get("review_comments", 0),
+            "commits": pr.get("commits", 0),
+            "additions": pr.get("additions", 0),
+            "deletions": pr.get("deletions", 0),
+            "changed_files": pr.get("changed_files", 0),
+        }
+
+    def get_pull_request_from_url(self, pr_url: str) -> dict[str, Any]:
+        """Fetch a pull request by its HTML URL (e.g. ``https://github.com/owner/repo/pull/123``)."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        owner, repo, pr_number = parsed
+        return self.get_pull_request(f"{owner}/{repo}", pr_number)
 
 
 class GitLabIntegrationError(Exception):
@@ -3694,3 +4021,104 @@ class StripeIntegration:
             return OAuthApplication.objects.filter(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID).first()
 
         return None
+
+
+class Credentials(NamedTuple):
+    """PostgreSQL credentials."""
+
+    user: str
+    password: str
+
+
+class Authority(NamedTuple):
+    """PostgreSQL authority parameters."""
+
+    host: str
+    port: int
+
+
+MISSING_CERT_PATH = "/tmp/posthog/batch-exports/MISSING.crt"
+
+
+class TLS(NamedTuple):
+    """PostgreSQL TLS parameters.
+
+    NOTE: If a root CA file exists in the default '~/.postgresql/root.crt' path libpq
+    treats `sslmode='require'` as `sslmode='verify-ca'`.
+
+    **This is not what we want**
+
+    If a user has not provided a root certificate (by setting `ssl_root_cert` to the
+    cert's contents) or asked to use the system store explicitly (by setting
+    `ssl_root_cert='system'`, in version >=16), then whatever is present in the default
+    path should not be used.
+
+    This could be a problem if, for example, another application or library or
+    dependency bundled in the same container ships with a default cert.
+
+    For this reason we require `ssl_root_cert` to not be `None` (as that would translate
+    to the default path), and it defaults to an application-scoped path under `/tmp/`.
+    """
+
+    ssl_mode: Literal["prefer", "require", "verify-ca", "verify-full"]
+    ssl_root_cert: str | Literal["system"] = MISSING_CERT_PATH
+
+
+class PostgreSQLIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        self.integration = integration
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        host: str,
+        port: int,
+        user: str,
+        password: str,
+        ssl_mode: Literal["prefer", "require", "verify-ca", "verify-full"] = "require",
+        ssl_root_cert: str | Literal["system"] | None = None,
+        created_by: User | None = None,
+    ) -> Integration:
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.POSTGRESQL,
+            integration_id=f"{team_id}-{host}-{port}-{user}",
+            defaults={
+                "config": {
+                    "host": host,
+                    "port": port,
+                    "user": user,
+                    "ssl_mode": ssl_mode,
+                    "ssl_root_cert": ssl_root_cert,
+                },
+                "sensitive_config": {
+                    "password": password,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    def authority(self) -> Authority:
+        return Authority(self.integration.config["host"], self.integration.config["port"])
+
+    def credentials(self) -> Credentials:
+        return Credentials(self.integration.config["user"], self.integration.sensitive_config["password"])
+
+    def tls(self) -> TLS:
+        if (ssl_root_cert := self.integration.config.get("ssl_root_cert", None)) is not None:
+            return TLS(
+                ssl_mode=self.integration.config["ssl_mode"],
+                ssl_root_cert=ssl_root_cert,
+            )
+        else:
+            # Preserve the default ssl_root_cert if one was not provided
+            return TLS(ssl_mode=self.integration.config["ssl_mode"])

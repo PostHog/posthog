@@ -87,9 +87,9 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
                 ),
             model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.uuid().nullish(),
@@ -157,9 +157,9 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
                 ),
             model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.uuid().nullish(),
@@ -229,9 +229,9 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
                 ),
             model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.uuid().nullish(),
@@ -712,47 +712,71 @@ export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
 
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
+export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20
+
 export const llmAnalyticsProviderKeysCreateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
+        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
+    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    api_version: zod
+        .string()
+        .max(llmAnalyticsProviderKeysCreateBodyApiVersionMax)
+        .optional()
+        .describe('Azure OpenAI API version'),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysCreateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysUpdateBodyNameMax = 255
 
+export const llmAnalyticsProviderKeysUpdateBodyApiVersionMax = 20
+
 export const llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
+        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
+    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    api_version: zod
+        .string()
+        .max(llmAnalyticsProviderKeysUpdateBodyApiVersionMax)
+        .optional()
+        .describe('Azure OpenAI API version'),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysPartialUpdateBodyNameMax = 255
 
+export const llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax = 20
+
 export const llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
+        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
         .optional()
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
+    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    api_version: zod
+        .string()
+        .max(llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax)
+        .optional()
+        .describe('Azure OpenAI API version'),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault),
 })
 
@@ -761,31 +785,47 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
  */
 export const llmAnalyticsProviderKeysAssignCreateBodyNameMax = 255
 
+export const llmAnalyticsProviderKeysAssignCreateBodyApiVersionMax = 20
+
 export const llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysAssignCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
+        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysAssignCreateBodyNameMax),
     api_key: zod.string().optional(),
+    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    api_version: zod
+        .string()
+        .max(llmAnalyticsProviderKeysAssignCreateBodyApiVersionMax)
+        .optional()
+        .describe('Azure OpenAI API version'),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysAssignCreateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysValidateCreateBodyNameMax = 255
 
+export const llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax = 20
+
 export const llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault = false
 
 export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks'])
+        .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
         .describe(
-            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks'
+            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),
+    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    api_version: zod
+        .string()
+        .max(llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax)
+        .optional()
+        .describe('Azure OpenAI API version'),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault),
 })
 
@@ -1259,6 +1299,23 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .describe(
             'Optional review queue ID for queue-context saves. When provided, the matching pending queue item is cleared after the review is saved. If omitted, any pending queue item for the same trace is cleared.'
         ),
+})
+
+/**
+ * Translate text to target language.
+ */
+export const llmAnalyticsTranslateCreateBodyTextMax = 10000
+
+export const llmAnalyticsTranslateCreateBodyTargetLanguageDefault = `en`
+export const llmAnalyticsTranslateCreateBodyTargetLanguageMax = 10
+
+export const LlmAnalyticsTranslateCreateBody = /* @__PURE__ */ zod.object({
+    text: zod.string().max(llmAnalyticsTranslateCreateBodyTextMax).describe('The text to translate'),
+    target_language: zod
+        .string()
+        .max(llmAnalyticsTranslateCreateBodyTargetLanguageMax)
+        .default(llmAnalyticsTranslateCreateBodyTargetLanguageDefault)
+        .describe("Target language code (default: 'en' for English)"),
 })
 
 export const llmPromptsCreateBodyNameMax = 255

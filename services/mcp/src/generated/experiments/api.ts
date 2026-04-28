@@ -3570,6 +3570,19 @@ export const ExperimentsTimeseriesResultsRetrieveParams = /* @__PURE__ */ zod.ob
         ),
 })
 
+export const ExperimentsTimeseriesResultsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    fingerprint: zod
+        .string()
+        .describe(
+            "Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array."
+        ),
+    metric_uuid: zod
+        .string()
+        .describe(
+            "UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array."
+        ),
+})
+
 /**
  * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
 

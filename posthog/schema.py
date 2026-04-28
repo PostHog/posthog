@@ -278,14 +278,15 @@ class OrderDirection(StrEnum):
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
-    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    COHORT = "cohort"
     REVENUE_ANALYTICS = "revenue_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
 class AssistantEventType(StrEnum):
@@ -831,6 +832,16 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
+class BiasRisk(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    multiple_variant_percentage: float = Field(
+        ...,
+        description=("Observed share of users assigned to `$multiple`, as a percentage (0-100)."),
+    )
+
+
 class BillingSpendResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
@@ -1303,19 +1314,6 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     ENDPOINT = "endpoint"
     MANAGED_VIEWSET = "managed_viewset"
-
-
-class DataWarehouseSyncInterval(StrEnum):
-    FIELD_1MIN = "1min"
-    FIELD_5MIN = "5min"
-    FIELD_15MIN = "15min"
-    FIELD_30MIN = "30min"
-    FIELD_1HOUR = "1hour"
-    FIELD_6HOUR = "6hour"
-    FIELD_12HOUR = "12hour"
-    FIELD_24HOUR = "24hour"
-    FIELD_7DAY = "7day"
-    FIELD_30DAY = "30day"
 
 
 class DatabaseSchemaManagedViewTableKind(StrEnum):
@@ -2124,6 +2122,7 @@ class ExternalDataSourceType(StrEnum):
     CONVEX = "Convex"
     CLICK_HOUSE = "ClickHouse"
     PLAIN = "Plain"
+    RESEND = "Resend"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3370,15 +3369,16 @@ class MultiQuestionFormQuestionType(StrEnum):
 
 
 class MultipleBreakdownType(StrEnum):
-    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    COHORT = "cohort"
     REVENUE_ANALYTICS = "revenue_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
 class NativeMarketingSource(StrEnum):
@@ -6549,6 +6549,25 @@ class ErrorTrackingIssueFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    assigned_role_id: str | None = None
+    assigned_user_id: int | None = None
+    fingerprint: str
+    first_seen: str = Field(..., description="ISO 8601 datetime string.")
+    is_deleted: int
+    issue_description: str | None = None
+    issue_id: str
+    issue_name: str | None = None
+    issue_status: str
+    version: int = Field(
+        ...,
+        description=("Client-stamped monotonic version (`Date.now()` ms at mutation success)."),
+    )
+
+
 class EventMetadataPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6699,6 +6718,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -6753,6 +6773,9 @@ class ExperimentStatsBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
@@ -6768,6 +6791,9 @@ class ExperimentStatsBaseValidated(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
@@ -6785,6 +6811,9 @@ class ExperimentVariantResultBayesian(BaseModel):
         extra="forbid",
     )
     chance_to_win: float | None = None
+    covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
+    covariate_sum_squares: float | None = None
     credible_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
@@ -6805,6 +6834,9 @@ class ExperimentVariantResultFrequentist(BaseModel):
         extra="forbid",
     )
     confidence_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
+    covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
+    covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
@@ -7485,6 +7517,7 @@ class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -8192,6 +8225,15 @@ class SourceFieldInputConfig(BaseModel):
     name: str
     placeholder: str
     required: bool
+    secret: bool = Field(
+        ...,
+        description=(
+            "Marks this field as containing sensitive data. The value is stripped from"
+            " API responses regardless of the rendering `type` (so a multi-line PEM"
+            " blob can use `textarea` and still be redacted). Required: source authors"
+            " must explicitly classify every field."
+        ),
+    )
     type: SourceFieldInputConfigType
 
 
@@ -9595,6 +9637,14 @@ class AssistantRecordingsQuery(BaseModel):
             ' "in" }`.'
         ),
     )
+    session_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "Filter to specific session recording IDs. Use this when you have known"
+            " session IDs (e.g., from $session_id on events) to fetch multiple"
+            " recordings in a single call."
+        ),
+    )
 
 
 class AssistantRetentionFilter(BaseModel):
@@ -10614,6 +10664,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -20059,6 +20110,14 @@ class ErrorTrackingQuery(BaseModel):
     offset: int | None = None
     orderBy: ErrorTrackingOrderBy = Field(..., description="Field to sort results by.")
     orderDirection: OrderDirection2 | None = Field(default=None, description="Sort direction.")
+    pendingFingerprintIssueStateUpdates: list[ErrorTrackingPendingFingerprintIssueStateUpdate] | None = Field(
+        default=None,
+        description=(
+            "Pending fingerprint issue state updates UNIONed into the fingerprint issue"
+            " state subquery (V3 only). The backend caps the list at 50 entries; extras"
+            " are dropped silently."
+        ),
+    )
     personId: str | None = None
     response: ErrorTrackingQueryResponse | None = None
     searchQuery: str | None = Field(
@@ -21100,7 +21159,12 @@ class EndpointRequest(BaseModel):
             " Keys are column names, values are bucket keys (hour, day, week, month)."
         ),
     )
-    cache_age_seconds: float | None = None
+    data_freshness_seconds: int | None = Field(
+        default=None,
+        description=(
+            "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
+        ),
+    )
     deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
     derived_from_insight: str | None = None
     description: str | None = None
@@ -21112,10 +21176,6 @@ class EndpointRequest(BaseModel):
     name: str | None = None
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
-    )
-    sync_frequency: DataWarehouseSyncInterval | None = Field(
-        default=None,
-        description="How frequently should the underlying materialized view be updated",
     )
     version: int | None = Field(
         default=None,
