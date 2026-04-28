@@ -18,6 +18,7 @@ import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
+import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { inStorybookTestRunner } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -53,22 +54,6 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     enableVimMode?: boolean
 }
 let codeEditorIndex = 0
-
-let sharedMonacoOverflowRootEl: HTMLDivElement | null = null
-
-function sharedMonacoOverflowRoot(): HTMLDivElement | undefined {
-    if (typeof document === 'undefined') {
-        return undefined
-    }
-    if (sharedMonacoOverflowRootEl && document.body.contains(sharedMonacoOverflowRootEl)) {
-        return sharedMonacoOverflowRootEl
-    }
-    sharedMonacoOverflowRootEl = document.createElement('div')
-    sharedMonacoOverflowRootEl.classList.add('monaco-editor')
-    sharedMonacoOverflowRootEl.style.zIndex = 'var(--z-tooltip)'
-    document.body.appendChild(sharedMonacoOverflowRootEl)
-    return sharedMonacoOverflowRootEl
-}
 
 export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>): void {
     ;(model as any).codeEditorLogic = builtCodeEditorLogic
@@ -202,17 +187,6 @@ export function CodeEditor({
 
     const { isVisible } = usePageVisibility()
 
-    // Shared monaco-editor portal div for popups (tooltips, suggestion list,
-    // etc). Monaco's global services (HoverService, ContextView) register
-    // DomListeners against whatever node we hand them as overflowWidgetsDomNode
-    // and never release those listeners across editor disposals because the
-    // services themselves are module-level singletons (lazy-init via
-    // GlobalIdleValue). If we create a fresh div per editor and remove it on
-    // unmount, the singletons retain the detached div forever.
-    //
-    // Solution (skill Pattern 3): one shared, never-removed div for every
-    // editor instance. The DomListeners stay bound to a div that's always
-    // attached, so nothing leaks.
     const monacoRoot = sharedMonacoOverflowRoot()
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
