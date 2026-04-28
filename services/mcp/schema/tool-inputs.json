@@ -2490,6 +2490,20 @@
                                                     "type": "boolean"
                                                 }
                                             }
+                                        },
+                                        "tags": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "productKey": {
+                                                    "type": "string"
+                                                },
+                                                "scene": {
+                                                    "type": "string"
+                                                }
+                                            }
                                         }
                                     },
                                     "required": ["kind", "query"]
@@ -2648,6 +2662,20 @@
                                         },
                                         "filterTestAccounts": {
                                             "type": "boolean"
+                                        }
+                                    }
+                                },
+                                "tags": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "productKey": {
+                                            "type": "string"
+                                        },
+                                        "scene": {
+                                            "type": "string"
                                         }
                                     }
                                 }
