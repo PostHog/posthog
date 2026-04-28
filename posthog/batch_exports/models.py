@@ -66,6 +66,7 @@ class BatchExportDestination(UUIDTModel):
         WORKFLOWS = "Workflows"
         HTTP = "HTTP"
         NOOP = "NoOp"
+        FILE_DOWNLOAD = "FileDownload"
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
@@ -78,6 +79,7 @@ class BatchExportDestination(UUIDTModel):
         "HTTP": {"token"},
         "NoOp": set(),
         "Workflows": set(),
+        "FileDownload": set(),
     }
 
     type = models.CharField(
@@ -469,3 +471,27 @@ class BatchExportBackfill(UUIDTModel):
                 BatchExportRun.Status.FAILED,
             ],
         ).count()
+
+
+class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
+    """Represents a file made available to download by a batch export.
+
+    When creating a "file-download" batch export, the output is a row in this table
+    containing pre-signed URLs to access the data exported.
+    """
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
+    batch_export = models.ForeignKey(
+        "BatchExport", on_delete=models.CASCADE, help_text="The batch export that generated these file downloads."
+    )
+    key = models.TextField(help_text="The S3 key containing the file to download.")
+    expires_at = models.DateTimeField(null=True, help_text="When will this key expire, if available.")
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="The timestamp at which this was created.",
+    )
+    last_updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="The timestamp at which this was last updated.",
+    )
