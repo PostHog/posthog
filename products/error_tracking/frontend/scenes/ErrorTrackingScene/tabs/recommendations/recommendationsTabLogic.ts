@@ -11,7 +11,7 @@ import type { AlertsRecommendation, ErrorTrackingRecommendation, LongRunningIssu
 export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'tabs', 'recommendations', 'logic']),
 
-    loaders({
+    loaders(({ values, actions }) => ({
         recommendations: [
             [] as ErrorTrackingRecommendation[],
             {
@@ -30,18 +30,23 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                     return response.results
                 },
                 refreshRecommendation: async (id: string) => {
-                    await api.errorTracking.refreshRecommendation(id)
-                    const response = await api.errorTracking.listRecommendations()
-                    return response.results
+                    actions.setRecommendationRefreshing(id, true)
+                    try {
+                        const updated = await api.errorTracking.refreshRecommendation(id)
+                        return values.recommendations.map((r) => (r.id === updated.id ? updated : r))
+                    } finally {
+                        actions.setRecommendationRefreshing(id, false)
+                    }
                 },
             },
         ],
-    }),
+    })),
 
     actions({
         toggleDismissedExpanded: true,
         setOpenAlertTriggerKey: (triggerKey: HogFunctionSubTemplateIdType | null) => ({ triggerKey }),
         suppressIssue: (issueId: string) => ({ issueId }),
+        setRecommendationRefreshing: (id: string, refreshing: boolean) => ({ id, refreshing }),
     }),
 
     reducers({
@@ -55,6 +60,17 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
             null as HogFunctionSubTemplateIdType | null,
             {
                 setOpenAlertTriggerKey: (_, { triggerKey }) => triggerKey,
+            },
+        ],
+        refreshingIds: [
+            [] as string[],
+            {
+                setRecommendationRefreshing: (state, { id, refreshing }) => {
+                    if (refreshing) {
+                        return state.includes(id) ? state : [...state, id]
+                    }
+                    return state.filter((i) => i !== id)
+                },
             },
         ],
     }),

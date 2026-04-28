@@ -28,7 +28,6 @@ export function LongRunningIssuesRecommendationCard({
     return (
         <RecommendationCard
             recommendationId={recommendation.id}
-            nextRefreshAt={recommendation.next_refresh_at}
             title="Long-running issues"
             description="Your oldest active issues that are still firing this week — worth a second look."
             dismissed={dismissed}
