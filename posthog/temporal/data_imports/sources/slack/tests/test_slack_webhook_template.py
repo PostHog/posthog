@@ -146,6 +146,21 @@ class TestSlackWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
         )
         assert res.result == {"httpResponse": {"status": 400, "body": "Bad signature"}}
 
+    @parameterized.expand(
+        [
+            ("timestamp_too_old", lambda: str(int(time.time()) - 600)),
+            ("timestamp_too_new", lambda: str(int(time.time()) + 600)),
+        ]
+    )
+    def test_stale_timestamp_returns_400(self, _name, ts_factory):
+        secret = "slack_signing_secret"
+        globals = self._make_signed_request(secret, timestamp=ts_factory())
+        res = self.run_function(
+            {"signing_secret": secret, "bypass_signature_check": False, "schema_mapping": {}},
+            globals=globals,
+        )
+        assert res.result == {"httpResponse": {"status": 400, "body": "Stale request timestamp"}}
+
     def test_bypass_signature_check(self):
         body = {
             "type": "event_callback",

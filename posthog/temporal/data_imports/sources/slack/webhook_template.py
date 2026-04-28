@@ -51,6 +51,20 @@ if (not inputs.bypass_signature_check and not (isUrlVerification and empty(input
     }
   }
 
+  // Reject requests whose timestamp is more than 5 minutes off — Slack's
+  // recommendation to defend against replay attacks. Without this, a
+  // captured signed request could be replayed indefinitely.
+  let nowTs := toUnixTimestamp(now())
+  let slackTs := toFloat(slackTimestamp)
+  if (slackTs < nowTs - 300 or slackTs > nowTs + 300) {
+    return {
+      'httpResponse': {
+        'status': 400,
+        'body': 'Stale request timestamp',
+      }
+    }
+  }
+
   let sigBasestring := concat('v0:', slackTimestamp, ':', rawBody)
   let computedSignature := concat('v0=', sha256HmacChainHex([inputs.signing_secret, sigBasestring]))
 
