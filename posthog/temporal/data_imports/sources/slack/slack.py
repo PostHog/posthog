@@ -297,14 +297,19 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
             continue
         event: dict[str, Any] = orjson.loads(event_data) if isinstance(event_data, (str, bytes)) else dict(event_data)
         channel = event.get("channel", "")
-        ts = event.get("ts") or ""
+        ts = event.get("ts")
+        # The warehouse partitions on `timestamp`, so a row without `ts` is unusable.
+        # Slack guarantees every `message.channels` / `message.groups` event carries one,
+        # so a missing value indicates a malformed payload or upstream change — surface
+        # it loudly rather than write rows that can never be queried correctly.
+        if not ts:
+            raise ValueError(f"Slack webhook event for channel {channel!r} is missing required `ts`")
         key = (ts, channel)
         if key in seen:
             continue
         seen.add(key)
         event["channel_id"] = channel
-        if ts:
-            event["timestamp"] = datetime.datetime.fromtimestamp(float(ts), tz=datetime.UTC).isoformat()
+        event["timestamp"] = datetime.datetime.fromtimestamp(float(ts), tz=datetime.UTC).isoformat()
         rows.append(event)
     return table_from_py_list(rows)
 
