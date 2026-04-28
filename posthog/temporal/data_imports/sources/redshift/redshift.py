@@ -285,6 +285,11 @@ def get_leading_sortkey_columns_for_schemas(
             options="-c client_encoding=UTF8",
         ) as connection:
             with connection.cursor() as cursor:
+                # pg_table_def only returns rows for schemas in search_path; without
+                # this SET, schema=anything-other-than-public-or-the-username silently
+                # returns zero rows and the helper marks every sortkey column as
+                # unindexed. Documented behavior: docs.aws.amazon.com/redshift/latest/dg/r_PG_TABLE_DEF.html
+                cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
                 cursor.execute(
                     sql.SQL("""
                         SELECT tablename, "column"
