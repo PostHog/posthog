@@ -235,7 +235,7 @@ export function VisualReviewRunScene(): JSX.Element {
             p: { action: goToPrevious, disabled: !hasPrevious },
             n: { action: goToNext, disabled: !hasNext },
         },
-        [hasPrevious, hasNext, currentIndex]
+        [currentIndex, navSnapshots.length]
     )
 
     if (runLoading || !run) {
