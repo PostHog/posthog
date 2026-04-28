@@ -57,7 +57,6 @@ type MapEventOptions = {
 
 const PROPERTY_SELECTS = [
     'properties.$exception_type',
-    'properties.$exception_message',
     'properties.$exception_value',
     'properties.$exception_list',
     'properties.$exception_fingerprint',
@@ -69,17 +68,11 @@ const PROPERTY_SELECTS = [
     'properties.$os',
     'properties.$os_version',
     'properties.$current_url',
-    'properties.$exception_synthetic',
 ]
 
 const SELECTS = ['uuid', 'timestamp', 'distinct_id', ...PROPERTY_SELECTS]
 
-const SEARCH_PROPERTIES = [
-    'properties.$exception_type',
-    'properties.$exception_message',
-    'properties.$exception_value',
-    'properties.$current_url',
-]
+const SEARCH_PROPERTIES = ['properties.$exception_type', 'properties.$exception_value', 'properties.$current_url']
 
 function propertyName(select: string): string | null {
     return select.startsWith('properties.') ? select.slice('properties.'.length) : null

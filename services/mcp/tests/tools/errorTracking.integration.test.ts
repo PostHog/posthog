@@ -159,7 +159,6 @@ describe('Error Tracking', { concurrent: false }, () => {
                 status: 'all',
                 library: '__mcp_missing_library__',
                 release: '__mcp_missing_release__',
-                environment: '__mcp_missing_environment__',
                 fingerprint: '__mcp_missing_fingerprint__',
                 user: 'missing-user@example.com',
                 personId: '00000000-0000-0000-0000-000000000000',

@@ -24,7 +24,7 @@ function extractExceptions(properties: Record<string, unknown>): ExceptionData[]
 
     // Fallback: construct from individual properties
     const type = properties.$exception_type as string | undefined
-    const value = (properties.$exception_message ?? properties.$exception_value) as string | undefined
+    const value = properties.$exception_value as string | undefined
     if (type || value) {
         return [{ type: type ?? 'Error', value: value ?? '' }]
     }
@@ -52,7 +52,7 @@ export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactEle
     const exceptions = extractExceptions(properties)
 
     const exceptionType = (properties.$exception_type as string) ?? exceptions[0]?.type ?? 'Error'
-    const exceptionMessage = (properties.$exception_message as string) ?? exceptions[0]?.value ?? ''
+    const exceptionMessage = (properties.$exception_value as string) ?? exceptions[0]?.value ?? ''
 
     return (
         <div className="p-4">
@@ -62,11 +62,6 @@ export function ErrorDetailsView({ data }: { data: ErrorDetailsData }): ReactEle
                         <Badge variant="danger" size="md">
                             {exceptionType}
                         </Badge>
-                        {properties.$exception_synthetic && (
-                            <Badge variant="neutral" size="sm">
-                                Synthetic
-                            </Badge>
-                        )}
                     </div>
                     <span className="text-sm text-text-primary">{exceptionMessage}</span>
                 </Stack>

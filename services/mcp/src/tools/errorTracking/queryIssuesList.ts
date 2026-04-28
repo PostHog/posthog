@@ -52,11 +52,6 @@ const schema = z.object({
         .max(500)
         .optional()
         .describe('Filter by exact release ID, version, or git commit ID captured in $exception_releases.'),
-    environment: z
-        .string()
-        .max(200)
-        .optional()
-        .describe('Filter by runtime environment captured in event $environment.'),
     fingerprint: stringOrStringsSchema
         .optional()
         .describe('Filter by exact exception fingerprint hash, usually a long hex-style hash, not fuzzy search.'),
@@ -115,9 +110,6 @@ function buildFilterGroup(params: Params): PropertyFilter[] {
     }
     if (params.release) {
         addReleaseFilter(filters, params.release)
-    }
-    if (params.environment) {
-        addEventFilter(filters, '$environment', 'exact', params.environment)
     }
     if (params.fingerprint) {
         addEventFilter(filters, '$exception_fingerprint', 'exact', params.fingerprint)

@@ -77,7 +77,6 @@ describe('query-error-tracking-issues-list', () => {
         await tool.handler(context, {
             library: ['posthog-js', 'posthog-node'],
             release: "2026.04.24'\\release",
-            environment: 'production',
             fingerprint,
             user: 'alice@example.com',
             personId: 'person-uuid',
@@ -98,7 +97,6 @@ describe('query-error-tracking-issues-list', () => {
                     type: 'hogql',
                     key: "arrayExists(r -> (r.1 = '2026.04.24\\'\\\\release' OR JSONExtractString(r.2, 'version') = '2026.04.24\\'\\\\release' OR JSONExtractString(JSONExtractRaw(r.2, 'metadata'), 'git', 'commit_id') = '2026.04.24\\'\\\\release'), JSONExtractKeysAndValuesRaw(ifNull(nullIf(JSONExtractRaw(properties, '$exception_releases'), ''), '{}')))",
                 },
-                { type: 'event', key: '$environment', operator: 'exact', value: ['production'] },
                 { type: 'event', key: '$exception_fingerprint', operator: 'exact', value: [fingerprint] },
                 { type: 'event', key: '$current_url', operator: 'icontains', value: '/checkout' },
             ])

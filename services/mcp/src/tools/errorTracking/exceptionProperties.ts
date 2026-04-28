@@ -1,7 +1,7 @@
 import { asRecord, compactObject } from './utils'
 
 const MAX_NORMALIZED_TEXT_CHARS = 1000
-const TRUNCATABLE_PROPERTY_NAMES = new Set(['$exception_message', '$exception_value'])
+const TRUNCATABLE_PROPERTY_NAMES = new Set(['$exception_value'])
 
 function truncateText(value: unknown, options: NormalizeOptions): unknown {
     if (options.verbosity === 'raw' || typeof value !== 'string' || value.length <= MAX_NORMALIZED_TEXT_CHARS) {

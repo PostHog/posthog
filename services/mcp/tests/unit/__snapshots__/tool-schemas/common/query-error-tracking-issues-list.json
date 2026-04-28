@@ -52,11 +52,6 @@
             },
             "type": "object"
         },
-        "environment": {
-            "description": "Filter by runtime environment captured in event $environment.",
-            "maxLength": 200,
-            "type": "string"
-        },
         "filePath": {
             "description": "Search stack-frame source/file path text captured in exception sources.",
             "maxLength": 1000,

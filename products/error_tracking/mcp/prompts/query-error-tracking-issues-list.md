@@ -24,7 +24,6 @@ Prefer these typed fields over `filterGroup` when they fit:
 
 - `library`: SDK/library from `$lib`, for example `posthog-js`, `posthog-node`, or `posthog-android`.
 - `release`: exact release ID, version, or git commit ID from `$exception_releases`.
-- `environment`: runtime environment from `$environment`.
 - `fingerprint`: exact `$exception_fingerprint` hash.
 - `user`: user/email search text.
 - `personId`: exact PostHog person UUID.
