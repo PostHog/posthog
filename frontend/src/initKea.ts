@@ -52,6 +52,51 @@ export function resumeKeaLoadersErrors(): void {
     errorsSilenced = false
 }
 
+// kea-localstorage writes to localStorage without a try/catch, so a full quota turns
+// every persisted reducer write into a top-level uncaught QuotaExceededError. Wrap the
+// engine so writes that exceed the quota are dropped rather than thrown.
+export function createGuardedLocalStorageEngine(): Storage | undefined {
+    let storage: Storage
+    try {
+        storage = window.localStorage
+    } catch {
+        return undefined
+    }
+    if (!storage) {
+        return undefined
+    }
+
+    let quotaErrorReported = false
+    const isQuotaError = (error: unknown): boolean =>
+        error instanceof DOMException &&
+        (error.name === 'QuotaExceededError' || error.code === 22 || error.code === 1014)
+
+    return new Proxy(storage, {
+        set(target, prop, value): boolean {
+            try {
+                if (typeof prop === 'string') {
+                    target.setItem(prop, value)
+                } else {
+                    ;(target as any)[prop] = value
+                }
+            } catch (error) {
+                if (!isQuotaError(error)) {
+                    throw error
+                }
+                if (!quotaErrorReported) {
+                    quotaErrorReported = true
+                    try {
+                        posthog.captureException(error, { source: 'kea-localstorage' })
+                    } catch {
+                        // never let exception capture failure mask the original write
+                    }
+                }
+            }
+            return true
+        },
+    })
+}
+
 export function initKea({
     routerHistory,
     routerLocation,
@@ -61,7 +106,7 @@ export function initKea({
     const plugins = [
         ...(beforePlugins || []),
         disposablesPlugin,
-        localStoragePlugin(),
+        localStoragePlugin({ storageEngine: createGuardedLocalStorageEngine() }),
         windowValuesPlugin({ window: window }),
         routerPlugin({
             history: routerHistory,
