@@ -84,8 +84,8 @@ DUCKDB_MEMORY_LIMIT = "4GB"
 # via the community extension registry, and the extension version must match
 # the catalog version on the duckling's RDS Postgres.
 DUCKDB_VERSION_TO_DUCKLAKE: dict[str, int] = {
-    "1.5.1": 40,  # ducklake 0.4
-    "1.5.2": 100,  # ducklake 1.0
+    "1.5.1": DuckLakeCatalog.DuckLakeVersion.V0_4,
+    "1.5.2": DuckLakeCatalog.DuckLakeVersion.V1_0,
 }
 
 
@@ -111,6 +111,7 @@ def get_runtime_ducklake_version() -> int | None:
 def check_ducklake_version_compatible(
     catalog: DuckLakeCatalog,
     context: AssetExecutionContext,
+    team_id: int,
 ) -> bool:
     """Check if the current runtime is compatible with a catalog's ducklake version.
 
@@ -122,6 +123,43 @@ def check_ducklake_version_compatible(
     """
     if catalog.ducklake_version is None:
         return True
+
+    runtime_version = get_runtime_ducklake_version()
+    if runtime_version is None:
+        context.log.warning(
+            f"Unknown DuckLake version for team_id={team_id}: "
+            f"catalog requires version {catalog.ducklake_version} but this runtime "
+            f"has duckdb {duckdb.__version__} which is not in the known version mapping. "
+            f"Skipping to avoid potential incompatibility."
+        )
+        logger.warning(
+            "duckling_unknown_runtime_version",
+            team_id=team_id,
+            catalog_version=catalog.ducklake_version,
+            duckdb_version=duckdb.__version__,
+        )
+        return False
+
+    if catalog.ducklake_version != runtime_version:
+        context.log.error(
+            f"DuckLake version mismatch for team_id={team_id}: "
+            f"catalog requires version {catalog.ducklake_version} but this runtime "
+            f"supports version {runtime_version} (duckdb {duckdb.__version__}). "
+            f"Run this backfill on the correct container image."
+        )
+        logger.error(
+            "duckling_version_mismatch",
+            team_id=team_id,
+            catalog_version=catalog.ducklake_version,
+            runtime_version=runtime_version,
+            duckdb_version=duckdb.__version__,
+        )
+        return False
+
+    context.log.info(
+        f"DuckLake version check passed: runtime {runtime_version} matches catalog version {catalog.ducklake_version}"
+    )
+    return True
 
     runtime_version = get_runtime_ducklake_version()
     if runtime_version is None:
@@ -1575,7 +1613,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     # with "skipped_version_mismatch" metadata so the wrong-version runtime
     # doesn't burn retries. The correct-version runtime will pick it up via
     # the sensor's retry-on-failure logic.
-    if not check_ducklake_version_compatible(catalog, context):
+    if not check_ducklake_version_compatible(catalog, context, team_id):
         context.log.warning(
             f"Skipping duckling events backfill for team_id={team_id}: "
             f"catalog version {catalog.ducklake_version} is incompatible with this runtime"
@@ -1733,7 +1771,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     # with "skipped_version_mismatch" metadata so the wrong-version runtime
     # doesn't burn retries. The correct-version runtime will pick it up via
     # the sensor's retry-on-failure logic.
-    if not check_ducklake_version_compatible(catalog, context):
+    if not check_ducklake_version_compatible(catalog, context, team_id):
         context.log.warning(
             f"Skipping duckling persons backfill for team_id={team_id}: "
             f"catalog version {catalog.ducklake_version} is incompatible with this runtime"
