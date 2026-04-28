@@ -93,6 +93,7 @@ _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
     "PropertyDefinitionEdit": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
     "PropertyDefinitions": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.PROPERTY_DEFINITION_SCENE},
     "ExploreEvents": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.EXPLORE_EVENTS_SCENE},
+    "DebugQuery": {"product": Product.INTERNAL, "feature": Feature.DEBUG_QUERY},
 }
 
 

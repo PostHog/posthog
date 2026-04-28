@@ -29263,6 +29263,14 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface PatchedSessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
+    }
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SourceProductEnum;
@@ -35023,6 +35031,14 @@ export namespace Schemas {
       focus_area?: string;
     }
 
+    export interface SessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
+    }
+
     /**
      * * `trace` - trace
     * `debug` - debug
@@ -37065,10 +37081,6 @@ export namespace Schemas {
      */
     checks_offset?: number;
     };
-
-    export type EnvironmentsAppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type EnvironmentsAppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
 
     export type EnvironmentsBatchExportsListParams = {
     /**
@@ -39947,6 +39959,10 @@ export namespace Schemas {
 
     export type LlmSkillsListParams = {
     /**
+     * Filter skills by the ID of the user who created them.
+     */
+    created_by_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -40897,10 +40913,6 @@ export namespace Schemas {
      */
     search?: string;
     };
-
-    export type AppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type AppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
 
     export type BatchExportsListParams = {
     /**

@@ -1,9 +1,9 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-import posthoganalytics
-
-from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WAREHOUSE_WEBHOOK_FLAG, WebhookSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookSourceManager,
+    is_webhook_feature_flag_enabled,
+)
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -79,36 +79,6 @@ PERMISSIONS = [
     "rak_webhook_write",
 ]
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
-
-
-def _is_webhook_feature_flag_enabled(team_id: int) -> bool:
-    from posthog.models import Team
-
-    try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    except Team.DoesNotExist:
-        return False
-
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            WAREHOUSE_WEBHOOK_FLAG,
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-
-        return bool(enabled)
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 @SourceRegistry.register
@@ -288,7 +258,7 @@ If automatic creation failed due to a permissions error and you're using a restr
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
-                supports_webhooks=_is_webhook_feature_flag_enabled(team_id)
+                supports_webhooks=is_webhook_feature_flag_enabled(team_id)
                 and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
                 supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,

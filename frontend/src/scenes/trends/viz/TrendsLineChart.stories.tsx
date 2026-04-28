@@ -11,13 +11,13 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { TrendsLineChartD3 } from './TrendsLineChartD3'
+import { TrendsLineChart } from './TrendsLineChart'
 
 type Story = StoryObj<{}>
 
 const meta: Meta = {
-    title: 'Insights/TrendsLineChartD3',
-    component: TrendsLineChartD3,
+    title: 'Insights/TrendsLineChart',
+    component: TrendsLineChart,
     parameters: {
         layout: 'centered',
         mockDate: '2023-07-11',
@@ -84,8 +84,8 @@ function Stage({ children }: { children: React.ReactNode }): JSX.Element {
     )
 }
 
-function renderTrendsLineChartD3(insightFixture: any): JSX.Element {
-    const [dashboardItemId] = useState(() => `TrendsLineChartD3Story.${uniqueNode++}` as InsightShortId)
+function renderTrendsLineChart(insightFixture: any): JSX.Element {
+    const [dashboardItemId] = useState(() => `TrendsLineChartStory.${uniqueNode++}` as InsightShortId)
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
 
     const insightProps: InsightLogicProps = { dashboardItemId, doNotLoad: true, cachedInsight }
@@ -100,7 +100,7 @@ function renderTrendsLineChartD3(insightFixture: any): JSX.Element {
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <Stage>
-                    <TrendsLineChartD3 />
+                    <TrendsLineChart />
                 </Stage>
             </BindLogic>
         </BindLogic>
@@ -110,17 +110,17 @@ function renderTrendsLineChartD3(insightFixture: any): JSX.Element {
 /* eslint-disable @typescript-eslint/no-var-requires */
 export const Default: Story = {
     render: () =>
-        renderTrendsLineChartD3(require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')),
+        renderTrendsLineChart(require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json')),
 }
 
 export const SingleSeries: Story = {
     render: () =>
-        renderTrendsLineChartD3(require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json')),
+        renderTrendsLineChart(require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json')),
 }
 
 export const Breakdown: Story = {
     render: () =>
-        renderTrendsLineChartD3(
+        renderTrendsLineChart(
             require('../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
         ),
 }
