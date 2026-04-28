@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from django.db import transaction
 
+from parameterized import parameterized
+
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models import Ticket
@@ -357,52 +359,39 @@ class TestTicketCreatedEventSignal(BaseTest):
         defaults.update(overrides)
         return Ticket.objects.create_with_number(**defaults)
 
+    @parameterized.expand(
+        [
+            ("widget", Channel.WIDGET, {}),
+            (
+                "email",
+                Channel.EMAIL,
+                {
+                    "distinct_id": "customer@example.com",
+                    "anonymous_traits": {"name": "Customer", "email": "customer@example.com"},
+                    "email_from": "customer@example.com",
+                    "email_subject": "Help",
+                },
+            ),
+            (
+                "slack",
+                Channel.SLACK,
+                {"slack_channel_id": "C123", "slack_thread_ts": "1700000000.000100"},
+            ),
+            (
+                "teams",
+                Channel.TEAMS,
+                {"teams_channel_id": "19:abc@thread.tacv2", "teams_conversation_id": "19:def@thread.tacv2"},
+            ),
+        ]
+    )
     @patch("products.conversations.backend.signals.capture_ticket_created")
-    def test_widget_ticket_creation_emits_event(self, mock_capture, mock_on_commit):
-        ticket = self._make_ticket(channel_source=Channel.WIDGET)
+    def test_ticket_creation_emits_event_for_channel(self, _name, channel_source, extra, mock_capture, mock_on_commit):
+        ticket = self._make_ticket(channel_source=channel_source, **extra)
 
         mock_capture.assert_called_once()
-        emitted_ticket = mock_capture.call_args.args[0]
-        assert emitted_ticket.id == ticket.id
-        assert emitted_ticket.channel_source == Channel.WIDGET
-
-    @patch("products.conversations.backend.signals.capture_ticket_created")
-    def test_email_ticket_creation_emits_event(self, mock_capture, mock_on_commit):
-        ticket = self._make_ticket(
-            channel_source=Channel.EMAIL,
-            distinct_id="customer@example.com",
-            anonymous_traits={"name": "Customer", "email": "customer@example.com"},
-            email_from="customer@example.com",
-            email_subject="Help",
-        )
-
-        mock_capture.assert_called_once()
-        assert mock_capture.call_args.args[0].id == ticket.id
-        assert mock_capture.call_args.args[0].channel_source == Channel.EMAIL
-
-    @patch("products.conversations.backend.signals.capture_ticket_created")
-    def test_slack_ticket_creation_emits_event(self, mock_capture, mock_on_commit):
-        ticket = self._make_ticket(
-            channel_source=Channel.SLACK,
-            slack_channel_id="C123",
-            slack_thread_ts="1700000000.000100",
-        )
-
-        mock_capture.assert_called_once()
-        assert mock_capture.call_args.args[0].id == ticket.id
-        assert mock_capture.call_args.args[0].channel_source == Channel.SLACK
-
-    @patch("products.conversations.backend.signals.capture_ticket_created")
-    def test_teams_ticket_creation_emits_event(self, mock_capture, mock_on_commit):
-        ticket = self._make_ticket(
-            channel_source=Channel.TEAMS,
-            teams_channel_id="19:abc@thread.tacv2",
-            teams_conversation_id="19:def@thread.tacv2",
-        )
-
-        mock_capture.assert_called_once()
-        assert mock_capture.call_args.args[0].id == ticket.id
-        assert mock_capture.call_args.args[0].channel_source == Channel.TEAMS
+        emitted = mock_capture.call_args.args[0]
+        assert emitted.id == ticket.id
+        assert emitted.channel_source == channel_source
 
     @patch("products.conversations.backend.signals.capture_ticket_created")
     def test_ticket_update_does_not_emit_event(self, mock_capture, mock_on_commit):
