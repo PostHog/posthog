@@ -832,16 +832,6 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
-class BiasRisk(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    multiple_variant_percentage: float = Field(
-        ...,
-        description=("Observed share of users assigned to `$multiple`, as a percentage (0-100)."),
-    )
-
-
 class BillingSpendResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
@@ -1314,6 +1304,19 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     ENDPOINT = "endpoint"
     MANAGED_VIEWSET = "managed_viewset"
+
+
+class DataWarehouseSyncInterval(StrEnum):
+    FIELD_1MIN = "1min"
+    FIELD_5MIN = "5min"
+    FIELD_15MIN = "15min"
+    FIELD_30MIN = "30min"
+    FIELD_1HOUR = "1hour"
+    FIELD_6HOUR = "6hour"
+    FIELD_12HOUR = "12hour"
+    FIELD_24HOUR = "24hour"
+    FIELD_7DAY = "7day"
+    FIELD_30DAY = "30day"
 
 
 class DatabaseSchemaManagedViewTableKind(StrEnum):
@@ -2122,7 +2125,6 @@ class ExternalDataSourceType(StrEnum):
     CONVEX = "Convex"
     CLICK_HOUSE = "ClickHouse"
     PLAIN = "Plain"
-    RESEND = "Resend"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -4051,12 +4053,6 @@ class RetentionDashboardDisplayType(StrEnum):
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
-
-
-class AggregationPropertyType1(StrEnum):
-    EVENT = "event"
-    PERSON = "person"
-    DATA_WAREHOUSE = "data_warehouse"
 
 
 class RetentionPeriod(StrEnum):
@@ -6724,7 +6720,6 @@ class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -6780,11 +6775,11 @@ class ExperimentStatsBase(BaseModel):
         extra="forbid",
     )
     covariate_sum: float | None = None
-    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     step_counts: list[int] | None = None
@@ -6798,11 +6793,11 @@ class ExperimentStatsBaseValidated(BaseModel):
         extra="forbid",
     )
     covariate_sum: float | None = None
-    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     step_counts: list[int] | None = None
@@ -6818,12 +6813,12 @@ class ExperimentVariantResultBayesian(BaseModel):
     )
     chance_to_win: float | None = None
     covariate_sum: float | None = None
-    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     credible_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
@@ -6841,11 +6836,11 @@ class ExperimentVariantResultFrequentist(BaseModel):
     )
     confidence_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
     covariate_sum: float | None = None
-    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
+    main_covariate_sum_product: float | None = None
     method: Literal["frequentist"] = "frequentist"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
@@ -7523,7 +7518,6 @@ class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -10670,7 +10664,6 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bias_risk: BiasRisk | None = None
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -17345,13 +17338,9 @@ class RetentionFilter(BaseModel):
         default=None,
         description="The property to aggregate when aggregationType is sum or avg",
     )
-    aggregationPropertyType: AggregationPropertyType1 | None = Field(
-        default=AggregationPropertyType1.EVENT,
-        description=(
-            "The type of property to aggregate on. Defaults to event. Use"
-            " `data_warehouse` to\naggregate a column on the data warehouse table"
-            " referenced by the start/returning entity."
-        ),
+    aggregationPropertyType: AggregationPropertyType | None = Field(
+        default=AggregationPropertyType.EVENT,
+        description=("The type of property to aggregate on (event or person). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,
@@ -21169,12 +21158,7 @@ class EndpointRequest(BaseModel):
             " Keys are column names, values are bucket keys (hour, day, week, month)."
         ),
     )
-    data_freshness_seconds: int | None = Field(
-        default=None,
-        description=(
-            "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
-        ),
-    )
+    cache_age_seconds: float | None = None
     deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
     derived_from_insight: str | None = None
     description: str | None = None
@@ -21186,6 +21170,10 @@ class EndpointRequest(BaseModel):
     name: str | None = None
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
+    )
+    sync_frequency: DataWarehouseSyncInterval | None = Field(
+        default=None,
+        description="How frequently should the underlying materialized view be updated",
     )
     version: int | None = Field(
         default=None,

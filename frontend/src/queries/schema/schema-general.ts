@@ -16,6 +16,7 @@ import {
     ChartDisplayType,
     CohortPropertyFilter,
     CountPerActorMathType,
+    DataWarehouseSyncInterval,
     DataWarehouseViewLink,
     EventPropertyFilter,
     EventType,
@@ -1639,10 +1640,9 @@ export type RetentionFilter = {
     aggregationType?: 'count' | 'sum' | 'avg'
     /** @description The property to aggregate when aggregationType is sum or avg */
     aggregationProperty?: string
-    /** @description The type of property to aggregate on. Defaults to event. Use `data_warehouse` to
-     * aggregate a column on the data warehouse table referenced by the start/returning entity.
+    /** @description The type of property to aggregate on (event or person). Defaults to event.
      * @default event */
-    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
+    aggregationPropertyType?: 'event' | 'person'
     /** For data warehouse based retention insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean
 
@@ -1850,10 +1850,11 @@ export interface EndpointRequest {
     description?: string
     query?: HogQLQuery | EndpointQueryNode
     is_active?: boolean
-    /** How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency. */
-    data_freshness_seconds?: integer
+    cache_age_seconds?: number
     /** Whether this endpoint's query results are materialized to S3 */
     is_materialized?: boolean
+    /** How frequently should the underlying materialized view be updated */
+    sync_frequency?: DataWarehouseSyncInterval
     derived_from_insight?: string
     /** Target a specific version for updates (optional, defaults to current version) */
     version?: integer
@@ -3608,7 +3609,7 @@ export interface ExperimentStatsBase {
     sum_squares: number
     covariate_sum?: number
     covariate_sum_squares?: number
-    covariate_sum_product?: number
+    main_covariate_sum_product?: number
     denominator_sum?: number
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
@@ -3680,23 +3681,12 @@ export interface SampleRatioMismatch {
     p_value: number
 }
 
-/**
- * Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE`
- * handling + observed `$multiple` share above the threshold. Present on the response
- * only when the experiment is currently at risk.
- */
-export interface BiasRisk {
-    /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
-    multiple_variant_percentage: number
-}
-
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
     total_exposures: Record<string, number>
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
-    bias_risk?: BiasRisk
 }
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
@@ -5643,7 +5633,6 @@ export const externalDataSources = [
     'Convex',
     'ClickHouse',
     'Plain',
-    'Resend',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

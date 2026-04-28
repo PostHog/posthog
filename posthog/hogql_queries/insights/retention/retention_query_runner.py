@@ -133,39 +133,26 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return (DisallowCumulativeWith24HourWindows(), DisallowUnsupportedDataWarehouseSettings())
 
     @cached_property
-    def has_property_aggregation(self) -> bool:
-        return self.query.retentionFilter.aggregationType in [AggregationType.SUM, AggregationType.AVG] and bool(
-            self.query.retentionFilter.aggregationProperty
-        )
-
-    def property_aggregation_expr_for(self, entity: RetentionEntity) -> ast.Expr | None:
-        if not self.has_property_aggregation:
-            return None
-
-        prop_name = self.query.retentionFilter.aggregationProperty
-        property_type = self.query.retentionFilter.aggregationPropertyType
-        if property_type == "person":
-            # person.properties resolves via the HogQL person join on the events table
-            chain = cast(list[str | int], ["person", "properties", prop_name])
-        elif property_type == "data_warehouse":
-            # Bare column on the data warehouse table referenced by the surrounding subquery's FROM
-            chain = cast(list[str | int], [prop_name])
-        else:
-            chain = cast(list[str | int], ["events", "properties", prop_name])
-        property_field = ast.Field(chain=chain)
-        return ast.Call(
-            name="ifNull",
-            args=[
-                ast.Call(name="toFloat", args=[property_field]),
-                ast.Constant(value=0.0),
-            ],
-        )
-
-    @cached_property
     def property_aggregation_expr(self) -> ast.Expr | None:
-        # Legacy single-expression accessor used by the events-only base query path.
-        # Both start and return are event/action entities there, so any entity yields the same chain.
-        return self.property_aggregation_expr_for(self.start_event)
+        if (
+            self.query.retentionFilter.aggregationType in [AggregationType.SUM, AggregationType.AVG]
+            and self.query.retentionFilter.aggregationProperty
+        ):
+            prop_name = self.query.retentionFilter.aggregationProperty
+            if self.query.retentionFilter.aggregationPropertyType == "person":
+                # person.properties resolves via the HogQL person join on the events table
+                chain = cast(list[str | int], ["person", "properties", prop_name])
+            else:
+                chain = cast(list[str | int], ["events", "properties", prop_name])
+            property_field = ast.Field(chain=chain)
+            return ast.Call(
+                name="ifNull",
+                args=[
+                    ast.Call(name="toFloat", args=[property_field]),
+                    ast.Constant(value=0.0),
+                ],
+            )
+        return None
 
     @cached_property
     def has_property_aggregation(self) -> bool:

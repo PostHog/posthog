@@ -1,5 +1,3 @@
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
-
 import { StoryFn } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
@@ -59,10 +57,6 @@ export function createInsightStory(
 
         useStorybookMocks({
             get: {
-                '/api/organizations/@current/': () => [
-                    200,
-                    { ...MOCK_DEFAULT_ORGANIZATION, is_ai_data_processing_approved: true },
-                ],
                 '/api/environments/:team_id/insights/': (_, __, ctx) => [
                     ctx.status(200),
                     ctx.json({
