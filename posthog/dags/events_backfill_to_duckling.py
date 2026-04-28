@@ -79,6 +79,80 @@ logger = structlog.get_logger(__name__)
 # for Python, Dagster framework, and ClickHouse client overhead.
 DUCKDB_MEMORY_LIMIT = "4GB"
 
+# Mapping from duckdb Python package version to the DuckLake catalog version
+# it supports. Each duckdb release ships a specific ducklake extension version
+# via the community extension registry, and the extension version must match
+# the catalog version on the duckling's RDS Postgres.
+DUCKDB_VERSION_TO_DUCKLAKE: dict[str, int] = {
+    "1.5.1": 40,  # ducklake 0.4
+    "1.5.2": 100,  # ducklake 1.0
+}
+
+
+def get_runtime_ducklake_version() -> int | None:
+    """Detect which DuckLake catalog version this runtime can handle.
+
+    Uses the duckdb Python package version to infer the ducklake extension
+    version, since each duckdb release pins one ducklake extension version
+    in the community extension registry.
+
+    Returns:
+        40 for ducklake 0.4, 100 for ducklake 1.0, or None if the
+        current duckdb version isn't in the known mapping.
+    """
+    version = duckdb.__version__
+    for prefix, dl_version in DUCKDB_VERSION_TO_DUCKLAKE.items():
+        if version.startswith(prefix):
+            return dl_version
+
+    logger.warning(
+        "duckling_unknown_duckdb_version",
+        duckdb_version=version,
+        known_versions=list(DUCKDB_VERSION_TO_DUCKLAKE.keys()),
+    )
+    return None
+
+
+def check_ducklake_version_compatible(
+    catalog,
+    context: AssetExecutionContext,
+) -> bool:
+    """Check if the current runtime is compatible with a catalog's ducklake version.
+
+    When the catalog has no version set (None), we proceed without warning
+    for backward compatibility (dev mode, unset catalogs).
+
+    Returns True if compatible or version is unknown, False if incompatible.
+    Logs and returns False when there's a clear mismatch.
+    """
+    if catalog.ducklake_version is None:
+        return True
+
+    runtime_version = get_runtime_ducklake_version()
+    if runtime_version is None:
+        return True
+
+    if catalog.ducklake_version != runtime_version:
+        context.log.error(
+            f"DuckLake version mismatch for team_id={catalog.team_id}: "
+            f"catalog requires version {catalog.ducklake_version} but this runtime "
+            f"supports version {runtime_version} (duckdb {duckdb.__version__}). "
+            f"Run this backfill on the correct container image."
+        )
+        logger.error(
+            "duckling_version_mismatch",
+            team_id=catalog.team_id,
+            catalog_version=catalog.ducklake_version,
+            runtime_version=runtime_version,
+            duckdb_version=duckdb.__version__,
+        )
+        return False
+
+    context.log.info(
+        f"DuckLake version check passed: runtime {runtime_version} matches catalog version {catalog.ducklake_version}"
+    )
+    return True
+
 
 @retry(
     stop=stop_after_attempt(3),
@@ -1489,6 +1563,22 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
 
+    # Verify ducklake version compatibility before proceeding
+    if not check_ducklake_version_compatible(catalog, context):
+        context.log.warning(
+            f"Skipping duckling events backfill for team_id={team_id}: "
+            f"catalog version {catalog.ducklake_version} is incompatible with this runtime"
+        )
+        context.add_output_metadata(
+            {
+                "team_id": team_id,
+                "partition_key": context.partition_key,
+                "status": "skipped_version_mismatch",
+                "catalog_version": catalog.ducklake_version,
+            }
+        )
+        return
+
     # Delete events table if requested (dangerous - loses all data)
     if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
         context.log.warning("delete_tables=True: Deleting events table...")
@@ -1626,6 +1716,23 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
+
+    # Verify ducklake version compatibility before proceeding
+    if not check_ducklake_version_compatible(catalog, context):
+        context.log.warning(
+            f"Skipping duckling persons backfill for team_id={team_id}: "
+            f"catalog version {catalog.ducklake_version} is incompatible with this runtime"
+        )
+        context.add_output_metadata(
+            {
+                "team_id": team_id,
+                "partition_key": context.partition_key,
+                "export_mode": export_mode,
+                "status": "skipped_version_mismatch",
+                "catalog_version": catalog.ducklake_version,
+            }
+        )
+        return
 
     # Delete persons table if requested (dangerous - loses all data)
     if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:

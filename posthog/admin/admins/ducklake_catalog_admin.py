@@ -8,13 +8,14 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
         "organization_id",
         "db_host",
         "db_database",
+        "ducklake_version",
         "bucket",
         "bucket_region",
         "cross_account_role_arn",
         "created_at",
         "updated_at",
     )
-    list_filter = ("bucket_region",)
+    list_filter = ("bucket_region", "ducklake_version")
     search_fields = ("=team__id", "=organization__id", "db_host", "bucket", "cross_account_role_arn")
     readonly_fields = ("id", "created_at", "updated_at")
     raw_id_fields = ("team", "organization")
@@ -23,7 +24,7 @@ class DuckLakeCatalogAdmin(admin.ModelAdmin):
         (
             None,
             {
-                "fields": ("id", "team", "organization"),
+                "fields": ("id", "team", "organization", "ducklake_version"),
             },
         ),
         (

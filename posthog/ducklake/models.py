@@ -21,6 +21,10 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     environment variable configuration.
     """
 
+    class DuckLakeVersion(models.IntegerChoices):
+        V0_4 = 40, "0.4"
+        V1_0 = 100, "1.0"
+
     # Deprecated: use organization instead. Kept nullable for backward compatibility.
     team = models.OneToOneField(
         "posthog.Team",
@@ -33,6 +37,18 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         "posthog.Organization",
         on_delete=models.CASCADE,
         related_name="ducklake_catalog",
+    )
+
+    ducklake_version = models.IntegerField(
+        choices=DuckLakeVersion.choices,
+        null=True,
+        blank=True,
+        default=None,
+        help_text=(
+            "DuckLake catalog version deployed on this duckling. "
+            "Determines which DuckDB version must be used for backfill jobs. "
+            "0.4 requires duckdb 1.5.1; 1.0 requires duckdb 1.5.2."
+        ),
     )
 
     # Database connection settings
