@@ -24,94 +24,38 @@ jobs:
               with:
                   version: '0.10.2'
 
-            - name: Compute Snob and AST selections (shadow mode)
-              id: selection
+            - name: Run shadow selection
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  PR_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_BRANCH: ${{ github.event.pull_request.head.ref }}
               run: |
-                  # Fetch the *current* tip of the base branch, not pull_request.base.sha
+                  set -euo pipefail
+                  mkdir -p /tmp/shadow-selection
+
+                  # Write metadata first so the artifact still has run context if
+                  # selection itself blows up (set -e would otherwise skip it).
+                  jq -n \
+                      --arg pr "$PR_NUMBER" \
+                      --arg sha "$PR_SHA" \
+                      --arg branch "$PR_BRANCH" \
+                      --arg base "$BASE_REF" \
+                      --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                      '{pr: $pr, sha: $sha, branch: $branch, base: $base, timestamp: $timestamp}' \
+                      > /tmp/shadow-selection/metadata.json
+
+                  # Fetch the *current* tip of the base branch, not pull_request.base.sha:
                   # base.sha is captured at webhook time and goes stale if the branch later
                   # merges a newer master, which makes `base.sha...HEAD` balloon to include
                   # every merged-in master change.
                   git fetch --no-tags origin "$BASE_REF"
-                  echo "### Changed files" >&2
-                  git diff --name-only "origin/$BASE_REF"...HEAD >&2
 
-                  RESULT=$(uv run tools/snob_backend_test_selection_shadow.py --base-ref "origin/$BASE_REF" 2>/dev/stderr | tail -1)
-                  echo "result=$RESULT" >> "$GITHUB_OUTPUT"
-
-            - name: Write job summary
-              env:
-                  RESULT: ${{ steps.selection.outputs.result }}
-              run: |
-                  CHANGED_COUNT=$(echo "$RESULT" | jq -r '.changed_file_count')
-                  SNOB_STATUS=$(echo "$RESULT" | jq -r '.snob.status')
-                  SNOB_COUNT=$(echo "$RESULT" | jq -r '.snob.count')
-                  AST_COUNT=$(echo "$RESULT" | jq -r '.ast.tests | length')
-                  COMBINED_COUNT=$(echo "$RESULT" | jq -r '.combined.count')
-                  SNOB_SECONDS=$(echo "$RESULT" | jq -r '.durations.snob_seconds')
-                  AST_SECONDS=$(echo "$RESULT" | jq -r '.durations.ast_seconds')
-                  COMBINED_SECONDS=$(echo "$RESULT" | jq -r '.combined.duration_seconds')
-                  TOTAL_SECONDS=$(echo "$RESULT" | jq -r '.durations.total_seconds')
-                  AST_GROUPS=$(echo "$RESULT" | jq -r '.ast.groups | to_entries | map("| `\(.key)` | \(.value | length) |") | join("\n")')
-                  FULL_REASONS=$(echo "$RESULT" | jq -r '.ast.full_run_reasons[]? | "- " + .')
-
-                  cat >> "$GITHUB_STEP_SUMMARY" << EOF
-                  ## Shadow test selection
-
-                  This is shadow-only. It compares Snob's import-graph selection with PostHog-specific AST groups for API-client and other non-import-shaped tests.
-
-                  | Metric | Count | Est. duration |
-                  |---|---:|---:|
-                  | Changed files | $CHANGED_COUNT | - |
-                  | Snob-selected tests | $SNOB_COUNT | ${SNOB_SECONDS}s |
-                  | AST-selected tests | $AST_COUNT | ${AST_SECONDS}s |
-                  | Combined unique tests | $COMBINED_COUNT | ${COMBINED_SECONDS}s |
-                  | Full duration data | - | ${TOTAL_SECONDS}s |
-
-                  | AST group | Test files |
-                  |---|---:|
-                  ${AST_GROUPS:-| none | 0 |}
-                  EOF
-
-                  if [ "$SNOB_STATUS" != "ok" ]; then
-                    SNOB_ERROR=$(echo "$RESULT" | jq -r '.snob.error // "unknown"')
-                    cat >> "$GITHUB_STEP_SUMMARY" << EOF
-
-                  **Snob error:** $SNOB_ERROR
-                  EOF
-                  fi
-
-                  if [ -n "$FULL_REASONS" ]; then
-                    cat >> "$GITHUB_STEP_SUMMARY" << EOF
-
-                  ### Full-run signals
-
-                  $FULL_REASONS
-                  EOF
-                  fi
-
-                  echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode: .mode, changed: .changed_file_count, snob_status: .snob.status, snob: .snob.count, ast: (.ast.tests | length), combined: .combined.count, snob_dur: .durations.snob_seconds, ast_dur: .durations.ast_seconds, combined_dur: .combined.duration_seconds, total_dur: .durations.total_seconds}')"
-
-            - name: Save selection result for bulk analysis
-              if: always()
-              env:
-                  SELECTION_RESULT: ${{ steps.selection.outputs.result }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-                  PR_SHA: ${{ github.event.pull_request.head.sha }}
-                  PR_BRANCH: ${{ github.event.pull_request.head.ref }}
-                  PR_BASE: ${{ github.event.pull_request.base.ref }}
-              run: |
-                  mkdir -p /tmp/shadow-selection
-                  echo "$SELECTION_RESULT" | jq '.' > /tmp/shadow-selection/selection.json
-                  jq -n \
-                    --arg pr "$PR_NUMBER" \
-                    --arg sha "$PR_SHA" \
-                    --arg branch "$PR_BRANCH" \
-                    --arg base "$PR_BASE" \
-                    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-                    '{pr: $pr, sha: $sha, branch: $branch, base: $base, timestamp: $timestamp}' \
-                    > /tmp/shadow-selection/metadata.json
+                  uv run tools/snob_backend_test_selection_shadow.py \
+                      --base-ref "origin/$BASE_REF" \
+                      --summary-path "$GITHUB_STEP_SUMMARY" \
+                      --pretty \
+                      > /tmp/shadow-selection/selection.json
 
             - name: Upload shadow selection artifact
               if: always()
