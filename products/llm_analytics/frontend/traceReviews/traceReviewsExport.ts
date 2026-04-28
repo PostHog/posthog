@@ -38,7 +38,7 @@ export function getReviewClipboardRows(reviews: TraceReview[]): Record<string, u
     })
 }
 
-export function copyReviewsAs(reviews: TraceReview[], format: ReviewClipboardFormat): void {
+export async function copyReviewsAs(reviews: TraceReview[], format: ReviewClipboardFormat): Promise<void> {
     try {
         if (reviews.length === 0) {
             lemonToast.error('No reviews to copy!')
@@ -49,7 +49,7 @@ export function copyReviewsAs(reviews: TraceReview[], format: ReviewClipboardFor
             format === 'json'
                 ? JSON.stringify(rows, null, 4)
                 : Papa.unparse(rows, format === 'tsv' ? { delimiter: '\t' } : undefined)
-        void copyToClipboard(payload, 'reviews')
+        await copyToClipboard(payload, 'reviews')
     } catch {
         lemonToast.error('Copy failed!')
     }

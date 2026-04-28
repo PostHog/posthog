@@ -185,17 +185,17 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
                                 items: [
                                     {
                                         label: 'CSV',
-                                        onClick: () => copyReviewsAs(reviews.results, 'csv'),
+                                        onClick: () => void copyReviewsAs(reviews.results, 'csv'),
                                         'data-attr': 'copy-csv-to-clipboard',
                                     },
                                     {
                                         label: 'JSON',
-                                        onClick: () => copyReviewsAs(reviews.results, 'json'),
+                                        onClick: () => void copyReviewsAs(reviews.results, 'json'),
                                         'data-attr': 'copy-json-to-clipboard',
                                     },
                                     {
                                         label: 'Excel',
-                                        onClick: () => copyReviewsAs(reviews.results, 'tsv'),
+                                        onClick: () => void copyReviewsAs(reviews.results, 'tsv'),
                                         'data-attr': 'copy-excel-to-clipboard',
                                     },
                                 ],

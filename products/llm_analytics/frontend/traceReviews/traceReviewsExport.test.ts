@@ -134,37 +134,32 @@ describe('traceReviewsExport', () => {
     })
 
     describe('copyReviewsAs', () => {
-        it('shows an error toast and skips the clipboard write when there are no reviews', () => {
-            copyReviewsAs([], 'csv')
+        it('shows an error toast and skips the clipboard write when there are no reviews', async () => {
+            await copyReviewsAs([], 'csv')
 
             expect(mockLemonToastError).toHaveBeenCalledWith('No reviews to copy!')
             expect(mockCopyToClipboard).not.toHaveBeenCalled()
             expect(mockPapaUnparse).not.toHaveBeenCalled()
         })
 
-        it('copies CSV using Papa.unparse with the default delimiter', () => {
-            copyReviewsAs([baseReview], 'csv')
+        it.each([
+            ['csv', undefined, 'mock-papa-unparse:,:'],
+            ['tsv', { delimiter: '\t' }, 'mock-papa-unparse:\t:'],
+        ] as const)(
+            'copies %s via Papa.unparse with the matching options',
+            async (format, expectedOptions, expectedPrefix) => {
+                await copyReviewsAs([baseReview], format)
 
-            expect(mockPapaUnparse).toHaveBeenCalledTimes(1)
-            const [rowsArg, optionsArg] = mockPapaUnparse.mock.calls[0]
-            expect(rowsArg).toHaveLength(1)
-            expect(optionsArg).toBeUndefined()
-            expect(mockCopyToClipboard).toHaveBeenCalledWith(expect.stringContaining('mock-papa-unparse:,:'), 'reviews')
-        })
+                expect(mockPapaUnparse).toHaveBeenCalledTimes(1)
+                const [rowsArg, optionsArg] = mockPapaUnparse.mock.calls[0]
+                expect(rowsArg).toHaveLength(1)
+                expect(optionsArg).toEqual(expectedOptions)
+                expect(mockCopyToClipboard).toHaveBeenCalledWith(expect.stringContaining(expectedPrefix), 'reviews')
+            }
+        )
 
-        it('copies Excel as TSV by passing a tab delimiter to Papa.unparse', () => {
-            copyReviewsAs([baseReview], 'tsv')
-
-            const [, optionsArg] = mockPapaUnparse.mock.calls[0]
-            expect(optionsArg).toEqual({ delimiter: '\t' })
-            expect(mockCopyToClipboard).toHaveBeenCalledWith(
-                expect.stringContaining('mock-papa-unparse:\t:'),
-                'reviews'
-            )
-        })
-
-        it('copies JSON as a pretty-printed string and skips Papa.unparse', () => {
-            copyReviewsAs([baseReview], 'json')
+        it('copies JSON as a pretty-printed string and skips Papa.unparse', async () => {
+            await copyReviewsAs([baseReview], 'json')
 
             expect(mockPapaUnparse).not.toHaveBeenCalled()
             expect(mockCopyToClipboard).toHaveBeenCalledTimes(1)
@@ -176,12 +171,25 @@ describe('traceReviewsExport', () => {
             expect(payload).toContain('\n    ')
         })
 
-        it('falls back to an error toast when copying throws', () => {
-            mockCopyToClipboard.mockImplementationOnce(() => {
-                throw new Error('clipboard unavailable')
-            })
+        it.each([
+            [
+                'synchronous',
+                () => {
+                    mockCopyToClipboard.mockImplementationOnce(() => {
+                        throw new Error('clipboard unavailable')
+                    })
+                },
+            ],
+            [
+                'asynchronous',
+                () => {
+                    mockCopyToClipboard.mockRejectedValueOnce(new Error('clipboard rejected'))
+                },
+            ],
+        ] as const)('falls back to an error toast when copying fails (%s)', async (_label, primeFailure) => {
+            primeFailure()
 
-            copyReviewsAs([baseReview], 'json')
+            await copyReviewsAs([baseReview], 'json')
 
             expect(mockLemonToastError).toHaveBeenCalledWith('Copy failed!')
         })
