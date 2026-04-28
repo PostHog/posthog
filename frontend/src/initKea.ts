@@ -81,8 +81,8 @@ type MutableBuiltLogic = {
     connections: Record<string, unknown>
 }
 
-const cycleBreakerPlugin: KeaPlugin = {
-    name: 'cycleBreaker',
+const postUnmountCleanupPlugin: KeaPlugin = {
+    name: 'postUnmountCleanup',
     events: {
         afterUnmount(logic) {
             const l = logic as unknown as MutableBuiltLogic
@@ -207,7 +207,7 @@ export function initKea({
         // Must be appended LAST so its afterUnmount runs after every other
         // plugin and the user-provided beforeUnmount/afterUnmount events have
         // had a chance to read logic.cache, logic.events, etc.
-        cycleBreakerPlugin,
+        postUnmountCleanupPlugin,
     ]
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {
