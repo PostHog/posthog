@@ -931,7 +931,8 @@ describe('toolbar toolbarConfigLogic', () => {
             // Hash cleanup is deferred to avoid triggering SPA router re-renders
             expect(replaceStateSpy).not.toHaveBeenCalled()
             jest.advanceTimersByTime(500)
-            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
+            expect(replaceStateSpy).toHaveBeenCalledWith(expect.any(Object), '', expectedUrl)
+            expect(replaceStateSpy.mock.calls[0][0]).not.toBeNull()
             jest.useRealTimers()
         })
 
@@ -1158,7 +1159,10 @@ describe('toolbar toolbarConfigLogic', () => {
         ])('cleanup: %s', (_label, hash, expectedUrl) => {
             window.history.pushState({}, '', hash)
             cleanToolbarAuthHash()
-            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', expectedUrl)
+            // Must pass a non-null state object — third-party history.replaceState
+            // wrappers (Next.js router shim, Clarity, GTM) throw on null state.
+            expect(replaceStateSpy).toHaveBeenCalledWith(expect.any(Object), '', expectedUrl)
+            expect(replaceStateSpy.mock.calls[0][0]).not.toBeNull()
         })
 
         it.each([
@@ -1184,7 +1188,8 @@ describe('toolbar toolbarConfigLogic', () => {
 
             expect(replaceStateSpy).not.toHaveBeenCalled()
             logic.unmount()
-            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/')
+            expect(replaceStateSpy).toHaveBeenCalledWith(expect.any(Object), '', '/')
+            expect(replaceStateSpy.mock.calls[0][0]).not.toBeNull()
             jest.useRealTimers()
         })
 
@@ -1216,7 +1221,30 @@ describe('toolbar toolbarConfigLogic', () => {
             // Simulate: https://example.com/page?q=search#__posthog_toolbar=code:abc,client_id:xyz
             window.history.pushState({}, '', '/page?q=search#__posthog_toolbar=code:abc,client_id:xyz')
             cleanToolbarAuthHash()
-            expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/page?q=search')
+            expect(replaceStateSpy).toHaveBeenCalledWith(expect.any(Object), '', '/page?q=search')
+            expect(replaceStateSpy.mock.calls[0][0]).not.toBeNull()
+        })
+
+        it('preserves the existing history.state set by the host page (e.g. Next.js router)', () => {
+            // The Next.js router shim wraps history.replaceState and dereferences
+            // properties like `state.as`. Passing null caused it to throw, so we
+            // pass through whatever state the host already installed.
+            const hostState = { as: '/dashboard', url: '/dashboard', __N: true }
+            window.history.pushState(hostState, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            cleanToolbarAuthHash()
+            expect(replaceStateSpy).toHaveBeenCalledTimes(1)
+            expect(replaceStateSpy.mock.calls[0][0]).toEqual(hostState)
+        })
+
+        it('does not throw when a third-party wrapper of replaceState throws', () => {
+            // Simulate a third-party wrapper (Clarity / GTM / Next.js shim) that
+            // throws synchronously. The toolbar must swallow this so it does not
+            // bubble up through the kea action that triggered the cleanup.
+            replaceStateSpy.mockImplementation(() => {
+                throw new TypeError("Cannot read properties of null (reading 'as')")
+            })
+            window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+            expect(() => cleanToolbarAuthHash()).not.toThrow()
         })
     })
 })

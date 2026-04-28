@@ -72,7 +72,18 @@ export function cleanToolbarAuthHash(): void {
         .replace(/&$/, '')
         .replace(/^#&/, '#')
         .replace(/^#$/, '')
-    history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
+    // Pass the existing state (or {}) rather than null. Third-party scripts that
+    // monkey-patch history.replaceState (e.g. the Next.js router shim, Microsoft
+    // Clarity, Google Tag Manager) often dereference properties on the state arg
+    // and throw on null. Wrapped in try/catch because those wrappers are out of
+    // our control and we don't want their failures to break toolbar init/logout.
+    try {
+        history.replaceState(history.state ?? {}, '', location.pathname + location.search + (cleanHash || ''))
+    } catch (e) {
+        toolbarLogger.warn('auth', 'cleanToolbarAuthHash: history.replaceState threw', {
+            error: e instanceof Error ? e.message : String(e),
+        })
+    }
 }
 
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
