@@ -2,7 +2,7 @@
 
 ## Trace review (`system.trace_reviews`)
 
-Trace reviews are human-authored review records attached to LLM traces.
+Trace reviews are review records attached to LLM traces.
 Each active trace can have at most one active review at a time.
 
 ### Columns
@@ -13,10 +13,10 @@ Column | Type | Nullable | Description
 `trace_id` | varchar(255) | NOT NULL | Reviewed LLM trace ID
 `created_by_id` | integer | NULL | User ID that originally created the review
 `reviewed_by_id` | integer | NULL | User ID that last saved the review
-`comment` | text | NULL | Optional human comment attached to the review
+`comment` | text | NULL | Optional comment attached to the review
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `updated_at` | timestamp with tz | NULL | Last save timestamp
-`deleted` | boolean | NULL | Soft-delete flag (`0` = active, `1` = deleted)
+`deleted` | integer | NULL | Soft-delete flag (`0` = active, `1` = deleted)
 `deleted_at` | timestamp with tz | NULL | When the review was soft-deleted
 
 ### Key relationships
@@ -57,18 +57,18 @@ Column | Type | Nullable | Description
 
 ## Review queue (`system.review_queues`)
 
-Review queues are named buckets used to route traces that still need human review.
+Review queues are named buckets used to route traces that still need review.
 
 ### Columns
 
 Column | Type | Nullable | Description
 `id` | uuid | NOT NULL | Primary key
 `team_id` | integer | NOT NULL | Owning team
-`name` | varchar(255) | NOT NULL | Human-readable queue name
+`name` | varchar(255) | NOT NULL | Display name for the queue
 `created_by_id` | integer | NULL | User ID that created the queue
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `updated_at` | timestamp with tz | NULL | Last update timestamp
-`deleted` | boolean | NULL | Soft-delete flag (`0` = active, `1` = deleted)
+`deleted` | integer | NULL | Soft-delete flag (`0` = active, `1` = deleted)
 `deleted_at` | timestamp with tz | NULL | When the queue was soft-deleted
 
 ### Key relationships
@@ -92,7 +92,7 @@ Column | Type | Nullable | Description
 `created_by_id` | integer | NULL | User ID that queued the trace
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `updated_at` | timestamp with tz | NULL | Last update timestamp
-`deleted` | boolean | NULL | Soft-delete flag (`0` = active, `1` = deleted)
+`deleted` | integer | NULL | Soft-delete flag (`0` = active, `1` = deleted)
 `deleted_at` | timestamp with tz | NULL | When the queue item was soft-deleted
 
 ### Important notes
