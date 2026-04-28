@@ -722,6 +722,58 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["auth_method"]["stripe_secret_key"] == "sk_test_123"
 
     @patch(
+        "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_after_get_preserves_snowflake_keypair_private_key(self, _mock_validate):
+        """Regression: Snowflake's keypair auth uses `auth_type` (not `auth_method`).
+        After redaction, a PATCH that doesn't re-supply private_key must not wipe it.
+        """
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Snowflake",
+            created_by=self.user,
+            prefix="snowflake-test",
+            job_inputs={
+                "account_id": "abc-123",
+                "database": "MY_DB",
+                "warehouse": "COMPUTE_WH",
+                "schema": "PUBLIC",
+                "auth_type": {
+                    "selection": "keypair",
+                    "user": "myuser",
+                    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----",
+                    "passphrase": "secret-passphrase",
+                },
+            },
+        )
+
+        # GET strips private_key and passphrase from auth_type
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        get_data = get_response.json()
+        assert "private_key" not in get_data["job_inputs"]["auth_type"]
+        assert "passphrase" not in get_data["job_inputs"]["auth_type"]
+        assert get_data["job_inputs"]["auth_type"]["user"] == "myuser"
+
+        # PATCH with the redacted data (simulating a save without re-pasting credentials)
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": get_data["job_inputs"]},
+        )
+        assert patch_response.status_code == 200, patch_response.json()
+
+        # Sensitive fields nested in auth_type must still be in the DB
+        source.refresh_from_db()
+        assert source.job_inputs["auth_type"]["selection"] == "keypair"
+        assert source.job_inputs["auth_type"]["user"] == "myuser"
+        assert source.job_inputs["auth_type"]["private_key"].startswith("-----BEGIN PRIVATE KEY-----")
+        assert source.job_inputs["auth_type"]["passphrase"] == "secret-passphrase"
+
+    @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
@@ -4502,7 +4554,12 @@ class TestSensitiveFieldClassification(APIBaseTest):
     def test_classifies_password_fields_as_sensitive(self):
         fields: list[FieldType] = [
             SourceFieldInputConfig(
-                name="host", label="Host", placeholder="", required=True, type=SourceFieldInputConfigType.TEXT
+                name="host",
+                label="Host",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXT,
+                secret=False,
             ),
             SourceFieldInputConfig(
                 name="password",
@@ -4510,6 +4567,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 placeholder="",
                 required=True,
                 type=SourceFieldInputConfigType.PASSWORD,
+                secret=True,
             ),
         ]
         nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
@@ -4549,6 +4607,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                                 placeholder="",
                                 required=True,
                                 type=SourceFieldInputConfigType.TEXT,
+                                secret=False,
                             ),
                             SourceFieldInputConfig(
                                 name="password",
@@ -4556,6 +4615,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                                 placeholder="",
                                 required=True,
                                 type=SourceFieldInputConfigType.PASSWORD,
+                                secret=True,
                             ),
                         ],
                     ),
@@ -4579,6 +4639,31 @@ class TestSensitiveFieldClassification(APIBaseTest):
         assert "password" in sensitive
         assert "passphrase" in sensitive
         assert "private_key" in sensitive
+
+    def test_classifies_secret_flag_as_sensitive_regardless_of_type(self):
+        fields: list[FieldType] = [
+            SourceFieldInputConfig(
+                name="client_private_key",
+                label="Client private key",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXTAREA,
+                secret=True,
+            ),
+            SourceFieldInputConfig(
+                name="namespace",
+                label="Namespace",
+                placeholder="",
+                required=True,
+                type=SourceFieldInputConfigType.TEXT,
+                secret=False,
+            ),
+        ]
+        nonsensitive, sensitive = get_nonsensitive_and_sensitive_field_names(fields)
+        assert "client_private_key" in sensitive
+        assert "client_private_key" not in nonsensitive
+        assert "namespace" in nonsensitive
+        assert "namespace" not in sensitive
 
     def test_strip_sensitive_from_dict_basic(self):
         data = {"host": "localhost", "password": "secret", "unknown_key": "val"}
@@ -4628,6 +4713,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                             placeholder="",
                             required=True,
                             type=SourceFieldInputConfigType.TEXT,
+                            secret=False,
                         ),
                     ],
                 ),
@@ -4647,6 +4733,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                 placeholder="",
                 required=True,
                 type=SourceFieldInputConfigType.TEXT,
+                secret=False,
             ),
             SourceFieldSwitchGroupConfig(
                 name="temporary-dataset",
@@ -4661,6 +4748,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
                             placeholder="",
                             required=True,
                             type=SourceFieldInputConfigType.TEXT,
+                            secret=False,
                         ),
                     ],
                 ),
@@ -4689,6 +4777,37 @@ class TestSensitiveFieldClassification(APIBaseTest):
             # No field should appear in both sets
             overlap = nonsensitive & sensitive
             assert not overlap, f"{config.name}: fields in both sets: {overlap}"
+
+    def test_password_typed_fields_must_be_marked_secret(self):
+        """A field rendered as type=PASSWORD that is not also `secret=True` is a misconfiguration:
+        it would obscure on screen but still be returned in plain text from the API.
+        """
+
+        def collect_password_fields_without_secret(fields: list[FieldType]) -> list[str]:
+            offenders: list[str] = []
+            for field in fields:
+                if isinstance(field, SourceFieldInputConfig):
+                    if field.type == SourceFieldInputConfigType.PASSWORD and not field.secret:
+                        offenders.append(field.name)
+                elif isinstance(field, SourceFieldSwitchGroupConfig):
+                    offenders.extend(collect_password_fields_without_secret(field.fields))
+                elif isinstance(field, SourceFieldSelectConfig):
+                    for option in field.options:
+                        if option.fields:
+                            offenders.extend(collect_password_fields_without_secret(option.fields))
+            return offenders
+
+        all_offenders: dict[str, list[str]] = {}
+        for source in SourceRegistry.get_all_sources().values():
+            config = source.get_source_config
+            offenders = collect_password_fields_without_secret(config.fields)
+            if offenders:
+                all_offenders[config.name] = offenders
+
+        assert not all_offenders, (
+            f"PASSWORD-typed fields must also set secret=True to be redacted from API responses. "
+            f"Offending fields: {all_offenders}"
+        )
 
     def test_dynamic_classification_covers_old_hardcoded_allowlist(self):
         """Regression: all fields from the old hardcoded allowlist should be in the dynamic nonsensitive set."""

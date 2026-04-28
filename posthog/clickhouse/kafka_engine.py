@@ -8,6 +8,8 @@ from django.conf import settings
 # Once we make all envs match, we can remove the _US check
 _US = settings.CLOUD_DEPLOYMENT == "US"
 CONSUMER_GROUP_EVENTS_JSON = "clickhouse_events_json" if _US else "group1"
+# DEPRECATED: see posthog/models/app_metrics/sql.py for context. Kept only for the
+# deprecated `kafka_app_metrics` table DDL.
 CONSUMER_GROUP_APP_METRICS = "clickhouse_app_metrics" if _US else "group1"
 CONSUMER_GROUP_APP_METRICS2 = "clickhouse_app_metrics2" if _US else "group1"
 CONSUMER_GROUP_INGESTION_WARNINGS = "clickhouse_ingestion_warnings" if _US else "group1"
@@ -23,6 +25,7 @@ CONSUMER_GROUP_PRECALCULATED_PERSON_PROPERTIES = (
 CONSUMER_GROUP_DISTINCT_ID_USAGE = "clickhouse_distinct_id_usage"
 CONSUMER_GROUP_TOPHOG = "clickhouse_tophog"
 CONSUMER_GROUP_AI_EVENTS = "clickhouse_ai_events" if _US else "group1"
+CONSUMER_GROUP_PROPERTY_VALUES = "clickhouse_property_values"
 
 # WarpStream consumer groups (separate from MSK so both can coexist)
 CONSUMER_GROUP_LOG_ENTRIES_WS = "clickhouse_log_entries_ws"
