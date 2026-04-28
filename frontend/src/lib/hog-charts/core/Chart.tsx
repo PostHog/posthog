@@ -45,7 +45,10 @@ export interface ChartProps<Meta = unknown> {
     config?: ChartConfig
     theme: ChartTheme
     createScales: CreateScalesFn
-    draw: (args: ChartDrawArgs) => void
+    /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
+    drawStatic: (args: ChartDrawArgs) => void
+    /** Hover overlay — highlight rings only. Redrawn on every hoverIndex change. */
+    drawHover: (args: ChartDrawArgs) => void
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
@@ -62,7 +65,8 @@ export function Chart<Meta = unknown>({
     config,
     theme,
     createScales: createScalesFn,
-    draw,
+    drawStatic,
+    drawHover,
     tooltip: renderTooltip = DefaultTooltip,
     onPointClick,
     className,
@@ -155,7 +159,7 @@ export function Chart<Meta = unknown>({
         return m
     }, [hideXAxis, hideYAxis, hasMultipleAxes, yLabelWidth, xLabelHalfWidth])
 
-    const { canvasRef, wrapperRef, dimensions, ctx } = useChartCanvas({ margins })
+    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
     const coloredSeries = useMemo(
         () =>
@@ -210,13 +214,15 @@ export function Chart<Meta = unknown>({
 
     useChartDraw({
         ctx,
+        overlayCtx,
         dimensions,
         scales,
         series: coloredSeries,
         labels,
         hoverIndex,
         theme,
-        draw,
+        drawStatic,
+        drawHover,
     })
 
     const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
@@ -285,6 +291,16 @@ export function Chart<Meta = unknown>({
                                 top: 0,
                                 left: 0,
                                 cursor: cursorStyle,
+                            }}
+                        />
+                        <canvas
+                            ref={overlayCanvasRef}
+                            aria-hidden="true"
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                pointerEvents: 'none',
                             }}
                         />
 
