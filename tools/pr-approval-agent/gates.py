@@ -251,10 +251,17 @@ _DISMISS_TIME_TEST_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Non-executable-at-dismiss-time on purpose: at dismiss time the path is
+# the only signal, so generated files in runnable backend languages
+# (.py, .go) trigger re-review even though the LLM accepted them at
+# approve time. Type stubs (.pyi) are read by type checkers, not runtime.
+# Real-world cost in this repo: proto regen under
+# posthog/personhog_client/proto/generated/ falls through to re-review,
+# which is rare and cheap.
 _DISMISS_TIME_GENERATED_RE = re.compile(
-    r"(?:^|/)generated/"
-    r"|\.gen\.(ts|tsx|js|py|go)$"
-    r"|\.generated\.(ts|tsx|js|py|go)$"
+    r"(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"|\.gen\.(ts|tsx|js|jsx)$"
+    r"|\.generated\.(ts|tsx|js|jsx)$"
     r"|^frontend/src/queries/schema/",
     re.IGNORECASE,
 )
@@ -272,7 +279,7 @@ def is_trivial_at_dismiss_time(path: str) -> bool:
         return True
 
     suffix = Path(path).suffix.lower()
-    if suffix in {".md", ".mdx", ".snap"}:
+    if suffix in {".md", ".mdx"}:
         return True
     if name.startswith(("README", "CHANGELOG")):
         return True

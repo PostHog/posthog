@@ -24,6 +24,7 @@ correctness, not retention.
 """
 
 import os
+import sys
 import json
 import subprocess
 from dataclasses import asdict, dataclass, replace
@@ -102,15 +103,25 @@ def _run(*args: str, cwd: Path | None = None) -> str:
 
 
 def _is_ancestor(ancestor: str, descendant: str, cwd: Path) -> bool:
-    """`git merge-base --is-ancestor` uses returncode as the bool answer."""
-    return (
-        subprocess.run(
-            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
-            cwd=cwd,
-            timeout=30,
-        ).returncode
-        == 0
+    """`git merge-base --is-ancestor`: rc 0=ancestor, 1=not ancestor, ≥2=error.
+
+    Errors fall through to False so callers treat the relation as
+    non-linear and dismiss + re-review (fail-closed). The stderr log
+    distinguishes a real force-push from a git plumbing failure.
+    """
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
+    if result.returncode not in (0, 1):
+        print(
+            f"[dismiss_check] _is_ancestor git error rc={result.returncode}: {result.stderr.strip()}",
+            file=sys.stderr,
+        )
+    return result.returncode == 0
 
 
 def select_last_bot_approval(reviews: list[dict]) -> str | None:

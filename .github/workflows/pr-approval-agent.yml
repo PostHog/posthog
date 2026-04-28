@@ -190,14 +190,24 @@ jobs:
 
     dismiss:
         needs: decide-delta
-        # Fail closed: if decide-delta itself failed (uv install timeout,
-        # checkout failure, etc.) we still dismiss. The review job's same
-        # failure-fallback covers the re-review.
+        # Fail closed on three cases:
+        #   - decide-delta said dismiss (smart path)
+        #   - decide-delta failed (uv install / checkout / fetch timeout)
+        #   - decide-delta was skipped (label removed out-of-band) — mirrors
+        #     the pre-PR unconditional dismiss-on-push behavior so a stale
+        #     bot approval can't outlive the label under master ruleset's
+        #     dismiss_stale_reviews_on_push=false / require_last_push_approval=false
+        # Explicit synchronize + draft gates stop spurious dismissal on
+        # labeled / ready_for_review events where decide-delta's result is
+        # also 'skipped'.
         if: >-
             always()
+            && github.event.action == 'synchronize'
+            && !github.event.pull_request.draft
             && (
               needs.decide-delta.outputs.dismiss_approval == 'true'
               || needs.decide-delta.result == 'failure'
+              || needs.decide-delta.result == 'skipped'
             )
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -209,7 +219,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   PR: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
-                  REASON: ${{ needs.decide-delta.outputs.reason || 'decide_delta_failed' }}
+                  REASON: ${{ needs.decide-delta.outputs.reason || (needs.decide-delta.result == 'skipped' && 'label_absent') || 'decide_delta_failed' }}
               run: |
                   set -euo pipefail
 

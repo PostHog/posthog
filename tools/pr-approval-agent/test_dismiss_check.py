@@ -80,9 +80,12 @@ def repo(tmp_path: Path) -> Path:
         ("posthog/conftest.py", True),
         ("internal_test.go", True),
         ("posthog/fixtures/foo.json", True),
-        # Snapshots
-        ("foo.snap", True),
+        # Snapshots — only the canonical __snapshots__/ directory; bare
+        # .snap suffix anywhere is no longer trusted.
         ("foo/__snapshots__/bar.snap", True),
+        ("__snapshots__/bar.snap", True),
+        ("scripts/deploy.snap", False),
+        ("foo.snap", False),
         # Docs
         ("README.md", True),
         ("CHANGELOG.md", True),
@@ -94,12 +97,25 @@ def repo(tmp_path: Path) -> Path:
         ("frontend/yarn.lock", True),
         ("uv.lock", True),
         ("Cargo.lock", True),
-        # Generated
+        # Generated — frontend TS / JS / JSON / md / snap / type-stubs only.
+        # Backend executable code (.py, .go) under generated/ is NOT trivial
+        # because at dismiss time the path is the only signal.
         ("frontend/src/generated/core/api.ts", True),
         ("products/foo/frontend/generated/api.ts", True),
+        ("nodejs/src/generated/foo.ts", True),
+        ("services/mcp/src/generated/foo.ts", True),
         ("frontend/src/queries/schema/general.ts", True),
         ("foo.gen.ts", True),
-        ("foo.generated.py", True),
+        ("foo.generated.ts", True),
+        ("services/mcp/src/ui-apps/generated/foo.txt", True),
+        # Backend code under generated/ — must dismiss
+        ("posthog/generated/evil.py", False),
+        ("posthog/personhog_client/proto/generated/foo.py", False),
+        ("services/foo/generated/handler.go", False),
+        ("foo.gen.py", False),
+        ("foo.generated.py", False),
+        ("foo.gen.go", False),
+        ("foo.generated.go", False),
         # NOT allowed
         (".github/workflows/foo.yml", False),
         (".github/CODEOWNERS", False),
@@ -116,6 +132,31 @@ def repo(tmp_path: Path) -> Path:
 )
 def test_is_trivial_at_dismiss_time(path: str, expected: bool) -> None:
     assert is_trivial_at_dismiss_time(path) is expected
+
+
+# ── _is_ancestor unit tests ──────────────────────────────────────
+
+
+def test_is_ancestor_returns_true_when_ancestor(repo: Path) -> None:
+    base = _head(repo)
+    _write(repo, "a.ts", "a")
+    head = _commit(repo, "feat a")
+    assert dismiss_check._is_ancestor(base, head, repo) is True
+
+
+def test_is_ancestor_returns_false_when_not_ancestor(repo: Path) -> None:
+    _write(repo, "a.ts", "a")
+    a = _commit(repo, "feat a")
+    _git("reset", "--hard", "HEAD~1", cwd=repo)
+    _write(repo, "b.ts", "b")
+    b = _commit(repo, "feat b")
+    assert dismiss_check._is_ancestor(a, b, repo) is False
+
+
+def test_is_ancestor_returns_false_on_git_error(repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    bogus = "0" * 40
+    assert dismiss_check._is_ancestor(bogus, _head(repo), repo) is False
+    assert "_is_ancestor git error" in capsys.readouterr().err
 
 
 # ── evaluate_delta scenarios ─────────────────────────────────────
