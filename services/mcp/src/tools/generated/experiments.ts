@@ -44,22 +44,6 @@ const experimentArchive = (): ToolBase<typeof ExperimentArchiveSchema, WithPostH
         },
     })
 
-const ExperimentUnarchiveSchema = ExperimentsUnarchiveCreateParams.omit({ project_id: true })
-
-const experimentUnarchive = (): ToolBase<typeof ExperimentUnarchiveSchema, WithPostHogUrl<Schemas.Experiment>> =>
-    withUiApp('experiment', {
-        name: 'experiment-unarchive',
-        schema: ExperimentUnarchiveSchema,
-        handler: async (context: Context, params: z.infer<typeof ExperimentUnarchiveSchema>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.Experiment>({
-                method: 'POST',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/unarchive/`,
-            })
-            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
-        },
-    })
-
 const ExperimentCreateSchema = ExperimentsCreateBody.omit({
     start_date: true,
     end_date: true,
@@ -454,6 +438,22 @@ const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResu
         },
     })
 
+const ExperimentUnarchiveSchema = ExperimentsUnarchiveCreateParams.omit({ project_id: true })
+
+const experimentUnarchive = (): ToolBase<typeof ExperimentUnarchiveSchema, WithPostHogUrl<Schemas.Experiment>> =>
+    withUiApp('experiment', {
+        name: 'experiment-unarchive',
+        schema: ExperimentUnarchiveSchema,
+        handler: async (context: Context, params: z.infer<typeof ExperimentUnarchiveSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Experiment>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/unarchive/`,
+            })
+            return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        },
+    })
+
 const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id: true }).extend(
     ExperimentsPartialUpdateBody.omit({
         start_date: true,
@@ -527,7 +527,6 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-archive': experimentArchive,
-    'experiment-unarchive': experimentUnarchive,
     'experiment-create': experimentCreate,
     'experiment-delete': experimentDelete,
     'experiment-duplicate': experimentDuplicate,
@@ -541,5 +540,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-ship-variant': experimentShipVariant,
     'experiment-stats': experimentStats,
     'experiment-timeseries-results': experimentTimeseriesResults,
+    'experiment-unarchive': experimentUnarchive,
     'experiment-update': experimentUpdate,
 }
