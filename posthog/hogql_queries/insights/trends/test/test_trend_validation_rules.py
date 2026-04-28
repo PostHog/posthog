@@ -134,9 +134,7 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
             ),
         ]
     )
-    def test_allows_multi_breakdowns_with_supported_types(
-        self, _name: str, breakdowns: list[Breakdown]
-    ) -> None:
+    def test_allows_multi_breakdowns_with_supported_types(self, _name: str, breakdowns: list[Breakdown]) -> None:
         query = TrendsQuery(
             series=self._data_warehouse_series(),
             breakdownFilter=BreakdownFilter(breakdowns=breakdowns),
@@ -176,9 +174,7 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
             ),
         ]
     )
-    def test_disallows_multi_breakdowns_with_any_unsupported_type(
-        self, _name: str, breakdowns: list[Breakdown]
-    ) -> None:
+    def test_disallows_multi_breakdowns_with_any_unsupported_type(self, _name: str, breakdowns: list[Breakdown]) -> None:
         query = TrendsQuery(
             series=self._data_warehouse_series(),
             breakdownFilter=BreakdownFilter(breakdowns=breakdowns),
