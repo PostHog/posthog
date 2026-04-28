@@ -2281,7 +2281,7 @@
         }
     },
     "llm-analytics-summarization-create": {
-        "description": "Generate an AI-powered summary of an LLM trace or generation. Pass a trace_id or generation_id with a date_from — the backend fetches the data and returns a structured summary with title, flow diagram, summary bullets, and interesting notes. Results are cached. Use mode \"minimal\" (default) for 3-5 points or \"detailed\" for 5-10 points. Rate-limited.",
+        "description": "Generate an AI-powered summary of an LLM trace or generation. Pass a trace_id or generation_id with a date_from — the backend fetches the data and returns a structured summary with title, flow diagram, summary bullets, and interesting notes. Results are cached. Use mode \"minimal\" (default) for 3-5 points or \"detailed\" for 5-10 points. Rate-limited; requires AI data processing approval for the organization.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
         "summary": "Summarize trace or generation",
@@ -2293,7 +2293,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "requires_ai_consent": true
     },
     "logs-alerts-create": {
         "description": "Create a threshold-based alert on log streams. The alert periodically counts log entries matching the given filters and fires when the count crosses the threshold. Maximum 20 alerts per project.",
