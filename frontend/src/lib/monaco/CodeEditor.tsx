@@ -56,9 +56,9 @@ let codeEditorIndex = 0
 
 let sharedMonacoOverflowRootEl: HTMLDivElement | null = null
 
-function sharedMonacoOverflowRoot(): HTMLDivElement {
+function sharedMonacoOverflowRoot(): HTMLDivElement | undefined {
     if (typeof document === 'undefined') {
-        return null as unknown as HTMLDivElement
+        return undefined
     }
     if (sharedMonacoOverflowRootEl && document.body.contains(sharedMonacoOverflowRootEl)) {
         return sharedMonacoOverflowRootEl
