@@ -2745,6 +2745,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertIn(normal.id, ids)
         self.assertNotIn(template.id, ids)
 
+    @parameterized.expand(
+        [
+            ("null_string_key", {"null": {"insight_name": "I", "data": [1]}}),
+            ("undefined_string_key", {"undefined": {"insight_name": "I", "data": [1]}}),
+            ("non_numeric_key", {"abc": {"insight_name": "I", "data": [1]}}),
+            ("mixed_keys", {"7": {"insight_name": "I", "data": [1]}, "null": {"insight_name": "J", "data": [2]}}),
+            ("empty_client_results", {}),
+        ]
+    )
+    def test_snapshot_skips_non_numeric_tile_ids(self, _name, client_results):
+        # JS object keys coerce null/undefined to "null"/"undefined" — the snapshot endpoint runs
+        # `int(tile_id)` on the keys, so non-numeric keys must be filtered out instead of producing a 500.
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/snapshot",
+            {"client_results": client_results},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        cache_key = response.json()["cache_key"]
+        cached = cache.get(cache_key)
+        # Only numeric-string keys should survive into the cached payload.
+        for key in cached.keys() if cached else []:
+            self.assertIsInstance(key, int)
+
     def test_analyze_refresh_result_with_empty_cache(self):
         # Simulate snapshot creating an empty cache entry (e.g. no cached results)
         # This happens when the dashboard has no data or no cached results before refresh

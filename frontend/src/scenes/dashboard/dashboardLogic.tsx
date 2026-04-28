@@ -1925,10 +1925,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (withAnalysis) {
                 try {
-                    // Gather current data from the frontend store
+                    // Gather current data from the frontend store. Skip tiles without a numeric id —
+                    // a null/undefined `tile.id` would coerce to the string key "null"/"undefined" and
+                    // the snapshot endpoint runs `int(tile_id)` on the keys, which would 500.
                     const clientResults: Record<number, any> = {}
                     values.insightTiles.forEach((tile) => {
-                        if (tile.insight && tile.insight.result) {
+                        if (tile.id != null && tile.insight && tile.insight.result) {
                             clientResults[tile.id] = {
                                 insight_name: tile.insight.name || tile.insight.derived_name,
                                 data: tile.insight.result,

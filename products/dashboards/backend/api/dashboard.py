@@ -183,6 +183,14 @@ class DashboardSnapshotSerializer(serializers.Serializer):
         allow_null=True,
     )
 
+    def validate_client_results(self, value):
+        # Tile IDs come from a JS-built dict whose keys are coerced to strings; a tile with a null/undefined
+        # `id` would arrive here as the literal "null"/"undefined". Skip non-numeric keys instead of letting
+        # the downstream `int(...)` raise a 500 — the analysis can still run on the remaining tiles.
+        if not value:
+            return value
+        return {tile_id: item for tile_id, item in value.items() if str(tile_id).lstrip("-").isdigit()}
+
 
 class TextSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
@@ -1133,6 +1141,7 @@ class DashboardsViewSet(
                     "data": summarize_insight_result(item["data"]),
                 }
                 for tile_id, item in client_results.items()
+                if str(tile_id).lstrip("-").isdigit()
             }
         else:
             before_results = self._get_cached_results_for_analysis(dashboard, request)
