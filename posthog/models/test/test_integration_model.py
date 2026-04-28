@@ -1611,7 +1611,7 @@ class TestGitHubIntegrationModel(BaseTest):
     @patch("posthog.models.integration.reload_integrations_on_workers")
     def test_get_access_token_refreshes_when_expired(self, mock_reload, mock_client_request):
         integration = self.create_integration(
-            config={"expires_in": 3600, "refreshed_at": 0},  # expired
+            config={"expires_in": 3600, "refreshed_at": int(time.time()) - 7200},  # expired: refreshed 2h ago
             sensitive_config={"access_token": "old-token"},
         )
         mock_response = MagicMock()
