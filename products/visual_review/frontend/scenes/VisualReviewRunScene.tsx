@@ -11,6 +11,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
@@ -440,7 +441,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                 icon={<IconChevronLeft />}
                                 onClick={goToPrevious}
                                 disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
-                                tooltip="Previous (P)"
+                                sideIcon={<KeyboardShortcut p />}
                                 data-attr="visual-review-snapshot-previous"
                             >
                                 Previous
@@ -452,10 +453,10 @@ export function VisualReviewRunScene(): JSX.Element {
                             )}
                             <LemonButton
                                 size="xsmall"
-                                sideIcon={<IconChevronRight />}
+                                icon={<KeyboardShortcut n />}
                                 onClick={goToNext}
                                 disabledReason={!hasNext ? 'No next snapshot' : undefined}
-                                tooltip="Next (N)"
+                                sideIcon={<IconChevronRight />}
                                 data-attr="visual-review-snapshot-next"
                             >
                                 Next
