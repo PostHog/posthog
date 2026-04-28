@@ -5027,6 +5027,7 @@ export interface SubscriptionType {
     created_by?: UserBasicType | null
     created_at: string
     deleted?: boolean
+    enabled?: boolean
     summary_enabled?: boolean
     summary_prompt_guide?: string
 }

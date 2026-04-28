@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconChevronLeft } from '@posthog/icons'
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -172,9 +172,19 @@ export function EditSubscription({
                             </LemonBanner>
                         )}
 
-                        <LemonField name="title" label="Name">
-                            <LemonInput placeholder="e.g. Weekly team report" />
-                        </LemonField>
+                        <div className="flex gap-4 items-center">
+                            <LemonField className="flex-auto" name="title" label="Name">
+                                <LemonInput placeholder="e.g. Weekly team report" />
+                            </LemonField>
+                            <LemonField name="enabled">
+                                <LemonCheckbox
+                                    checked={subscription?.enabled ?? true}
+                                    data-attr="subscription-enabled"
+                                    fullWidth
+                                    label="Enabled"
+                                />
+                            </LemonField>
+                        </div>
 
                         {dashboard?.tiles && selectionReady && (
                             <LemonField name="dashboard_export_insights" label="Insights to include">
