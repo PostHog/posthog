@@ -1,12 +1,9 @@
-import crypto from 'crypto'
 import { DateTime } from 'luxon'
 
 import { defaultConfig } from '../../config/config'
 import { ParsedMessageData, SnapshotEvent } from '../kafka/types'
 import { MouseInteractions, RRWebEventSource, RRWebEventType } from '../rrweb-types'
-import { MAX_UNIQUE_VALUES, SessionFeatureRecorder } from './session-feature-recorder'
-
-import { MAX_UNIQUE_VALUES, md5Hex, SessionFeatureRecorder } from './session-feature-recorder'
+import { MAX_UNIQUE_VALUES, SessionFeatureRecorder, md5Hex } from './session-feature-recorder'
 
 jest.mock('../../config/config', () => ({
     defaultConfig: {
@@ -740,7 +737,7 @@ describe('SessionFeatureRecorder', () => {
             recorder.recordMessage(createMessage(events))
             const result = recorder.end()!
 
-            expect(result.visitedUrls).toEqual([md5('https://example.com/'), md5('https://example.com/about')])
+            expect(result.visitedUrls).toEqual([md5Hex('https://example.com/'), md5Hex('https://example.com/about')])
         })
 
         it('should cap unique visited URLs at MAX_UNIQUE_VALUES', () => {
