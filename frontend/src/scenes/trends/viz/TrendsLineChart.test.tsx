@@ -2,16 +2,6 @@ import '@testing-library/jest-dom'
 
 import { cleanup, screen, waitFor } from '@testing-library/react'
 
-// Trends.tsx routes line/area displays through ActionsLineGraph (chart.js) until
-// the hog-charts feature-flag gate lands. Swap it at the import boundary so
-// renderInsight() picks up TrendsLineChartD3 — the one under test.
-jest.mock('scenes/trends/viz', () => {
-    const actual = jest.requireActual('scenes/trends/viz')
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { TrendsLineChartD3 } = require('scenes/trends/viz/TrendsLineChartD3')
-    return { ...actual, ActionsLineGraph: TrendsLineChartD3 }
-})
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { setupJsdom } from 'lib/hog-charts/test-helpers'
 
@@ -34,7 +24,7 @@ afterEach(() => {
 
 const HOG_CHARTS_FLAG = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS]: true }
 
-describe('TrendsLineChartD3', () => {
+describe('TrendsLineChart', () => {
     describe('tooltips', () => {
         it('shows the series value and glyph for a single series', async () => {
             renderInsight({ query: buildTrendsQuery(), featureFlags: HOG_CHARTS_FLAG })
