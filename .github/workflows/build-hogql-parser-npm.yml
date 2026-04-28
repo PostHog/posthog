@@ -31,7 +31,7 @@ jobs:
 
             - name: Check if common/hogql_parser/ has changed
               id: changed-files
-              uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
+              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
                   files_yaml: |
                       parser:
@@ -39,7 +39,7 @@ jobs:
 
             - name: Check package version and detect an update
               id: check-package-version
-              uses: PostHog/check-package-version@138438a8fed9213fa112f841b1c89f9bd68f5cca # v2.1.0
+              uses: PostHog/check-package-version@f540540cb12d45ec3c58d42dbf1d60070ed2d268 # v2.1.1
               with:
                   path: common/hogql_parser
 
@@ -133,7 +133,7 @@ jobs:
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -164,9 +164,11 @@ jobs:
                       sleep 0.5
                   done
 
-            - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
+            - uses: EndBug/add-and-commit@290ea2c423ad77ca9c62ae0f5b224379612c0321 # v10.0.0
               with:
-                  add: '["frontend/package.json", "pnpm-lock.yaml"]'
+                  add: |
+                      frontend/package.json
+                      pnpm-lock.yaml
                   commit: '--no-verify'
                   message: 'Use new @posthog/hogql-parser npm version'
                   default_author: github_actions

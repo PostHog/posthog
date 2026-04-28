@@ -73,21 +73,21 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert (
             registry.get_sample_value(
                 "posthog_tasks_runs_in_status",
-                {"status": "queued", "origin_product": "slack", "environment": "cloud"},
+                {"status": "queued", "origin_product": "slack", "run_environment": "cloud"},
             )
             == 2
         )
         assert (
             registry.get_sample_value(
                 "posthog_tasks_runs_in_status",
-                {"status": "in_progress", "origin_product": "user_created", "environment": "cloud"},
+                {"status": "in_progress", "origin_product": "user_created", "run_environment": "cloud"},
             )
             == 1
         )
         assert (
             registry.get_sample_value(
                 "posthog_tasks_runs_in_status",
-                {"status": "in_progress", "origin_product": "user_created", "environment": "local"},
+                {"status": "in_progress", "origin_product": "user_created", "run_environment": "local"},
             )
             == 1
         )
@@ -107,7 +107,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert (
             registry.get_sample_value(
                 "posthog_tasks_runs_in_status",
-                {"status": status.value, "origin_product": "slack", "environment": "cloud"},
+                {"status": status.value, "origin_product": "slack", "run_environment": "cloud"},
             )
             is None
         )
@@ -125,7 +125,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
 
         age = registry.get_sample_value(
             "posthog_tasks_oldest_open_run_age_seconds",
-            {"status": "queued", "origin_product": "slack", "environment": "cloud"},
+            {"status": "queued", "origin_product": "slack", "run_environment": "cloud"},
         )
         assert age is not None
         # Oldest run was ~30 minutes ago; allow generous slack for test timing.
@@ -147,14 +147,14 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert (
             registry.get_sample_value(
                 "posthog_tasks_runs_created_1h",
-                {"origin_product": "slack", "environment": "cloud"},
+                {"origin_product": "slack", "run_environment": "cloud"},
             )
             == 2
         )
         assert (
             registry.get_sample_value(
                 "posthog_tasks_runs_created_1h",
-                {"origin_product": "user_created", "environment": "cloud"},
+                {"origin_product": "user_created", "run_environment": "cloud"},
             )
             == 1
         )
@@ -172,14 +172,14 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert (
             registry.get_sample_value(
                 "posthog_tasks_runs_terminal_1h",
-                {"status": "completed", "origin_product": "slack", "environment": "cloud"},
+                {"status": "completed", "origin_product": "slack", "run_environment": "cloud"},
             )
             == 2
         )
         assert (
             registry.get_sample_value(
                 "posthog_tasks_runs_terminal_1h",
-                {"status": "failed", "origin_product": "user_created", "environment": "cloud"},
+                {"status": "failed", "origin_product": "user_created", "run_environment": "cloud"},
             )
             == 1
         )
@@ -196,7 +196,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert (
             registry.get_sample_value(
                 "posthog_tasks_oldest_open_run_age_seconds",
-                {"status": "not_started", "origin_product": "slack", "environment": "cloud"},
+                {"status": "not_started", "origin_product": "slack", "run_environment": "cloud"},
             )
             is None
         )
@@ -204,7 +204,7 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert (
             registry.get_sample_value(
                 "posthog_tasks_runs_in_status",
-                {"status": "not_started", "origin_product": "slack", "environment": "cloud"},
+                {"status": "not_started", "origin_product": "slack", "run_environment": "cloud"},
             )
             == 1
         )

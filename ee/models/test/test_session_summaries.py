@@ -108,6 +108,21 @@ class TestSingleSessionSummary(BaseTest):
         )
         self.assertIsNone(result)
 
+    def test_get_summary_matches_legacy_row_without_new_optional_fields(self) -> None:
+        SingleSessionSummary.objects.create(
+            team_id=self.team.id,
+            session_id=self.session_id,
+            summary=self.summary_data,
+            extra_summary_context={"focus_area": "authentication"},
+        )
+        result: SingleSessionSummary | None = SingleSessionSummary.objects.get_summary(
+            team_id=self.team.id,
+            session_id=self.session_id,
+            extra_summary_context=ExtraSummaryContext(focus_area="authentication"),
+        )
+        assert result is not None
+        self.assertEqual(result.extra_summary_context, {"focus_area": "authentication"})
+
     def test_exception_event_ids_limit(self) -> None:
         long_exception_list: list[str] = [f"evt-{i:03d}" for i in range(150)]
 

@@ -1,4 +1,4 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
@@ -164,23 +164,23 @@ describe('ErrorTrackingConsumer', () => {
                 events: new SingleIngestionOutput(
                     'events',
                     hub.ERROR_TRACKING_CONSUMER_OUTPUT_TOPIC,
-                    hub.kafkaProducer,
+                    mockProducer,
                     'test'
                 ),
                 ingestion_warnings: new SingleIngestionOutput(
                     'ingestion_warnings',
                     'clickhouse_ingestion_warnings_test',
-                    hub.kafkaProducer,
+                    mockProducer,
                     'test'
                 ),
-                dlq: new SingleIngestionOutput('dlq', hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC, hub.kafkaProducer, 'test'),
+                dlq: new SingleIngestionOutput('dlq', hub.ERROR_TRACKING_CONSUMER_DLQ_TOPIC, mockProducer, 'test'),
                 overflow: new SingleIngestionOutput(
                     'overflow',
                     hub.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC || '',
-                    hub.kafkaProducer,
+                    mockProducer,
                     'test'
                 ),
-                tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', hub.kafkaProducer, 'test'),
+                tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', mockProducer, 'test'),
             }),
             teamManager: hub.teamManager,
             hogTransformer: mockHogTransformer,

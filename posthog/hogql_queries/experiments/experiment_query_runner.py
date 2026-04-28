@@ -31,6 +31,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import get_experiment_date_range
+from posthog.hogql_queries.experiments.cuped_config import get_cuped_config
 from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
 from posthog.hogql_queries.experiments.experiment_query_builder import (
     ExperimentQueryBuilder,
@@ -144,6 +145,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Just to simplify access
         self.metric = self.query.metric
+        self.cuped_config = get_cuped_config(self.experiment.stats_config, self.metric)
 
         self.clickhouse_sql: str | None = None
         self.hogql: str | None = None
@@ -277,6 +279,7 @@ class ExperimentQueryRunner(QueryRunner):
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
             funnel_steps_data_disabled=funnel_steps_data_disabled,
+            cuped_config=self.cuped_config,
         )
 
         should_precompute = self._should_precompute()
@@ -313,7 +316,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _evaluate_experiment_query(
         self,
-    ) -> list[tuple]:
+    ) -> tuple[list[tuple], list[str]]:
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         metric_name = self.metric.name or get_default_metric_title(self.metric.model_dump())
@@ -375,7 +378,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
-        return sorted_results
+        return sorted_results, response.columns or []
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
@@ -404,8 +407,8 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
         """Fetch and prepare variant results with missing variants added."""
-        sorted_results = self._evaluate_experiment_query()
-        variant_results = get_variant_results(sorted_results, self.metric)
+        sorted_results, columns = self._evaluate_experiment_query()
+        variant_results = get_variant_results(sorted_results, columns)
         return self._add_missing_variants(variant_results)
 
     def _has_breakdown(self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]) -> bool:
@@ -422,6 +425,7 @@ class ExperimentQueryRunner(QueryRunner):
                 control_variant=control_variant,
                 test_variants=test_variants,
                 stats_config=self.experiment.stats_config,
+                cuped_config=self.cuped_config,
             )
 
         return get_bayesian_experiment_result(
@@ -429,6 +433,7 @@ class ExperimentQueryRunner(QueryRunner):
             control_variant=control_variant,
             test_variants=test_variants,
             stats_config=self.experiment.stats_config,
+            cuped_config=self.cuped_config,
         )
 
     def _process_breakdown_results(

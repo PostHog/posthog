@@ -5,7 +5,7 @@ import { useRef, useState } from 'react'
 
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS, SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet, uuid } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFilterWithDisplay, isLifecycleFilter } from 'scenes/insights/sharedUtils'
@@ -206,7 +206,6 @@ export const AutocaptureWithSaveAsAction: Story = {
     render: renderAutocaptureFilter,
     args: {},
     parameters: {
-        featureFlags: [FEATURE_FLAGS.AUTOCAPTURE_SAVE_AS_ACTION],
         testOptions: { waitForSelector: '[data-attr="autocapture-save-as-action"]' },
     },
     play: async ({ canvasElement }) => {

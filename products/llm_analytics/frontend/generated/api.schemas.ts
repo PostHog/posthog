@@ -79,6 +79,7 @@ export const OutputTypeEnumApi = {
  * `gemini` - Gemini
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
+ * `azure_openai` - Azure OpenAI
  */
 export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
@@ -88,6 +89,7 @@ export const LLMProviderEnumApi = {
     Gemini: 'gemini',
     Openrouter: 'openrouter',
     Fireworks: 'fireworks',
+    AzureOpenai: 'azure_openai',
 } as const
 
 /**
@@ -808,6 +810,23 @@ export interface LLMProviderKeyApi {
     readonly error_message: string | null
     api_key?: string
     readonly api_key_masked: string
+    /** Azure OpenAI endpoint URL */
+    azure_endpoint?: string
+    /**
+     * Azure OpenAI API version
+     * @maxLength 20
+     */
+    api_version?: string
+    /**
+     * Azure endpoint (read-only, for display)
+     * @nullable
+     */
+    readonly azure_endpoint_display: string | null
+    /**
+     * Azure API version (read-only, for display)
+     * @nullable
+     */
+    readonly api_version_display: string | null
     set_as_active?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -834,6 +853,23 @@ export interface PatchedLLMProviderKeyApi {
     readonly error_message?: string | null
     api_key?: string
     readonly api_key_masked?: string
+    /** Azure OpenAI endpoint URL */
+    azure_endpoint?: string
+    /**
+     * Azure OpenAI API version
+     * @maxLength 20
+     */
+    api_version?: string
+    /**
+     * Azure endpoint (read-only, for display)
+     * @nullable
+     */
+    readonly azure_endpoint_display?: string | null
+    /**
+     * Azure API version (read-only, for display)
+     * @nullable
+     */
+    readonly api_version_display?: string | null
     set_as_active?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1093,15 +1129,27 @@ export const SentimentRequestAnalysisLevelEnumApi = {
 
 export interface SentimentRequestApi {
     /**
+     * Trace IDs or generation IDs to classify, depending on analysis_level.
      * @minItems 1
      * @maxItems 5
      */
     ids: string[]
+    /** Whether the IDs are 'trace' IDs or 'generation' IDs.
+
+* `trace` - trace
+* `generation` - generation */
     analysis_level?: SentimentRequestAnalysisLevelEnumApi
+    /** If true, bypass cache and reclassify. */
     force_refresh?: boolean
-    /** @nullable */
+    /**
+     * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+     * @nullable
+     */
     date_from?: string | null
-    /** @nullable */
+    /**
+     * End of date range for the lookup. Defaults to now.
+     * @nullable
+     */
     date_to?: string | null
 }
 
@@ -2322,6 +2370,10 @@ export type LlmPromptsResolveNameRetrieveParams = {
 }
 
 export type LlmSkillsListParams = {
+    /**
+     * Filter skills by the ID of the user who created them.
+     */
+    created_by_id?: number
     /**
      * Number of results to return per page.
      */

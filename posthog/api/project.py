@@ -76,6 +76,7 @@ MAX_ALLOWED_PROJECTS_PER_ORG = 1500
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
+        # Keep this serializer narrow; legacy Team-compatible fields live on ProjectBackwardCompatSerializer.
         fields = ["id", "organization_id", "name", "product_description", "created_at"]
         read_only_fields = ["id", "organization_id", "created_at"]
 

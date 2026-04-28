@@ -52,7 +52,7 @@ describe('DateFilter', () => {
         expect(rollingLabel).toHaveTextContent('In the last')
         await userEvent.click(rollingLabel)
 
-        await waitFor(() => expect(onChange).toHaveBeenCalledWith('-5d', '', false))
+        await waitFor(() => expect(onChange).toHaveBeenCalledWith('-5d', null, false))
     })
 })
 

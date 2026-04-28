@@ -217,11 +217,17 @@ class LLMSkillViewSet(
         return serializer.validated_data
 
     def _get_list_queryset(self, request: Request) -> QuerySet[LLMSkill]:
+        params = self._get_list_params(request)
+
         queryset = get_latest_skills_queryset(self.team)
 
-        search = request.query_params.get("search", "").strip()
+        search = params.get("search", "").strip()
         if search:
             queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
+
+        created_by_id = params.get("created_by_id")
+        if created_by_id:
+            queryset = queryset.filter(created_by_id=created_by_id)
 
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(order_by if order_by in ALLOWED_LIST_ORDERINGS else "-created_at", "-id")
