@@ -101,8 +101,8 @@ def get_runtime_ducklake_version() -> int | None:
         current duckdb version isn't in the known mapping.
     """
     version = duckdb.__version__
-    for prefix, dl_version in DUCKDB_VERSION_TO_DUCKLAKE.items():
-        if version.startswith(prefix):
+    for expected_version, dl_version in DUCKDB_VERSION_TO_DUCKLAKE.items():
+        if version == expected_version:
             return dl_version
 
     logger.warning(
@@ -119,18 +119,30 @@ def check_ducklake_version_compatible(
 ) -> bool:
     """Check if the current runtime is compatible with a catalog's ducklake version.
 
-    When the catalog has no version set (None), we proceed without warning
-    for backward compatibility (dev mode, unset catalogs).
+    When the catalog has no version set (None), we proceed for backward
+    compatibility (dev mode, unset catalogs). When the catalog version is set
+    but the runtime version is unknown, we skip to avoid potential incompatibility.
 
-    Returns True if compatible or version is unknown, False if incompatible.
-    Logs and returns False when there's a clear mismatch.
+    Returns True if compatible, False if incompatible or unknown.
     """
     if catalog.ducklake_version is None:
         return True
 
     runtime_version = get_runtime_ducklake_version()
     if runtime_version is None:
-        return True
+        context.log.warning(
+            f"Unknown DuckLake version for team_id={catalog.team_id}: "
+            f"catalog requires version {catalog.ducklake_version} but this runtime "
+            f"has duckdb {duckdb.__version__} which is not in the known version mapping. "
+            f"Skipping to avoid potential incompatibility."
+        )
+        logger.warning(
+            "duckling_unknown_runtime_version",
+            team_id=catalog.team_id,
+            catalog_version=catalog.ducklake_version,
+            duckdb_version=duckdb.__version__,
+        )
+        return False
 
     if catalog.ducklake_version != runtime_version:
         context.log.error(
