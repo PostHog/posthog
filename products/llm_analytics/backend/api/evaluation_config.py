@@ -72,7 +72,7 @@ class EvaluationConfigSetActiveKeyRequestSerializer(serializers.Serializer):
 class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level evaluation configuration"""
 
-    scope_object = "llm_provider_key"
+    scope_object = "evaluation"
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated, AccessControlPermission]
 

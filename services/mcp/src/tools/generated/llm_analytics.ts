@@ -5,9 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     LlmAnalyticsClusteringJobsListQueryParams,
     LlmAnalyticsClusteringJobsRetrieveParams,
-    LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody,
     LlmAnalyticsEvaluationSummaryCreateBody,
-    LlmAnalyticsModelsRetrieveQueryParams,
     LlmAnalyticsSentimentCreateBody,
     LlmAnalyticsSummarizationCreateBody,
 } from '@/generated/llm_analytics/api'
@@ -127,28 +125,6 @@ const llmAnalyticsEvaluationSummaryCreate = (): ToolBase<
     },
 })
 
-const LlmAnalyticsModelsRetrieveSchema = LlmAnalyticsModelsRetrieveQueryParams
-
-const llmAnalyticsModelsRetrieve = (): ToolBase<
-    typeof LlmAnalyticsModelsRetrieveSchema,
-    Schemas.LLMModelsListResponse
-> => ({
-    name: 'llm-analytics-models-retrieve',
-    schema: LlmAnalyticsModelsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsModelsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LLMModelsListResponse>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/models/`,
-            query: {
-                key_id: params.key_id,
-                provider: params.provider,
-            },
-        })
-        return result
-    },
-})
-
 const LlmAnalyticsSentimentCreateSchema = LlmAnalyticsSentimentCreateBody
 
 const llmAnalyticsSentimentCreate = (): ToolBase<
@@ -234,10 +210,7 @@ const llmAnalyticsSummarizationCreate = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llm-analytics-clustering-jobs-list': llmAnalyticsClusteringJobsList,
     'llm-analytics-clustering-jobs-retrieve': llmAnalyticsClusteringJobsRetrieve,
-    'llm-analytics-eval-config-retrieve': llmAnalyticsEvalConfigRetrieve,
-    'llm-analytics-eval-config-set-active-key-create': llmAnalyticsEvalConfigSetActiveKeyCreate,
     'llm-analytics-evaluation-summary-create': llmAnalyticsEvaluationSummaryCreate,
-    'llm-analytics-models-retrieve': llmAnalyticsModelsRetrieve,
     'llm-analytics-sentiment-create': llmAnalyticsSentimentCreate,
     'llm-analytics-summarization-create': llmAnalyticsSummarizationCreate,
 }

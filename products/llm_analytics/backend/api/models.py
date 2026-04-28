@@ -33,7 +33,7 @@ class LLMModelsListResponseSerializer(serializers.Serializer):
 class LLMModelsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """List available models for a provider."""
 
-    scope_object = "llm_provider_key"
+    scope_object = "evaluation"
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated, AccessControlPermission]
 

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 5 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -33,36 +33,6 @@ export const LlmAnalyticsClusteringJobsRetrieveParams = /* @__PURE__ */ zod.obje
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-/**
- * Get the evaluation config for this team
- */
-export const LlmAnalyticsEvaluationConfigRetrieveParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-/**
- * Set the active provider key for evaluations
- */
-export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ */ zod.object({
-    key_id: zod
-        .string()
-        .describe(
-            "UUID of an existing LLM provider key (state must be 'ok') to mark as the active key for running llm_judge evaluations team-wide."
         ),
 })
 
@@ -116,29 +86,6 @@ export const LlmAnalyticsEvaluationSummaryCreateBody = /* @__PURE__ */ zod
             .describe('If true, bypass cache and generate a fresh summary'),
     })
     .describe('Request serializer for evaluation summary - accepts IDs only, fetches data server-side.')
-
-/**
- * List available models for a provider.
- */
-export const LlmAnalyticsModelsRetrieveParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    key_id: zod
-        .string()
-        .optional()
-        .describe(
-            'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.'
-        ),
-    provider: zod
-        .enum(['anthropic', 'azure_openai', 'fireworks', 'gemini', 'openai', 'openrouter'])
-        .describe('LLM provider to list models for. Must be one of the supported providers.'),
-})
 
 export const LlmAnalyticsSentimentCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod

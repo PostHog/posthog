@@ -123,36 +123,12 @@ tools:
     llm-analytics-clustering-runs-create:
         operation: llm_analytics_clustering_runs_create
         enabled: false
-    llm-analytics-eval-config-retrieve:
+    llm-analytics-evaluation-config-retrieve:
         operation: llm_analytics_evaluation_config_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get evaluation config
-        description: >
-            Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge
-            evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the
-            team has either trial credits available or an active provider key configured — without one, llm_judge runs
-            will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.
-    llm-analytics-eval-config-set-active-key-create:
+        enabled: false
+    llm-analytics-evaluation-config-set-active-key-create:
         operation: llm_analytics_evaluation_config_set_active_key_create
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Set active evaluation provider key
-        description: >
-            Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing
-            provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't
-            pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from
-            the PostHog UI before retrying.
+        enabled: false
     llm-analytics-evaluation-reports-create:
         operation: llm_analytics_evaluation_reports_create
         enabled: false
@@ -197,21 +173,7 @@ tools:
         requires_ai_consent: true
     llm-analytics-models-retrieve:
         operation: llm_analytics_models_retrieve
-        enabled: true
-        scopes:
-            - llm_analytics:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: List supported LLM judge models
-        description: >
-            List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter
-            (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the
-            list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry
-            returns the model id and whether it is available on PostHog trial credits. Call this before creating an
-            llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is
-            chosen.
+        enabled: false
     llm-analytics-provider-key-validations-create:
         operation: llm_analytics_provider_key_validations_create
         enabled: false
