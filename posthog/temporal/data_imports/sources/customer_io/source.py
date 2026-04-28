@@ -92,7 +92,6 @@ Once created, copy the **Signing key** from the webhook details page and add it 
                         required=True,
                         secret=True,
                         placeholder="Customer.io reporting webhook signing key",
-                        secret=True,
                     ),
                 ],
             ),
