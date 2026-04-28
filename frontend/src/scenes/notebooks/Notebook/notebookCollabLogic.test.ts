@@ -4,7 +4,7 @@ import { EditorState } from '@tiptap/pm/state'
 
 import { TTEditor } from 'lib/components/RichContentEditor/types'
 
-import { applyRemoteStep, RemoteStep, streamEventToRemoteStep } from './notebookCollabLogic'
+import { applyRemoteStep, RemoteStep } from './notebookCollabLogic'
 import { REMOTE_PRESENCE_META } from './RemotePresenceExtension'
 
 jest.mock('posthog-js', () => ({ captureException: jest.fn() }))
@@ -44,13 +44,7 @@ function insertStepJSON(at: number, text: string): Record<string, any> {
 }
 
 function presence(head: number): RemoteStep['presence'] {
-    return {
-        clientId: REMOTE_CLIENT_ID,
-        userId: 42,
-        userName: 'Remote User',
-        userColor: '#ff0000',
-        cursorHead: head,
-    }
+    return { userId: 42, userName: 'Remote User', head }
 }
 
 describe('notebookCollabLogic', () => {
@@ -84,8 +78,8 @@ describe('notebookCollabLogic', () => {
             expect(editor.view.dispatch).toHaveBeenCalledTimes(1)
             const [tr] = (editor.view.dispatch as jest.Mock).mock.calls[0]
             expect(tr.getMeta(REMOTE_PRESENCE_META)).toEqual({
-                type: 'set',
-                presence: expect.objectContaining({ clientId: REMOTE_CLIENT_ID, head: 2 }),
+                clientId: REMOTE_CLIENT_ID,
+                presence: { userId: 42, userName: 'Remote User', head: 2 },
             })
             // doc and collab version should be untouched
             expect(editor.state.doc.textContent).toBe(startDoc)
@@ -130,8 +124,8 @@ describe('notebookCollabLogic', () => {
 
             const [tr] = (editor.view.dispatch as jest.Mock).mock.calls[0]
             expect(tr.getMeta(REMOTE_PRESENCE_META)).toEqual({
-                type: 'set',
-                presence: expect.objectContaining({ clientId: REMOTE_CLIENT_ID, head: 5 }),
+                clientId: REMOTE_CLIENT_ID,
+                presence: { userId: 42, userName: 'Remote User', head: 5 },
             })
             expect(tr.docChanged).toBe(true)
         })
@@ -147,72 +141,6 @@ describe('notebookCollabLogic', () => {
                 })
             ).not.toThrow()
             expect(editor.view.dispatch).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('streamEventToRemoteStep', () => {
-        it('maps the step, clientId and version', () => {
-            const remote = streamEventToRemoteStep({ step: { stepType: 'replace' }, client_id: REMOTE_CLIENT_ID }, 7)
-            expect(remote).toEqual({
-                step: { stepType: 'replace' },
-                clientId: REMOTE_CLIENT_ID,
-                version: 7,
-                presence: undefined,
-            })
-        })
-
-        it('includes presence when user_name and cursor_head are set', () => {
-            const remote = streamEventToRemoteStep(
-                {
-                    step: {},
-                    client_id: REMOTE_CLIENT_ID,
-                    user_id: 42,
-                    user_name: 'Remote User',
-                    cursor_head: 10,
-                },
-                3
-            )
-            expect(remote.presence).toEqual({
-                clientId: REMOTE_CLIENT_ID,
-                userId: 42,
-                userName: 'Remote User',
-                userColor: expect.any(String),
-                cursorHead: 10,
-            })
-            expect(remote.presence!.userColor).toBeTruthy()
-        })
-
-        it.each([
-            { desc: 'missing user_name', event: { cursor_head: 10 } },
-            { desc: 'missing cursor_head', event: { user_name: 'Remote User' } },
-            { desc: 'neither user_name nor cursor_head', event: {} },
-        ])('omits presence when $desc', ({ event }) => {
-            const remote = streamEventToRemoteStep({ step: {}, client_id: REMOTE_CLIENT_ID, ...event }, 1)
-            expect(remote.presence).toBeUndefined()
-        })
-
-        it('produces a stable color for the same user_id', () => {
-            const a = streamEventToRemoteStep(
-                { step: {}, client_id: REMOTE_CLIENT_ID, user_id: 7, user_name: 'A', cursor_head: 0 },
-                1
-            )
-            const b = streamEventToRemoteStep(
-                { step: {}, client_id: 'other', user_id: 7, user_name: 'B', cursor_head: 0 },
-                2
-            )
-            expect(a.presence!.userColor).toBe(b.presence!.userColor)
-        })
-
-        it('falls back to slot 0 color for null user_id', () => {
-            const anon = streamEventToRemoteStep(
-                { step: {}, client_id: REMOTE_CLIENT_ID, user_id: null, user_name: 'Anon', cursor_head: 0 },
-                1
-            )
-            const slotZero = streamEventToRemoteStep(
-                { step: {}, client_id: 'other', user_id: 0, user_name: 'Zero', cursor_head: 0 },
-                2
-            )
-            expect(anon.presence!.userColor).toBe(slotZero.presence!.userColor)
         })
     })
 })

@@ -2,18 +2,21 @@ import { Extension } from '@tiptap/core'
 import { EditorState, Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
-export type RemotePresence = {
+import { getSeriesColor } from 'lib/colors'
+
+import type { RemotePresence } from './notebookCollabLogic'
+
+/** Meta payload dispatched to the plugin to upsert a remote caret. */
+export type RemotePresenceUpdate = {
     clientId: string
-    userId?: number | null
-    userName: string
-    userColor: string
-    head: number
-    lastSeenAt: number
+    presence: RemotePresence
 }
+
+type StoredPresence = RemotePresence & { lastSeenAt: number }
 
 type PluginState = {
     /** keyed by clientId */
-    presences: Map<string, RemotePresence>
+    presences: Map<string, StoredPresence>
 }
 
 export const REMOTE_PRESENCE_META = 'remote-presence-update'
@@ -21,23 +24,16 @@ const META_KEY = REMOTE_PRESENCE_META
 const PRESENCE_TTL_MS = 30_000
 const META_PRUNE = 'remote-presence-prune'
 
-export type RemotePresenceUpdate = UpdatePayload
-
 export const remotePresencePluginKey = new PluginKey<PluginState>('remote-presence')
 
-type UpdatePayload =
-    | { type: 'set'; presence: Omit<RemotePresence, 'lastSeenAt'> & { lastSeenAt?: number } }
-    | { type: 'remove'; clientId: string }
-    | { type: 'clear' }
-
-function buildDecorations(state: EditorState, presences: Map<string, RemotePresence>): DecorationSet {
+function buildDecorations(state: EditorState, presences: Map<string, StoredPresence>): DecorationSet {
     if (presences.size === 0) {
         return DecorationSet.empty
     }
     const docSize = state.doc.content.size
     const decorations: Decoration[] = []
 
-    for (const presence of presences.values()) {
+    for (const [clientId, presence] of presences) {
         const head = clamp(presence.head, 0, docSize)
 
         // Caret as a side-positioned widget. side:-1 keeps it in front of any
@@ -45,8 +41,8 @@ function buildDecorations(state: EditorState, presences: Map<string, RemotePrese
         // caret still wins visually. Range-selection highlights will land with
         // the separate :presence-stream (clicks/drags without edits).
         decorations.push(
-            Decoration.widget(head, () => buildCaretDom(presence), {
-                key: `presence-${presence.clientId}`,
+            Decoration.widget(head, () => buildCaretDom(clientId, presence), {
+                key: `presence-${clientId}`,
                 side: -1,
             })
         )
@@ -55,11 +51,11 @@ function buildDecorations(state: EditorState, presences: Map<string, RemotePrese
     return DecorationSet.create(state.doc, decorations)
 }
 
-function buildCaretDom(presence: RemotePresence): HTMLElement {
+function buildCaretDom(clientId: string, presence: StoredPresence): HTMLElement {
     const root = document.createElement('span')
     root.className = 'NotebookRemotePresence'
-    root.style.setProperty('--remote-presence-color', presence.userColor)
-    root.dataset.clientId = presence.clientId
+    root.style.setProperty('--remote-presence-color', getSeriesColor(presence.userId))
+    root.dataset.clientId = clientId
 
     const flag = document.createElement('span')
     flag.className = 'NotebookRemotePresence__flag'
@@ -79,8 +75,8 @@ function clamp(n: number, min: number, max: number): number {
     return n
 }
 
-function pruneStale(presences: Map<string, RemotePresence>, now: number): Map<string, RemotePresence> | null {
-    let next: Map<string, RemotePresence> | null = null
+function pruneStale(presences: Map<string, StoredPresence>, now: number): Map<string, StoredPresence> | null {
+    let next: Map<string, StoredPresence> | null = null
     for (const [id, p] of presences) {
         if (now - p.lastSeenAt > PRESENCE_TTL_MS) {
             if (!next) {
@@ -105,7 +101,7 @@ export const RemotePresenceExtension = Extension.create({
 
                     // 1. Project stored positions (pre-transaction coords) forward through any doc changes.
                     if (transaction.docChanged && presences.size > 0) {
-                        const mapped = new Map<string, RemotePresence>()
+                        const mapped = new Map<string, StoredPresence>()
                         for (const [id, p] of presences) {
                             mapped.set(id, { ...p, head: transaction.mapping.map(p.head) })
                         }
@@ -114,29 +110,10 @@ export const RemotePresenceExtension = Extension.create({
 
                     // 2. Apply meta after mapping: an upsert piggybacked on a remote step already
                     //    carries post-transaction coords, so mapping it again would double-shift.
-                    const meta = transaction.getMeta(META_KEY) as UpdatePayload | undefined
+                    const meta = transaction.getMeta(META_KEY) as RemotePresenceUpdate | undefined
                     if (meta) {
-                        switch (meta.type) {
-                            case 'set': {
-                                presences = new Map(presences)
-                                presences.set(meta.presence.clientId, {
-                                    ...meta.presence,
-                                    lastSeenAt: meta.presence.lastSeenAt ?? Date.now(),
-                                })
-                                break
-                            }
-                            case 'remove': {
-                                if (presences.has(meta.clientId)) {
-                                    presences = new Map(presences)
-                                    presences.delete(meta.clientId)
-                                }
-                                break
-                            }
-                            case 'clear': {
-                                presences = new Map()
-                                break
-                            }
-                        }
+                        presences = new Map(presences)
+                        presences.set(meta.clientId, { ...meta.presence, lastSeenAt: Date.now() })
                     } else if (transaction.getMeta(META_PRUNE)) {
                         const pruned = pruneStale(presences, Date.now())
                         if (pruned) {

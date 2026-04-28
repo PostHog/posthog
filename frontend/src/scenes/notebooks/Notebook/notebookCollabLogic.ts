@@ -7,23 +7,26 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { getSeriesColor } from 'lib/colors'
 import { TTEditor } from 'lib/components/RichContentEditor/types'
 import { uuid } from 'lib/utils'
 
 import type { notebookCollabLogicType } from './notebookCollabLogicType'
 import { REMOTE_PRESENCE_META, RemotePresenceUpdate } from './RemotePresenceExtension'
 
-export type NotebookCollabProps = {
-    shortId: string
+/** SSE `event: step` body from the collab stream endpoint */
+type StreamStepEvent = {
+    step: Record<string, any>
+    client_id: string
+    user_id: number
+    user_name: string
+    cursor_head: number
 }
 
-export type RemoteStepPresence = {
-    clientId: string
-    userId?: number | null
+/** Presence fields piggybacked on every SSE step event (`cursor_head` → `head`) */
+export type RemotePresence = {
+    userId: number
     userName: string
-    userColor: string
-    cursorHead: number
+    head: number
 }
 
 export type RemoteStep = {
@@ -31,20 +34,7 @@ export type RemoteStep = {
     clientId: string
     /** Resulting version after this step is applied (== local getVersion + 1 in normal flow) */
     version: number
-    presence?: RemoteStepPresence
-}
-
-export type StreamStepEvent = {
-    step: Record<string, any>
-    client_id: string
-    user_id?: number | null
-    user_name?: string
-    cursor_head?: number | null
-}
-
-/** Stable presence color from PostHog's data palette; anonymous users get slot 0 */
-function userColor(userId: number | null | undefined): string {
-    return getSeriesColor(typeof userId === 'number' ? userId : 0)
+    presence?: RemotePresence
 }
 
 /**
@@ -59,17 +49,7 @@ export function applyRemoteStep(editor: TTEditor, remote: RemoteStep): void {
         if (!remote.presence) {
             return null
         }
-        const p = remote.presence
-        return {
-            type: 'set',
-            presence: {
-                clientId: p.clientId,
-                userId: p.userId ?? null,
-                userName: p.userName,
-                userColor: p.userColor,
-                head: p.cursorHead,
-            },
-        }
+        return { clientId: remote.clientId, presence: remote.presence }
     }
 
     if (remote.version < expected) {
@@ -102,26 +82,8 @@ export function applyRemoteStep(editor: TTEditor, remote: RemoteStep): void {
     }
 }
 
-export function streamEventToRemoteStep(parsed: StreamStepEvent, version: number): RemoteStep {
-    return {
-        step: parsed.step,
-        clientId: parsed.client_id,
-        version,
-        presence:
-            parsed.user_name && typeof parsed.cursor_head === 'number'
-                ? {
-                      clientId: parsed.client_id,
-                      userId: parsed.user_id ?? null,
-                      userName: parsed.user_name,
-                      userColor: userColor(parsed.user_id),
-                      cursorHead: parsed.cursor_head,
-                  }
-                : undefined,
-    }
-}
-
 export const notebookCollabLogic = kea<notebookCollabLogicType>([
-    props({} as NotebookCollabProps),
+    props({} as { shortId: string }),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookCollabLogic', key]),
     key(({ shortId }) => shortId),
 
@@ -208,7 +170,7 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 }
                 let parsed: StreamStepEvent
                 try {
-                    parsed = JSON.parse(msg.data)
+                    parsed = JSON.parse(msg.data) as StreamStepEvent
                 } catch (e) {
                     posthog.captureException(e as Error, { action: 'notebook collab stream parse' })
                     return
@@ -220,7 +182,16 @@ export const notebookCollabLogic = kea<notebookCollabLogicType>([
                 if (!editor) {
                     return
                 }
-                applyRemoteStep(editor, streamEventToRemoteStep(parsed, version))
+                applyRemoteStep(editor, {
+                    step: parsed.step,
+                    clientId: parsed.client_id,
+                    version,
+                    presence: {
+                        userId: parsed.user_id,
+                        userName: parsed.user_name,
+                        head: parsed.cursor_head,
+                    },
+                })
             }
 
             const onError = (error: any): void => {
