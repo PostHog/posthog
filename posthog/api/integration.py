@@ -481,11 +481,12 @@ class IntegrationViewSet(
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
             self.request.successful_authenticator, OAuthAccessTokenAuthentication
         ):
-            # Slack is exposed alongside GitHub so MCP / API-key callers can list the workspace's
-            # channels for downstream HogFunction wiring (alert delivery, workflow destinations).
-            # Only id, kind, config, errors, and display metadata are returned via the serializer —
-            # access tokens stay in sensitive_config and are not exposed.
-            return defer_repository_cache_fields(queryset.filter(kind__in=["github", "slack"]))
+            # The channels action is Slack-only and exists specifically for downstream HogFunction
+            # wiring (e.g. alert delivery). Permit the lookup for it without broadening list /
+            # retrieve to expose Slack metadata to every API-key caller.
+            if self.action == "channels":
+                return defer_repository_cache_fields(queryset.filter(kind__in=["github", "slack"]))
+            return defer_repository_cache_fields(queryset.filter(kind="github"))
         return queryset
 
     @action(methods=["GET"], detail=False)

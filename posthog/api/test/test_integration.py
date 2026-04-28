@@ -570,20 +570,12 @@ class TestIntegrationAPIKeyAccess:
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["kind"] == "github"
 
-    @patch(
-        "posthog.models.integration.get_instance_settings",
-        return_value={
-            "SLACK_APP_CLIENT_ID": "test-client-id",
-            "SLACK_APP_CLIENT_SECRET": "test-client-secret",
-            "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
-        },
-    )
-    def test_list_integrations_only_shows_github_and_slack_for_api_keys(self, _mock_settings, client: HttpClient):
+    def test_list_integrations_only_shows_github_for_api_keys_and_hides_slack(self, client: HttpClient):
         Integration.objects.create(
             team=self.team,
             kind="slack",
             integration_id="T_LIST",
-            config={"authed_user": {"id": "test_user_id"}, "team": {"name": "Test Workspace"}},
+            config={"authed_user": {"id": "test_user_id"}},
             sensitive_config={"access_token": "test-token"},
             created_by=self.user,
         )
@@ -604,7 +596,7 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         kinds = {integration["kind"] for integration in results}
-        assert kinds == {"github", "slack"}
+        assert kinds == {"github"}
 
     def test_retrieve_github_integration_with_scope_succeeds(self, client: HttpClient):
         key_value = "test_key_123"
