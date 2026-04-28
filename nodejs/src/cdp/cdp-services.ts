@@ -11,7 +11,6 @@ import { TeamManager } from '../utils/team-manager'
 import type { CdpConfig } from './config'
 import {
     BatchHogflowRequestsOutput,
-    LegacyPluginAppMetricsOutput,
     PrecalculatedPersonPropertiesOutput,
     PrefilteredEventsOutput,
     WarehouseSourceWebhooksOutput,
@@ -45,7 +44,6 @@ export type CdpOutput =
     | LogEntriesOutput
     | PrefilteredEventsOutput
     | PrecalculatedPersonPropertiesOutput
-    | LegacyPluginAppMetricsOutput
     | BatchHogflowRequestsOutput
     | WarehouseSourceWebhooksOutput
 
@@ -112,8 +110,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER'
-        | 'CDP_LEGACY_PLUGIN_APP_METRICS_TOPIC'
-        | 'CDP_LEGACY_PLUGIN_APP_METRICS_PRODUCER'
         | 'CDP_BATCH_HOGFLOW_REQUESTS_TOPIC'
         | 'CDP_BATCH_HOGFLOW_REQUESTS_PRODUCER'
         | 'CDP_WAREHOUSE_SOURCE_WEBHOOKS_TOPIC'

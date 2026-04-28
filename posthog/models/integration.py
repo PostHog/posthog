@@ -84,6 +84,8 @@ github_api_request_counter = Counter(
     "Number of GitHub API requests made through a GitHub integration.",
     labelnames=["integration_id", "method", "endpoint", "status_code"],
 )
+
+GITHUB_API_VERSION = "2022-11-28"
 github_api_rate_limit_remaining_gauge = Gauge(
     "github_integration_api_rate_limit_remaining",
     "Most recently observed GitHub API rate limit remaining count by integration and resource.",
@@ -2099,6 +2101,56 @@ class GitHubIntegrationError(Exception):
     pass
 
 
+class GitHubRateLimitError(GitHubIntegrationError):
+    """GitHub API rate limit exhausted for this installation."""
+
+    def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
+        super().__init__(message)
+        self.reset_at = reset_at
+        self.retry_after = retry_after
+
+
+def raise_if_github_rate_limited(response: requests.Response) -> None:
+    """Raise GitHubRateLimitError when the response signals a GitHub rate limit.
+
+    Handles both primary (403 + body) and secondary (429) rate limit formats.
+    Safe to call unconditionally after every GitHub API response.
+    """
+    if response.status_code == 429:
+        is_rate_limited = True
+    elif response.status_code == 403:
+        try:
+            body = response.text
+        except Exception:
+            body = ""
+        is_rate_limited = "rate limit" in body.lower()
+    else:
+        return
+
+    if not is_rate_limited:
+        return
+
+    def _int_header(name: str) -> int | None:
+        val = response.headers.get(name)
+        if not val:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    reset_at = _int_header("x-ratelimit-reset")
+    retry_after = _int_header("retry-after")
+    if retry_after is None and reset_at is not None:
+        retry_after = max(1, reset_at - int(time.time()))
+
+    raise GitHubRateLimitError(
+        f"GitHub API rate limit exceeded (resets at {reset_at})",
+        reset_at=reset_at,
+        retry_after=retry_after,
+    )
+
+
 class GitHubIntegration:
     integration: Integration
 
@@ -2137,7 +2189,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {jwt_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -2225,7 +2277,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=10,
             )
@@ -2396,6 +2448,15 @@ class GitHubIntegration:
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
             self.integration.save()
 
+    def get_access_token(self) -> str:
+        """Return a valid installation access token, refreshing it if expired."""
+        if self.access_token_expired():
+            self.refresh_access_token()
+        token = self.integration.sensitive_config.get("access_token")
+        if not token:
+            raise GitHubIntegrationError("Access token unavailable after refresh")
+        return token
+
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
@@ -2417,7 +2478,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=timeout,
             )
@@ -2502,7 +2563,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
 
@@ -2921,7 +2982,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
 
@@ -2982,7 +3043,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=10,
             )
@@ -3084,7 +3145,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3111,7 +3172,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
             timeout=10,
         )
@@ -3140,7 +3201,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3163,7 +3224,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3198,7 +3259,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
             if get_response.status_code == 200:
@@ -3222,7 +3283,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3263,7 +3324,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3294,7 +3355,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3333,7 +3394,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 

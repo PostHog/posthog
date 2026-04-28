@@ -63,6 +63,7 @@ class Feature(StrEnum):
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
     QUERY = "query"  # customer-facing queries only
+    DEBUG_QUERY = "debug_query"  # /debug/query and related internal engineering tooling
     DIGEST = "digest"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
