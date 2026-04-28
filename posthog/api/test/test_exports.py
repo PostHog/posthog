@@ -1048,35 +1048,35 @@ class TestExports(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, existing_mode, should_succeed)
-            ("llm_screenshots_dont_count", "screenshot", True),
-            ("user_video_exports_count", "video", False),
+            # (name, is_system, should_succeed)
+            ("system_assets_dont_count", True, True),
+            ("user_assets_count", False, False),
         ]
     )
     @patch("posthog.api.exports.async_to_sync")
     @patch("posthog.api.exports.async_connect")
-    def test_video_export_limit_excludes_llm_screenshots(
+    def test_video_export_limit_excludes_system_assets(
         self,
         _name: str,
-        existing_mode: str,
+        is_system: bool,
         should_succeed: bool,
         mock_async_connect,
         mock_async_to_sync,
     ) -> None:
-        """LLM-generated session-moment clips (mode=screenshot) bypass the user-export quota."""
         for i in range(50):
             ExportedAsset.objects.create(
                 team=self.team,
                 export_format="video/webm",
-                export_context={"session_recording_id": f"session_{i}", "mode": existing_mode},
+                export_context={"session_recording_id": f"session_{i}"},
                 created_by=self.user,
+                is_system=is_system,
             )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {
                 "export_format": "video/mp4",
-                "export_context": {"session_recording_id": "new_user_export", "mode": "video"},
+                "export_context": {"session_recording_id": "new_user_export"},
             },
         )
 

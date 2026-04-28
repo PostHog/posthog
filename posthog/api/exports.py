@@ -127,15 +127,10 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         )
 
         if is_full_video_export:
-            # Reject quota-bypass attempts: mode="screenshot" is reserved for internal LLM clips.
-            if export_context.get("mode") == "screenshot":
-                raise ValidationError({"export_context": ["mode='screenshot' is not valid for video exports"]})
-
             # Calculate the start of the current month
             current_time = now()
             start_of_month = current_time.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-            # Skip LLM exports.
             existing_full_video_exports_count = (
                 ExportedAsset.objects.filter(
                     team_id=self.context["team_id"],
@@ -143,7 +138,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     export_context__session_recording_id__isnull=False,
                     created_at__gte=start_of_month,
                 )
-                .exclude(export_context__contains={"mode": "screenshot"})
+                .exclude(is_system=True)
                 .count()
             )
 
