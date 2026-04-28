@@ -66,3 +66,20 @@ export async function yieldEventLoopIfNeeded(caller: string, options?: { thresho
     eventLoopYieldCounter.inc({ caller, waited: 'true' })
     return true
 }
+
+/**
+ * Iterate `items`, calling `fn(item, index)` for each, with a
+ * `yieldEventLoopIfNeeded` between iterations. Use this anywhere you'd write a
+ * `for ... of` over a CPU-bound batch.
+ */
+export async function yieldEach<T>(
+    caller: string,
+    items: ArrayLike<T>,
+    fn: (item: T, index: number) => void | Promise<void>,
+    options?: { thresholdMs?: number }
+): Promise<void> {
+    for (let i = 0; i < items.length; i++) {
+        await fn(items[i], i)
+        await yieldEventLoopIfNeeded(caller, options)
+    }
+}

@@ -10,7 +10,7 @@ import {
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, RawClickHouseEvent } from '../../types'
-import { yieldEventLoopIfNeeded } from '../../utils/event-loop-yield'
+import { yieldEach } from '../../utils/event-loop-yield'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { PRECALCULATED_PERSON_PROPERTIES_OUTPUT, PREFILTERED_EVENTS_OUTPUT } from '../outputs/outputs'
@@ -221,7 +221,7 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                 }
 
                 // Process each event for this team
-                for (const clickHouseEvent of teamEvents) {
+                await yieldEach('cdp-precalculated-filters', teamEvents, async (clickHouseEvent) => {
                     // Convert to filter globals for filter evaluation
                     const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
 
@@ -279,9 +279,7 @@ export class CdpPrecalculatedFiltersConsumer extends CdpConsumerBase {
                             personPropertyEvents.push(personPropertyEvent)
                         }
                     }
-
-                    await yieldEventLoopIfNeeded('cdp-precalculated-filters')
-                }
+                })
             } catch (e) {
                 logger.error('Error processing team events', { teamId, error: e })
             }

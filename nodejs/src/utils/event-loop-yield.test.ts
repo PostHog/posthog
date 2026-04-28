@@ -1,4 +1,9 @@
-import { configureEventLoopYield, getEventLoopYieldThresholdMs, yieldEventLoopIfNeeded } from './event-loop-yield'
+import {
+    configureEventLoopYield,
+    getEventLoopYieldThresholdMs,
+    yieldEach,
+    yieldEventLoopIfNeeded,
+} from './event-loop-yield'
 
 function busyWaitMs(ms: number): void {
     const start = performance.now()
@@ -186,6 +191,88 @@ describe('event-loop-yield', () => {
             // Fast caller does no sync work — at least one call must have
             // returned false.
             expect(fast.some((r) => r === false)).toBe(true)
+        })
+    })
+
+    describe('yieldEach', () => {
+        it('calls fn for every item in order with the right index', async () => {
+            const items = ['a', 'b', 'c', 'd']
+            const seen: Array<[string, number]> = []
+            await yieldEach('test', items, (item, i) => {
+                seen.push([item, i])
+            })
+            expect(seen).toEqual([
+                ['a', 0],
+                ['b', 1],
+                ['c', 2],
+                ['d', 3],
+            ])
+        })
+
+        it('awaits async fn before moving on', async () => {
+            const order: string[] = []
+            await yieldEach('test', [1, 2, 3], async (item) => {
+                order.push(`start-${item}`)
+                await new Promise((resolve) => setTimeout(resolve, 0))
+                order.push(`end-${item}`)
+            })
+            expect(order).toEqual(['start-1', 'end-1', 'start-2', 'end-2', 'start-3', 'end-3'])
+        })
+
+        it('actually yields the event loop during a CPU-bound batch', async () => {
+            // Without yielding, longestDelay would equal the full batch wall time.
+            configureEventLoopYield(20)
+
+            let longestDelay = 0
+            let lastTick = performance.now()
+            const interval = setInterval(() => {
+                const now = performance.now()
+                longestDelay = Math.max(longestDelay, now - lastTick)
+                lastTick = now
+            }, 0)
+
+            try {
+                const blockMs = 30
+                const items = Array.from({ length: 10 }, (_, i) => i)
+                await yieldEach('test', items, () => busyWaitMs(blockMs))
+
+                // 10 * 30 = 300ms total blocking. With yielding, longestDelay
+                // should be close to one block + a little jitter.
+                expect(longestDelay).toBeLessThan(blockMs * 3)
+            } finally {
+                clearInterval(interval)
+            }
+        })
+
+        it('works on ArrayLike values, not just real arrays', async () => {
+            const arrayLike: ArrayLike<string> = { 0: 'x', 1: 'y', 2: 'z', length: 3 }
+            const seen: string[] = []
+            await yieldEach('test', arrayLike, (item) => {
+                seen.push(item)
+            })
+            expect(seen).toEqual(['x', 'y', 'z'])
+        })
+
+        it('passes the threshold override through to yieldEventLoopIfNeeded', async () => {
+            // Default threshold high; per-call override low. Without the override,
+            // longestDelay would be huge because we'd never yield.
+            configureEventLoopYield(10_000)
+
+            let longestDelay = 0
+            let lastTick = performance.now()
+            const interval = setInterval(() => {
+                const now = performance.now()
+                longestDelay = Math.max(longestDelay, now - lastTick)
+                lastTick = now
+            }, 0)
+
+            try {
+                const items = Array.from({ length: 10 }, (_, i) => i)
+                await yieldEach('test', items, () => busyWaitMs(30), { thresholdMs: 20 })
+                expect(longestDelay).toBeLessThan(120)
+            } finally {
+                clearInterval(interval)
+            }
         })
     })
 })
