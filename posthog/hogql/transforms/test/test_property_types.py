@@ -558,6 +558,43 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         # The HAVING max(timestamp) comparison should preserve toTimeZone
         assert re.search(r"HAVING.*toTimeZone", sql), f"Expected toTimeZone preserved in HAVING, got:\n{sql}"
 
+    def test_countIf_with_subquery_not_in_compiles(self):
+        """Regression: countIf with a NOT IN (SELECT ...) over distinct_id must compile to valid SQL.
+
+        Previously, PropertySwapper.visit_select_query manually rebuilt the SelectQuery
+        node which could desync outer projection references from the rebuilt subquery.
+        Delegating the rebuild to CloningVisitor.visit_select_query keeps the AST nodes
+        consistent.
+        """
+        sql, _ = self._compile_hogql(
+            "SELECT countIf(toDate(timestamp) = today() AND distinct_id NOT IN "
+            "(SELECT distinct_id FROM events WHERE event = 'foo')) FROM events",
+            timezone="UTC",
+        )
+        # The countIf must appear once in the projection — no leftover broken references
+        assert sql.count("countIf(") == 1, f"Expected exactly one countIf in SQL, got:\n{sql}"
+        # The notIn arm must be present in the countIf argument (no desync)
+        assert "notIn(" in sql, f"Expected notIn(...) preserved in SQL, got:\n{sql}"
+        # toDate over the wrapped timestamp survives because Eq is not a range op
+        assert "toDate(" in sql, f"Expected toDate(...) preserved in SQL, got:\n{sql}"
+
+    def test_countIf_with_subquery_not_in_and_outer_where_strips(self):
+        """countIf with a subquery in IN should still allow outer WHERE timestamp stripping."""
+        sql, _ = self._compile_hogql(
+            "SELECT countIf(distinct_id NOT IN (SELECT distinct_id FROM events WHERE event = 'foo')) "
+            "FROM events WHERE timestamp >= '2024-03-01' AND timestamp < '2024-04-01'",
+            timezone="America/New_York",
+        )
+        # The outer WHERE >= and < on timestamp must be stripped (bare events.timestamp)
+        assert re.search(r"greaterOrEquals\(events\.timestamp,", sql), (
+            f"Expected bare events.timestamp in outer WHERE greaterOrEquals, got:\n{sql}"
+        )
+        assert re.search(r"less\(events\.timestamp,", sql), (
+            f"Expected bare events.timestamp in outer WHERE less, got:\n{sql}"
+        )
+        # The notIn arm must still be present in the projection (subquery wasn't dropped)
+        assert "notIn(" in sql, f"Expected notIn in SQL, got:\n{sql}"
+
     def _assert_correct_results(self, hogql: str, timezone: str, expected_count: int):
         self.team.timezone = timezone
         self.team.save()

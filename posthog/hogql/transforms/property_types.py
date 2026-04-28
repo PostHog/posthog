@@ -219,66 +219,46 @@ class PropertySwapper(CloningVisitor):
         self.setTimeZones = setTimeZones
         self._inside_call_depth = 0
         self._inside_where_depth = 0
+        # Track the current SelectQuery's where/prewhere AST nodes so visit() can
+        # flip _inside_where_depth only while traversing those subtrees.
+        self._where_target: ast.Expr | None = None
+        self._prewhere_target: ast.Expr | None = None
 
     def visit_select_query(self, node: ast.SelectQuery):
         # We need to track when we're inside WHERE/PREWHERE so that the
         # toTimeZone stripping only fires where it helps (partition/PK pruning).
         # Stripping in JOIN ON, SELECT, HAVING etc. is unnecessary.
         #
-        # The CloningVisitor.visit_select_query visits fields in a fixed order.
-        # We replicate that here, wrapping only where/prewhere with our flag.
+        # We delegate the cloning to CloningVisitor.visit_select_query so the
+        # rebuild stays in sync with any future field additions, and use node
+        # identity to flip _inside_where_depth only while visit() is processing
+        # this query's where/prewhere subtree.
         saved_where_depth = self._inside_where_depth
-        self._inside_where_depth = 0  # each SelectQuery gets its own scope
-
-        # Visit everything except where/prewhere normally (depth=0, no stripping)
-        ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
-        select_from = self.visit(node.select_from)
-        select = [self.visit(expr) for expr in node.select] if node.select else []
-        array_join_list = [self.visit(expr) for expr in node.array_join_list] if node.array_join_list else None
-
-        # Visit where/prewhere with the flag set (depth=1, stripping enabled)
-        self._inside_where_depth = 1
-        where = self.visit(node.where)
-        prewhere = self.visit(node.prewhere)
+        saved_where_target = self._where_target
+        saved_prewhere_target = self._prewhere_target
+        # Each SelectQuery gets its own scope so subqueries don't inherit it.
         self._inside_where_depth = 0
+        self._where_target = node.where
+        self._prewhere_target = node.prewhere
 
-        having = self.visit(node.having)
-        qualify = self.visit(node.qualify)
-        group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
-        order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
-        interpolate = [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
+        try:
+            return super().visit_select_query(node)
+        finally:
+            self._where_target = saved_where_target
+            self._prewhere_target = saved_prewhere_target
+            self._inside_where_depth = saved_where_depth
 
-        self._inside_where_depth = saved_where_depth  # restore parent scope
-
-        return ast.SelectQuery(
-            start=None if self.clear_locations else node.start,
-            end=None if self.clear_locations else node.end,
-            type=None if self.clear_types else node.type,
-            ctes=ctes,
-            select_from=select_from,
-            select=select,
-            array_join_op=node.array_join_op,
-            array_join_list=array_join_list,
-            where=where,
-            prewhere=prewhere,
-            having=having,
-            qualify=qualify,
-            group_by=group_by,
-            group_by_mode=node.group_by_mode,
-            order_by=order_by,
-            interpolate=interpolate,
-            limit_by=self.visit(node.limit_by),
-            limit=self.visit(node.limit),
-            limit_with_ties=node.limit_with_ties,
-            limit_percent=node.limit_percent,
-            offset=self.visit(node.offset),
-            distinct=node.distinct,
-            window_exprs=(
-                {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
-            ),
-            settings=node.settings.model_copy() if node.settings is not None else None,
-            view_name=node.view_name,
-        )
+    def visit(self, node):
+        # Flip _inside_where_depth only when entering this SelectQuery's where
+        # or prewhere subtree. The targets are set by visit_select_query.
+        if node is not None and (node is self._where_target or node is self._prewhere_target):
+            previous = self._inside_where_depth
+            self._inside_where_depth = previous + 1
+            try:
+                return super().visit(node)
+            finally:
+                self._inside_where_depth = previous
+        return super().visit(node)
 
     def visit_call(self, node: ast.Call):
         rewritten = self._try_rewrite_json_extract_to_mat_column(node)
