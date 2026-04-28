@@ -671,6 +671,11 @@ class RedshiftSourceConfig(config.Config):
 
 
 @config.config
+class ResendSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class RevenueCatSourceConfig(config.Config):
     pass
 
@@ -992,6 +997,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.RECURLY: RecurlySourceConfig,
         ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
+        ExternalDataSourceType.RESEND: ResendSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.RINGCENTRAL: RingCentralSourceConfig,
         ExternalDataSourceType.SFTP: SFTPSourceConfig,
