@@ -5,7 +5,9 @@
 # and store it here. Subsequent queries read from this table instead of
 # scanning events.
 #
-# One row per entity per job, deduplicated by ReplacingMergeTree.
+# For funnels: one row per event per entity per job.
+# For mean/ratio: one row per entity per job.
+# Deduplicated by ReplacingMergeTree on the full ORDER BY key.
 #
 # Supported metric types:
 # - Funnel: uses `steps` array for step indicators
@@ -67,7 +69,7 @@ def SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE_SQL():
         EXPERIMENT_METRIC_EVENTS_TABLE_BASE_SQL
         + """
 PARTITION BY toYYYYMMDD(expires_at)
-ORDER BY (team_id, job_id, entity_id)
+ORDER BY (team_id, job_id, entity_id, timestamp, event_uuid)
 TTL expires_at
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
 """

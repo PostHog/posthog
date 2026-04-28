@@ -965,6 +965,25 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.'
         ),
+    investigation_agent_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+        ),
+    investigation_gates_notifications: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.'
+        ),
+    investigation_inconclusive_action: zod
+        .enum(['notify', 'suppress'])
+        .describe('* `notify` - Notify\n* `suppress` - Suppress')
+        .optional()
+        .describe(
+            "How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.\n\n* `notify` - Notify\n* `suppress` - Suppress"
+        ),
 })
 
 export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -993,6 +1012,10 @@ export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .number()
         .optional()
         .describe('Maximum number of check results to return (default 5, max 500). Applied after date filtering.'),
+    checks_offset: zod
+        .number()
+        .optional()
+        .describe('Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.'),
 })
 
 export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
@@ -1944,6 +1967,25 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Blocked local time windows (HH:MM in the project timezone). Interval is half-open [start, end): start inclusive, end exclusive. Use blocked_windows array of {start, end}. Null disables.'
+        ),
+    investigation_agent_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When enabled, an investigation agent runs on the state transition to firing and writes findings to a Notebook linked from the alert check. Only effective for detector-based (anomaly) alerts.'
+        ),
+    investigation_gates_notifications: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When enabled (and investigation_agent_enabled is on), notification dispatch is held until the investigation agent produces a verdict. Notifications are suppressed when the verdict is false_positive (and optionally when inconclusive). A safety-net task force-fires after a few minutes if the investigation stalls.'
+        ),
+    investigation_inconclusive_action: zod
+        .enum(['notify', 'suppress'])
+        .describe('* `notify` - Notify\n* `suppress` - Suppress')
+        .optional()
+        .describe(
+            "How to handle an 'inconclusive' verdict when notifications are gated. 'notify' is the safe default — an agent that can't be sure is itself useful signal.\n\n* `notify` - Notify\n* `suppress` - Suppress"
         ),
 })
 

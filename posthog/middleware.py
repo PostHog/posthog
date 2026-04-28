@@ -36,8 +36,13 @@ from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Action, Cohort, FeatureFlag, Insight, Team, User
-from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_HEADER,
+    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    activity_storage,
+)
 from posthog.models.utils import generate_random_token
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
@@ -406,8 +411,12 @@ class CHQueries:
     def _get_param(self, request: HttpRequest, name: str):
         if name in request.GET:
             return request.GET[name]
-        if name in request.POST:
-            return request.POST[name]
+        try:
+            if name in request.POST:
+                return request.POST[name]
+        except (ValueError, RuntimeError):
+            # Django 5 ASGI: request stream may be closed when accessing POST
+            pass
         return None
 
 
@@ -645,6 +654,19 @@ class SessionAgeMiddleware:
         return response
 
 
+class KnownLoginDeviceCookieMiddleware:
+    """(Re)issues the known-device cookie on every session-authenticated response"""
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        response = self.get_response(request)
+        if isinstance(request.user, User) and request.session.accessed and not is_impersonated_session(request):
+            set_known_device_cookie(response, request.user)
+        return response
+
+
 def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[datetime]:
     if not is_impersonated_session(request):
         return None
@@ -779,6 +801,10 @@ class ActivityLoggingMiddleware:
         if request.user.is_authenticated:
             activity_storage.set_user(request.user)
             activity_storage.set_was_impersonated(is_impersonated_session(request))
+
+        client_header = request.headers.get(ACTIVITY_LOG_CLIENT_HEADER)
+        if client_header:
+            activity_storage.set_client(client_header[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
 
         try:
             response = self.get_response(request)
@@ -945,6 +971,14 @@ class ActiveOrganizationMiddleware:
         if user.current_organization is None:
             return self.get_response(request)
 
+        # Check pending deletion first — takes priority over is_active
+        if user.current_organization.is_pending_deletion:
+            return (
+                self.get_response(request)
+                if request.path == "/organization-pending-deletion"
+                else redirect("/organization-pending-deletion")
+            )
+
         if user.current_organization.is_active is not False:
             return redirect("/") if request.path == "/organization-deactivated" else self.get_response(request)
 
@@ -978,12 +1012,16 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/insights/viewed/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/metalytics/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/run/?$"),
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/materialization_preview/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$"),
     # POST but read-only: loads stack frame records (source context) for error tracking UI
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
     # Allow upgrading from read-only to read-write impersonation
     "/admin/impersonation/upgrade/",
+    # Logout is POST in Django 5; the frontend submits to `/logout` (no trailing slash),
+    # while Django's URL config accepts both via opt_slash_path — match both forms.
+    re.compile(r"^/logout/?$"),
 ]
 
 

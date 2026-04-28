@@ -29,6 +29,8 @@ class TestSQLMixins(NonAtomicBaseTest):
         self.assertIn("<project_schema>", prompt)
         self.assertIn("Table", prompt)
         self.assertIn("<core_memory>", prompt)
+        self.assertIn("system.insight_variables", prompt)
+        self.assertIn("FROM system.insight_variables", prompt)
 
     def test_assert_database_is_cached(self):
         mixin = self._node

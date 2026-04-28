@@ -4024,6 +4024,60 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             }
         ]
 
+    def test_test_account_filter_is_anded_even_in_or_operand(self):
+        # Regression: the "filter out internal/test users" toggle must always be AND'd,
+        # even when the user's filter operand is OR. Otherwise internal-user sessions
+        # leak in whenever they match any user-specified filter.
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": "^(localhost|127\\.0\\.0\\.1)($|:)", "operator": "not_regex"},
+        ]
+        self.team.save()
+
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        # session "1": internal (localhost) AND matches a user filter ($pageview)
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": "1", "$window_id": "1", "$host": "localhost"},
+        )
+
+        # session "2": external (example.com) AND matches a user filter ($pageview)
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="2",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
+            event_name="$autocapture",
+            properties={"$session_id": "2", "$window_id": "1", "$host": "example.com"},
+        )
+
+        # With OR operand and test accounts filtered out, session "1" must NOT leak
+        # in just because it matches a user filter — the test account filter is AND'd.
+        self._assert_query_matches_session_ids(
+            {
+                "events": [
+                    {"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"},
+                    {"id": "$autocapture", "type": "events", "order": 1, "name": "$autocapture"},
+                ],
+                "operand": "OR",
+                "filter_test_accounts": True,
+            },
+            ["2"],
+        )
+
     @parameterized.expand(
         [
             ("single_distinct_id", ["test-user-1"], ["session1"]),

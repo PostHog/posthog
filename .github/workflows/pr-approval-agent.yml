@@ -2,7 +2,7 @@ name: PR Approval Agent
 
 on:
     pull_request:
-        types: [labeled, ready_for_review]
+        types: [labeled, ready_for_review, synchronize]
 
 permissions:
     contents: read
@@ -27,10 +27,10 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
 
             # Always run the approval script from master — hardcoded so a PR
             # targeting a non-master branch can't supply a tampered script.
@@ -99,3 +99,42 @@ jobs:
                   name: review-${{ github.event.pull_request.number }}
                   path: /tmp/review.json
                   retention-days: 30
+
+    # Defense-in-depth: the master ruleset has dismiss_stale_reviews_on_push=false
+    # and require_last_push_approval=false, so without this job a PR could be
+    # approved while trivial and then receive malicious commits that inherit
+    # the stale github-actions[bot] approval. On every push to a PR we dismiss
+    # the bot's approval and drop the stamphog label if present, so a human
+    # must explicitly re-apply it to request re-review.
+    dismiss-on-push:
+        if: github.event.action == 'synchronize'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+
+        steps:
+            - name: Dismiss stale bot approvals and remove stamphog label
+              env:
+                  # Same identity (github-actions[bot]) that posted the approval.
+                  GH_TOKEN: ${{ github.token }}
+                  PR: ${{ github.event.pull_request.number }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+
+                  # Only dismiss APPROVED reviews made by github-actions[bot] —
+                  # human reviews and non-approval reviews are untouched.
+                  mapfile -t REVIEW_IDS < <(
+                      gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+                        --jq '.[] | select(.user.login == "github-actions[bot]" and .state == "APPROVED") | .id'
+                  )
+
+                  for id in "${REVIEW_IDS[@]}"; do
+                      [ -z "$id" ] && continue
+                      gh api -X PUT "repos/$REPO/pulls/$PR/reviews/$id/dismissals" \
+                        -f message="New commits pushed — stamphog approval dismissed. Re-apply the stamphog label to request a re-review." \
+                        -f event=DISMISS
+                  done
+
+                  if gh api "repos/$REPO/issues/$PR/labels" --jq 'any(.name == "stamphog")' | grep -q true; then
+                      gh pr edit "$PR" --remove-label stamphog --repo "$REPO"
+                  fi

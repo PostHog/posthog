@@ -10,6 +10,7 @@ doctest = false
 [dependencies]
 axum = { workspace = true }
 common-alloc = { path = "../common/alloc" }
+common-cache = { path = "../common/cache" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-hypercache = { path = "../common/hypercache" }
 common-metrics = { path = "../common/metrics" }
@@ -33,6 +34,7 @@ url = "2.5"
 
 [dev-dependencies]
 common-continuous-profiling = { path = "../common/continuous_profiling" }
+common-s3 = { path = "../common/s3", features = ["mock-client"] }
 serde-pickle = { version = "1.1.1" }
 tokio = { workspace = true, features = ["test-util"] }
 http-body-util = "0.1"

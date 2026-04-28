@@ -69,8 +69,7 @@ class TestGitHubPRWebhook(TestCase):
             "/webhooks/github/pr/",
             data=payload_bytes,
             content_type="application/json",
-            HTTP_X_HUB_SIGNATURE_256=signature,
-            HTTP_X_GITHUB_EVENT=event_type,
+            headers={"x-hub-signature-256": signature, "x-github-event": event_type},
         )
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
@@ -151,8 +150,7 @@ class TestGitHubPRWebhook(TestCase):
             "/webhooks/github/pr/",
             data=payload_bytes,
             content_type="application/json",
-            HTTP_X_HUB_SIGNATURE_256="sha256=invalid",
-            HTTP_X_GITHUB_EVENT="pull_request",
+            headers={"x-hub-signature-256": "sha256=invalid", "x-github-event": "pull_request"},
         )
 
         self.assertEqual(response.status_code, 403)
@@ -168,7 +166,7 @@ class TestGitHubPRWebhook(TestCase):
             "/webhooks/github/pr/",
             data=json.dumps(payload),
             content_type="application/json",
-            HTTP_X_GITHUB_EVENT="pull_request",
+            headers={"x-github-event": "pull_request"},
         )
 
         self.assertEqual(response.status_code, 403)
@@ -228,7 +226,7 @@ class TestGitHubPRWebhook(TestCase):
                 "/webhooks/github/pr/",
                 data=json.dumps(payload),
                 content_type="application/json",
-                HTTP_X_GITHUB_EVENT="pull_request",
+                headers={"x-github-event": "pull_request"},
             )
 
             self.assertEqual(response.status_code, 500)

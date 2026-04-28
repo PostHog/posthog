@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from django.utils import timezone
 
 from dateutil.parser import isoparse
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.clickhouse.client import sync_execute
@@ -174,11 +174,12 @@ def bulk_create_events(
         #  use person properties mapping to populate person properties in given event
         team_id = event.get("team_id") or event["team"].pk
         person_mode = event.get("person_mode", "full")
+        person_created_at: Any
         if person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]
             person_properties = person.properties
             person_id = person.uuid
-            person_created_at = person.created_at
+            person_created_at = person.created_at or datetime64_default_timestamp
         else:
             try:
                 person = Person.objects.get(
@@ -187,7 +188,7 @@ def bulk_create_events(
                 )
                 person_properties = person.properties
                 person_id = person.uuid
-                person_created_at = person.created_at
+                person_created_at = person.created_at or datetime64_default_timestamp
             except Person.DoesNotExist:
                 person_properties = {}
                 person_id = event.get("person_id", uuid.uuid4())
@@ -274,6 +275,7 @@ def bulk_create_events(
     sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
 
 
+@extend_schema_serializer(component_name="EventElement")
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
 

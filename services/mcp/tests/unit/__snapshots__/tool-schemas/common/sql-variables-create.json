@@ -1,0 +1,35 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "default_value": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Default value used when a query references this variable."
+        },
+        "name": {
+            "description": "Human-readable name for the SQL variable.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "type": {
+            "description": "Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+            "enum": ["String", "Number", "Boolean", "List", "Date"],
+            "type": "string"
+        },
+        "values": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Allowed values for List variables. Null for other variable types."
+        }
+    },
+    "required": ["name", "type"],
+    "type": "object"
+}

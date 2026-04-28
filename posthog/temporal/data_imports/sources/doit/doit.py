@@ -93,6 +93,16 @@ def append_primary_key(row: dict[str, Any]) -> dict[str, Any]:
     return {**row, "id": hash_key}
 
 
+# NOTE: This source intentionally remains a SimpleSource and is not a candidate for ResumableSource.
+# `doit_source` does a small fixed request flow: it first lists reports to resolve the selected
+# report ID, then fetches that report for the requested date window. The report-fetch step returns
+# the full requested window in a single response — there is no pagination loop, next-URL,
+# continuation token, parent/child fanout, or other multi-batch checkpoint to persist mid-sync.
+# For incremental runs, `db_incremental_field_last_value` already determines `startDate` when
+# `should_use_incremental_field` is enabled. For full-refresh runs, there is no resumable progress
+# marker today; a retry simply restarts the same full request. If DoIt exposes a paginated reports
+# API in the future, or we explicitly chunk the `startDate`/`endDate` window, revisit this
+# decision.
 def doit_source(
     config: DoItSourceConfig,
     report_name: str,

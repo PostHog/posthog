@@ -143,10 +143,10 @@ if (res.status >= 400) {
     ],
     mapping_templates: [
         {
-            name: 'Signed Up',
+            name: 'Conversion',
             include_by_default: true,
             filters: {
-                events: [{ id: 'Signed Up', type: 'events' }],
+                events: [],
             },
             inputs_schema: [...build_inputs()],
         },

@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
-import { InlineSourceSetup } from 'scenes/data-warehouse/new/InlineSourceSetup'
 
 import { OnboardingStepKey } from '~/types'
+
+import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import { InlineSourceSetup } from 'products/data_warehouse/frontend/shared/components/InlineSourceSetup'
 
 import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
@@ -15,7 +16,7 @@ import { DataWarehouseValuePropVariant } from './DataWarehouseValuePropVariant'
 export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = () => {
     const { goToNextStep } = useActions(onboardingLogic)
     const { reportOnboardingStepCompleted } = useActions(eventUsageLogic)
-    const { availableSourcesLoading } = useValues(availableSourcesDataLogic)
+    const { availableSourcesLoading } = useValues(availableSourcesLogic)
     const isTableVariant = useFeatureFlag('ONBOARDING_DATA_WAREHOUSE_VALUE_PROP', 'table')
     const isQueryVariant = useFeatureFlag('ONBOARDING_DATA_WAREHOUSE_VALUE_PROP', 'query')
 

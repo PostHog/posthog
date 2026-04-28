@@ -8,6 +8,13 @@
             },
             "type": "array"
         },
+        "clients": {
+            "default": [],
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
         "detail_filters": {
             "type": "string"
         },
@@ -35,6 +42,18 @@
                 "type": "string"
             },
             "type": "array"
+        },
+        "page": {
+            "description": "Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "page_size": {
+            "default": 10,
+            "description": "Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "number"
         },
         "scopes": {
             "default": [],

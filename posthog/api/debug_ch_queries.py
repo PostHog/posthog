@@ -14,6 +14,8 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.cloud_utils import is_cloud
@@ -287,6 +289,46 @@ class DebugCHQueries(viewsets.ViewSet):
 
         return Response(self._serialize_precomputation_team(team, enabled))
 
+    # Team ID for PostHog's own project, which has data warehouse billing tables
+    _POSTHOG_INTERNAL_TEAM_ID = 2
+
+    def _fetch_org_mrr(self, org_ids: set[str]) -> dict[str, int]:
+        """Fetch current confirmed MRR per organization from data warehouse billing tables.
+
+        Uses HogQL to access data warehouse tables via the PostHog internal team.
+        Returns empty dict if unavailable (e.g. local dev or missing tables).
+        """
+        try:
+            team = Team.objects.get(id=self._POSTHOG_INTERNAL_TEAM_ID)
+        except Team.DoesNotExist:
+            return {}
+
+        org_id_list = ", ".join(f"'{org_id}'" for org_id in org_ids)
+
+        try:
+            # nosemgrep: hogql-fstring-param-audit - org_ids are UUIDs from our own DB
+            response = execute_hogql_query(
+                f"""
+                SELECT
+                    cus.organization_id,
+                    round(sum(iwa.mrr)) AS current_mrr
+                FROM prod_postgres_invoice_with_annual AS iwa
+                JOIN prod_postgres_billing_customer AS cus ON iwa.customer_id = cus.id
+                WHERE
+                    cus.organization_id IN ({org_id_list})
+                    AND iwa.type NOT LIKE '%upcoming%'
+                    AND iwa.mrr > 0
+                    AND toStartOfMonth(toTimeZone(iwa.period_end, 'UTC')) = toStartOfMonth(now())
+                GROUP BY cus.organization_id
+                """,
+                team=team,
+                query_type="internal_org_mrr",
+            )
+            return {str(row[0]): round(float(row[1])) for row in response.results or []}
+        except Exception:
+            logger.warning("Failed to fetch org MRR from billing tables, skipping", exc_info=True)
+            return {}
+
     @action(detail=False, methods=["GET"], url_path="slowest_queries")
     def slowest_queries(self, request):
         if not request.user.is_staff:
@@ -311,17 +353,24 @@ class DebugCHQueries(viewsets.ViewSet):
                 argMax(JSONExtractString(log_comment, 'query_type'), type) AS query_type,
                 argMax(JSONExtractString(log_comment, 'experiment_name'), type) AS experiment_name,
                 argMax(JSONExtractString(log_comment, 'experiment_metric_name'), type) AS experiment_metric_name,
-                argMax(JSONExtractString(log_comment, 'experiment_execution_path'), type) AS experiment_execution_path
-            FROM clusterAllReplicas(%(cluster)s, system, query_log)
-            WHERE
-                event_time > now() - INTERVAL %(hours)s HOUR
-                AND JSONExtractString(log_comment, 'product') = 'experiments'
-                AND is_initial_query
-                AND query NOT LIKE %(not_query)s
+                argMax(JSONExtractString(log_comment, 'experiment_execution_path'), type) AS experiment_execution_path,
+                argMax(JSONExtractString(log_comment, 'experiment_metric_type'), type) AS experiment_metric_type,
+                argMax(JSONExtractInt(log_comment, 'experiment_id'), type) AS experiment_id
+            FROM (
+                SELECT
+                    query_id, query, query_start_time, query_duration_ms, exception,
+                    toInt8(type) AS type, log_comment
+                FROM clusterAllReplicas(%(cluster)s, system, query_log)
+                WHERE
+                    event_time > now() - INTERVAL %(hours)s HOUR
+                    AND JSONExtractString(log_comment, 'product') = 'experiments'
+                    AND is_initial_query
+                    AND query NOT LIKE %(not_query)s
+                SETTINGS skip_unavailable_shards=1
+            )
             GROUP BY query_id
             ORDER BY query_duration_ms DESC
             LIMIT 100
-            SETTINGS skip_unavailable_shards=1
             """,
             {
                 "cluster": CLICKHOUSE_CLUSTER,
@@ -329,6 +378,23 @@ class DebugCHQueries(viewsets.ViewSet):
                 "not_query": "%request:_api_debug_ch_queries_%",
             },
         )
+
+        # Batch-fetch team and org names from Postgres
+        team_ids = {row[6] for row in response if row[6]}
+        teams_by_id: dict = {}
+        if team_ids:
+            for team in Team.objects.filter(id__in=team_ids).select_related("organization"):
+                teams_by_id[team.id] = {
+                    "team_name": team.name,
+                    "organization_id": str(team.organization.id) if team.organization else None,
+                    "organization_name": team.organization.name if team.organization else None,
+                }
+
+        # Batch-fetch current MRR per organization from billing tables
+        org_ids = {t["organization_id"] for t in teams_by_id.values() if t.get("organization_id")}
+        mrr_by_org: dict[str, int] = {}
+        if org_ids:
+            mrr_by_org = self._fetch_org_mrr(org_ids)
 
         return Response(
             [
@@ -340,10 +406,15 @@ class DebugCHQueries(viewsets.ViewSet):
                     "exception": row[4],
                     "status": row[5],
                     "team_id": row[6],
+                    "team_name": teams_by_id.get(row[6], {}).get("team_name"),
+                    "organization_name": teams_by_id.get(row[6], {}).get("organization_name"),
+                    "organization_mrr": mrr_by_org.get(teams_by_id.get(row[6], {}).get("organization_id", ""), None),
                     "query_type": row[7],
                     "experiment_name": row[8],
                     "experiment_metric_name": row[9],
                     "experiment_execution_path": row[10],
+                    "experiment_metric_type": row[11],
+                    "experiment_id": row[12] or None,
                 }
                 for row in response
             ]

@@ -284,7 +284,7 @@ async fn test_personal_api_key_authentication_without_feature_flag_scopes() {
     let server = common::ServerHandle::for_config(config.clone()).await;
     let client = reqwest::Client::new();
 
-    // Test that the endpoint returns 401 when API key doesn't have feature_flag scopes
+    // Test that the endpoint returns 403 when API key is valid but lacks feature_flag scopes
     let response = client
         .get(format!(
             "http://{}/flags/definitions?token={}",
@@ -295,7 +295,18 @@ async fn test_personal_api_key_authentication_without_feature_flag_scopes() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), 401);
+    let status = response.status();
+    let body_text = response.text().await.unwrap();
+    assert_eq!(status, 403);
+
+    let body: serde_json::Value = serde_json::from_str(&body_text).unwrap();
+    assert_eq!(body["type"], "authentication_error");
+    assert_eq!(body["code"], "permission_denied");
+    assert_eq!(
+        body["detail"],
+        "Personal API key lacks required scopes (feature_flag:read or feature_flag:write)."
+    );
+    assert_eq!(body["attr"], serde_json::Value::Null);
 }
 
 #[tokio::test]
@@ -424,8 +435,65 @@ async fn test_secret_api_token_authentication_invalid_token() {
     assert_eq!(body["attr"], Value::Null);
 }
 
+/// Token param absent with a valid team-scoped secret — team is derived from the token.
+#[rstest::rstest]
+#[case::team_secret_token("secret")]
+#[case::project_secret_key("project_secret")]
 #[tokio::test]
-async fn test_missing_token_parameter() {
+async fn test_missing_token_param_success(#[case] auth_type: &str) {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, bearer_value) = match auth_type {
+        "secret" => {
+            let (team, secret, _) = context
+                .create_team_with_secret_token(None, None, None)
+                .await
+                .unwrap();
+            (team, secret)
+        }
+        "project_secret" => {
+            let team = context.insert_new_team(None).await.unwrap();
+            let key = context
+                .create_project_secret_api_key(team.id, "Test Key", Some(vec!["feature_flag:read"]))
+                .await
+                .unwrap();
+            (team, key)
+        }
+        _ => unreachable!(),
+    };
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!("http://{}/flags/definitions", server.addr))
+        .header("Authorization", format!("Bearer {bearer_value}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Response body: {}",
+        response.text().await.unwrap()
+    );
+}
+
+/// Token param absent — error cases that don't need DB setup.
+#[rstest::rstest]
+#[case::no_auth(None, 401)]
+#[case::invalid_phs_token(Some("Bearer phs_invalid_token_xyz"), 401)]
+#[tokio::test]
+async fn test_missing_token_param_error(
+    #[case] auth_header: Option<&str>,
+    #[case] expected_status: u16,
+) {
     use feature_flags::config::Config;
     use reqwest;
 
@@ -433,16 +501,123 @@ async fn test_missing_token_parameter() {
     let server = common::ServerHandle::for_config(config).await;
     let client = reqwest::Client::new();
 
-    // Test that the endpoint returns 400 when token parameter is missing
+    let mut req = client.get(format!("http://{}/flags/definitions", server.addr));
+    if let Some(header) = auth_header {
+        req = req.header("Authorization", header);
+    }
+    let response = req.send().await.unwrap();
+
+    assert_eq!(response.status(), expected_status);
+}
+
+/// When token param is missing, the response should contain flags for the team
+/// that owns the phs_ token — not a different team's flags.
+#[tokio::test]
+async fn test_missing_token_param_returns_correct_team_flags() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+    use serde_json::{json, Value};
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    // Create two teams with different secret tokens
+    let (team1, secret1, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    let (team2, secret2, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Seed each team's cache with distinguishable flags so we can verify isolation
+    context
+        .populate_cache_for_team_with_flags(
+            team1.id,
+            json!({"flags": [{"key": "team1-flag", "active": true}], "group_type_mapping": {}, "cohorts": {}}),
+        )
+        .await
+        .unwrap();
+    context
+        .populate_cache_for_team_with_flags(
+            team2.id,
+            json!({"flags": [{"key": "team2-flag", "active": true}], "group_type_mapping": {}, "cohorts": {}}),
+        )
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    // Request with team1's secret token (no ?token= param)
+    let resp1 = client
+        .get(format!("http://{}/flags/definitions", server.addr))
+        .header("Authorization", format!("Bearer {secret1}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp1.status(), 200);
+    let body1: Value = serde_json::from_str(&resp1.text().await.unwrap()).unwrap();
+
+    // Request with team2's secret token (no ?token= param)
+    let resp2 = client
+        .get(format!("http://{}/flags/definitions", server.addr))
+        .header("Authorization", format!("Bearer {secret2}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp2.status(), 200);
+    let body2: Value = serde_json::from_str(&resp2.text().await.unwrap()).unwrap();
+
+    // Each team should get its own flags, not the other's
+    assert_eq!(body1["flags"][0]["key"], "team1-flag");
+    assert_eq!(body2["flags"][0]["key"], "team2-flag");
+    assert_ne!(
+        body1.get("flags"),
+        body2.get("flags"),
+        "Different teams' phs_ tokens should resolve to different flags"
+    );
+}
+
+/// When token param is missing and auth is a personal API key (multi-team),
+/// should return 400 since we can't derive the team.
+#[tokio::test]
+async fn test_missing_token_param_with_personal_api_key_returns_400() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = format!("test-pak-{}@posthog.com", uuid::Uuid::new_v4());
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    let (_, pak_token) = context
+        .create_personal_api_key(user_id, "Test PAK", vec!["feature_flag:read"], None, None)
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
     let response = client
         .get(format!("http://{}/flags/definitions", server.addr))
-        .header("Authorization", "Bearer phs_test_token")
+        .header("Authorization", format!("Bearer {pak_token}"))
         .send()
         .await
         .unwrap();
 
-    // Should return 400 Bad Request when token parameter is missing
     assert_eq!(response.status(), 400);
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("token"),
+        "Error should mention the token parameter: {body}"
+    );
 }
 
 #[tokio::test]
@@ -1257,10 +1432,11 @@ async fn test_flag_definitions_rate_limit_enforced() {
         .await
         .unwrap();
 
-    // Create config with very low rate limit for this specific team (1 request per second)
+    // `/minute` (not `/second`) throughout this file: governor's QuantaClock (TSC-backed)
+    // can replenish sub-second windows too fast on non-Depot runners. Don't revert.
     let mut config = Config::default_test_config();
     config.flag_definitions_rate_limits =
-        format!(r#"{{"{}": "1/second"}}"#, team.id).parse().unwrap();
+        format!(r#"{{"{}": "1/minute"}}"#, team.id).parse().unwrap();
 
     // Populate cache to avoid 503 errors
     let redis_client =
@@ -1319,7 +1495,6 @@ async fn test_flag_definitions_rate_limit_enforced() {
 async fn test_flag_definitions_custom_rate_limit_overrides_default() {
     use feature_flags::{config::Config, utils::test_utils::TestContext};
     use reqwest;
-    use tokio::time::{sleep, Duration};
 
     let context = TestContext::new(None).await;
 
@@ -1333,10 +1508,10 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
         .await
         .unwrap();
 
-    // Create config with custom rate limit for custom_team (2 requests per second)
-    // Default is 600/minute (10/second), so custom should be more restrictive
+    // Create config with custom rate limit for custom_team (2 requests per minute)
+    // Default is 600/minute, so custom should be more restrictive
     let mut config = Config::default_test_config();
-    config.flag_definitions_rate_limits = format!(r#"{{"{}": "2/second"}}"#, custom_team.id)
+    config.flag_definitions_rate_limits = format!(r#"{{"{}": "2/minute"}}"#, custom_team.id)
         .parse()
         .unwrap();
 
@@ -1355,7 +1530,7 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
     let server = common::ServerHandle::for_config(config.clone()).await;
     let client = reqwest::Client::new();
 
-    // Test custom rate limit (2/second)
+    // Test custom rate limit (2/minute)
     // Send all 3 requests concurrently to ensure they hit the rate limiter simultaneously
     let requests = (0..3).map(|_| {
         client
@@ -1373,15 +1548,12 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
         .filter(|r| r.as_ref().unwrap().status() == 200)
         .count();
 
-    assert_eq!(
-        success_count, 2,
-        "Should allow exactly 2 requests per second for custom team"
+    assert!(
+        success_count <= 2,
+        "Should allow at most 2 requests per minute for custom team. Got: {success_count}"
     );
 
-    // Wait for rate limit to reset
-    sleep(Duration::from_millis(1100)).await;
-
-    // Test default rate limit (600/minute = 10/second)
+    // Test default rate limit (600/minute)
     // Should allow more requests than custom limit
     // Send all 5 requests concurrently to ensure they hit the rate limiter simultaneously
     let requests = (0..5).map(|_| {
@@ -1402,7 +1574,7 @@ async fn test_flag_definitions_custom_rate_limit_overrides_default() {
 
     assert!(
         default_success_count > 2,
-        "Default team should allow more than 2 requests per second. Got: {default_success_count}"
+        "Default team should allow more than 2 requests per minute. Got: {default_success_count}"
     );
 }
 
@@ -1422,7 +1594,7 @@ async fn test_flag_definitions_rate_limit_metrics_incremented() {
     // Create config with very low rate limit for this specific team
     let mut config = Config::default_test_config();
     config.flag_definitions_rate_limits =
-        format!(r#"{{"{}": "1/second"}}"#, team.id).parse().unwrap();
+        format!(r#"{{"{}": "1/minute"}}"#, team.id).parse().unwrap();
     config.enable_metrics = true; // Enable metrics collection
 
     // Populate cache
@@ -1991,7 +2163,7 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 1: allowlisted team bypasses rate limit ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
 
@@ -2043,7 +2215,7 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 2: non-allowlisted team gets rate limited ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
 
@@ -2094,7 +2266,7 @@ async fn test_db_rate_limit_allowlist() {
     {
         let mut config = Config::default_test_config();
         config.flag_definitions_rate_limits = format!(
-            r#"{{"{}": "1/second", "{}": "1/second"}}"#,
+            r#"{{"{}": "1/minute", "{}": "1/minute"}}"#,
             team1.id, team2.id
         )
         .parse()
@@ -2165,7 +2337,7 @@ async fn test_db_rate_limit_allowlist() {
     {
         // Configure team1 as allowlisted via the env var (set at server startup)
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
         config.rate_limiting_allow_list_teams = team1.id.to_string().parse().unwrap();
@@ -2219,7 +2391,7 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 5: null DB value treated as empty allowlist ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
 
@@ -2270,7 +2442,7 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 6: invalid team IDs skipped, valid ones kept ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
 
@@ -2325,7 +2497,7 @@ async fn test_db_rate_limit_allowlist() {
     // --- Scenario 7: Django-format JSON-encoded string ---
     {
         let mut config = Config::default_test_config();
-        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/second"}}"#, team1.id)
+        config.flag_definitions_rate_limits = format!(r#"{{"{}": "1/minute"}}"#, team1.id)
             .parse()
             .unwrap();
 

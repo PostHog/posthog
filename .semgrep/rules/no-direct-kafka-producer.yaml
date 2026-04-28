@@ -1,0 +1,38 @@
+rules:
+    - id: no-direct-kafka-producer-construction
+      message: >-
+          Do not construct Kafka producer primitives directly. Use the public API in
+          `posthog.kafka_client.routing` (`get_producer`, `producer_scope`,
+          `async_producer_scope`, `new_async_producer`, `flush_all_producers`).
+          Direct construction bypasses the topic→cluster
+          routing map and the Warpstream-specific producer config. Importing
+          `_KafkaProducer` / `_AsyncKafkaProducer` for type hints is fine.
+      severity: ERROR
+      languages: [python]
+      pattern-either:
+          - pattern: _KafkaProducer(...)
+          - pattern: _AsyncKafkaProducer(...)
+          - pattern: aiokafka.AIOKafkaProducer(...)
+          - pattern: AIOKafkaProducer(...)
+      paths:
+          exclude:
+              # Routing module is the only allowed constructor of the primitives.
+              - posthog/kafka_client/routing.py
+              # The primitives live here.
+              - posthog/kafka_client/client.py
+              # Tests for the primitives themselves.
+              - posthog/kafka_client/test/test_client.py
+              # Existing integration tests that explicitly opt out of the test stub
+              # to exercise a real broker. These are gated behind KAFKA_ROUNDTRIP_TESTS.
+              - posthog/dags/tests/test_person_property_reconciliation.py
+              - posthog/temporal/tests/dlq_replay/test_activities.py
+              - posthog/temporal/tests/common/test_logger.py
+              # DLQ replay needs per-message header passthrough, which confluent's
+              # AIOProducer refuses in batch mode. Uses raw aiokafka with cluster
+              # config resolved via get_profile_settings().
+              - posthog/temporal/dlq_replay/activities.py
+              # Batch export metrics path — tests assert metrics land in ClickHouse
+              # via the kafka→CH ingest pipeline, and the confluent AIOProducer
+              # behaves differently in that test environment. Left on raw aiokafka
+              # to keep existing tests passing; migrate in a follow-up PR.
+              - products/batch_exports/backend/temporal/batch_exports.py

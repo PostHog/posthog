@@ -23,13 +23,16 @@ from rest_framework.response import Response
 from posthog.schema import (
     CachedTraceSpansQueryResponse,
     DateRange,
+    ProductKey,
     PropertyGroupFilter,
     TraceSpansQuery,
     TraceSpansQueryResponse,
 )
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
@@ -184,6 +187,7 @@ class _TracingValuesQuerySerializer(serializers.Serializer):
 @extend_schema(tags=["tracing"])
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
+    serializer_class = _FallbackSerializer
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
@@ -199,6 +203,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
     def service_names(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
         try:
             date_range = self.get_model(json.loads(request.GET.get("dateRange", '{"date_from": "-1h"}')), DateRange)
@@ -211,6 +216,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @extend_schema(request=_TracingQueryRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
         after_cursor = query_data.get("after", None)
@@ -267,6 +273,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @extend_schema(request=_TracingQueryRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
         date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
 
@@ -297,6 +304,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         detail=False, methods=["POST"], url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)", required_scopes=["tracing:read"]
     )
     def trace(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data or {}
         date_range = self.get_model(query_data.get("dateRange", {"date_from": "-24h"}), DateRange)
         try:
@@ -325,6 +333,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @extend_schema(parameters=[_TracingAttributesQuerySerializer])
     @action(detail=False, methods=["get"], required_scopes=["tracing:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
         limit = int(request.GET.get("limit", "100"))
         offset = int(request.GET.get("offset", "0"))
@@ -352,6 +361,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @extend_schema(parameters=[_TracingValuesQuerySerializer])
     @action(detail=False, methods=["GET"], required_scopes=["tracing:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         attribute_key = request.GET.get("key", "")
         if not attribute_key:
             return Response({"error": "key is required"}, status=status.HTTP_400_BAD_REQUEST)

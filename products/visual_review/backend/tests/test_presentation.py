@@ -187,4 +187,5 @@ class TestRunViewSet(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["run"]["approved"])
+        # Per-snapshot approval is DB only — run not finalized
+        self.assertFalse(response.json()["run"]["approved"])

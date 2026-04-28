@@ -11,6 +11,7 @@ import {
     SurveyDisplayConditions,
     SurveyEventName,
     SurveyEventProperties,
+    SurveyQuestion,
     SurveyQuestionType,
     SurveyType,
     SurveyWidgetType,
@@ -19,6 +20,7 @@ import {
 import {
     buildSurveyExampleInvocationGlobals,
     buildPartialResponsesFilter,
+    buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
     calculateNpsBreakdown,
     createAnswerFilterHogQLExpression,
@@ -178,21 +180,20 @@ describe('survey utils', () => {
                             },
                         ],
                     },
-                ],
-            })
-        })
-
-        it('can include partial responses when requested', () => {
-            expect(getSurveyNotificationFilters('survey-123', false)).toEqual({
-                events: [
                     {
-                        id: SurveyEventName.SENT,
+                        id: SurveyEventName.DISMISSED,
                         type: 'events',
                         properties: [
                             {
                                 key: SurveyEventProperties.SURVEY_ID,
                                 type: PropertyFilterType.Event,
                                 value: 'survey-123',
+                                operator: PropertyOperator.Exact,
+                            },
+                            {
+                                key: SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED,
+                                type: PropertyFilterType.Event,
+                                value: true,
                                 operator: PropertyOperator.Exact,
                             },
                         ],
@@ -252,6 +253,33 @@ describe('survey utils', () => {
                 $survey_response_q3: ['Funnels', 'Session replay'],
                 $survey_response_q4: '9',
             })
+        })
+    })
+
+    describe('getSurveyResponse', () => {
+        it('uses the backend HogQL helper for single-value questions', () => {
+            const question = {
+                id: 'question-123',
+                type: SurveyQuestionType.Rating,
+                question: 'How satisfied are you?',
+                scale: 10,
+                display: 'number',
+                lowerBoundLabel: 'Low',
+                upperBoundLabel: 'High',
+            } as SurveyQuestion
+
+            expect(getSurveyResponse(question, 0)).toBe("getSurveyResponse(0, 'question-123')")
+        })
+
+        it('uses the backend HogQL helper for multiple choice questions', () => {
+            const question = {
+                id: 'question-456',
+                type: SurveyQuestionType.MultipleChoice,
+                question: 'Which features do you use?',
+                choices: ['Insights', 'Session replay'],
+            } as SurveyQuestion
+
+            expect(getSurveyResponse(question, 1)).toBe("getSurveyResponse(1, 'question-456', true)")
         })
     })
 
@@ -863,6 +891,17 @@ describe('survey utils', () => {
             expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`) // Survey start date
             expect(result).toContain(`timestamp <= '2024-08-30T23:59:59'`) // Survey end date
         })
+
+        it('prefers survey start_date over created_at for the lower bound', () => {
+            const survey = {
+                created_at: '2024-08-20T15:30:00Z',
+                start_date: '2024-08-27T09:00:00Z',
+                end_date: '2024-08-30T10:00:00Z',
+            }
+            const result = buildSurveyTimestampFilter(survey)
+
+            expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`)
+        })
     })
 
     describe('getResolvedSurveyDateRange', () => {
@@ -879,6 +918,19 @@ describe('survey utils', () => {
     })
 
     describe('buildPartialResponsesFilter', () => {
+        it('keeps missing survey_completed values eligible for complete-response queries', () => {
+            const survey = {
+                id: 'test-survey-id',
+                created_at: '2024-11-19T00:00:00Z',
+                end_date: null,
+                enable_partial_responses: false,
+            } as Survey
+
+            expect(buildPartialResponsesFilter(survey)).toBe(
+                `AND ${buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_COMPLETED, 'false')}`
+            )
+        })
+
         it('uses same date bounds as buildSurveyTimestampFilter', () => {
             const survey = {
                 id: 'test-survey-id',
@@ -896,6 +948,29 @@ describe('survey utils', () => {
 
             expect(partialFilter).toContain(`greaterOrEquals(timestamp, '${fromMatch?.[1]}')`)
             expect(partialFilter).toContain(`lessOrEquals(timestamp, '${toMatch?.[1]}')`)
+        })
+
+        it('uses direct property access for fixed survey properties', () => {
+            const survey = {
+                id: 'test-survey-id',
+                created_at: '2024-11-19T00:00:00Z',
+                end_date: null,
+                enable_partial_responses: true,
+            } as Survey
+
+            const partialFilter = buildPartialResponsesFilter(survey)
+
+            expect(partialFilter).toContain('properties.`$survey_id`')
+            expect(partialFilter).toContain('properties.`$survey_submission_id`')
+            expect(partialFilter).not.toContain('JSONExtractString')
+        })
+    })
+
+    describe('buildSurveyOptionalBooleanPropertyFilter', () => {
+        it('builds a null-safe comparison for optional survey booleans', () => {
+            expect(
+                buildSurveyOptionalBooleanPropertyFilter(SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED, 'true')
+            ).toBe(`coalesce(JSONExtractString(properties, '$survey_partially_completed'), '') != 'true'`)
         })
     })
 })
@@ -1251,9 +1326,14 @@ describe('createAnswerFilterHogQLExpression', () => {
 })
 
 describe('timezone handling in survey date queries', () => {
-    const createMockSurvey = (createdAt: string, endDate?: string): Pick<Survey, 'created_at' | 'end_date'> => ({
+    const createMockSurvey = (
+        createdAt: string,
+        endDate?: string,
+        startDate?: string
+    ): Pick<Survey, 'created_at' | 'end_date'> & Partial<Pick<Survey, 'start_date'>> => ({
         created_at: createdAt,
         end_date: endDate || null,
+        start_date: startDate,
     })
 
     afterEach(() => {

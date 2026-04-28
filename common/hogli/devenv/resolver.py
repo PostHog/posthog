@@ -109,6 +109,7 @@ class ResolvedEnvironment:
     unit_provenance: dict[str, str] = field(default_factory=dict)  # unit -> reason
     skip_autostart: set[str] = field(default_factory=set)  # units to include but not auto-start
     enable_autostart: set[str] = field(default_factory=set)  # units to enable autostart (override source)
+    always_required: set[str] = field(default_factory=set)
 
     def get_unit_list(self) -> list[str]:
         """Get sorted list of units for consistent output."""
@@ -234,6 +235,7 @@ class IntentResolver:
             unit_provenance=unit_provenance,
             skip_autostart=set(skip_autostart),
             enable_autostart=set(enable_autostart),
+            always_required=set(self.intent_map.always_required),
         )
 
     def _intents_to_capabilities(self, intents: list[str]) -> set[str]:

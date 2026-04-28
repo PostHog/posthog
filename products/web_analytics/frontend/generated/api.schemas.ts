@@ -7,132 +7,114 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface WebAnalyticsBreakdownResponseApi {
-    /**
-     * URL for next page of results
-     * @nullable
-     */
-    next?: string | null
-    /** Array of breakdown items */
-    results: unknown[]
-}
-
-export interface WebAnalyticsOverviewResponseApi {
-    /** Unique visitors */
-    visitors: number
-    /** Total page views */
-    views: number
-    /** Total sessions */
-    sessions: number
-    /**
-     * Bounce rate
-     * @minimum 0
-     * @maximum 1
-     */
-    bounce_rate: number
-    /** Average session duration in seconds */
-    session_duration: number
-}
-
-export type WebAnalyticsBreakdownRetrieveParams = {
-    /**
-     * Apply URL path cleaning
-     */
-    apply_path_cleaning?: boolean
-    /**
- * Property to break down by
-
-* `DeviceType` - DeviceType
-* `Browser` - Browser
-* `OS` - OS
-* `Viewport` - Viewport
-* `InitialReferringDomain` - InitialReferringDomain
-* `InitialUTMSource` - InitialUTMSource
-* `InitialUTMMedium` - InitialUTMMedium
-* `InitialUTMCampaign` - InitialUTMCampaign
-* `InitialUTMTerm` - InitialUTMTerm
-* `InitialUTMContent` - InitialUTMContent
-* `Country` - Country
-* `Region` - Region
-* `City` - City
-* `InitialPage` - InitialPage
-* `Page` - Page
-* `ExitPage` - ExitPage
-* `InitialChannelType` - InitialChannelType
- * @minLength 1
+/**
+ * * `Up` - Up
+ * `Down` - Down
  */
-    breakdown_by: WebAnalyticsBreakdownRetrieveBreakdownBy
-    /**
-     * Start date for the query (format: YYYY-MM-DD)
-     */
-    date_from: string
-    /**
-     * End date for the query (format: YYYY-MM-DD)
-     */
-    date_to: string
-    /**
-     * Filter out test accounts
-     */
-    filter_test_accounts?: boolean
-    /**
-     * Host to filter by (e.g. example.com)
-     * @minLength 1
-     * @nullable
-     */
-    host?: string | null
-    /**
-     * Number of results to return
-     * @minimum 1
-     * @maximum 1000
-     */
-    limit?: number
-    /**
-     * Number of results to skip
-     * @minimum 0
-     */
-    offset?: number
-}
+export type DirectionEnumApi = (typeof DirectionEnumApi)[keyof typeof DirectionEnumApi]
 
-export type WebAnalyticsBreakdownRetrieveBreakdownBy =
-    (typeof WebAnalyticsBreakdownRetrieveBreakdownBy)[keyof typeof WebAnalyticsBreakdownRetrieveBreakdownBy]
-
-export const WebAnalyticsBreakdownRetrieveBreakdownBy = {
-    DeviceType: 'DeviceType',
-    Browser: 'Browser',
-    Os: 'OS',
-    Viewport: 'Viewport',
-    InitialReferringDomain: 'InitialReferringDomain',
-    InitialUTMSource: 'InitialUTMSource',
-    InitialUTMMedium: 'InitialUTMMedium',
-    InitialUTMCampaign: 'InitialUTMCampaign',
-    InitialUTMTerm: 'InitialUTMTerm',
-    InitialUTMContent: 'InitialUTMContent',
-    Country: 'Country',
-    Region: 'Region',
-    City: 'City',
-    InitialPage: 'InitialPage',
-    Page: 'Page',
-    ExitPage: 'ExitPage',
-    InitialChannelType: 'InitialChannelType',
+export const DirectionEnumApi = {
+    Up: 'Up',
+    Down: 'Down',
 } as const
 
-export type WebAnalyticsOverviewRetrieveParams = {
+export interface WoWChangeApi {
+    /** Absolute percentage change, rounded to nearest integer. */
+    percent: number
+    /** Direction of the change relative to the prior period.
+
+* `Up` - Up
+* `Down` - Down */
+    direction: DirectionEnumApi
+    /** Hex color indicating whether the change is a positive or negative signal. */
+    color: string
+    /** Short label, e.g. 'Up 12%'. */
+    text: string
+    /** Verbose label, e.g. 'Up 12% from prior period'. */
+    long_text: string
+}
+
+export interface NumericMetricApi {
+    /** Value for the most recent period. */
+    current: number
     /**
-     * Start date for the query (format: YYYY-MM-DD)
-     */
-    date_from: string
-    /**
-     * End date for the query (format: YYYY-MM-DD)
-     */
-    date_to: string
-    /**
-     * Filter out test accounts
-     */
-    filter_test_accounts?: boolean
-    /**
-     * Host to filter by (e.g. example.com)
-     * @minLength 1
+     * Value for the prior period, if available.
      * @nullable
      */
-    host?: string | null
+    previous: number | null
+    /** Period-over-period change, null when not meaningful. */
+    change: WoWChangeApi | null
+}
+
+export interface DurationMetricApi {
+    /** Human-readable duration, e.g. '2m 34s'. */
+    current: string
+    /**
+     * Prior-period duration, e.g. '2m 10s'.
+     * @nullable
+     */
+    previous: string | null
+    /** Period-over-period change, null when not meaningful. */
+    change: WoWChangeApi | null
+}
+
+export interface TopPageApi {
+    /** Host for the page, if recorded. */
+    host: string
+    /** URL path. */
+    path: string
+    /** Unique visitors in the period. */
+    visitors: number
+    /** Period-over-period change in visitors, null when not meaningful. */
+    change: WoWChangeApi | null
+}
+
+export interface TopSourceApi {
+    /** Initial referring domain. */
+    name: string
+    /** Unique visitors from this source. */
+    visitors: number
+    /** Period-over-period change in visitors, null when not meaningful. */
+    change: WoWChangeApi | null
+}
+
+export interface GoalApi {
+    /** Goal name (action name). */
+    name: string
+    /** Total conversions in the period. */
+    conversions: number
+    /** Period-over-period change in conversions, null when not meaningful. */
+    change: WoWChangeApi | null
+}
+
+export interface WeeklyDigestResponseApi {
+    /** Unique visitors. */
+    visitors: NumericMetricApi
+    /** Total pageviews. */
+    pageviews: NumericMetricApi
+    /** Total sessions. */
+    sessions: NumericMetricApi
+    /** Bounce rate (0–100). */
+    bounce_rate: NumericMetricApi
+    /** Average session duration. */
+    avg_session_duration: DurationMetricApi
+    /** Top 5 pages by unique visitors. */
+    top_pages: TopPageApi[]
+    /** Top 5 traffic sources by unique visitors. */
+    top_sources: TopSourceApi[]
+    /** Goal conversions. */
+    goals: GoalApi[]
+    /** Link to the Web analytics dashboard for this project. */
+    dashboard_url: string
+}
+
+export type WebAnalyticsWeeklyDigestParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     */
+    compare?: boolean
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number
 }

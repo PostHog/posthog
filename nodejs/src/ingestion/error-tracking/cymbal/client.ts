@@ -22,7 +22,7 @@ const cymbalRequestDuration = new Histogram({
     name: 'error_tracking_cymbal_request_duration_ms',
     help: 'Duration of Cymbal API requests in milliseconds',
     labelNames: ['status'],
-    buckets: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000],
+    buckets: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000],
 })
 
 const cymbalRequestCounter = new Counter({

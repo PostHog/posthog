@@ -103,7 +103,9 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
             name="test insight",
             type=AgentArtifact.Type.VISUALIZATION,
             data=VisualizationArtifactContent(
-                query=AssistantTrendsQuery(series=[]), name="test insight", description="test description"
+                query=AssistantTrendsQuery(series=[AssistantTrendsEventsNode()]),
+                name="test insight",
+                description="test description",
             ).model_dump(),
             conversation=self.conversation,
             team=self.team,
@@ -335,8 +337,8 @@ class TestQueryExecutorNode(ClickhouseTestMixin, NonAtomicBaseTest):
         # Test Retention Query
         retention_query = AssistantRetentionQuery(
             retentionFilter=AssistantRetentionFilter(
-                targetEntity=AssistantRetentionEventsNode(name="event"),
-                returningEntity=AssistantRetentionEventsNode(name="event"),
+                targetEntity=AssistantRetentionEventsNode(id="event"),
+                returningEntity=AssistantRetentionEventsNode(id="event"),
             )
         )
         self.assertEqual(get_example_prompt(retention_query), RETENTION_EXAMPLE_PROMPT)
