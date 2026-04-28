@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import dismiss_check
-from dismiss_check import classify_commit, decide, evaluate_delta
+from dismiss_check import decide, evaluate_delta
 from gates import is_trivial_at_dismiss_time
 
 _GIT_ENV = {
@@ -273,12 +273,15 @@ def test_empty_delta_retains(repo: Path) -> None:
     assert result["reason"] == "empty_delta"
 
 
-# ── classify_commit edge cases ───────────────────────────────────
+# ── edge cases ───────────────────────────────────────────────────
 
 
-def test_empty_commit_classified_as_trivial(repo: Path) -> None:
+def test_empty_commit_retains(repo: Path) -> None:
+    base = _head(repo)
     _git("commit", "--allow-empty", "-m", "empty", cwd=repo)
-    assert classify_commit(_head(repo), repo, "master") == "trivial"
+    result = evaluate_delta(base, _head(repo), repo, base_ref="master")
+    assert result["action"] == "retain"
+    assert result["reason"] == "trivial_paths"
 
 
 def test_merge_from_non_base_branch_dismisses(repo: Path) -> None:
