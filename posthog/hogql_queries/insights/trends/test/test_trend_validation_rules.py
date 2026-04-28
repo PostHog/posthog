@@ -47,13 +47,22 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
 
         ValidateDataWarehouseBreakdown().validate(self._context(query))
 
-    def test_allows_data_warehouse_single_breakdown(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "data_warehouse_type",
+                BreakdownFilter(breakdown="plan", breakdown_type=BreakdownType.DATA_WAREHOUSE),
+            ),
+            (
+                "hogql_type",
+                BreakdownFilter(breakdown="status", breakdown_type=BreakdownType.HOGQL),
+            ),
+        ]
+    )
+    def test_allows_supported_single_breakdowns(self, _name: str, breakdown_filter: BreakdownFilter) -> None:
         query = TrendsQuery(
             series=self._data_warehouse_series(),
-            breakdownFilter=BreakdownFilter(
-                breakdown="plan",
-                breakdown_type=BreakdownType.DATA_WAREHOUSE,
-            ),
+            breakdownFilter=breakdown_filter,
         )
 
         ValidateDataWarehouseBreakdown().validate(self._context(query))
@@ -115,12 +124,22 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
             ["data_warehouse_series_unsupported_breakdown"],
         )
 
-    def test_allows_single_item_multi_breakdown_with_data_warehouse_type(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "data_warehouse_type",
+                Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE),
+            ),
+            (
+                "hogql_type",
+                Breakdown(property="status", type=MultipleBreakdownType.HOGQL),
+            ),
+        ]
+    )
+    def test_allows_supported_single_item_multi_breakdown(self, _name: str, breakdown: Breakdown) -> None:
         query = TrendsQuery(
             series=self._data_warehouse_series(),
-            breakdownFilter=BreakdownFilter(
-                breakdowns=[Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE)],
-            ),
+            breakdownFilter=BreakdownFilter(breakdowns=[breakdown]),
         )
 
         ValidateDataWarehouseBreakdown().validate(self._context(query))

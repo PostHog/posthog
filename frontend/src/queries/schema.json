@@ -4017,6 +4017,18 @@
             ],
             "type": "string"
         },
+        "BiasRisk": {
+            "additionalProperties": false,
+            "description": "Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE` handling + observed `$multiple` share above the threshold. Present on the response only when the experiment is currently at risk.",
+            "properties": {
+                "multiple_variant_percentage": {
+                    "description": "Observed share of users assigned to `$multiple`, as a percentage (0-100).",
+                    "type": "number"
+                }
+            },
+            "required": ["multiple_variant_percentage"],
+            "type": "object"
+        },
         "BillingSpendResponseBreakdownType": {
             "enum": ["type", "team", "multiple"],
             "type": "string"
@@ -5448,6 +5460,9 @@
         "CachedExperimentExposureQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "bias_risk": {
+                    "$ref": "#/definitions/BiasRisk"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -12997,10 +13012,6 @@
             "enum": ["data_warehouse", "endpoint", "managed_viewset"],
             "type": "string"
         },
-        "DataWarehouseSyncInterval": {
-            "enum": ["1min", "5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
-            "type": "string"
-        },
         "DataWarehouseViewLink": {
             "additionalProperties": false,
             "properties": {
@@ -14071,8 +14082,9 @@
                     "description": "Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).",
                     "type": "object"
                 },
-                "cache_age_seconds": {
-                    "type": "number"
+                "data_freshness_seconds": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
                 },
                 "deleted": {
                     "description": "Set to true to soft-delete this endpoint",
@@ -14103,10 +14115,6 @@
                             "$ref": "#/definitions/EndpointQueryNode"
                         }
                     ]
-                },
-                "sync_frequency": {
-                    "$ref": "#/definitions/DataWarehouseSyncInterval",
-                    "description": "How frequently should the underlying materialized view be updated"
                 },
                 "version": {
                     "$ref": "#/definitions/integer",
@@ -16681,6 +16689,9 @@
         "ExperimentExposureQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "bias_risk": {
+                    "$ref": "#/definitions/BiasRisk"
+                },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -17652,6 +17663,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17663,9 +17677,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17704,6 +17715,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17715,9 +17729,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17922,6 +17933,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17941,9 +17955,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "method": {
                     "const": "bayesian",
@@ -18003,6 +18014,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -18014,9 +18028,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "method": {
                     "const": "frequentist",
@@ -18228,7 +18239,8 @@
                 "BuildBetter",
                 "Convex",
                 "ClickHouse",
-                "Plain"
+                "Plain",
+                "Resend"
             ],
             "type": "string"
         },
@@ -28185,6 +28197,9 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "bias_risk": {
+                            "$ref": "#/definitions/BiasRisk"
+                        },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
                         },

@@ -21,7 +21,6 @@ from posthog.api import (
     hog_flow_template,
     hog_function_template,
     playwright_setup,
-    remote_config,
     report,
     router,
     sharing,
@@ -55,7 +54,7 @@ from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
 from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
-from products.surveys.backend.api.survey import public_survey_page, surveys
+from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template
@@ -231,7 +230,6 @@ urlpatterns = [
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/early_access_features", early_access_features),
     opt_slash_path("api/web_experiments", web_experiments),
-    opt_slash_path("api/surveys", surveys),
     opt_slash_path("api/product_tours", product_tours),
     re_path(r"^external_surveys/(?P<survey_id>[^/]+)/?$", public_survey_page),
     opt_slash_path("api/signup/precheck", signup.SignupEmailPrecheckViewset.as_view()),
@@ -311,9 +309,6 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
-    path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
-    path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
-    path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion

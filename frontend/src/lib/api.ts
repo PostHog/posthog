@@ -4584,6 +4584,21 @@ const api = {
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
         },
+        async collabStream(
+            notebookId: NotebookType['short_id'],
+            {
+                onMessage,
+                onError,
+                signal,
+            }: {
+                onMessage: (data: EventSourceMessage) => void
+                onError: (error: any) => void
+                signal?: AbortSignal
+            }
+        ): Promise<void> {
+            const url = new ApiRequest().notebook(notebookId).withAction('collab/stream').assembleFullUrl(true)
+            await api.stream(url, { method: 'GET', onMessage, onError, signal })
+        },
     },
 
     sessionGroupSummaries: {
