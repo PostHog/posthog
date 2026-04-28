@@ -121,6 +121,18 @@ class TestIsHostSafe(SimpleTestCase):
             assert not valid
             assert error == "Host could not be resolved"
 
+    @parameterized.expand(
+        [
+            ("label_too_long", "a" * 64 + ".example.com"),
+            ("empty_label", "foo..example.com"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_idna_invalid_host_blocked(self, _name: str, host: str):
+        valid, error = _is_host_safe(host, team_id=999)
+        assert not valid
+        assert error == "Host could not be resolved"
+
 
 class TestValidateDatabaseHostMixin(SimpleTestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")

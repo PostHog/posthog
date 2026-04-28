@@ -55,7 +55,9 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
             resolved_ip = sockaddr[0]
             if not _is_safe_public_ip(str(resolved_ip)):
                 return False, "Hosts with internal IP addresses are not allowed"
-    except socket.gaierror:
+    except (socket.gaierror, UnicodeError):
+        # UnicodeError covers IDNA encoding failures (e.g. DNS label longer
+        # than 63 chars) raised before DNS resolution begins.
         return False, "Host could not be resolved"
 
     return True, None
