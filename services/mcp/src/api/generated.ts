@@ -20377,75 +20377,77 @@ export namespace Schemas {
     }
 
     /**
-     * * `slack` - Slack
-    * `slack-posthog-code` - Slack Posthog Code
-    * `salesforce` - Salesforce
-    * `hubspot` - Hubspot
-    * `google-pubsub` - Google Pubsub
-    * `google-cloud-storage` - Google Cloud Storage
-    * `google-ads` - Google Ads
-    * `google-sheets` - Google Sheets
-    * `google-cloud-service-account` - Google Cloud Service Account
-    * `snapchat` - Snapchat
-    * `linkedin-ads` - Linkedin Ads
-    * `reddit-ads` - Reddit Ads
-    * `tiktok-ads` - Tiktok Ads
+     * * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
-    * `intercom` - Intercom
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
     * `email` - Email
-    * `linear` - Linear
+    * `firebase` - Firebase
     * `github` - Github
     * `gitlab` - Gitlab
-    * `meta-ads` - Meta Ads
-    * `twilio` - Twilio
-    * `clickup` - Clickup
-    * `vercel` - Vercel
-    * `databricks` - Databricks
-    * `azure-blob` - Azure Blob
-    * `firebase` - Firebase
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
     * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
     * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
     * `stripe` - Stripe
-    * `customerio-app` - Customerio App
-    * `customerio-webhook` - Customerio Webhook
-    * `customerio-track` - Customerio Track
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
 
     export const IntegrationKindEnum = {
-      Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
-      Salesforce: 'salesforce',
-      Hubspot: 'hubspot',
-      GooglePubsub: 'google-pubsub',
-      GoogleCloudStorage: 'google-cloud-storage',
-      GoogleAds: 'google-ads',
-      GoogleSheets: 'google-sheets',
-      GoogleCloudServiceAccount: 'google-cloud-service-account',
-      Snapchat: 'snapchat',
-      LinkedinAds: 'linkedin-ads',
-      RedditAds: 'reddit-ads',
-      TiktokAds: 'tiktok-ads',
+      AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
-      Intercom: 'intercom',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
       Email: 'email',
-      Linear: 'linear',
+      Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
-      MetaAds: 'meta-ads',
-      Twilio: 'twilio',
-      Clickup: 'clickup',
-      Vercel: 'vercel',
-      Databricks: 'databricks',
-      AzureBlob: 'azure-blob',
-      Firebase: 'firebase',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
       Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
       PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
       Stripe: 'stripe',
-      CustomerioApp: 'customerio-app',
-      CustomerioWebhook: 'customerio-webhook',
-      CustomerioTrack: 'customerio-track',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
     } as const;
 
     /**
