@@ -2321,7 +2321,7 @@
         }
     },
     "hogql-schema": {
-        "description": "Return the HogQL catalog for the active project: every queryable table (PostHog, system, warehouse, view, materialized view, batch export, endpoint) keyed by name, with each table's fields, plus the join graph between data-warehouse tables. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap — no ClickHouse cost.",
+        "description": "Return the HogQL catalog for the active project: every queryable table (PostHog, system, warehouse, view, materialized view, batch export, endpoint) keyed by name, with each table's fields, plus the join graph between data-warehouse tables. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap — no ClickHouse cost. Pass 'connectionId' to introspect a Postgres or DuckDB direct-query data warehouse source instead of the ClickHouse catalog (use external-data-sources-list to find ids).",
         "category": "Insights & analytics",
         "summary": "List tables and columns available to HogQL queries.",
         "feature": "insights",
@@ -3522,7 +3522,7 @@
         "system_prompt_hint": "User return patterns over time"
     },
     "query-run": {
-        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. For existing PostHog-created data, use system tables with the system. prefix; for example, count SQL insight variables with SELECT count() AS total FROM system.insight_variables. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps.",
+        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. For existing PostHog-created data, use system tables with the system. prefix; for example, count SQL insight variables with SELECT count() AS total FROM system.insight_variables. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps. To target a Postgres or DuckDB direct-query data warehouse source instead of ClickHouse, set 'connectionId' on a HogQLQuery (call external-data-sources-list to discover ids).",
         "category": "Insights & analytics",
         "summary": "Run a trend, funnel, paths or HogQL query.",
         "feature": "insights",
@@ -3601,7 +3601,7 @@
         "system_prompt_hint": "List persons behind a trends data point"
     },
     "query-validate": {
-        "description": "Dry-run a HogQL query: parse and type-check it without executing, so there is no ClickHouse cost and no 202 polling. Returns structured errors (with character positions), warnings, notices, and the list of tables the query references. Use this before 'query-run' on any non-trivial HogQL to catch column typos, missing tables, and syntax issues up front instead of iterating on opaque execution errors. Accepts the same language values as the HogQL editor: 'hogQL' (default, full SELECT), 'hogQLExpr' (bare expression), 'hog', or 'hogTemplate'.",
+        "description": "Dry-run a HogQL query: parse and type-check it without executing, so there is no ClickHouse cost and no 202 polling. Returns structured errors (with character positions), warnings, notices, and the list of tables the query references. Use this before 'query-run' on any non-trivial HogQL to catch column typos, missing tables, and syntax issues up front instead of iterating on opaque execution errors. Accepts the same language values as the HogQL editor: 'hogQL' (default, full SELECT), 'hogQLExpr' (bare expression), 'hog', or 'hogTemplate'. Pass 'connectionId' to validate against a Postgres or DuckDB direct-query data warehouse source instead of the ClickHouse catalog (use external-data-sources-list to find ids).",
         "category": "Insights & analytics",
         "summary": "Validate a HogQL query without executing it.",
         "feature": "insights",
