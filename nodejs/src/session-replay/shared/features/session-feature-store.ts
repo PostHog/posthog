@@ -3,6 +3,7 @@ import { FeatureEndResult } from '../../../session-recording/sessions/session-fe
 import { TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
+import { SessionFeatureStoreMetrics } from './metrics'
 
 interface KafkaMessage {
     key: string
@@ -16,6 +17,7 @@ const filterOversizedMessages = (messages: KafkaMessage[]): KafkaMessage[] => {
     for (const message of messages) {
         const size = Buffer.byteLength(message.value, 'utf8')
         if (size > MAX_MESSAGE_SIZE_BYTES) {
+            SessionFeatureStoreMetrics.incrementOversizedMessagesDropped()
             logger.warn('🧠', 'session_feature_store_message_dropped_oversized', {
                 sessionId: message.key,
                 size,
