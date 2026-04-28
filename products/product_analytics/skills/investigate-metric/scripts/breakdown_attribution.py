@@ -53,7 +53,8 @@ def fmt(v: float, signed: bool = False) -> str:
 
 
 def fmt_pct(v: float) -> str:
-    return f"{v:+.1f}%" if v == v else "n/a"  # NaN check via x != x
+    # `v == v` is False only when v is NaN.
+    return f"{v:+.1f}%" if v == v else "n/a"
 
 
 def main() -> int:
@@ -129,9 +130,6 @@ def main() -> int:
         )
 
     print()
-    if not rows:
-        return 0
-
     # If the aggregate barely moved but segments did, segments are offsetting.
     # That's a different diagnostic than "one segment absorbs the delta".
     aggregate_pct = (total_delta / total_baseline * 100) if total_baseline else 0
