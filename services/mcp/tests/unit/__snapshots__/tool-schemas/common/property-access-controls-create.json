@@ -5,17 +5,9 @@
         "access_level": {
             "anyOf": [
                 {
-                    "anyOf": [
-                        {
-                            "description": "* `read_write` - read_write\n* `read` - read\n* `none` - none",
-                            "enum": ["read_write", "read", "none"],
-                            "type": "string"
-                        },
-                        {
-                            "const": null,
-                            "type": "null"
-                        }
-                    ]
+                    "description": "* `read_write` - read_write\n* `read` - read\n* `none` - none",
+                    "enum": ["read_write", "read", "none"],
+                    "type": "string"
                 },
                 {
                     "type": "null"
@@ -26,6 +18,8 @@
         "organization_member": {
             "anyOf": [
                 {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                     "type": "string"
                 },
                 {
@@ -41,6 +35,8 @@
         "role": {
             "anyOf": [
                 {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                     "type": "string"
                 },
                 {
