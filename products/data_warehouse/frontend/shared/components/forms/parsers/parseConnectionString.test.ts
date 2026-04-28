@@ -214,6 +214,18 @@ describe('parseSnowflakeConnectionString', () => {
         expect(paths).not.toContain('warehouse')
     })
 
+    it('does not emit auth_type fields when the URL has no password (preserves existing keypair selection)', () => {
+        const result = parseSnowflakeConnectionString('snowflake://alice@xy12345/MY_DB?warehouse=COMPUTE_WH')
+        expect(result.isValid).toBe(true)
+        const paths = result.fields.map((f) => f.path.join('.'))
+        expect(paths).not.toContain('auth_type.selection')
+        expect(paths).not.toContain('auth_type.password.user')
+        expect(paths).not.toContain('auth_type.password.password')
+        // non-auth fields still get populated
+        expect(fieldMap(result.fields).account_id).toBe('xy12345')
+        expect(fieldMap(result.fields).warehouse).toBe('COMPUTE_WH')
+    })
+
     it('rejects URLs missing user, account, or database', () => {
         // password may be empty (Snowflake supports passwordless SSO), but user/account/db are required
         expect(parseSnowflakeConnectionString('snowflake://@xy12345/MY_DB').isValid).toBe(false)

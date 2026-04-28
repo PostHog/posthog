@@ -43,14 +43,17 @@ export function parseSnowflakeConnectionString(str: string): ParseResult {
         fields.push({ path: ['role'], value: role })
     }
 
-    // The URL form can only carry user + password (not a private key), so we always
-    // select the "password" branch of the auth_type select. The form stores the
-    // selection at [auth_type, selection] and the credentials in the nested group.
-    fields.push(
-        { path: ['auth_type', 'selection'], value: 'password' },
-        { path: ['auth_type', 'password', 'user'], value: user },
-        { path: ['auth_type', 'password', 'password'], value: password }
-    )
+    // The URL form can only carry user + password (not a private key). Only flip
+    // auth_type to "password" when the URL actually carries a password — otherwise
+    // a user pasting a URL just to grab account_id/warehouse would silently lose
+    // an existing keypair selection.
+    if (password) {
+        fields.push(
+            { path: ['auth_type', 'selection'], value: 'password' },
+            { path: ['auth_type', 'password', 'user'], value: user },
+            { path: ['auth_type', 'password', 'password'], value: password }
+        )
+    }
 
     return { isValid: true, fields }
 }
