@@ -423,6 +423,19 @@ class ErrorResponseSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Error message")
 
 
+class TaskRunErrorResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField(required=False, help_text="Human-readable validation error")
+    error = serializers.CharField(required=False, help_text="Human-readable error message")
+    type = serializers.CharField(required=False, help_text="Machine-readable error type")
+    code = serializers.CharField(required=False, help_text="Machine-readable error code")
+    attr = serializers.CharField(required=False, help_text="Request field associated with the error")
+    missing_artifact_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Artifact ids that could not be resolved for the run",
+    )
+
+
 class AgentListResponseSerializer(serializers.Serializer):
     results = AgentDefinitionSerializer(many=True, help_text="Array of available agent definitions")
 

@@ -29,6 +29,7 @@ import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
 import { OutputPane } from './OutputPane'
+import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -154,6 +155,7 @@ export function QueryWindow({
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                     />
+                    <QueryFiltersMenu />
                     {editingView ? (
                         <LemonButton
                             type="secondary"

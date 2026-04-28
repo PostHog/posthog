@@ -69,6 +69,7 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
+    "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
 ]
 
 INSTALLED_APPS = [
@@ -200,7 +201,7 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 # Authentication
 
 AUTHENTICATION_BACKENDS: list[str] = [
-    "axes.backends.AxesBackend",
+    "axes.backends.AxesStandaloneBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
@@ -723,8 +724,3 @@ ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
-
-SURVEYS_API_USE_HYPERCACHE_TOKENS = get_list(os.getenv("SURVEYS_API_USE_HYPERCACHE_TOKENS", ""))
-SURVEYS_API_USE_REMOTE_CONFIG_COMPARE = get_from_env(
-    "SURVEYS_API_USE_REMOTE_CONFIG_COMPARE", False, type_cast=str_to_bool
-)

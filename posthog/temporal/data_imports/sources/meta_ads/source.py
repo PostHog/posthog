@@ -95,6 +95,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="meta_ads_integration_id",
@@ -108,6 +109,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
                         placeholder="90",
+                        secret=False,
                     ),
                 ],
             ),
