@@ -1427,6 +1427,14 @@ jobs:
                   name: junit-results-backend-${{ matrix.artifact_key }}
                   path: junit-*.xml
 
+            - name: Upload OpenAPI response validation report
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: openapi-response-validation-backend-${{ matrix.artifact_key }}
+                  path: openapi_response_validation_report.json
+                  if-no-files-found: warn
+
     # Aggregate and commit snapshot changes from all matrix jobs
 
     get_clickhouse_versions:
