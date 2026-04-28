@@ -693,72 +693,102 @@ from = [
 """
 
 
-class TestValidateFacadeAlternation:
-    def test_empty_tach(self, tmp_path: Path) -> None:
-        assert validate_facade_alternation("", tmp_path) == []
-
-    def test_no_canonical_block(self, tmp_path: Path) -> None:
-        _mkproduct(tmp_path, "alpha", isolated=True)
-        tach = """\
+_LEGACY_ONLY_TACH = """\
 [[interfaces]]
 expose = ["backend\\\\.models.*"]
 from = ["products.alpha"]
 """
-        assert validate_facade_alternation(tach, tmp_path) == []
 
-    def test_clean_alternation(self, tmp_path: Path) -> None:
-        _mkproduct(tmp_path, "alpha", isolated=True)
-        _mkproduct(tmp_path, "beta", isolated=True)
-        assert validate_facade_alternation(_CANONICAL_BLOCK, tmp_path) == []
-
-    def test_stale_entry_product_missing(self, tmp_path: Path) -> None:
-        _mkproduct(tmp_path, "alpha", isolated=True)
-        issues = validate_facade_alternation(_CANONICAL_BLOCK, tmp_path)
-        assert any("beta" in i and "does not exist" in i for i in issues)
-
-    def test_stale_entry_not_isolated(self, tmp_path: Path) -> None:
-        _mkproduct(tmp_path, "alpha", isolated=True)
-        _mkproduct(tmp_path, "beta", isolated=False)
-        issues = validate_facade_alternation(_CANONICAL_BLOCK, tmp_path)
-        assert any("beta" in i and "contracts.py" in i for i in issues)
-
-    def test_isolated_product_missing_from_alternation(self, tmp_path: Path) -> None:
-        _mkproduct(tmp_path, "alpha", isolated=True)
-        _mkproduct(tmp_path, "beta", isolated=True)
-        _mkproduct(tmp_path, "gamma", isolated=True)
-        issues = validate_facade_alternation(_CANONICAL_BLOCK, tmp_path)
-        assert any("gamma" in i and "not listed" in i for i in issues)
-
-    def test_legacy_block_alone_is_not_canonical(self, tmp_path: Path) -> None:
-        _mkproduct(tmp_path, "alpha", isolated=True)
-        _mkproduct(tmp_path, "beta", isolated=True)
-        _mkproduct(tmp_path, "delta", isolated=True)
-        tach = (
-            _CANONICAL_BLOCK
-            + """
+_CANONICAL_PLUS_LEGACY_TACH = (
+    _CANONICAL_BLOCK
+    + """
 [[interfaces]]
 expose = ["backend\\\\.models.*"]
 from = ["products.delta"]
 """
-        )
+)
+
+# Real tach.toml on disk uses literal `\\.` (two backslashes + dot).
+# `_CANONICAL_BLOCK` already encodes that form via escaped backslashes in
+# the Python source — `\\\\` in source is two literal backslashes at runtime.
+# This row uses a non-alternation single-name `from` so the parametrized
+# test additionally exercises that branch of `_names_from_pattern`.
+_CANONICAL_SINGLE_NAME_TACH = (
+    "[[interfaces]]\n"
+    'expose = [\n    "backend\\\\.facade.*",\n    "backend\\\\.presentation\\\\.views.*",\n]\n'
+    'from = [\n    "products\\\\.alpha",\n]\n'
+)
+
+
+class TestValidateFacadeAlternation:
+    @pytest.mark.parametrize(
+        "products, tach, expected_substrings",
+        [
+            # Empty tach — nothing to validate.
+            ([], "", []),
+            # Only a legacy-leak block — TachCheck handles per-product, this
+            # validator stays quiet.
+            ([("alpha", True)], _LEGACY_ONLY_TACH, []),
+            # Clean alternation: every listed product exists and is isolated.
+            ([("alpha", True), ("beta", True)], _CANONICAL_BLOCK, []),
+            # Stale entry: product listed but not on disk.
+            ([("alpha", True)], _CANONICAL_BLOCK, [("beta", "does not exist")]),
+            # Stale entry: product on disk but missing contracts.py.
+            (
+                [("alpha", True), ("beta", False)],
+                _CANONICAL_BLOCK,
+                [("beta", "contracts.py")],
+            ),
+            # Missing entry: isolated product not in alternation.
+            (
+                [("alpha", True), ("beta", True), ("gamma", True)],
+                _CANONICAL_BLOCK,
+                [("gamma", "not listed")],
+            ),
+            # Legacy-only block doesn't satisfy the canonical alternation rule.
+            (
+                [("alpha", True), ("beta", True), ("delta", True)],
+                _CANONICAL_PLUS_LEGACY_TACH,
+                [("delta", "not listed")],
+            ),
+            # On-disk single-name `from` (no alternation) parses.
+            ([("alpha", True)], _CANONICAL_SINGLE_NAME_TACH, []),
+            # Non-isolated products are ignored by the "missing from alternation" rule.
+            (
+                [("alpha", True), ("beta", True), ("lenient_one", False), ("lenient_two", False)],
+                _CANONICAL_BLOCK,
+                [],
+            ),
+        ],
+        ids=[
+            "empty_tach",
+            "legacy_only_block_silent",
+            "clean_alternation",
+            "stale_entry_missing_on_disk",
+            "stale_entry_not_isolated",
+            "isolated_product_missing_from_alternation",
+            "legacy_block_alone_is_not_canonical",
+            "on_disk_single_name_form_parses",
+            "non_isolated_products_ignored",
+        ],
+    )
+    def test_validate(
+        self,
+        tmp_path: Path,
+        products: list[tuple[str, bool]],
+        tach: str,
+        expected_substrings: list[tuple[str, ...]],
+    ) -> None:
+        for name, isolated in products:
+            _mkproduct(tmp_path, name, isolated=isolated)
         issues = validate_facade_alternation(tach, tmp_path)
-        assert any("delta" in i and "not listed" in i for i in issues)
-
-    def test_two_backslash_form_parses(self, tmp_path: Path) -> None:
-        _mkproduct(tmp_path, "alpha", isolated=True)
-        on_disk = (
-            "[[interfaces]]\n"
-            'expose = [\n    "backend\\\\.facade.*",\n    "backend\\\\.presentation\\\\.views.*",\n]\n'
-            'from = [\n    "products\\\\.alpha",\n]\n'
-        )
-        assert validate_facade_alternation(on_disk, tmp_path) == []
-
-    def test_lenient_products_ignored(self, tmp_path: Path) -> None:
-        _mkproduct(tmp_path, "alpha", isolated=True)
-        _mkproduct(tmp_path, "beta", isolated=True)
-        _mkproduct(tmp_path, "lenient_one", isolated=False)
-        _mkproduct(tmp_path, "lenient_two", isolated=False)
-        assert validate_facade_alternation(_CANONICAL_BLOCK, tmp_path) == []
+        if not expected_substrings:
+            assert issues == []
+            return
+        for substrings in expected_substrings:
+            assert any(all(s in issue for s in substrings) for issue in issues), (
+                f"no issue matched all of {substrings!r}; got {issues!r}"
+            )
 
 
 class TestNamesFromPattern:

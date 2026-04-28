@@ -68,7 +68,8 @@ def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
     module and whose `expose` includes any non-facade/non-presentation pattern.
     """
     for expose_patterns, from_patterns in _iter_interface_blocks(tach_content):
-        if from_patterns != [module_path]:
+        normalized_from = [p.replace("\\", "") for p in from_patterns]
+        if normalized_from != [module_path]:
             continue
         if any(not _pattern_targets_public_surface(p) for p in expose_patterns):
             return True
