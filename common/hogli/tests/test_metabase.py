@@ -176,7 +176,12 @@ def test_metabase_login_fast_paths_already_valid_session(cache_dir: Path, monkey
     monkeypatch.setattr(metabase, "_check_cookie", lambda domain, header: True)
     monkeypatch.setattr(metabase.time, "sleep", lambda _: None)
     opens: list[str] = []
-    monkeypatch.setattr(metabase.webbrowser, "open", lambda url: opens.append(url) or True)
+
+    def record_open(url: str) -> bool:
+        opens.append(url)
+        return True
+
+    monkeypatch.setattr(metabase.webbrowser, "open", record_open)
 
     runner = CliRunner()
     result = runner.invoke(cli, ["metabase:login", "--region", "us"])
