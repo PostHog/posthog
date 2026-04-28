@@ -1442,10 +1442,6 @@ describe('LogsIngestionConsumer', () => {
     describe('thread relief', () => {
         jest.setTimeout(30000)
 
-        let interval: NodeJS.Timeout
-        let lastCheck = 0
-        let longestDelay = 0
-
         beforeEach(async () => {
             // Parent beforeEach mocks Date.now/toISOString — restore for real-time tracking.
             jest.spyOn(Date, 'now').mockRestore()
@@ -1460,17 +1456,6 @@ describe('LogsIngestionConsumer', () => {
                 'updateTeamLogsForThreadRelief'
             )
             hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
-
-            lastCheck = Date.now()
-            longestDelay = 0
-            interval = setInterval(() => {
-                longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
-                lastCheck = Date.now()
-            }, 0)
-        })
-
-        afterEach(() => {
-            clearInterval(interval)
         })
 
         it('should process large batches without blocking the main thread', async () => {
@@ -1482,24 +1467,31 @@ describe('LogsIngestionConsumer', () => {
                 message: 'A long log message ' + 'x'.repeat(500),
             })
 
-            // 1000+ messages is where unbounded fan-out starves the loop in production.
-            // Locally the bench shows max event-loop lag ~800ms unbounded vs ~5ms with cap=50.
-            const numberToTest = 1000
+            const numberToTest = 2000
             const messages = await createKafkaMessages(
                 Array.from({ length: numberToTest }, () => ({ message: body })),
                 { token: team.api_token }
             )
 
-            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            // Track event-loop lag only during the consumer's processing.
+            let lastCheck = Date.now()
+            let longestDelay = 0
+            const interval = setInterval(() => {
+                longestDelay = Math.max(longestDelay, Date.now() - lastCheck)
+                lastCheck = Date.now()
+            }, 0)
 
-            // All messages should have been produced.
+            try {
+                await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+            } finally {
+                clearInterval(interval)
+            }
+
             const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
             expect(logsMessages).toHaveLength(numberToTest)
 
-            // Without the pLimit cap on per-message processing, longestDelay measured >500ms
-            // for batches of this size on the bench. With the cap (currently 50) it stays
-            // well under 200ms even on a loaded machine. Threshold below leaves CI headroom.
-            expect(longestDelay).toBeLessThan(500)
+            console.log(`[thread-relief] longestDelay = ${longestDelay}ms`)
+            expect(longestDelay).toBeLessThan(120)
         })
     })
 })
