@@ -5,7 +5,12 @@
  * Recording API-specific types.
  */
 import { CommonConfig } from '../../common/config'
-import { SessionRecordingApiConfig, SessionRecordingConfig } from '../../session-recording/config'
+import { DEFAULT_PRODUCER } from '../../ingestion/common/outputs'
+import {
+    SessionRecordingApiConfig,
+    SessionRecordingConfig,
+    SessionReplayProducerName,
+} from '../../session-recording/config'
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
@@ -49,7 +54,26 @@ export type RecordingApiConfig = Pick<
         | 'SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY'
         | 'SESSION_RECORDING_V2_S3_BUCKET'
         | 'SESSION_RECORDING_V2_S3_PREFIX'
+        | 'SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC'
+        | 'SESSION_RECORDING_V2_SESSION_FEATURES_KAFKA_TOPIC'
     >
+
+/**
+ * Producer routing config for Recording API outputs. Topic keys are part of
+ * `RecordingApiConfig` (picked from `SessionRecordingConfig`); only the
+ * producer keys live here.
+ */
+export type RecordingApiOutputsConfig = {
+    SESSION_REPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: SessionReplayProducerName
+    SESSION_REPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: SessionReplayProducerName
+}
+
+export function getDefaultRecordingApiOutputsConfig(): RecordingApiOutputsConfig {
+    return {
+        SESSION_REPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: DEFAULT_PRODUCER,
+        SESSION_REPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: DEFAULT_PRODUCER,
+    }
+}
 
 export interface RecordingBlock {
     key: string

@@ -3,14 +3,8 @@ import { ClickHouseClient, createClient as createClickHouseClient } from '@click
 import https from 'https'
 import express from 'ultimate-express'
 
-import {
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-} from '../../config/kafka-topics'
-import { DEFAULT_PRODUCER, REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '../../ingestion/common/outputs'
+import { ReplayEventsOutput, SessionFeaturesOutput } from '../../ingestion/common/outputs'
 import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '../../ingestion/outputs/single-ingestion-output'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -40,13 +34,13 @@ export class RecordingApi {
     private keyStore: KeyStore | null = null
     private decryptor: RecordingDecryptor | null = null
     private redisPool: RedisPool | null = null
-    private kafkaProducer: KafkaProducerWrapper | null = null
     private clickhouseClient: ClickHouseClient | null = null
     private recordingService: RecordingService | null = null
 
     constructor(
         private config: RecordingApiConfig,
-        private postgres: PostgresRouter
+        private postgres: PostgresRouter,
+        private outputs: IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
     ) {}
 
     public get service(): PluginServerService {
@@ -120,26 +114,8 @@ export class RecordingApi {
         this.decryptor = getBlockDecryptor(this.keyStore)
         await this.decryptor.start()
 
-        // Initialize Kafka producer for emitting deletion events
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        const replayEventsOutputs = new IngestionOutputs({
-            [REPLAY_EVENTS_OUTPUT]: new SingleIngestionOutput(
-                REPLAY_EVENTS_OUTPUT,
-                KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-                this.kafkaProducer,
-                DEFAULT_PRODUCER
-            ),
-        })
-        const sessionFeaturesOutputs = new IngestionOutputs({
-            [SESSION_FEATURES_OUTPUT]: new SingleIngestionOutput(
-                SESSION_FEATURES_OUTPUT,
-                KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-                this.kafkaProducer,
-                DEFAULT_PRODUCER
-            ),
-        })
-        const metadataStore = new SessionMetadataStore(replayEventsOutputs)
-        const featureStore = new SessionFeatureStore(sessionFeaturesOutputs)
+        const metadataStore = new SessionMetadataStore(this.outputs)
+        const featureStore = new SessionFeatureStore(this.outputs)
 
         // Initialize ClickHouse client for block listing queries
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
@@ -180,9 +156,6 @@ export class RecordingApi {
             await this.redisPool.drain()
             await this.redisPool.clear()
         }
-        if (this.kafkaProducer) {
-            await this.kafkaProducer.disconnect()
-        }
         if (this.clickhouseClient) {
             await this.clickhouseClient.close()
         }
@@ -199,9 +172,6 @@ export class RecordingApi {
         }
         if (!this.decryptor) {
             uninitializedComponents.push('decryptor')
-        }
-        if (!this.kafkaProducer) {
-            uninitializedComponents.push('kafkaProducer')
         }
 
         if (uninitializedComponents.length > 0) {
