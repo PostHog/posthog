@@ -519,7 +519,7 @@ class BatchExportFileDownload(ModelActivityMixin, UUIDTModel):
         if self.is_expired():
             return True
 
-        delta = self.expires_at - dt.datetime.now(dt.UTC) # type: ignore
+        delta = self.expires_at - dt.datetime.now(dt.UTC)  # type: ignore
 
         if isinstance(threshold, int):
             threshold_delta = dt.timedelta(seconds=threshold)
