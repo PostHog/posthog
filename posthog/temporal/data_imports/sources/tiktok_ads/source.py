@@ -51,6 +51,7 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your TikTok Ads advertiser ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="tiktok_integration_id",

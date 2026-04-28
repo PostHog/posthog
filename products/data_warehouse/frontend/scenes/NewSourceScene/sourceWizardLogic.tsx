@@ -61,6 +61,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
             type: 'text',
             required: true,
             placeholder: 'localhost',
+            secret: false,
         },
         {
             name: 'port',
@@ -68,6 +69,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
             type: 'number',
             required: true,
             placeholder: '22',
+            secret: false,
         },
         {
             type: 'select',
@@ -86,6 +88,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                             type: 'text',
                             required: true,
                             placeholder: 'User1',
+                            secret: false,
                         },
                         {
                             name: 'password',
@@ -93,6 +96,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                             type: 'password',
                             required: true,
                             placeholder: '',
+                            secret: true,
                         },
                     ],
                 },
@@ -106,6 +110,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                             type: 'text',
                             required: false,
                             placeholder: 'User1',
+                            secret: false,
                         },
                         {
                             name: 'private_key',
@@ -113,6 +118,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                             type: 'textarea',
                             required: true,
                             placeholder: '',
+                            secret: true,
                         },
                         {
                             name: 'passphrase',
@@ -120,6 +126,7 @@ export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
                             type: 'password',
                             required: false,
                             placeholder: '',
+                            secret: true,
                         },
                     ],
                 },
@@ -1611,14 +1618,9 @@ export const getErrorsForFields = (
         // All other types - check if required property exists on this field type
         if (
             options?.allowBlankSensitiveFields &&
-            'type' in field &&
-            field.type === 'password' &&
+            (('secret' in field && field.secret) || ('type' in field && field.type === 'password')) &&
             !valueObj[field.name]
         ) {
-            return
-        }
-
-        if (options?.allowBlankSensitiveFields && field.name === 'private_key' && !valueObj[field.name]) {
             return
         }
 

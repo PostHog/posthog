@@ -25,7 +25,7 @@ from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
+from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 from posthog.temporal.session_replay.session_summary.activities import (
     CaptureTimingInputs,
@@ -531,6 +531,7 @@ async def ensure_llm_single_session_summary(
         redis_key_base=inputs.redis_key_base,
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=inputs.extra_summary_context,
+        product_context=inputs.product_context,
     )
 
     # Activity 1: Prepare video export (find or create ExportedAsset)
@@ -562,6 +563,12 @@ async def ensure_llm_single_session_summary(
             retry_policy=RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             execution_timeout=timedelta(minutes=30),
+            search_attributes=TypedSearchAttributes(
+                search_attributes=[
+                    SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=video_inputs.team_id),
+                    SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=video_inputs.session_id),
+                ]
+            ),
         )
 
     # Activity 2: Upload full video to Gemini (single upload)
@@ -782,6 +789,7 @@ def _prepare_execution(
     team: Team,
     model_to_use: str,
     extra_summary_context: ExtraSummaryContext | None = None,
+    product_context: str | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
@@ -812,6 +820,7 @@ def _prepare_execution(
         user_distinct_id_to_log=user.distinct_id,
         team_id=team.id,
         extra_summary_context=extra_summary_context,
+        product_context=product_context,
         local_reads_prod=local_reads_prod,
         redis_key_base=redis_key_base,
         model_to_use=model_to_use,
@@ -828,6 +837,7 @@ async def execute_summarize_session(
     team: Team,
     model_to_use: str | None = None,
     extra_summary_context: ExtraSummaryContext | None = None,
+    product_context: str | None = None,
     local_reads_prod: bool = False,
     video_based: bool = False,
     trigger_session_id: str | None = None,
@@ -852,6 +862,7 @@ async def execute_summarize_session(
         team=team,
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
+        product_context=product_context,
         local_reads_prod=local_reads_prod,
         video_based=video_based,
         trigger_session_id=trigger_session_id,
@@ -923,6 +934,7 @@ async def execute_summarize_session_video_stream(
     user: User,
     team: Team,
     extra_summary_context: ExtraSummaryContext | None = None,
+    product_context: str | None = None,
     local_reads_prod: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Start the video-based summarization workflow and stream progress events.
@@ -957,6 +969,7 @@ async def execute_summarize_session_video_stream(
         team=team,
         model_to_use=DEFAULT_VIDEO_UNDERSTANDING_MODEL,
         extra_summary_context=extra_summary_context,
+        product_context=product_context,
         local_reads_prod=local_reads_prod,
         video_based=True,
     )

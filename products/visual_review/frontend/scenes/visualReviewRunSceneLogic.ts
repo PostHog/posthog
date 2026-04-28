@@ -59,6 +59,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         recomputeRun: true,
         recomputeRunSuccess: true,
         recomputeRunFailure: true,
+        markThumbnailFailed: (identifier: string) => ({ identifier }),
     }),
     reducers({
         selectedSnapshotId: [
@@ -89,6 +90,16 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 recomputeRun: () => true,
                 recomputeRunSuccess: () => false,
                 recomputeRunFailure: () => false,
+            },
+        ],
+        failedThumbnails: [
+            new Set<string>() as Set<string>,
+            {
+                markThumbnailFailed: (state: Set<string>, { identifier }: { identifier: string }) => {
+                    const next = new Set(state)
+                    next.add(identifier)
+                    return next
+                },
             },
         ],
     }),
@@ -235,6 +246,15 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ),
         ],
         repoFullName: [(s) => [s.repo], (repo): string | null => repo?.repo_full_name || null],
+        thumbnailBasePath: [
+            (s) => [s.run, s.currentProjectId],
+            (run, projectId): string | null => {
+                if (!run || !projectId) {
+                    return null
+                }
+                return `/api/projects/${projectId}/visual_review/repos/${run.repo_id}/thumbnails`
+            },
+        ],
         isRunInProgress: [(s) => [s.run], (run): boolean => run?.status === 'pending' || run?.status === 'processing'],
         isRunProcessing: [(s) => [s.run], (run): boolean => run?.status === 'processing'],
         breadcrumbs: [
