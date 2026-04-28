@@ -165,7 +165,7 @@ jobs:
                   sparse-checkout: .github/scripts
 
             - name: Download all eval results
-              uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   pattern: eval-results-*
                   path: eval-artifacts
