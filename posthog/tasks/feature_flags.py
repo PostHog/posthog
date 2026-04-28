@@ -6,7 +6,7 @@ from django.db.models import Count, F, Func, IntegerField, Max, Sum, TextField
 from django.db.models.functions import Cast
 
 import structlog
-from celery import shared_task
+from celery import Task, shared_task
 from prometheus_client import Gauge
 
 from posthog.exceptions_capture import capture_exception
@@ -434,7 +434,7 @@ def _exceeds_large_team_threshold(team_id: int, feature_flag_key: str) -> bool:
     )
 
 
-def _capture_if_final_attempt(celery_task: shared_task, exc: Exception, **context: object) -> None:
+def _capture_if_final_attempt(celery_task: Task, exc: Exception, **context: object) -> None:
     """Send ``exc`` to Sentry/PostHog on the final retry so silent regressions
     surface in dashboards rather than only in retry logs. The caller always
     re-raises — this only adds the capture side-effect."""
@@ -455,7 +455,7 @@ def _capture_if_final_attempt(celery_task: shared_task, exc: Exception, **contex
     autoretry_for=(DatabaseError, OperationalError),
     retry_kwargs={"max_retries": HASH_KEY_OVERRIDE_MAX_RETRIES, "countdown": 60},
 )
-def rewrite_hash_key_overrides_for_flag(self, team_id: int, old_key: str, new_key: str) -> None:
+def rewrite_hash_key_overrides_for_flag(self: Task, team_id: int, old_key: str, new_key: str) -> None:
     """Rewrite ``FeatureFlagHashKeyOverride`` rows from ``old_key`` -> ``new_key``
     for one team.
 
@@ -558,7 +558,7 @@ def rewrite_hash_key_overrides_for_flag(self, team_id: int, old_key: str, new_ke
     autoretry_for=(DatabaseError, OperationalError),
     retry_kwargs={"max_retries": HASH_KEY_OVERRIDE_MAX_RETRIES, "countdown": 60},
 )
-def delete_hash_key_overrides_for_flag(self, team_id: int, key: str) -> None:
+def delete_hash_key_overrides_for_flag(self: Task, team_id: int, key: str) -> None:
     """Delete ``FeatureFlagHashKeyOverride`` rows for one (team, flag key) tuple.
 
     Fired on commit when a feature flag is soft-deleted via the API. Idempotent:

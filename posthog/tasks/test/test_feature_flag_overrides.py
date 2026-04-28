@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest, _create_person, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError
 
@@ -14,7 +14,7 @@ from posthog.tasks.feature_flags import delete_hash_key_overrides_for_flag, rewr
 class TestRewriteHashKeyOverridesForFlag(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.person = _create_person(team=self.team, distinct_ids=["d1"], properties={})
+        self.person = _create_person(team=self.team, distinct_ids=["d1"], properties={}, immediate=True)
         flush_persons_and_events()
 
     @parameterized.expand(
@@ -78,7 +78,7 @@ class TestRewriteHashKeyOverridesForFlag(APIBaseTest):
         survive the rewrite for ``self.team``."""
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create_with_data(initiating_user=self.user, organization=other_org, name="Other")
-        other_person = _create_person(team=other_team, distinct_ids=["d2"], properties={})
+        other_person = _create_person(team=other_team, distinct_ids=["d2"], properties={}, immediate=True)
         flush_persons_and_events()
 
         FeatureFlagHashKeyOverride.objects.create(
@@ -126,7 +126,7 @@ class TestRewriteHashKeyOverridesForFlag(APIBaseTest):
         """Mixed case: one person has both keys (collision), another only has
         old_key (clean rename). The clean rename completes; the colliding row's
         old_key is dropped."""
-        other_person = _create_person(team=self.team, distinct_ids=["d2"], properties={})
+        other_person = _create_person(team=self.team, distinct_ids=["d2"], properties={}, immediate=True)
         flush_persons_and_events()
 
         # Person 1: both keys -> collision, old-key gets pre-deleted.
@@ -179,7 +179,7 @@ class TestRewriteHashKeyOverridesForFlag(APIBaseTest):
         through every matching row, not just the first batch."""
         people = [self.person]
         for i in range(4):
-            people.append(_create_person(team=self.team, distinct_ids=[f"d-extra-{i}"], properties={}))
+            people.append(_create_person(team=self.team, distinct_ids=[f"d-extra-{i}"], properties={}, immediate=True))
         flush_persons_and_events()
         for p in people:
             FeatureFlagHashKeyOverride.objects.create(
@@ -199,7 +199,7 @@ class TestRewriteHashKeyOverridesForFlag(APIBaseTest):
 class TestDeleteHashKeyOverridesForFlag(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.person = _create_person(team=self.team, distinct_ids=["d1"], properties={})
+        self.person = _create_person(team=self.team, distinct_ids=["d1"], properties={}, immediate=True)
         flush_persons_and_events()
 
     @parameterized.expand(
@@ -257,7 +257,7 @@ class TestDeleteHashKeyOverridesForFlag(APIBaseTest):
         must leave another team's rows for the same key in place."""
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create_with_data(initiating_user=self.user, organization=other_org, name="Other")
-        other_person = _create_person(team=other_team, distinct_ids=["d2"], properties={})
+        other_person = _create_person(team=other_team, distinct_ids=["d2"], properties={}, immediate=True)
         flush_persons_and_events()
 
         FeatureFlagHashKeyOverride.objects.create(
@@ -289,7 +289,7 @@ class TestDeleteHashKeyOverridesForFlag(APIBaseTest):
     def test_chunked_delete_handles_more_rows_than_batch_size(self) -> None:
         people = [self.person]
         for i in range(4):
-            people.append(_create_person(team=self.team, distinct_ids=[f"d-extra-{i}"], properties={}))
+            people.append(_create_person(team=self.team, distinct_ids=[f"d-extra-{i}"], properties={}, immediate=True))
         flush_persons_and_events()
         for p in people:
             FeatureFlagHashKeyOverride.objects.create(
@@ -316,11 +316,11 @@ class TestSerializerHooksFireTasksOnCommit(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        self.person = _create_person(team=self.team, distinct_ids=["d1"], properties={})
+        self.person = _create_person(team=self.team, distinct_ids=["d1"], properties={}, immediate=True)
         flush_persons_and_events()
 
     @patch("posthog.tasks.feature_flags.rewrite_hash_key_overrides_for_flag.delay")
-    def test_rename_queues_rewrite_task_with_old_and_new_keys(self, mock_rewrite) -> None:
+    def test_rename_queues_rewrite_task_with_old_and_new_keys(self, mock_rewrite: MagicMock) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="original-key",
@@ -341,7 +341,7 @@ class TestSerializerHooksFireTasksOnCommit(APIBaseTest):
         mock_rewrite.assert_called_once_with(team_id=self.team.id, old_key="original-key", new_key="renamed-key")
 
     @patch("posthog.tasks.feature_flags.rewrite_hash_key_overrides_for_flag.delay")
-    def test_no_rewrite_task_when_key_unchanged(self, mock_rewrite) -> None:
+    def test_no_rewrite_task_when_key_unchanged(self, mock_rewrite: MagicMock) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="stable-key",
@@ -362,7 +362,7 @@ class TestSerializerHooksFireTasksOnCommit(APIBaseTest):
         mock_rewrite.assert_not_called()
 
     @patch("posthog.tasks.feature_flags.delete_hash_key_overrides_for_flag.delay")
-    def test_soft_delete_queues_delete_task_with_original_key(self, mock_delete) -> None:
+    def test_soft_delete_queues_delete_task_with_original_key(self, mock_delete: MagicMock) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="to-be-deleted",
@@ -387,7 +387,9 @@ class TestSerializerHooksFireTasksOnCommit(APIBaseTest):
 
     @patch("posthog.tasks.feature_flags.rewrite_hash_key_overrides_for_flag.delay")
     @patch("posthog.tasks.feature_flags.delete_hash_key_overrides_for_flag.delay")
-    def test_soft_delete_does_not_also_queue_rewrite_task(self, mock_delete, mock_rewrite) -> None:
+    def test_soft_delete_does_not_also_queue_rewrite_task(
+        self, mock_delete: MagicMock, mock_rewrite: MagicMock
+    ) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="to-be-deleted",
@@ -409,7 +411,7 @@ class TestSerializerHooksFireTasksOnCommit(APIBaseTest):
         mock_rewrite.assert_not_called()
 
     @patch("posthog.tasks.feature_flags.rewrite_hash_key_overrides_for_flag.delay")
-    def test_pre_atomic_validation_failure_does_not_queue_task(self, mock_rewrite) -> None:
+    def test_pre_atomic_validation_failure_does_not_queue_task(self, mock_rewrite: MagicMock) -> None:
         """DRF validation runs before ``update()`` even enters its atomic block,
         so the on_commit callback was never registered. Guards against future
         regressions where a malformed request might still queue cleanup work.
@@ -434,7 +436,7 @@ class TestSerializerHooksFireTasksOnCommit(APIBaseTest):
         mock_rewrite.assert_not_called()
 
     @patch("posthog.tasks.feature_flags.rewrite_hash_key_overrides_for_flag.delay")
-    def test_db_error_inside_atomic_rolls_back_and_drops_registered_callback(self, mock_rewrite) -> None:
+    def test_db_error_inside_atomic_rolls_back_and_drops_registered_callback(self, mock_rewrite: MagicMock) -> None:
         """Genuine rollback test: the on_commit callback is registered first
         (inside the atomic block), then the underlying ``FeatureFlag.save``
         raises a ``DatabaseError``. Django's contract is that on_commit
