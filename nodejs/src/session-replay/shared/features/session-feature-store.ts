@@ -1,4 +1,5 @@
-import { KafkaProducerWrapper } from '../../../kafka/producer'
+import { SESSION_FEATURES_OUTPUT, SessionFeaturesOutput } from '../../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../../ingestion/outputs/ingestion-outputs'
 import { FeatureEndResult } from '../../../session-recording/sessions/session-feature-recorder'
 import { TimestampFormat } from '../../../types'
 import { logger } from '../../../utils/logger'
@@ -20,8 +21,7 @@ export interface DeletionFeatureBlock {
 
 export class SessionFeatureStore {
     constructor(
-        private producer: KafkaProducerWrapper,
-        private kafkaTopic: string,
+        private outputs: IngestionOutputs<SessionFeaturesOutput>,
         private enabled: boolean = false
     ) {
         logger.debug('🧠', 'session_feature_store_created', { enabled })
@@ -81,15 +81,15 @@ export class SessionFeatureStore {
             is_deleted: block.isDeleted ? 1 : 0,
         }))
 
-        await this.producer.queueMessages({
-            topic: this.kafkaTopic,
-            messages: events.map((event) => ({
+        // queueMessages awaits delivery acks for every message, so no separate flush is needed
+        // to guarantee messages are on Kafka before the batch offset is committed.
+        await this.outputs.queueMessages(
+            SESSION_FEATURES_OUTPUT,
+            events.map((event) => ({
                 key: event.session_id,
-                value: JSON.stringify(event),
-            })),
-        })
-
-        await this.producer.flush()
+                value: Buffer.from(JSON.stringify(event)),
+            }))
+        )
 
         logger.info('🧠', 'session_feature_store_stored', { count: events.length })
     }
@@ -101,15 +101,13 @@ export class SessionFeatureStore {
             is_deleted: 1,
         }))
 
-        await this.producer.queueMessages({
-            topic: this.kafkaTopic,
-            messages: events.map((event) => ({
+        await this.outputs.queueMessages(
+            SESSION_FEATURES_OUTPUT,
+            events.map((event) => ({
                 key: event.session_id,
-                value: JSON.stringify(event),
-            })),
-        })
-
-        await this.producer.flush()
+                value: Buffer.from(JSON.stringify(event)),
+            }))
+        )
 
         logger.info('🧠', 'session_feature_store_deletion_markers_stored', { count: events.length })
     }

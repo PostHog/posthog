@@ -7,7 +7,7 @@ import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
 } from '../../config/kafka-topics'
-import { DEFAULT_PRODUCER, REPLAY_EVENTS_OUTPUT } from '../../ingestion/common/outputs'
+import { DEFAULT_PRODUCER, REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '../../ingestion/common/outputs'
 import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../../ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -130,8 +130,16 @@ export class RecordingApi {
                 DEFAULT_PRODUCER
             ),
         })
+        const sessionFeaturesOutputs = new IngestionOutputs({
+            [SESSION_FEATURES_OUTPUT]: new SingleIngestionOutput(
+                SESSION_FEATURES_OUTPUT,
+                KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+                this.kafkaProducer,
+                DEFAULT_PRODUCER
+            ),
+        })
         const metadataStore = new SessionMetadataStore(replayEventsOutputs)
-        const featureStore = new SessionFeatureStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES)
+        const featureStore = new SessionFeatureStore(sessionFeaturesOutputs)
 
         // Initialize ClickHouse client for block listing queries
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'

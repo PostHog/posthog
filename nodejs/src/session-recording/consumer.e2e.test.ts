@@ -17,6 +17,7 @@ import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from 
 import { defaultConfig, overrideWithEnv } from '../config/config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '../config/kafka-topics'
 import {
@@ -25,6 +26,7 @@ import {
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
     REPLAY_EVENTS_OUTPUT,
+    SESSION_FEATURES_OUTPUT,
     TOPHOG_OUTPUT,
 } from '../ingestion/common/outputs'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
@@ -889,16 +891,15 @@ describe('Session Recording Consumer Integration', () => {
                 kafkaMetadataProducer,
                 'test'
             ),
+            [SESSION_FEATURES_OUTPUT]: new SingleIngestionOutput(
+                SESSION_FEATURES_OUTPUT,
+                KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+                kafkaMetadataProducer,
+                'test'
+            ),
         })
 
-        const ingester = new SessionRecordingIngester(
-            hub as any,
-            hub.postgres,
-            outputs,
-            kafkaMetadataProducer,
-            hub.redisPool,
-            hub.redisPool
-        )
+        const ingester = new SessionRecordingIngester(hub as any, hub.postgres, outputs, hub.redisPool, hub.redisPool)
 
         return { ingester, kafkaMetadataProducer }
     }
