@@ -171,7 +171,14 @@ insights: PostgresTable = PostgresTable(
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "_saved": BooleanDatabaseField(name="saved", hidden=True),
         "saved": ExpressionField(name="saved", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_saved"])])),
+        "_favorited": BooleanDatabaseField(name="favorited", hidden=True),
+        "favorited": ExpressionField(
+            name="favorited", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_favorited"])])
+        ),
         "created_at": DateTimeDatabaseField(name="created_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "last_modified_at": DateTimeDatabaseField(name="last_modified_at"),
+        "last_modified_by_id": IntegerDatabaseField(name="last_modified_by_id", nullable=True),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
 )
@@ -310,7 +317,7 @@ endpoint_versions: PostgresTable = PostgresTable(
         "version": IntegerDatabaseField(name="version"),
         "description": StringDatabaseField(name="description"),
         "query": StringJSONDatabaseField(name="query"),
-        "cache_age_seconds": IntegerDatabaseField(name="cache_age_seconds"),
+        "data_freshness_seconds": IntegerDatabaseField(name="data_freshness_seconds"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
         "is_active": ExpressionField(

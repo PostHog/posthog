@@ -68,6 +68,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="redshift://user:password@my-cluster.abc123xyz.us-east-1.redshift.amazonaws.com:5439/dev",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="host",
@@ -75,6 +76,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="my-cluster.abc123xyz.us-east-1.redshift.amazonaws.com",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -82,6 +84,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="5439",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -89,6 +92,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="dev",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="user",
@@ -96,6 +100,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="awsuser",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -103,6 +108,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -110,6 +116,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="public",
+                        secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],

@@ -9,9 +9,12 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+aws-config = { workspace = true, optional = true }
+aws-sdk-s3 = { workspace = true, optional = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
+clap = { workspace = true, optional = true }
 common-cookieless = { path = "../common/cookieless" }
 common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
@@ -42,6 +45,7 @@ uuid = { workspace = true }
 common-cache = { path = "../common/cache" }
 common-compression = { path = "../common/compression" }
 common-hypercache = { path = "../common/hypercache" }
+common-s3 = { path = "../common/s3", optional = true }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 strum = { version = "0.28", features = ["derive"] }
@@ -65,15 +69,24 @@ tokio-retry = "0.3"
 serde-pickle = { version = "1.1.1" }
 semver = "1.0.28"
 
+[features]
+# Gated to keep the AWS SDK, clap, and common-s3 out of library/server builds.
+warm-flags-cache = ["dep:aws-config", "dep:aws-sdk-s3", "dep:clap", "dep:common-s3"]
+
+[[bin]]
+name = "warm-flags-cache"
+path = "src/bin/warm-flags-cache.rs"
+required-features = ["warm-flags-cache"]
+
 [lints]
 workspace = true
 
 [dev-dependencies]
 rstest = "0.26"
 assert-json-diff = { workspace = true }
+common-s3 = { path = "../common/s3" }
 reqwest = { workspace = true }
 futures = "0.3.30"
 test-case = "3.3.1"
 tokio = { workspace = true, features = ["test-util"] }
 metrics-util = { workspace = true }
-common-s3 = { path = "../common/s3" }

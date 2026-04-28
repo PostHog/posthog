@@ -588,7 +588,7 @@ async fn create_dedicated_readwrite_client(
 /// - Overrides: InvalidClientConfig and AuthenticationFailed always treated as permanent (no retry)
 /// - In practice, most connection errors (DNS, connection refused) are also permanent
 /// - Uses exponential backoff with jitter when retrying transient errors
-async fn create_redis_client(
+pub async fn create_redis_client(
     url: &str,
     client_type: &str,
     compression_config: CompressionConfig,

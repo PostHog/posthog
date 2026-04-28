@@ -594,6 +594,20 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_property_values]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_property_values
+  (
+      `team_id` Int64,
+      `property_type` LowCardinality(String),
+      `property_key` String,
+      `property_value` String,
+      `_timestamp` DateTime
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events]
   '''
   
@@ -2308,6 +2322,20 @@
   
   '''
 # ---
+# name: test_create_table_query[kafka_property_values]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_property_values
+  (
+      `team_id` Int64,
+      `property_type` LowCardinality(String),
+      `property_key` String,
+      `property_value` String,
+      `_timestamp` DateTime
+  ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_property_values_test', kafka_group_name = 'clickhouse_property_values', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_session_replay_events]
   '''
   
@@ -3340,6 +3368,65 @@
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_definitions', '{replica}-{shard}', version)
   ORDER BY (team_id, type, COALESCE(event, ''), name, COALESCE(group_type_index, 255))
   SETTINGS index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query[property_values]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS property_values
+  (
+      `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
+      `property_type` LowCardinality(String),
+      `property_key` LowCardinality(String),
+      `property_value` String,
+      `property_count` SimpleAggregateFunction(sum, UInt64),
+      `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
+      ,
+      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_values', '{replica}-{shard}')
+  
+  ORDER BY (team_id, property_type, property_key, property_value)
+  TTL last_seen + INTERVAL 30 DAY DELETE
+  SETTINGS
+      index_granularity = 8192,
+      enable_full_text_index = 1
+  
+  '''
+# ---
+# name: test_create_table_query[property_values_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS property_values_distributed
+  (
+      `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
+      `property_type` LowCardinality(String),
+      `property_key` LowCardinality(String),
+      `property_value` String,
+      `property_count` SimpleAggregateFunction(sum, UInt64),
+      `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
+      
+  ) ENGINE = Distributed('aux', 'posthog_test', 'property_values')
+  
+  '''
+# ---
+# name: test_create_table_query[property_values_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS property_values_mv
+  TO property_values
+  AS SELECT
+      team_id,
+      property_type,
+      property_key,
+      property_value,
+      toUInt64(1) as property_count,
+      _timestamp as last_seen
+  FROM posthog_test.kafka_property_values
+  WHERE lengthUTF8(property_key) > 0
+    AND lengthUTF8(property_key) <= 400  -- matches Django PropertyDefinition.name max_length
+    AND lengthUTF8(property_value) > 0
+    AND lengthUTF8(property_value) < 256
   
   '''
 # ---
@@ -7461,6 +7548,29 @@
   ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_definitions', '{replica}-{shard}', version)
   ORDER BY (team_id, type, COALESCE(event, ''), name, COALESCE(group_type_index, 255))
   SETTINGS index_granularity = 8192
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[property_values]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS property_values
+  (
+      `team_id` Int64 CODEC(DoubleDelta, ZSTD(1)),
+      `property_type` LowCardinality(String),
+      `property_key` LowCardinality(String),
+      `property_value` String,
+      `property_count` SimpleAggregateFunction(sum, UInt64),
+      `last_seen` SimpleAggregateFunction(max, DateTime) DEFAULT now()
+      ,
+      INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3)) GRANULARITY 1
+  ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.property_values', '{replica}-{shard}')
+  
+  ORDER BY (team_id, property_type, property_key, property_value)
+  TTL last_seen + INTERVAL 30 DAY DELETE
+  SETTINGS
+      index_granularity = 8192,
+      enable_full_text_index = 1
   
   '''
 # ---

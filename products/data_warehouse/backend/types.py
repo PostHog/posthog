@@ -183,6 +183,7 @@ class ExternalDataSourceType(models.TextChoices):
     CONVEX = "Convex", "Convex"
     CLICKHOUSE = "ClickHouse", "ClickHouse"
     PLAIN = "Plain", "Plain"
+    RESEND = "Resend", "Resend"
 
 
 class DataWarehouseManagedViewSetKind(models.TextChoices):

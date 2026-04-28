@@ -65,6 +65,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="localhost",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -72,6 +73,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="1433",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -79,9 +81,15 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="msdb",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
-                        name="user", label="User", type=SourceFieldInputConfigType.TEXT, required=True, placeholder="sa"
+                        name="user",
+                        label="User",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="sa",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -89,6 +97,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -96,6 +105,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="dbo",
+                        secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],

@@ -41,12 +41,12 @@ class Evaluation(UUIDTModel):
     # Lifecycle state. `status` is authoritative; `enabled` is a boolean projection kept in sync by save() for
     # backwards compatibility with existing API / DB callers. When status is ERROR, status_reason must be set.
     enabled = models.BooleanField(default=False)
-    status = models.CharField(max_length=20, choices=EvaluationStatus.choices, default=EvaluationStatus.PAUSED)
-    status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason.choices, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=EvaluationStatus, default=EvaluationStatus.PAUSED)
+    status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason, null=True, blank=True)
 
-    evaluation_type = models.CharField(max_length=50, choices=EvaluationType.choices)
+    evaluation_type = models.CharField(max_length=50, choices=EvaluationType)
     evaluation_config = models.JSONField(default=dict)
-    output_type = models.CharField(max_length=50, choices=OutputType.choices)
+    output_type = models.CharField(max_length=50, choices=OutputType)
     output_config = models.JSONField(default=dict)
 
     conditions = models.JSONField(default=list)
