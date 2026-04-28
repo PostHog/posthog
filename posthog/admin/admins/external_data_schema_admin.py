@@ -105,11 +105,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if new_format not in PARTITION_FORMAT_CHOICES:
                 messages.error(request, f"Invalid partition_format: {new_format!r}.")
                 return redirect(_change_url(schema_id))
-            previous = schema.partition_format
+            previous_format = schema.partition_format
             schema.update_partition_setting("partition_format", new_format)
             messages.success(
                 request,
-                f"partition_format updated: {previous!r} → {new_format!r}. "
+                f"partition_format updated: {previous_format!r} → {new_format!r}. "
                 f"Trigger a resync (with reset) to rebuild Delta with the new partitioning.",
             )
             return redirect(_change_url(schema_id))
@@ -127,38 +127,35 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                     f"partition_size out of range [{PARTITION_SIZE_MIN}, {PARTITION_SIZE_MAX}]: {new_size}.",
                 )
                 return redirect(_change_url(schema_id))
-            previous = schema.partition_size
+            previous_size = schema.partition_size
             schema.update_partition_setting("partition_size", new_size)
             messages.success(
                 request,
-                f"partition_size updated: {previous!r} → {new_size}. "
+                f"partition_size updated: {previous_size!r} → {new_size}. "
                 f"Trigger a resync (with reset) to rebuild Delta with the new bucket size.",
             )
             return redirect(_change_url(schema_id))
 
-        if effective_mode == "md5":
-            raw = request.POST.get("partition_count", "").strip()
-            try:
-                new_count = int(raw)
-            except ValueError:
-                messages.error(request, f"partition_count must be an integer; got {raw!r}.")
-                return redirect(_change_url(schema_id))
-            if not (PARTITION_COUNT_MIN <= new_count <= PARTITION_COUNT_MAX):
-                messages.error(
-                    request,
-                    f"partition_count out of range [{PARTITION_COUNT_MIN}, {PARTITION_COUNT_MAX}]: {new_count}.",
-                )
-                return redirect(_change_url(schema_id))
-            previous = schema.partition_count
-            schema.update_partition_setting("partition_count", new_count)
-            messages.success(
+        # md5 — exhaustive over PartitionMode after the datetime fallback above.
+        raw = request.POST.get("partition_count", "").strip()
+        try:
+            new_count = int(raw)
+        except ValueError:
+            messages.error(request, f"partition_count must be an integer; got {raw!r}.")
+            return redirect(_change_url(schema_id))
+        if not (PARTITION_COUNT_MIN <= new_count <= PARTITION_COUNT_MAX):
+            messages.error(
                 request,
-                f"partition_count updated: {previous!r} → {new_count}. "
-                f"Trigger a resync (with reset) to rebuild Delta with the new bucket count.",
+                f"partition_count out of range [{PARTITION_COUNT_MIN}, {PARTITION_COUNT_MAX}]: {new_count}.",
             )
             return redirect(_change_url(schema_id))
-
-        messages.error(request, f"Unsupported partition_mode: {schema.partition_mode!r}.")
+        previous_count = schema.partition_count
+        schema.update_partition_setting("partition_count", new_count)
+        messages.success(
+            request,
+            f"partition_count updated: {previous_count!r} → {new_count}. "
+            f"Trigger a resync (with reset) to rebuild Delta with the new bucket count.",
+        )
         return redirect(_change_url(schema_id))
 
     def trigger_sync_view(self, request, schema_id):
