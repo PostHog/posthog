@@ -107,18 +107,12 @@ class LogParser:
         self._tool_results = _index_tool_results(self._messages)
         self._tool_use_positions = _index_tool_use_positions(self._messages)
 
-    # ------------------------------------------------------------------
-    # Skills
-    # ------------------------------------------------------------------
     def was_skill_called(self, name: str) -> bool:
         return any(call.name == name for call in self._iter_skill_calls())
 
     def get_skill_calls(self, name: str | None = None) -> list[SkillCall]:
         return [call for call in self._iter_skill_calls() if name is None or call.name == name]
 
-    # ------------------------------------------------------------------
-    # Tools
-    # ------------------------------------------------------------------
     def get_tool_calls(self, name: str | None = None) -> list[ToolCall]:
         calls: list[ToolCall] = []
         for tool_use, position in self._iter_tool_uses():
@@ -140,9 +134,6 @@ class LogParser:
                 calls.append(tool_call)
         return calls
 
-    # ------------------------------------------------------------------
-    # Messages
-    # ------------------------------------------------------------------
     def get_final_agent_message(self) -> str | None:
         for msg in reversed(self._messages):
             if msg.get("role") != "assistant":
@@ -173,9 +164,6 @@ class LogParser:
                             return text
         return self._initial_prompt
 
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
     def _iter_skill_calls(self) -> list[SkillCall]:
         calls: list[SkillCall] = []
         for tool_use, position in self._iter_tool_uses():
