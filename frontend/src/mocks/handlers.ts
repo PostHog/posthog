@@ -140,6 +140,7 @@ export const defaultMocks: Mocks = {
             {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 available_product_features: getAvailableProductFeatures(),
+                is_ai_data_processing_approved: true,
             },
         ],
         '/api/organizations/:organization_id/roles/': EMPTY_PAGINATED_RESPONSE,
