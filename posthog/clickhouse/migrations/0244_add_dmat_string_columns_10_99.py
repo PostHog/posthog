@@ -13,19 +13,23 @@ from posthog.models.event.sql import (
 )
 from posthog.settings import CLICKHOUSE_CLUSTER
 
-# Expand the dmat_string column pool from 10 to 100 columns to support the weekly
-# batched dynamic property materialization workflow. NULL columns compress to near-zero
-# (a few bytes per granule for the null bitmap), so the unused capacity is essentially
-# free and gives ~19 weeks of runway at 5 columns/week before compaction is needed.
+# Two interlocking schema changes:
 #
-# Existing dmat_numeric_*, dmat_bool_*, and dmat_datetime_* columns remain in the schema
-# but are no longer assigned to new slots — the new design is string-only with HogQL
-# casting at query time.
+# 1) Expand the dmat_string column pool from 10 to 100 columns to support the weekly
+#    batched dynamic property materialization workflow. NULL columns compress to near-zero
+#    (a few bytes per granule for the null bitmap), so the unused capacity is essentially
+#    free and gives ~19 weeks of runway at 5 columns/week before compaction is needed.
 #
-# This migration follows the same drop-MV → drop-kafka → ALTER data tables → recreate
-# pattern as 0030_created_at_persons_and_groups_on_events for the MSK path, and the
-# pattern from 0232 for the cloud-only WarpStream path. The kafka tables and MVs MUST
-# be recreated because:
+# 2) Drop the legacy typed dmat columns (`dmat_numeric_*`, `dmat_bool_*`, `dmat_datetime_*`)
+#    that were added in migration 0179 to `sharded_events` / `events` only — they were never
+#    wired into the kafka tables / MV / writable_events on master, so they have never received
+#    any data. Per the dynamic property materialization RFC the dmat pool is string-only;
+#    HogQL casts to the property's logical type at query time using the same wrapper it
+#    applies to normal `mat_*` columns.
+#
+# Layout follows the same drop-MV → drop-kafka → ALTER data tables → recreate pattern as
+# 0030_created_at_persons_and_groups_on_events for the MSK path, and the pattern from 0232
+# for the cloud-only WarpStream path. The kafka tables and MVs MUST be recreated because:
 #   - the MV's SELECT lists every dmat_string column from MV_DYNAMICALLY_MATERIALIZED_COLUMNS()
 #   - the kafka table schema is fixed at CREATE time and ignores JSON keys for unknown columns
 # Without recreating both, plugin-server writes to dmat_string_10..99 would be silently
@@ -34,7 +38,24 @@ from posthog.settings import CLICKHOUSE_CLUSTER
 _NEW_STRING_RANGE_START = 10
 _NEW_STRING_RANGE_END = 100  # exclusive
 
+# The typed columns added by 0179. Hard-coded here so this migration is self-contained
+# even if the surrounding code drops every reference to typed dmat columns.
+_LEGACY_TYPED_COLUMN_COUNT = 10
+
 _is_cloud = settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV")
+
+
+def _drop_typed_columns_clauses() -> str:
+    pieces: list[str] = []
+    for prefix in ("dmat_numeric_", "dmat_bool_", "dmat_datetime_"):
+        for i in range(_LEGACY_TYPED_COLUMN_COUNT):
+            pieces.append(f"DROP COLUMN IF EXISTS `{prefix}{i}`")
+    return ",\n  ".join(pieces)
+
+
+def _alter_drop_typed(table: str) -> str:
+    return f"ALTER TABLE {table} \n  {_drop_typed_columns_clauses()}"
+
 
 # Step 1: drop the MVs and the kafka tables that feed into the data tables.
 # Doing this first prevents a brief double-write window during the schema transition.
@@ -57,7 +78,7 @@ if _is_cloud:
         ),
     ]
 
-# Step 2: ALTER the data tables (where the new columns physically live).
+# Step 2a: ADD the new dmat_string columns to the data tables (where they physically live).
 operations += [
     # sharded_events / events on DATA nodes (matches migration 0179's split).
     run_sql_with_exceptions(
@@ -95,10 +116,38 @@ if _is_cloud:
         ),
     ]
 
+# Step 2b: DROP the legacy typed columns. ALTER DROP is metadata-only when the column has no
+# data parts (the case here on master — the columns existed in the schema but nothing ever
+# wrote to them since the kafka MV never SELECTed them). The IF EXISTS guards make it a no-op
+# in environments where the columns have already been dropped (e.g. fresh dev installs that
+# never ran 0179).
+operations += [
+    run_sql_with_exceptions(
+        _alter_drop_typed(EVENTS_DATA_TABLE()),
+        node_roles=[NodeRole.DATA],
+        sharded=True,
+        is_alter_on_replicated_table=True,
+    ),
+    run_sql_with_exceptions(
+        _alter_drop_typed("events"),
+        node_roles=[NodeRole.DATA],
+        sharded=False,
+        is_alter_on_replicated_table=False,
+    ),
+]
+
+if _is_cloud:
+    operations += [
+        run_sql_with_exceptions(
+            _alter_drop_typed("writable_events"),
+            node_roles=[NodeRole.INGESTION_EVENTS],
+        ),
+    ]
+
 # Step 3: recreate the kafka tables and MVs with the new full schema.
 # `KAFKA_EVENTS_TABLE_JSON_SQL()` and friends call EVENTS_TABLE_BASE_SQL which embeds
-# `EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS()`, so the recreated tables include the
-# expanded 100-column dmat_string range automatically.
+# `EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS()` — now string-only — so the recreated
+# tables include the expanded 100-column dmat_string range and nothing else.
 operations += [
     # MSK path
     run_sql_with_exceptions(KAFKA_EVENTS_TABLE_JSON_SQL()),

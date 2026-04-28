@@ -5,7 +5,6 @@ interface FakeRow {
     team_id: number
     property_name: string
     slot_index: number
-    property_type: 'String' | 'Numeric' | 'Boolean' | 'DateTime'
     state: 'READY' | 'BACKFILL'
     compaction_target_slot_index: number | null
 }
@@ -28,7 +27,6 @@ describe('MaterializedColumnSlotManager', () => {
                     team_id: 1,
                     property_name: 'browser',
                     slot_index: 0,
-                    property_type: 'String',
                     state: 'READY',
                     compaction_target_slot_index: null,
                 },
@@ -36,7 +34,6 @@ describe('MaterializedColumnSlotManager', () => {
                     team_id: 1,
                     property_name: 'plan',
                     slot_index: 1,
-                    property_type: 'String',
                     state: 'BACKFILL',
                     compaction_target_slot_index: null,
                 },
@@ -49,14 +46,12 @@ describe('MaterializedColumnSlotManager', () => {
             {
                 property_name: 'browser',
                 slot_index: 0,
-                property_type: 'String',
                 state: 'READY',
                 compaction_target_slot_index: null,
             },
             {
                 property_name: 'plan',
                 slot_index: 1,
-                property_type: 'String',
                 state: 'BACKFILL',
                 compaction_target_slot_index: null,
             },
@@ -76,7 +71,6 @@ describe('MaterializedColumnSlotManager', () => {
                     team_id: 1,
                     property_name: 'browser',
                     slot_index: 0,
-                    property_type: 'String',
                     state: 'READY',
                     compaction_target_slot_index: null,
                 },
@@ -84,7 +78,6 @@ describe('MaterializedColumnSlotManager', () => {
                     team_id: 2,
                     property_name: 'plan',
                     slot_index: 0,
-                    property_type: 'String',
                     state: 'READY',
                     compaction_target_slot_index: null,
                 },
@@ -97,7 +90,6 @@ describe('MaterializedColumnSlotManager', () => {
             {
                 property_name: 'browser',
                 slot_index: 0,
-                property_type: 'String',
                 state: 'READY',
                 compaction_target_slot_index: null,
             },
@@ -106,7 +98,6 @@ describe('MaterializedColumnSlotManager', () => {
             {
                 property_name: 'plan',
                 slot_index: 0,
-                property_type: 'String',
                 state: 'READY',
                 compaction_target_slot_index: null,
             },

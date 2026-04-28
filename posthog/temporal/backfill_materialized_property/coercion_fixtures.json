@@ -1,5 +1,5 @@
 {
-    "_comment": "Single source of truth for dmat coercion parity. Both the Python-side ClickHouse extraction tests (legacy per-slot AND batched paths) and the TypeScript-side plugin-server tests load this file and assert their respective code path produces `expected_output` for `input`. Used by `test_coercion_parity.py` and `create-event.dmat.test.ts`.",
+    "_comment": "Single source of truth for dmat coercion parity. Both the Python-side ClickHouse extraction tests and the TypeScript-side plugin-server tests load this file and assert their respective code path produces `expected_output` for `input`. Per the dmat RFC, every dmat column is `Nullable(String)` — HogQL applies type wrappers (toFloat/toBool/toDateTime) at read time the same way it does for normal mat_* columns. So this fixture only covers the string extraction; type-cast parity is covered at the HogQL layer in test_property_types_dmat.py.",
     "string_cases": [
         { "name": "plain ascii string", "input": "Chrome", "expected_output": "Chrome" },
         { "name": "empty string", "input": "", "expected_output": "" },
@@ -14,60 +14,5 @@
         { "name": "number type (float)", "input": 3.14, "expected_output": "3.14" },
         { "name": "boolean true", "input": true, "expected_output": "true" },
         { "name": "boolean false", "input": false, "expected_output": "false" }
-    ],
-    "numeric_cases": [
-        { "name": "integer", "input": 42, "expected_output": 42 },
-        { "name": "float", "input": 42.5, "expected_output": 42.5 },
-        { "name": "negative", "input": -100, "expected_output": -100 },
-        { "name": "zero", "input": 0, "expected_output": 0 },
-        { "name": "string of digits", "input": "42", "expected_output": 42 },
-        { "name": "string of digits with whitespace", "input": "  42  ", "expected_output": 42 },
-        { "name": "string that is not a number", "input": "not a number", "expected_output": null },
-        {
-            "name": "boolean true",
-            "input": true,
-            "_skip_reason": "ClickHouse toFloat64OrNull('true') == NULL but JS parseFloat('true') == NaN — both NULL, agreement is incidental",
-            "expected_output": null
-        },
-        { "name": "object", "input": { "a": 1 }, "expected_output": null },
-        { "name": "array", "input": [1, 2, 3], "expected_output": null }
-    ],
-    "boolean_cases": [
-        { "name": "boolean true", "input": true, "expected_output": 1 },
-        { "name": "boolean false", "input": false, "expected_output": 0 },
-        { "name": "string 'true'", "input": "true", "expected_output": 1 },
-        { "name": "string 'false'", "input": "false", "expected_output": 0 },
-        {
-            "name": "uppercase string 'TRUE' rejected (SQL transform is case-sensitive)",
-            "input": "TRUE",
-            "expected_output": null
-        },
-        { "name": "mixed case string 'True' rejected", "input": "True", "expected_output": null },
-        { "name": "string '1' rejected", "input": "1", "expected_output": null },
-        { "name": "string '0' rejected", "input": "0", "expected_output": null },
-        { "name": "number 1 rejected", "input": 1, "expected_output": null },
-        { "name": "number 0 rejected", "input": 0, "expected_output": null },
-        { "name": "string 'yes' rejected", "input": "yes", "expected_output": null }
-    ],
-    "datetime_cases": [
-        { "name": "ISO 8601 with Z", "input": "2024-01-15T10:30:00Z", "expected_output": "2024-01-15 10:30:00.000000" },
-        {
-            "name": "ISO 8601 with offset",
-            "input": "2024-01-15T10:30:00+00:00",
-            "expected_output": "2024-01-15 10:30:00.000000"
-        },
-        { "name": "date only", "input": "2024-01-15", "expected_output": "2024-01-15 00:00:00.000000" },
-        {
-            "name": "SQL-format datetime",
-            "input": "2024-01-15 10:30:00",
-            "expected_output": "2024-01-15 10:30:00.000000"
-        },
-        { "name": "garbage string", "input": "not a date", "expected_output": null },
-        {
-            "name": "_skip US-style M/D/Y",
-            "_skip_reason": "Ambiguous format — ClickHouse's best-effort parser may accept; JS does not. Documented as out-of-spec.",
-            "input": "01/15/2024",
-            "expected_output": null
-        }
     ]
 }

@@ -157,14 +157,14 @@ a real cluster. The plan is to validate it on staging during step 5 above.
 generates at build time. The repo doesn't check that file in. Type errors against
 this file already existed before this branch.
 
-### Legacy typed columns are intentionally untouched
+### Legacy typed columns are dropped, not left in place
 
-`dmat_numeric_*`, `dmat_bool_*`, and `dmat_datetime_*` columns stay in the schema and
-HogQL still reads them for any pre-existing slots. Plugin-server still writes to them
-for the same reason. New slots are String-only. Per the RFC, this is the right call
-("existing numeric/bool/datetime columns stay in schema, unused"); calling it out
-because the simplification the RFC promised is real but partial — the type-coercion
-code paths still exist.
+`dmat_numeric_*`, `dmat_bool_*`, `dmat_datetime_*` are removed in this branch. They
+were added by master migration 0179 to `sharded_events` / `events` only and were never
+wired into the kafka tables / MV / writable*events, so no production row ever stored a
+value in them. The 0244 ClickHouse migration drops them as part of its kafka recreate.
+Per the RFC, dmat is string-only; HogQL applies the per-property-type wrapper at read
+time exactly the way it does for normal `mat*\*` columns.
 
 ### Mutation duration hasn't been measured
 

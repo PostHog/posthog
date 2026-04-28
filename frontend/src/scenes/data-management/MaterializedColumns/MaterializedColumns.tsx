@@ -32,18 +32,11 @@ export const scene: SceneExport = {
 
 type SlotColumn = LemonTableColumn<MaterializedColumnSlot, keyof MaterializedColumnSlot | undefined>
 
-// Map property type → ClickHouse column suffix. New slots are always String, but legacy
-// slots created before the string-only RFC may still use the typed columns.
-const TYPE_TO_COLUMN_SUFFIX: Record<string, string> = {
-    String: 'string',
-    Numeric: 'numeric',
-    Boolean: 'bool',
-    DateTime: 'datetime',
-}
-
-function dmatColumnName(propertyType: string, slotIndex: number): string {
-    const suffix = TYPE_TO_COLUMN_SUFFIX[propertyType] ?? propertyType.toLowerCase()
-    return `dmat_${suffix}_${slotIndex}`
+// Per the dmat RFC, the dmat pool is string-only — HogQL applies the per-property-type
+// wrapper (toFloat / toBool / toDateTime) at read time the same way it does for normal
+// `mat_*` columns.
+function dmatColumnName(slotIndex: number): string {
+    return `dmat_string_${slotIndex}`
 }
 
 const STATE_TAG_TYPE: Record<MaterializedColumnSlotState, LemonTagType> = {
@@ -82,13 +75,6 @@ export function MaterializedColumns(): JSX.Element {
         },
     }
 
-    const typeColumn: SlotColumn = {
-        title: 'Type',
-        render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
-            return <LemonTag>{slot.property_type}</LemonTag>
-        },
-    }
-
     const slotIndexColumn: SlotColumn = {
         title: 'Column',
         render: function Render(_, slot: MaterializedColumnSlot): JSX.Element {
@@ -97,7 +83,7 @@ export function MaterializedColumns(): JSX.Element {
                 return <span className="text-muted text-xs italic">awaiting next weekly cycle</span>
             }
 
-            const current = <span className="font-mono">{dmatColumnName(slot.property_type, slot.slot_index)}</span>
+            const current = <span className="font-mono">{dmatColumnName(slot.slot_index)}</span>
 
             // During compaction the slot is being repacked: ingestion writes to both columns,
             // HogQL still reads the old one until the workflow swaps them after the mutation.
@@ -107,7 +93,7 @@ export function MaterializedColumns(): JSX.Element {
                         <div className="font-mono text-xs">
                             {current}
                             <span className="mx-1 text-muted">→</span>
-                            <span>{dmatColumnName(slot.property_type, slot.compaction_target_slot_index)}</span>
+                            <span>{dmatColumnName(slot.compaction_target_slot_index)}</span>
                         </div>
                     </Tooltip>
                 )
@@ -182,7 +168,6 @@ export function MaterializedColumns(): JSX.Element {
 
     const columns: SlotColumn[] = [
         propertyColumn,
-        typeColumn,
         slotIndexColumn,
         stateColumn,
         errorColumn,

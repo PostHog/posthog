@@ -30,14 +30,6 @@ from posthog.clickhouse.materialized_columns import (
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 
-# Mapping from PropertyType enum values to column name suffixes for dynamic materialized columns
-PROPERTY_TYPE_TO_COLUMN_NAME: dict[str, str] = {
-    "String": "string",
-    "Numeric": "numeric",
-    "Boolean": "bool",
-    "DateTime": "datetime",
-}
-
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
@@ -86,9 +78,11 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         prop_info: dict[str, str | None] = {"type": prop_def.property_type}
         slot = prop_def.materialized_column_slots.first()
         if slot:
-            type_name = PROPERTY_TYPE_TO_COLUMN_NAME.get(slot.property_type)
-            if type_name:
-                prop_info["dmat"] = f"dmat_{type_name}_{slot.slot_index}"
+            # All dmat columns are `Nullable(String)` (per RFC: dynamic property
+            # materialization is string-only). HogQL applies the per-property-type wrapper
+            # — toFloat / toBool / toDateTime — at read time below, the same way it does
+            # for normal mat_* columns.
+            prop_info["dmat"] = f"dmat_string_{slot.slot_index}"
 
         event_properties[prop_def.name] = prop_info
 
@@ -562,11 +556,10 @@ class PropertySwapper(CloningVisitor):
         # Add notice about the property type and materialization status
         self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
 
-        if "dmat" in prop_info:
-            # Don't rewrite the AST - let the printer substitute the dmat column
-            # The printer will check context.property_swapper and use the dmat column
-            return node
-
+        # The dmat column is a `Nullable(String)` (the printer rewrites `node` to
+        # `dmat_string_<idx>` when the property has a slot). Either way — dmat or JSON
+        # fallback — the wrapper below casts the underlying string to the property's
+        # logical type, matching what normal `mat_*` columns do.
         return self._field_type_to_property_call(node, field_type)
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):

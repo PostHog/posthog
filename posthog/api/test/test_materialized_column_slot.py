@@ -30,7 +30,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
         )
@@ -39,7 +38,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["property_type"] == "String"
 
     def test_list_slots_filtered_by_team(self):
         other_team = self.organization.teams.create(name="Other Team")
@@ -52,7 +50,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         MaterializedColumnSlot.objects.create(
             team=other_team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
         )
@@ -72,9 +69,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         assert body["max_slots_per_team"] == MAX_SLOTS_PER_TEAM
         assert body["used_total"] == 0
         assert body["available"] == MAX_SLOTS_PER_TEAM
-        assert body["usage"]["String"]["used"] == 0
-        assert body["usage"]["String"]["total"] == MAX_SLOTS_PER_TEAM
-        assert body["usage"]["String"]["available"] == MAX_SLOTS_PER_TEAM
 
     def test_slot_usage_partially_filled(self):
         # 2 PENDING slots and 1 READY → 3 total used, 2 remaining of MAX_SLOTS_PER_TEAM=5.
@@ -88,7 +82,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             MaterializedColumnSlot.objects.create(
                 team=self.team,
                 property_definition=prop_def,
-                property_type=PropertyType.String,
                 slot_index=i if i == 2 else None,
                 state=MaterializedColumnSlotState.READY if i == 2 else MaterializedColumnSlotState.PENDING,
             )
@@ -99,8 +92,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         body = response.json()
         assert body["used_total"] == 3
         assert body["available"] == MAX_SLOTS_PER_TEAM - 3
-        assert body["usage"]["String"]["used"] == 3
-        assert body["usage"]["String"]["available"] == MAX_SLOTS_PER_TEAM - 3
 
     def test_slot_usage_all_filled(self):
         for i in range(MAX_SLOTS_PER_TEAM):
@@ -113,7 +104,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             MaterializedColumnSlot.objects.create(
                 team=self.team,
                 property_definition=prop_def,
-                property_type=PropertyType.String,
                 slot_index=i,
                 state=MaterializedColumnSlotState.READY,
             )
@@ -124,8 +114,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         body = response.json()
         assert body["used_total"] == MAX_SLOTS_PER_TEAM
         assert body["available"] == 0
-        assert body["usage"]["String"]["used"] == MAX_SLOTS_PER_TEAM
-        assert body["usage"]["String"]["available"] == 0
 
     # ---------- available_properties ----------
 
@@ -151,7 +139,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         PropertyDefinition.objects.create(
             team=self.team,
             name="email",
-            property_type=PropertyType.String,
             type=PropertyDefinition.Type.PERSON,
         )
         already_materialized = PropertyDefinition.objects.create(
@@ -163,7 +150,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=already_materialized,
-            property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
         )
@@ -286,7 +272,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         body = response.json()
         assert body["state"] == "PENDING"
         assert body["slot_index"] is None
-        assert body["property_type"] == "String"
 
         slot = MaterializedColumnSlot.objects.get(property_definition=prop_def)
         assert slot.state == MaterializedColumnSlotState.PENDING
@@ -305,7 +290,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
             MaterializedColumnSlot.objects.create(
                 team=self.team,
                 property_definition=prop_def,
-                property_type=PropertyType.String,
                 slot_index=i,
                 state=MaterializedColumnSlotState.READY,
             )
@@ -425,7 +409,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
         )
@@ -450,7 +433,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.ERROR,
             error_message="Previous error",
@@ -482,7 +464,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=0 if current_state != "PENDING" else None,
             state=current_state,
         )
@@ -506,7 +487,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=None,
             state=MaterializedColumnSlotState.PENDING,
         )
@@ -526,7 +506,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=1,
             state=MaterializedColumnSlotState.READY,
         )
@@ -546,7 +525,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=2,
             state=MaterializedColumnSlotState.ERROR,
             error_message="Previous failure",
@@ -567,7 +545,6 @@ class TestMaterializedColumnSlotAPI(APIBaseTest):
         slot = MaterializedColumnSlot.objects.create(
             team=self.team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.BACKFILL,
         )

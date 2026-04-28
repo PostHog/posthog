@@ -1554,8 +1554,10 @@ class BasePrinter(Visitor[str]):
         """
         Get the dmat column name for a property if available.
 
-        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
-        otherwise None.
+        Returns the column name (e.g., 'dmat_string_3') if a materialized slot exists,
+        otherwise None. All dmat columns are `Nullable(String)`; the type wrapper
+        (toFloat / toBool / toDateTime) is applied by the property-type transform pass
+        before this printer runs — see `_convert_string_property_to_type`.
         """
         if self.context.property_swapper is None:
             return None

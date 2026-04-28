@@ -16,39 +16,20 @@ from posthog.temporal.backfill_materialized_property.activities import (
     update_slot_state,
 )
 
-from products.event_definitions.backend.models.property_definition import PropertyType
-
 
 @pytest.mark.django_db(transaction=True)
 class TestPropertyExtractionSQL:
-    """Test SQL generation for extracting properties."""
-
-    @pytest.mark.parametrize(
-        "property_type,expected_fragments",
-        [
-            # String type uses base extraction with nullIf handling (HogQL pattern)
-            ("String", ["replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %(property_name)s)", "'null')"]),
-            ("Numeric", ["toFloat64OrNull("]),
-            ("Boolean", ["transform(toString(", "['true', 'false'], [1, 0], NULL)"]),
-            ("DateTime", ["parseDateTime64BestEffortOrNull(", ", 6)"]),
-        ],
-    )
-    def test_property_extraction_sql_generation(
-        self,
-        property_type,
-        expected_fragments,
-    ):
-        """Test that SQL uses parameterized placeholder for property_name."""
-        sql = _generate_property_extraction_sql(property_type)
-        for fragment in expected_fragments:
-            assert fragment in sql, f"Expected '{fragment}' in SQL: {sql}"
-        # All types should use the parameterized placeholder
-        assert "%(property_name)s" in sql, f"Expected parameterized property_name in SQL: {sql}"
-
-    def test_property_extraction_unsupported_type(self):
-        """Test that unsupported property types raise error."""
-        with pytest.raises(ValueError, match="Unsupported property type"):
-            _generate_property_extraction_sql("UnsupportedType")
+    def test_property_extraction_sql_generation(self):
+        sql = _generate_property_extraction_sql()
+        # SQL must:
+        #   - use the same JSONExtractRaw + nullIf-empty + nullIf-'null' shape as the HogQL
+        #     printer's `_unsafe_json_extract_trim_quotes` and plugin-server's
+        #     `jsonExtractRawAndTrimQuotes` — see the parity fixture for the contract,
+        #   - parameterize property_name (we don't allow user-supplied keys to be inlined
+        #     because property names contain quotes / slashes / etc).
+        assert "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %(property_name)s)" in sql
+        assert "'null')" in sql
+        assert "%(property_name)s" in sql
 
 
 @pytest.mark.django_db(transaction=True)
@@ -80,7 +61,6 @@ class TestBackfillMaterializedColumn:
             BackfillMaterializedColumnInputs(
                 team_id=123,
                 property_name=property_name,
-                property_type="String",
                 mat_column_name="dmat_string_0",
             ),
         )
@@ -176,32 +156,16 @@ class TestUpdateSlotState:
 class TestBackfillMaterializedColumnClickHouse:
     """Integration tests that run against real ClickHouse."""
 
-    @pytest.mark.parametrize(
-        "property_type,property_value,mat_column,expected_value",
-        [
-            (PropertyType.String, "hello_world", "dmat_string_0", "hello_world"),
-            (PropertyType.Numeric, "42.5", "dmat_numeric_0", 42.5),
-            (PropertyType.Boolean, "true", "dmat_bool_0", 1),
-            (PropertyType.Boolean, "false", "dmat_bool_0", 0),
-        ],
-    )
-    def test_backfill_populates_materialized_column(
-        self,
-        team,
-        activity_environment,
-        property_type,
-        property_value,
-        mat_column,
-        expected_value,
-    ):
-        """
-        Test that backfill activity actually populates dmat columns in ClickHouse.
+    def test_backfill_populates_materialized_column(self, team, activity_environment):
+        """End-to-end: insert event, run backfill, dmat_string column reflects the value verbatim.
 
-        1. Insert event with property (dmat column will be empty)
-        2. Run backfill activity
-        3. Verify dmat column is now populated
+        Per the RFC, every dmat column is `Nullable(String)` and the backfill writes the raw
+        extracted string. HogQL applies `toFloat`/`toBool`/`parseDateTime64BestEffortOrNull` at
+        read time using the same wrapper it uses for normal `mat_*` columns — so type-specific
+        values (e.g. '42.5', 'true') are not asserted here; that's covered at the HogQL layer.
         """
         property_name = f"test_prop_{uuid.uuid4().hex[:8]}"
+        property_value = "hello_world"
         event_uuid = _create_event(
             team=team,
             event="$test_event",
@@ -210,33 +174,26 @@ class TestBackfillMaterializedColumnClickHouse:
         )
         flush_persons_and_events()
 
-        # Verify dmat column is empty before backfill
         result_before = sync_execute(
-            f"SELECT {mat_column} FROM sharded_events WHERE uuid = %(uuid)s AND team_id = %(team_id)s",
+            "SELECT dmat_string_0 FROM sharded_events WHERE uuid = %(uuid)s AND team_id = %(team_id)s",
             {"uuid": event_uuid, "team_id": team.id},
         )
-        # Empty string for String, 0 for Numeric, 0 for Bool
-        assert result_before[0][0] in ("", 0, None), f"{mat_column} should be empty before backfill"
+        assert result_before[0][0] in ("", None)
 
-        # Run backfill
         activity_environment.run(
             backfill_materialized_column,
             BackfillMaterializedColumnInputs(
                 team_id=team.id,
                 property_name=property_name,
-                property_type=str(property_type),
-                mat_column_name=mat_column,
+                mat_column_name="dmat_string_0",
             ),
         )
 
-        # Verify dmat column is now populated
         result_after = sync_execute(
-            f"SELECT {mat_column} FROM sharded_events WHERE uuid = %(uuid)s AND team_id = %(team_id)s",
+            "SELECT dmat_string_0 FROM sharded_events WHERE uuid = %(uuid)s AND team_id = %(team_id)s",
             {"uuid": event_uuid, "team_id": team.id},
         )
-        assert result_after[0][0] == expected_value, (
-            f"{mat_column} should be {expected_value}, got {result_after[0][0]}"
-        )
+        assert result_after[0][0] == property_value
 
     @pytest.mark.parametrize(
         "property_name",
@@ -266,7 +223,6 @@ class TestBackfillMaterializedColumnClickHouse:
             BackfillMaterializedColumnInputs(
                 team_id=team.id,
                 property_name=property_name,
-                property_type=str(PropertyType.String),
                 mat_column_name="dmat_string_0",
             ),
         )
@@ -297,7 +253,6 @@ class TestBackfillMaterializedColumnClickHouse:
             BackfillMaterializedColumnInputs(
                 team_id=team.id,
                 property_name=property_name,
-                property_type=str(PropertyType.String),
                 mat_column_name="dmat_string_0",
             ),
         )
@@ -339,7 +294,6 @@ class TestBackfillMaterializedColumnClickHouse:
             BackfillMaterializedColumnInputs(
                 team_id=team.id,
                 property_name=property_name,
-                property_type=str(PropertyType.String),
                 mat_column_name="dmat_string_0",
             ),
         )
@@ -357,16 +311,3 @@ class TestBackfillMaterializedColumnClickHouse:
             {"uuid": event_uuid_team2, "team_id": other_team.id},
         )
         assert result_team2[0][0] is None, "team2 event should NOT be backfilled"
-
-    def test_backfill_invalid_property_type_raises_error(self, team, activity_environment):
-        """Test that an invalid property type raises an error."""
-        with pytest.raises(ValueError, match="Unsupported property type"):
-            activity_environment.run(
-                backfill_materialized_column,
-                BackfillMaterializedColumnInputs(
-                    team_id=team.id,
-                    property_name="test_prop",
-                    property_type="InvalidType",
-                    mat_column_name="dmat_string_0",
-                ),
-            )

@@ -6,7 +6,7 @@ from django.dispatch import receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel
 
-from products.event_definitions.backend.models import PropertyDefinition, PropertyType
+from products.event_definitions.backend.models import PropertyDefinition
 
 # Maximum number of materialized column slots a team can hold across all states.
 # Per the dynamic property materialization RFC: balances utility vs column consumption.
@@ -51,11 +51,9 @@ class MaterializedColumnSlot(UUIDTModel):
         related_name="materialized_column_slots",
         related_query_name="materialized_column_slot",
     )
-    # Denormalized from PropertyDefinition for efficient constraints and queries
-    property_type = models.CharField(max_length=50, choices=PropertyType)
     # Null while in PENDING — assigned by the weekly backfill workflow when the slot transitions
-    # to BACKFILL. The unique constraint on (team, property_type, slot_index) only applies to rows
-    # with a non-null slot_index, so multiple PENDING slots can coexist without conflict.
+    # to BACKFILL. The unique constraint on (team, slot_index) only applies to rows with a
+    # non-null slot_index, so multiple PENDING slots can coexist without conflict.
     slot_index = models.PositiveSmallIntegerField(null=True, blank=True)
     # Set during compaction — the slot is being repacked into a smaller column index so the old
     # one can be freed. While this is set, ingestion writes to BOTH columns (slot_index AND
@@ -77,9 +75,13 @@ class MaterializedColumnSlot(UUIDTModel):
                 fields=["team", "property_definition"],
                 name="unique_team_property_definition",
             ),
+            # Per-team uniqueness on the assigned column index. The dmat_string_<idx> columns
+            # are shared across teams (one column physically; per-row team_id discriminates
+            # via the multiIf branches in the backfill mutation), but within a team each
+            # slot must own a distinct index so dual-writes don't collide.
             models.UniqueConstraint(
-                fields=["team", "property_type", "slot_index"],
-                name="unique_team_property_type_slot_index",
+                fields=["team", "slot_index"],
+                name="unique_team_slot_index",
                 condition=models.Q(slot_index__isnull=False),
             ),
             # Mirrors the slot_index uniqueness for compaction_target_slot_index. The planner
@@ -88,8 +90,8 @@ class MaterializedColumnSlot(UUIDTModel):
             # slots in one team could end up dual-writing to the same target column and
             # silently corrupting each other's values.
             models.UniqueConstraint(
-                fields=["team", "property_type", "compaction_target_slot_index"],
-                name="unique_team_property_type_compaction_target",
+                fields=["team", "compaction_target_slot_index"],
+                name="unique_team_compaction_target",
                 condition=models.Q(compaction_target_slot_index__isnull=False),
             ),
             models.CheckConstraint(
@@ -117,32 +119,27 @@ class MaterializedColumnSlot(UUIDTModel):
         indexes = [
             models.Index(fields=["team", "state"], name="posthog_mat_team_st_idx"),
             models.Index(fields=["team", "property_definition"], name="posthog_mat_team_pr_idx"),
-            models.Index(fields=["team", "property_type", "slot_index"], name="posthog_mat_team_ty_idx"),
+            models.Index(fields=["team", "slot_index"], name="posthog_mat_team_sl_idx"),
             models.Index(fields=["backfill_temporal_workflow_id"], name="posthog_mat_backfi_idx"),
         ]
 
-    def save(self, *args, **kwargs):
-        # Sync property_type from property_definition on save
-        if self.property_definition_id and not self.property_type:
-            self.property_type = self.property_definition.property_type  # type: ignore[assignment]
-        super().save(*args, **kwargs)
-
     def __str__(self) -> str:
-        return f"{self.property_definition.name} ({self.property_type}) -> slot {self.slot_index} ({self.state})"
+        return f"{self.property_definition.name} -> slot {self.slot_index} ({self.state})"
 
 
 @receiver(pre_save, sender=PropertyDefinition)
 def prevent_property_type_changes_with_materialized_slots(sender, instance, **kwargs):
-    """
-    Prevent changing property_type on a PropertyDefinition if it has any
-    MaterializedColumnSlot records, since the property_type is part of the
-    slot allocation constraint.
+    """Block changing a PropertyDefinition's property_type while a slot exists for it.
+
+    HogQL uses `prop_def.property_type` to pick the read-time wrapper (`toFloat` /
+    `toBool` / `toDateTime`) it applies on top of the dmat_string_<idx> column. If the
+    type changed under us, the wrapper would no longer match what's stored — values
+    would silently start failing to parse — so the operator has to delete the slot first.
     """
     if instance.pk:  # Only for updates, not creates
         try:
             old_instance = PropertyDefinition.objects.get(pk=instance.pk)
             if old_instance.property_type != instance.property_type:
-                # Check if this property has any materialized slots
                 if MaterializedColumnSlot.objects.filter(property_definition=instance).exists():
                     raise ValidationError(
                         f"Cannot change property_type for '{instance.name}' because it has materialized column slots. "

@@ -37,7 +37,6 @@ def _make_pending_slot(team, name: str) -> MaterializedColumnSlot:
     return MaterializedColumnSlot.objects.create(
         team=team,
         property_definition=prop_def,
-        property_type=PropertyType.String,
         slot_index=None,
         state=MaterializedColumnSlotState.PENDING,
     )
@@ -182,13 +181,11 @@ class TestAssignPendingSlots:
         prop_def = PropertyDefinition.objects.create(
             team=team,
             name="reclaimable",
-            property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
         existing = MaterializedColumnSlot.objects.create(
             team=team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=7,
             state=MaterializedColumnSlotState.BACKFILL,
             backfill_temporal_workflow_id="run-abc",
@@ -212,13 +209,11 @@ class TestAssignPendingSlots:
         prop_def = PropertyDefinition.objects.create(
             team=team,
             name="stranded",
-            property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
         stranded = MaterializedColumnSlot.objects.create(
             team=team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=7,
             state=MaterializedColumnSlotState.BACKFILL,
             backfill_temporal_workflow_id="run-OLD",
@@ -240,13 +235,11 @@ class TestAssignPendingSlots:
         existing_prop = PropertyDefinition.objects.create(
             team=team,
             name="existing",
-            property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
         MaterializedColumnSlot.objects.create(
             team=team,
             property_definition=existing_prop,
-            property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
         )
@@ -268,13 +261,11 @@ class TestActivateAndFailSlots:
         prop = PropertyDefinition.objects.create(
             team=team,
             name="p",
-            property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
         slot = MaterializedColumnSlot.objects.create(
             team=team,
             property_definition=prop,
-            property_type=PropertyType.String,
             slot_index=3,
             state=MaterializedColumnSlotState.BACKFILL,
         )
@@ -289,14 +280,12 @@ class TestActivateAndFailSlots:
         prop = PropertyDefinition.objects.create(
             team=team,
             name="p",
-            property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
         # ERROR slot should not be transitioned to READY by activate_slots.
         slot = MaterializedColumnSlot.objects.create(
             team=team,
             property_definition=prop,
-            property_type=PropertyType.String,
             slot_index=3,
             state=MaterializedColumnSlotState.ERROR,
         )
@@ -311,13 +300,11 @@ class TestActivateAndFailSlots:
         prop = PropertyDefinition.objects.create(
             team=team,
             name="p",
-            property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
         slot = MaterializedColumnSlot.objects.create(
             team=team,
             property_definition=prop,
-            property_type=PropertyType.String,
             slot_index=4,
             state=MaterializedColumnSlotState.BACKFILL,
         )
@@ -457,13 +444,11 @@ class TestCompaction:
             prop_def = PropertyDefinition.objects.create(
                 team=team,
                 name=f"fill_prop_{i}",
-                property_type=PropertyType.String,
                 type=PropertyDefinition.Type.EVENT,
             )
             slot = MaterializedColumnSlot.objects.create(
                 team=team,
                 property_definition=prop_def,
-                property_type=PropertyType.String,
                 slot_index=i,
                 state=MaterializedColumnSlotState.READY,
             )
@@ -503,13 +488,11 @@ class TestCompaction:
         prop_def = PropertyDefinition.objects.create(
             team=team,
             name="solo",
-            property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
         slot = MaterializedColumnSlot.objects.create(
             team=team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
         )
@@ -527,13 +510,11 @@ class TestCompaction:
         prop_def = PropertyDefinition.objects.create(
             team=team,
             name="p",
-            property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
         slot = MaterializedColumnSlot.objects.create(
             team=team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=42,
             compaction_target_slot_index=3,
             state=MaterializedColumnSlotState.READY,
@@ -555,13 +536,11 @@ class TestCompaction:
         prop_def = PropertyDefinition.objects.create(
             team=team,
             name="p",
-            property_type=PropertyType.String,
             type=PropertyDefinition.Type.EVENT,
         )
         slot = MaterializedColumnSlot.objects.create(
             team=team,
             property_definition=prop_def,
-            property_type=PropertyType.String,
             slot_index=0,
             state=MaterializedColumnSlotState.READY,
         )

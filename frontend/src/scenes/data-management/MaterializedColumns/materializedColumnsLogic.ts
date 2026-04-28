@@ -26,7 +26,6 @@ export interface MaterializedColumnSlot {
     team: number
     property_definition: number
     property_definition_details: PropertyDefinition
-    property_type: string
     /** Null while in PENDING — a column is only assigned once the weekly workflow runs. */
     slot_index: number | null
     /** Set during compaction — ingestion dual-writes to both columns until the workflow swaps. */
@@ -45,14 +44,6 @@ export interface SlotUsageSummary {
     max_slots_per_team: number
     used_total: number
     available: number
-    /** Per-type counts retained for backwards compat with the previous API shape. */
-    usage: {
-        [key: string]: {
-            used: number
-            total: number
-            available: number
-        }
-    }
 }
 
 export interface AutoMaterializedColumn {

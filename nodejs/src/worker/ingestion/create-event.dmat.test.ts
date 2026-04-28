@@ -44,7 +44,6 @@ describe('createEvent dmat extraction', () => {
             {
                 property_name: 'browser',
                 slot_index: 3,
-                property_type: 'String',
                 state: 'READY',
                 compaction_target_slot_index: null,
             },
@@ -62,102 +61,11 @@ describe('createEvent dmat extraction', () => {
         expect(event.dmat_columns).toEqual({ dmat_string_3: 'Chrome' })
     })
 
-    it('coerces numeric strings into Float64 columns and rejects garbage', () => {
-        const slots: MaterializedColumnSlot[] = [
-            {
-                property_name: 'good',
-                slot_index: 0,
-                property_type: 'Numeric',
-                state: 'READY',
-                compaction_target_slot_index: null,
-            },
-            {
-                property_name: 'bad',
-                slot_index: 1,
-                property_type: 'Numeric',
-                state: 'READY',
-                compaction_target_slot_index: null,
-            },
-        ]
-
-        const event = createEvent(
-            { ...baseEvent, properties: { good: '42.5', bad: 'not-a-number' } },
-            fakePerson,
-            true,
-            false,
-            null,
-            slots
-        )
-
-        // Numeric column gets the parsed float; bad-input column is left out so the row stores NULL,
-        // matching ClickHouse `toFloat64OrNull` behavior.
-        expect(event.dmat_columns).toEqual({ dmat_numeric_0: 42.5 })
-    })
-
-    it('maps booleans to UInt8 0/1 and rejects everything that is not the lowercase literal', () => {
-        // Mirror SQL's `transform(toString(extract), ['true', 'false'], [1, 0], NULL)`:
-        // case-SENSITIVE match against the literal 'true' / 'false' only. '1', '0', 'TRUE',
-        // 'True', 'yes' all return NULL. Previously this code path lower-cased and accepted
-        // '1'/'0' which silently disagreed with backfill — see the parity fixture.
-        const slots: MaterializedColumnSlot[] = [
-            {
-                property_name: 'a',
-                slot_index: 0,
-                property_type: 'Boolean',
-                state: 'READY',
-                compaction_target_slot_index: null,
-            },
-            {
-                property_name: 'b',
-                slot_index: 1,
-                property_type: 'Boolean',
-                state: 'READY',
-                compaction_target_slot_index: null,
-            },
-            {
-                property_name: 'c',
-                slot_index: 2,
-                property_type: 'Boolean',
-                state: 'READY',
-                compaction_target_slot_index: null,
-            },
-            {
-                property_name: 'd',
-                slot_index: 3,
-                property_type: 'Boolean',
-                state: 'READY',
-                compaction_target_slot_index: null,
-            },
-            {
-                property_name: 'e',
-                slot_index: 4,
-                property_type: 'Boolean',
-                state: 'READY',
-                compaction_target_slot_index: null,
-            },
-        ]
-
-        const event = createEvent(
-            { ...baseEvent, properties: { a: 'true', b: 'False', c: '1', d: '0', e: 'maybe' } },
-            fakePerson,
-            true,
-            false,
-            null,
-            slots
-        )
-
-        expect(event.dmat_columns).toEqual({
-            dmat_bool_0: 1,
-            // 'False' (mixed case), '1', '0', 'maybe' all rejected → NULL → not written.
-        })
-    })
-
     it('skips properties that are missing on the event so HogQL falls back to JSON', () => {
         const slots: MaterializedColumnSlot[] = [
             {
                 property_name: 'never_seen',
                 slot_index: 5,
-                property_type: 'String',
                 state: 'READY',
                 compaction_target_slot_index: null,
             },
@@ -177,7 +85,6 @@ describe('createEvent dmat extraction', () => {
             {
                 property_name: 'browser',
                 slot_index: 7,
-                property_type: 'String',
                 state: 'READY',
                 compaction_target_slot_index: 2,
             },
@@ -203,7 +110,6 @@ describe('createEvent dmat extraction', () => {
             {
                 property_name: 'browser',
                 slot_index: 7,
-                property_type: 'String',
                 state: 'BACKFILL',
                 compaction_target_slot_index: null,
             },
@@ -237,9 +143,6 @@ describe('createEvent dmat coercion parity vs SQL', () => {
     }
     interface Fixtures {
         string_cases: FixtureCase[]
-        numeric_cases: FixtureCase[]
-        boolean_cases: FixtureCase[]
-        datetime_cases: FixtureCase[]
     }
 
     const fixturePath = path.resolve(
@@ -248,19 +151,18 @@ describe('createEvent dmat coercion parity vs SQL', () => {
     )
     const fixtures: Fixtures = parseJSON(fs.readFileSync(fixturePath, 'utf-8'))
 
-    function runCase(propType: MaterializedColumnSlot['property_type'], suffix: string, fc: FixtureCase): void {
+    function runCase(fc: FixtureCase): void {
         if (fc._skip_reason) {
             return
         }
         const slot: MaterializedColumnSlot = {
             property_name: 'p',
             slot_index: 0,
-            property_type: propType,
             state: 'READY',
             compaction_target_slot_index: null,
         }
         const event = createEvent({ ...baseEvent, properties: { p: fc.input } }, fakePerson, true, false, null, [slot])
-        const actual = event.dmat_columns?.[`dmat_${suffix}_0`]
+        const actual = event.dmat_columns?.['dmat_string_0']
         // null expected_output ↔ no column written
         if (fc.expected_output === null) {
             expect(actual).toBeUndefined()
@@ -270,15 +172,6 @@ describe('createEvent dmat coercion parity vs SQL', () => {
     }
 
     fixtures.string_cases.forEach((fc) => {
-        it(`String: ${fc.name}`, () => runCase('String', 'string', fc))
-    })
-    fixtures.numeric_cases.forEach((fc) => {
-        it(`Numeric: ${fc.name}`, () => runCase('Numeric', 'numeric', fc))
-    })
-    fixtures.boolean_cases.forEach((fc) => {
-        it(`Boolean: ${fc.name}`, () => runCase('Boolean', 'bool', fc))
-    })
-    fixtures.datetime_cases.forEach((fc) => {
-        it(`DateTime: ${fc.name}`, () => runCase('DateTime', 'datetime', fc))
+        it(`String: ${fc.name}`, () => runCase(fc))
     })
 })

@@ -48,7 +48,6 @@ class BackfillMaterializedPropertyInputs:
     team_id: int
     slot_id: str
     property_name: str
-    property_type: str
     mat_column_name: str
     # Wait time for ingestion cache refresh (default 180s, can be 0 for tests)
     cache_refresh_wait_seconds: int = 180
@@ -106,7 +105,6 @@ class BackfillMaterializedPropertyWorkflow(PostHogWorkflow):
                 BackfillMaterializedColumnInputs(
                     team_id=inputs.team_id,
                     property_name=inputs.property_name,
-                    property_type=inputs.property_type,
                     mat_column_name=inputs.mat_column_name,
                 ),
                 start_to_close_timeout=dt.timedelta(hours=2),

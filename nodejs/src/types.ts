@@ -415,12 +415,20 @@ export interface ProcessedEvent {
      * (e.g. `dmat_string_3`). Only populated for properties present in the team's dmat slot
      * configuration with state READY or BACKFILL. Spread directly into the serialized Kafka
      * payload so the events_json materialized view writes them to the correct columns.
+     *
+     * All dmat columns are `Nullable(String)` — HogQL casts to the property's logical type
+     * at read time, the same way it does for normal `mat_*` columns.
      */
-    dmat_columns?: Record<string, string | number | null>
+    dmat_columns?: Record<string, string>
 }
 
 /**
  * One row of the team's dmat slot configuration, as loaded by MaterializedColumnSlotManager.
+ *
+ * Per the dynamic property materialization RFC, every dmat column is a `Nullable(String)`
+ * (i.e. `dmat_string_<index>`); HogQL casts to the property's logical type at query time
+ * the same way it does for normal `mat_*` columns. Ingestion's job is just to write the
+ * raw extracted string.
  *
  * `state === 'BACKFILL'` means the historical backfill mutation is still running but ingestion
  * should already be writing to the column so there is no gap between "mutation completes" and
@@ -437,7 +445,6 @@ export interface ProcessedEvent {
 export interface MaterializedColumnSlot {
     property_name: string
     slot_index: number
-    property_type: 'String' | 'Numeric' | 'Boolean' | 'DateTime'
     state: 'READY' | 'BACKFILL'
     compaction_target_slot_index: number | null
 }

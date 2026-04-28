@@ -1,4 +1,4 @@
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, transaction
 
 import structlog
 from loginas.utils import is_impersonated_session
@@ -54,7 +54,6 @@ class MaterializedColumnSlotSerializer(serializers.ModelSerializer):
             "team",
             "property_definition",
             "property_definition_details",
-            "property_type",
             "slot_index",
             "compaction_target_slot_index",
             "state",
@@ -77,34 +76,17 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     serializer_class = MaterializedColumnSlotSerializer
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id).order_by("property_type", "slot_index")
+        return queryset.filter(team_id=self.team_id).order_by("slot_index")
 
     @action(methods=["GET"], detail=False)
     def slot_usage(self, request, **kwargs):
-        """Return per-team materialized column slot usage.
+        """Per-team materialized column slot usage.
 
-        Per the dynamic property materialization RFC, the cap is now MAX_SLOTS_PER_TEAM
-        across all property types — not per-type. The response is reported per property
-        type for compatibility with existing UI consumers, but the totals reflect the
-        overall team budget.
+        The cap is MAX_SLOTS_PER_TEAM across all properties — there is no per-type
+        breakdown because dmat is string-only (HogQL casts at read time).
         """
         used_total = MaterializedColumnSlot.objects.filter(team_id=self.team_id).count()
-        per_type_counts = {
-            row["property_type"]: row["count"]
-            for row in MaterializedColumnSlot.objects.filter(team_id=self.team_id)
-            .values("property_type")
-            .annotate(count=models.Count("id"))
-        }
-
         available = max(0, MAX_SLOTS_PER_TEAM - used_total)
-        usage = {}
-        for prop_type in MATERIALIZABLE_PROPERTY_TYPES:
-            usage[prop_type] = {
-                "used": per_type_counts.get(prop_type, 0),
-                "total": MAX_SLOTS_PER_TEAM,
-                "available": available,
-            }
-
         return response.Response(
             {
                 "team_id": self.team_id,
@@ -112,7 +94,6 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 "max_slots_per_team": MAX_SLOTS_PER_TEAM,
                 "used_total": used_total,
                 "available": available,
-                "usage": usage,
             }
         )
 
@@ -252,13 +233,9 @@ class MaterializedColumnSlotViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 if validation_error:
                     return response.Response({"error": validation_error}, status=400)
 
-                property_type = property_definition.property_type
-                assert property_type is not None
-
                 slot = MaterializedColumnSlot.objects.create(
                     team=self.team,
                     property_definition=property_definition,
-                    property_type=property_type,
                     slot_index=None,
                     state=MaterializedColumnSlotState.PENDING,
                     created_by=request.user,

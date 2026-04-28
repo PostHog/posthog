@@ -72,51 +72,20 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 """
 
 
-# Dynamic materialized column counts.
-# String columns are the primary pool (per RFC: dynamic property materialization is string-only;
-# HogQL casts to other types at query time). 100 columns gives ~19 weeks of runway at 5 cols/week
+# Per the dynamic property materialization RFC, the dmat pool is string-only —
+# HogQL casts to the property's logical type at query time using the same wrapper it
+# applies to normal `mat_*` columns. 100 columns gives ~19 weeks of runway at 5 cols/week
 # before compaction is needed.
-# Numeric/Boolean/DateTime columns remain in the schema for backwards compatibility with slots
-# created before the string-only design — they are no longer assigned to new slots.
 DMAT_STRING_COLUMN_COUNT = 100
-DMAT_TYPED_COLUMN_COUNT = 10  # numeric / bool / datetime (legacy)
 
 
 def EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
-    s = []
-
-    for i in range(DMAT_STRING_COLUMN_COUNT):
-        s.append(f"`dmat_string_{i}` Nullable(String)")
-
-    for i in range(DMAT_TYPED_COLUMN_COUNT):
-        s.append(f"`dmat_numeric_{i}` Nullable(Float64)")
-
-    for i in range(DMAT_TYPED_COLUMN_COUNT):
-        s.append(f"`dmat_bool_{i}` Nullable(UInt8)")
-
-    for i in range(DMAT_TYPED_COLUMN_COUNT):
-        s.append(f"`dmat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
-
+    s = [f"`dmat_string_{i}` Nullable(String)" for i in range(DMAT_STRING_COLUMN_COUNT)]
     return f"    , {'\n    , '.join(s)}"
 
 
 def ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table: str) -> str:
-    s = []
-
-    for i in range(DMAT_STRING_COLUMN_COUNT):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_string_{i}` Nullable(String)")
-
-    for i in range(DMAT_TYPED_COLUMN_COUNT):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_numeric_{i}` Nullable(Float64)")
-
-    for i in range(DMAT_TYPED_COLUMN_COUNT):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_bool_{i}` Nullable(UInt8)")
-
-    for i in range(DMAT_TYPED_COLUMN_COUNT):
-        s.append(f"ADD COLUMN IF NOT EXISTS `dmat_datetime_{i}` Nullable(DateTime64(6, 'UTC'))")
-
-    separator = ",\n"
-    return f"ALTER TABLE {table} \n {separator.join(s)}"
+    return ALTER_TABLE_ADD_DMAT_STRING_COLUMNS(table, 0, DMAT_STRING_COLUMN_COUNT)
 
 
 def ALTER_TABLE_ADD_DMAT_STRING_COLUMNS(table: str, start: int, end_exclusive: int) -> str:
@@ -126,16 +95,7 @@ def ALTER_TABLE_ADD_DMAT_STRING_COLUMNS(table: str, start: int, end_exclusive: i
 
 
 def MV_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
-    s = []
-    for i in range(DMAT_STRING_COLUMN_COUNT):
-        s.append(f"dmat_string_{i}")
-    for i in range(DMAT_TYPED_COLUMN_COUNT):
-        s.append(f"dmat_numeric_{i}")
-    for i in range(DMAT_TYPED_COLUMN_COUNT):
-        s.append(f"dmat_bool_{i}")
-    for i in range(DMAT_TYPED_COLUMN_COUNT):
-        s.append(f"dmat_datetime_{i}")
-    return ",\n".join(s)
+    return ",\n".join(f"dmat_string_{i}" for i in range(DMAT_STRING_COLUMN_COUNT))
 
 
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""

@@ -1,31 +1,13 @@
-import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { Properties } from '~/plugin-scaffold'
 
-import {
-    Element,
-    MaterializedColumnSlot,
-    Person,
-    PersonMode,
-    PreIngestionEvent,
-    ProcessedEvent,
-    TimestampFormat,
-} from '../../types'
+import { Element, MaterializedColumnSlot, Person, PersonMode, PreIngestionEvent, ProcessedEvent } from '../../types'
 import { elementsToString, extractElements } from '../../utils/elements-chain'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { castTimestampToClickhouseFormat } from '../../utils/utils'
 import { MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { uuidFromDistinctId } from './person-uuid'
-
-/** Maps PropertyType (Django enum) → the suffix used in dmat column names. */
-const PROPERTY_TYPE_TO_COLUMN_SUFFIX: Record<MaterializedColumnSlot['property_type'], string> = {
-    String: 'string',
-    Numeric: 'numeric',
-    Boolean: 'bool',
-    DateTime: 'datetime',
-}
 
 const elementsOrElementsChainCounter = new Counter({
     name: 'events_pipeline_elements_or_elements_chain_total',
@@ -141,19 +123,21 @@ export function createEvent(
 /**
  * Compute dmat column values for one event from the team's slot configuration.
  *
- * Returns a flat map of `dmat_<type>_<index>` → coerced value. Only properties present on
- * the event are included; missing properties are left unset so ClickHouse stores NULL,
- * which lets HogQL fall back to JSON extraction for events that pre-date the slot.
+ * Returns a flat map of `dmat_string_<index>` → string. Only properties present on the event
+ * are included; missing properties are left unset so ClickHouse stores NULL, which lets HogQL
+ * fall back to JSON extraction for events that pre-date the slot.
  *
- * Coercion mirrors the SQL extraction in
- * `posthog/temporal/backfill_materialized_property/activities.py::_generate_property_extraction_sql`
- * so that historical (backfilled) and live (ingested-here) values are byte-for-byte identical.
+ * All dmat columns are `Nullable(String)`; HogQL casts at read time using the same wrapper
+ * it applies to normal `mat_*` columns (toFloat / toBool / parseDateTime64BestEffortOrNull).
+ * The string we write here MUST be byte-identical to what
+ * `_generate_property_extraction_sql` produces against the same property — that's the contract
+ * the parity fixture pins.
  */
 function extractDynamicMaterializedColumns(
     properties: Properties,
     slots: MaterializedColumnSlot[]
-): Record<string, string | number | null> {
-    const out: Record<string, string | number | null> = {}
+): Record<string, string> {
+    const out: Record<string, string> = {}
 
     for (const slot of slots) {
         const propertyValue = properties[slot.property_name]
@@ -161,20 +145,19 @@ function extractDynamicMaterializedColumns(
             continue
         }
 
-        const converted = convertPropertyValueForSlot(propertyValue, slot.property_type)
-        if (converted === null) {
+        const raw = jsonExtractRawAndTrimQuotes(propertyValue)
+        if (raw === null) {
             continue
         }
 
-        const suffix = PROPERTY_TYPE_TO_COLUMN_SUFFIX[slot.property_type]
-        out[`dmat_${suffix}_${slot.slot_index}`] = converted
+        out[`dmat_string_${slot.slot_index}`] = raw
 
         // Dual-write during compaction: the slot is being repacked, so write the same value to
         // the future column too. HogQL still reads from `slot_index` until the workflow swaps
         // them post-mutation; once swapped, future events land directly on the new column and
         // the old column becomes orphaned (still has data, but no slot points to it).
         if (slot.compaction_target_slot_index !== null) {
-            out[`dmat_${suffix}_${slot.compaction_target_slot_index}`] = converted
+            out[`dmat_string_${slot.compaction_target_slot_index}`] = raw
         }
     }
 
@@ -213,81 +196,4 @@ export function jsonExtractRawAndTrimQuotes(value: unknown): string | null {
         return json.slice(1, -1)
     }
     return json
-}
-
-/**
- * Best-effort parse of a datetime string into a Luxon DateTime. Tries the formats
- * ClickHouse's `parseDateTime64BestEffortOrNull` accepts most reliably:
- *   - ISO 8601 (with or without `T` and timezone)
- *   - SQL format `YYYY-MM-DD HH:mm:ss`
- *   - date-only `YYYY-MM-DD`
- *   - RFC 2822
- *
- * Out-of-spec formats (e.g. `MM/DD/YYYY`) may still parse on the SQL side; this function
- * returns null for them. The shared fixture documents which formats are guaranteed to round-trip.
- */
-function tryParseDateTime(text: string): DateTime | null {
-    const isoT = DateTime.fromISO(text, { zone: 'utc' })
-    if (isoT.isValid) {
-        return isoT
-    }
-    const sqlForm = DateTime.fromFormat(text, 'yyyy-MM-dd HH:mm:ss', { zone: 'utc' })
-    if (sqlForm.isValid) {
-        return sqlForm
-    }
-    const rfc = DateTime.fromRFC2822(text, { zone: 'utc' })
-    if (rfc.isValid) {
-        return rfc
-    }
-    return null
-}
-
-function convertPropertyValueForSlot(
-    value: unknown,
-    propertyType: MaterializedColumnSlot['property_type']
-): string | number | null {
-    // First reproduce the SQL extraction so the input to the type cast matches what the
-    // backfill mutation sees. After this the cases below differ only in the type wrapper
-    // (toFloat64OrNull / transform / parseDateTime64BestEffortOrNull) — match each precisely.
-    const raw = jsonExtractRawAndTrimQuotes(value)
-    if (raw === null) {
-        return null
-    }
-    switch (propertyType) {
-        case 'String':
-            return raw
-        case 'Numeric': {
-            // Match `toFloat64OrNull(raw)`. parseFloat tolerates leading whitespace; SQL
-            // tolerates leading and trailing. Both reject non-numeric input by returning NULL.
-            const numValue = parseFloat(raw)
-            return isNaN(numValue) ? null : numValue
-        }
-        case 'Boolean':
-            // Match `transform(toString(raw), ['true', 'false'], [1, 0], NULL)` — case-sensitive
-            // lowercase only. '1', '0', 'TRUE', 'True', 'yes', etc. all return NULL.
-            if (raw === 'true') {
-                return 1
-            }
-            if (raw === 'false') {
-                return 0
-            }
-            return null
-        case 'DateTime': {
-            const parsed = tryParseDateTime(raw)
-            if (parsed === null) {
-                return null
-            }
-            // dmat datetime columns are Nullable(DateTime64(6, 'UTC')) — pad to 6 decimal
-            // places so the string we write to Kafka matches the format ClickHouse uses when
-            // reading the column back, which lets HogQL queries that compare a JSON-fallback
-            // datetime to a dmat datetime return TRUE for the same instant. castTimestampToClickhouseFormat
-            // emits millisecond precision (3 decimals); pad to microsecond precision (6).
-            const millis = castTimestampToClickhouseFormat(parsed, TimestampFormat.ClickHouse)
-            const dot = millis.lastIndexOf('.')
-            if (dot === -1) {
-                return `${millis}.000000`
-            }
-            return millis + '0'.repeat(6 - (millis.length - dot - 1))
-        }
-    }
 }

@@ -19,20 +19,11 @@ from products.event_definitions.backend.models.property_definition import Proper
 
 logger = structlog.get_logger(__name__)
 
-# String-only column pool for the new batched workflow (per RFC).
-# Other types remain in the legacy per-slot path for backwards compatibility with existing slots.
 DMAT_STRING_COLUMN_NAME_PREFIX = "dmat_string_"
 
-PROPERTY_TYPE_TO_COLUMN_NAME: dict[str, str] = {
-    str(PropertyType.String): "string",
-    str(PropertyType.Numeric): "numeric",
-    str(PropertyType.Boolean): "bool",
-    str(PropertyType.Datetime): "datetime",
-}
-
-# New slots created via the PENDING flow are always String. The other types remain
-# in the codebase but are no longer accepted at the API layer — kept for query-time
-# resolution of legacy slots that are still READY.
+# Per the dynamic property materialization RFC, every dmat column is `Nullable(String)`.
+# HogQL casts to the property's logical type at read time the same way it does for normal
+# `mat_*` columns, so the API layer rejects requests to materialize anything other than String.
 MATERIALIZABLE_PROPERTY_TYPES: set[str] = {str(PropertyType.String)}
 
 
@@ -40,7 +31,6 @@ MATERIALIZABLE_PROPERTY_TYPES: set[str] = {str(PropertyType.String)}
 class BackfillMaterializedColumnInputs:
     team_id: int
     property_name: str
-    property_type: str
     mat_column_name: str
     partition_id: Optional[str] = None
 
@@ -52,43 +42,20 @@ class UpdateSlotStateInputs:
     error_message: Optional[str] = None
 
 
-def _generate_property_extraction_sql(property_type: str) -> str:
+def _generate_property_extraction_sql() -> str:
+    """SQL fragment that pulls a single property out of `properties` as a string.
+
+    Byte-identical to the HogQL printer's JSON-fallback extraction
+    (`_unsafe_json_extract_trim_quotes` in posthog/hogql/printer/base.py) and to
+    `jsonExtractRawAndTrimQuotes` in plugin-server's `create-event.ts`. All three paths
+    must agree because the same row may be read by HogQL via the JSON fallback OR the dmat
+    column, depending on whether the slot is READY for that property — disagreement would
+    show up as different values for the same event before vs after backfill.
+
+    Uses the %(property_name)s placeholder for safe parameterization. Caller must pass
+    `property_name` in the query params dict.
     """
-    Generate SQL expression to extract property value from JSON properties column.
-
-    Uses %(property_name)s placeholder for safe parameterization (matching HogQL pattern).
-    Caller must pass property_name in the query params dict.
-
-    Mimics the HogQL property type wrappers (toFloat, toBool, toDateTime) applied
-    to JSON-extracted values to ensure identical behavior.
-    """
-    # Base JSON extraction with quote trimming and nullIf handling (same as HogQL printer)
-    # HogQL pattern: replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(...), ''), 'null'), '^"|"$', '')
-    base_extract = (
-        "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %(property_name)s), ''), 'null'), '^\"|\"$', '')"
-    )
-
-    if property_type == PropertyType.String:
-        return base_extract
-
-    elif property_type == PropertyType.Numeric:
-        # Match HogQL's toFloat() - no whitespace trimming, just direct conversion
-        return f"toFloat64OrNull({base_extract})"
-
-    elif property_type == PropertyType.Boolean:
-        # Match HogQL's toBool(transform(toString(...), ["true", "false"], [1, 0], None))
-        # Need to use toString() wrapper to match HogQL behavior
-        return f"transform(toString({base_extract}), ['true', 'false'], [1, 0], NULL)"
-
-    elif property_type == PropertyType.Datetime:
-        # Match HogQL's toDateTime() -> parseDateTime64BestEffortOrNull with precision 6
-        # See posthog/hogql/printer.py L1391-1392 and posthog/hogql/functions/clickhouse/conversions.py L112-127
-        # Timezone param omitted - uses server default (UTC). Most datetime strings have explicit
-        # timezone info anyway, and for ambiguous strings UTC is a reasonable default.
-        return f"parseDateTime64BestEffortOrNull({base_extract}, 6)"
-
-    else:
-        raise ValueError(f"Unsupported property type for materialization: {property_type}")
+    return "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %(property_name)s), ''), 'null'), '^\"|\"$', '')"
 
 
 @activity.defn
@@ -101,7 +68,7 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
 
     Returns 0 (row count not tracked).
     """
-    extraction_sql = _generate_property_extraction_sql(inputs.property_type)
+    extraction_sql = _generate_property_extraction_sql()
 
     partition_clause = "IN PARTITION %(partition_id)s" if inputs.partition_id else ""
     query = f"""
@@ -122,7 +89,6 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
         "Starting backfill for materialized column",
         team_id=inputs.team_id,
         property_name=inputs.property_name,
-        property_type=inputs.property_type,
         mat_column_name=inputs.mat_column_name,
         partition_id=inputs.partition_id,
     )
@@ -394,11 +360,12 @@ def assign_pending_slots(inputs: AssignPendingSlotsInputs) -> AssignPendingSlots
     logger.info("Assigning pending slots to columns", workflow_run_id=inputs.workflow_id)
 
     with transaction.atomic():
-        # Lock both PENDING and READY rows we may modify.
+        # Lock both PENDING and READY rows we may modify. The slot table only ever holds
+        # String slots (the API rejects other types — see MATERIALIZABLE_PROPERTY_TYPES), so
+        # there's no per-type filter to apply.
         all_string_slots = list(
             MaterializedColumnSlot.objects.select_for_update()
             .select_related("property_definition", "team")
-            .filter(property_type=str(PropertyType.String))
             .order_by("team_id", "id")
         )
 
@@ -822,7 +789,6 @@ def finalize_compaction(inputs: FinalizeCompactionInputs) -> int:
             collision = (
                 MaterializedColumnSlot.objects.filter(
                     team_id=slot.team_id,
-                    property_type=slot.property_type,
                     slot_index=new_slot_index,
                 )
                 .exclude(id=slot.id)
@@ -834,9 +800,8 @@ def finalize_compaction(inputs: FinalizeCompactionInputs) -> int:
                 # whole transaction so the operator can investigate before any swap is committed.
                 raise RuntimeError(
                     f"Cannot finalize compaction for slot {slot.id}: "
-                    f"team {slot.team_id} already has another {slot.property_type} slot at column "
-                    f"{new_slot_index}. Aborting the entire compaction batch — investigate slot "
-                    f"table state before retrying."
+                    f"team {slot.team_id} already has another slot at column {new_slot_index}. "
+                    f"Aborting the entire compaction batch — investigate slot table state before retrying."
                 )
             slot.slot_index = new_slot_index
             slot.compaction_target_slot_index = None

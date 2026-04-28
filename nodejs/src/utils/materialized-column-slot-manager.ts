@@ -59,7 +59,6 @@ export class MaterializedColumnSlotManager {
             team_id: number
             property_name: string
             slot_index: number
-            property_type: 'String' | 'Numeric' | 'Boolean' | 'DateTime'
             state: 'READY' | 'BACKFILL'
             compaction_target_slot_index: number | null
         }>(
@@ -68,7 +67,6 @@ export class MaterializedColumnSlotManager {
                 s.team_id,
                 pd.name AS property_name,
                 s.slot_index,
-                s.property_type,
                 s.state,
                 s.compaction_target_slot_index
             FROM posthog_materializedcolumnslot s
@@ -90,7 +88,6 @@ export class MaterializedColumnSlotManager {
             slotsByTeam[teamIdStr].push({
                 property_name: row.property_name,
                 slot_index: row.slot_index,
-                property_type: row.property_type,
                 state: row.state,
                 compaction_target_slot_index: row.compaction_target_slot_index,
             })
