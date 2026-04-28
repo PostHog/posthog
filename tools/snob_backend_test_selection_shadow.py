@@ -673,7 +673,8 @@ def main() -> None:
     sys.stdout.write(json.dumps(result, indent=indent, sort_keys=True) + "\n")
 
     if args.summary_path:
-        Path(args.summary_path).expanduser().open("a").write(format_summary(result))
+        with Path(args.summary_path).expanduser().open("a") as fh:
+            fh.write(format_summary(result))
 
 
 if __name__ == "__main__":
