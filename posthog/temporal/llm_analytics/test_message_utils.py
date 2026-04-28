@@ -87,10 +87,9 @@ class TestExtractTextFromMessages:
         assert result != ""
 
     @pytest.mark.parametrize(
-        "label,messages,expected_substrings",
+        "messages,expected_substrings",
         [
-            (
-                "openai_tool_call_no_text_content",
+            pytest.param(
                 [
                     {
                         "role": "assistant",
@@ -108,9 +107,9 @@ class TestExtractTextFromMessages:
                     }
                 ],
                 ["assistant:", "send_email", "user@example.com"],
+                id="openai_tool_call_no_text_content",
             ),
-            (
-                "openai_tool_call_with_text_content",
+            pytest.param(
                 [
                     {
                         "role": "assistant",
@@ -128,9 +127,9 @@ class TestExtractTextFromMessages:
                     }
                 ],
                 ["On it.", "update_status", '{"status": "ok"}'],
+                id="openai_tool_call_with_text_content",
             ),
-            (
-                "multiple_tool_calls_in_one_message",
+            pytest.param(
                 [
                     {
                         "role": "assistant",
@@ -142,9 +141,9 @@ class TestExtractTextFromMessages:
                     }
                 ],
                 ["foo", "bar"],
+                id="multiple_tool_calls_in_one_message",
             ),
-            (
-                "tool_call_with_dict_arguments",
+            pytest.param(
                 [
                     {
                         "role": "assistant",
@@ -159,10 +158,11 @@ class TestExtractTextFromMessages:
                     }
                 ],
                 ["foo", '"x"', "1"],
+                id="tool_call_with_dict_arguments",
             ),
         ],
     )
-    def test_tool_call_rendering(self, label, messages, expected_substrings):
+    def test_tool_call_rendering(self, messages, expected_substrings):
         result = extract_text_from_messages(messages)
         for substring in expected_substrings:
             assert substring in result, f"missing {substring!r} in {result!r}"
@@ -197,16 +197,16 @@ class TestExtractTextFromMessages:
         assert "assistant: Done." in result
 
     @pytest.mark.parametrize(
-        "label,tool_calls",
+        "tool_calls",
         [
-            ("not_a_list", "not-a-list"),
-            ("missing_function", [{"id": "1"}]),
-            ("empty_name", [{"function": {"name": ""}}]),
-            ("function_not_dict", [{"function": "broken"}]),
-            ("tool_call_not_dict", ["broken"]),
+            pytest.param("not-a-list", id="not_a_list"),
+            pytest.param([{"id": "1"}], id="missing_function"),
+            pytest.param([{"function": {"name": ""}}], id="empty_name"),
+            pytest.param([{"function": "broken"}], id="function_not_dict"),
+            pytest.param(["broken"], id="tool_call_not_dict"),
         ],
     )
-    def test_malformed_tool_calls_do_not_crash(self, label, tool_calls):
+    def test_malformed_tool_calls_do_not_crash(self, tool_calls):
         messages = [{"role": "assistant", "content": "Hello", "tool_calls": tool_calls}]
         result = extract_text_from_messages(messages)
         assert "Hello" in result
