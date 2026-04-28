@@ -4,11 +4,20 @@ from unittest.mock import patch
 from posthog.temporal.data_imports.sources.common.http.metrics import (
     _NullCounter,
     _NullHistogram,
+    _reset_cache_for_tests,
     get_http_latency_histogram,
     get_http_requests_counter,
     get_http_response_bytes_histogram,
     status_class,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_instrument_cache():
+    """The instrument cache is process-global; clear it between tests."""
+    _reset_cache_for_tests()
+    yield
+    _reset_cache_for_tests()
 
 
 @pytest.mark.parametrize(
@@ -127,3 +136,63 @@ def test_meter_attributes_include_team_and_source():
         get_http_requests_counter(team_id=42, source_type="stripe")
 
     assert captured == [{"team_id": "42", "source_type": "stripe"}]
+
+
+def test_get_counter_caches_per_team_and_source():
+    """Repeated calls for the same (team_id, source_type) must return the same instrument."""
+    creates: list[tuple[str, str]] = []
+
+    class FakeMeter:
+        def with_additional_attributes(self, attrs):
+            return self
+
+        def create_counter(self, name, desc):
+            creates.append((name, desc))
+            return object()
+
+    with patch(
+        "posthog.temporal.data_imports.sources.common.http.metrics._safe_metric_meter",
+        return_value=FakeMeter(),
+    ):
+        first = get_http_requests_counter(team_id=42, source_type="stripe")
+        second = get_http_requests_counter(team_id=42, source_type="stripe")
+        third = get_http_requests_counter(team_id=42, source_type="hubspot")
+
+    assert first is second
+    assert first is not third
+    # Two distinct (team_id, source_type) keys → two creates, not three.
+    assert len(creates) == 2
+
+
+def test_get_histogram_caches_per_team_and_source():
+    creates: list[tuple[str, str]] = []
+
+    class FakeMeter:
+        def with_additional_attributes(self, attrs):
+            return self
+
+        def create_histogram(self, name, desc, unit):
+            creates.append((name, desc))
+            return object()
+
+    with patch(
+        "posthog.temporal.data_imports.sources.common.http.metrics._safe_metric_meter",
+        return_value=FakeMeter(),
+    ):
+        a = get_http_latency_histogram(team_id=1, source_type="stripe")
+        b = get_http_latency_histogram(team_id=1, source_type="stripe")
+        c = get_http_response_bytes_histogram(team_id=1, source_type="stripe")
+        d = get_http_response_bytes_histogram(team_id=1, source_type="stripe")
+
+    assert a is b
+    assert c is d
+    # Two distinct instruments (latency, bytes) for one (team, source) → two creates.
+    assert len(creates) == 2
+
+
+def test_null_recorders_are_also_cached():
+    """When the meter is unavailable, the null recorder is still cached so we don't allocate per request."""
+    first = get_http_requests_counter(team_id=1, source_type="stripe")
+    second = get_http_requests_counter(team_id=1, source_type="stripe")
+
+    assert first is second

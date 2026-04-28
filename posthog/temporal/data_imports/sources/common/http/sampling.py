@@ -35,13 +35,14 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+from urllib.parse import parse_qsl, urlencode
 
 from django.conf import settings
 
 from posthog.redis import get_client
 from posthog.storage import object_storage
 from posthog.temporal.data_imports.sources.common.http.context import JobContext
-from posthog.temporal.data_imports.sources.common.http.url_utils import scrub_url
+from posthog.temporal.data_imports.sources.common.http.url_utils import _REDACT_PARAM_NAMES, scrub_url
 
 if TYPE_CHECKING:
     from requests import PreparedRequest, Response
@@ -58,6 +59,8 @@ MAX_CONFIG_TTL_SECONDS = 24 * 60 * 60
 WILDCARD = "*"
 
 _REDACTED_HEADER = "REDACTED"
+_REDACTED_FORM_VALUE = "REDACTED"
+_REDACTED_SCRUB_FAILURE = "<scrub_failed>"
 _AUTH_HEADER_NAMES: frozenset[str] = frozenset(
     {"authorization", "x-api-key", "x-auth-token", "cookie", "set-cookie", "proxy-authorization"}
 )
@@ -141,7 +144,6 @@ def _matches_status(rule_value: str, status_code: int | None) -> bool:
 _CONFIG_LOCK = threading.Lock()
 _cached_config: CaptureConfig | None = None
 _cached_config_fetched_at: float = 0.0
-_cached_config_present: bool = False
 
 
 def _now() -> float:
@@ -149,7 +151,7 @@ def _now() -> float:
 
 
 def _load_config() -> CaptureConfig | None:
-    global _cached_config, _cached_config_fetched_at, _cached_config_present
+    global _cached_config, _cached_config_fetched_at
 
     with _CONFIG_LOCK:
         if _now() - _cached_config_fetched_at < CONFIG_CACHE_TTL_SECONDS:
@@ -166,22 +168,19 @@ def _load_config() -> CaptureConfig | None:
         _cached_config_fetched_at = _now()
         if raw is None:
             _cached_config = None
-            _cached_config_present = False
             return None
 
         config = CaptureConfig.from_json(raw)
         _cached_config = config
-        _cached_config_present = config is not None
         return config
 
 
 def _reset_cache_for_tests() -> None:
     """Test hook — clears the in-process cache."""
-    global _cached_config, _cached_config_fetched_at, _cached_config_present
+    global _cached_config, _cached_config_fetched_at
     with _CONFIG_LOCK:
         _cached_config = None
         _cached_config_fetched_at = 0.0
-        _cached_config_present = False
 
 
 def _counter_key(capture_id: str, rule_index: int) -> str:
@@ -339,6 +338,15 @@ def _scrub_body(body: Any) -> Any:
         parsed = _try_json(body)
         if parsed is not None:
             return _scrub_value(parsed)
+        # OAuth token-exchange / refresh / authorization-code flows post
+        # `application/x-www-form-urlencoded` bodies like
+        # `grant_type=refresh_token&client_id=...&client_secret=...&refresh_token=...`.
+        # scrubadub treats those as opaque text and won't recognise OAuth
+        # secrets, so we detect form-shaped bodies up front and redact by
+        # key name against the same denylist used for URL query params.
+        form = _try_form_urlencoded(body)
+        if form is not None:
+            return form
         return _scrub_string(body)
     return _scrub_value(body)
 
@@ -351,6 +359,30 @@ def _try_json(text: str) -> Any | None:
         return json.loads(text)
     except (ValueError, json.JSONDecodeError):
         return None
+
+
+def _try_form_urlencoded(text: str) -> str | None:
+    """Detect `application/x-www-form-urlencoded` bodies and scrub auth params.
+
+    Returns the scrubbed body as a string, or `None` if the input doesn't
+    look like a form-encoded payload (in which case the caller falls back
+    to scrubadub on the raw text).
+    """
+    stripped = text.strip()
+    if not stripped or "=" not in stripped or "\n" in stripped or " " in stripped.split("=", 1)[0]:
+        return None
+    try:
+        pairs = parse_qsl(stripped, keep_blank_values=True, strict_parsing=True)
+    except ValueError:
+        return None
+    # Require at least one key=value pair to call this a form body.
+    if not pairs:
+        return None
+    scrubbed = [
+        (name, _REDACTED_FORM_VALUE if name.lower() in _REDACT_PARAM_NAMES else _scrub_string(value))
+        for name, value in pairs
+    ]
+    return urlencode(scrubbed, doseq=False)
 
 
 def _scrub_value(value: Any) -> Any:
@@ -387,7 +419,10 @@ def _scrub_string(value: str) -> str:
     try:
         return _get_scrubber().clean(value)
     except Exception:
-        # On scrubadub failure, return the raw value rather than crashing
-        # the request path. Caller can decide whether to drop or keep.
-        logger.debug("scrubadub failed", exc_info=True)
-        return value
+        # Fail closed: a scrubadub failure on a value we couldn't otherwise
+        # categorise must not leak the raw, potentially sensitive content
+        # into the captured sample. Replace with a placeholder so the
+        # surrounding structure (header dict, body shape) is preserved
+        # for fixture use, but the unredacted value never lands in S3.
+        logger.debug("scrubadub failed; replacing value with placeholder", exc_info=True)
+        return _REDACTED_SCRUB_FAILURE

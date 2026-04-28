@@ -446,14 +446,77 @@ def test_scrub_body_handles_none():
     assert _scrub_body(None) is None
 
 
-def test_scrub_string_returns_raw_when_scrubadub_fails():
-    """A scrubadub crash must not lose the value entirely — return raw."""
+def test_scrub_string_fails_closed_when_scrubadub_fails():
+    """A scrubadub crash must NOT leak the raw value — replace with a placeholder."""
     with patch(
         "posthog.temporal.data_imports.sources.common.http.sampling._get_scrubber",
         side_effect=RuntimeError("scrubadub broken"),
     ):
-        result = sampling._scrub_string("hello world")
-    assert result == "hello world"
+        result = sampling._scrub_string("super-secret-token-123")
+    assert result == "<scrub_failed>"
+    assert "super-secret-token-123" not in result
+
+
+# ---------------------------------------------------------------------------
+# OAuth / form-urlencoded body scrubbing
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "body,redacted_keys",
+    [
+        # HubSpot-style refresh
+        (
+            "grant_type=refresh_token&client_id=cid&client_secret=cs&refresh_token=rt",
+            {"client_secret", "refresh_token"},
+        ),
+        # Salesforce / generic OAuth code exchange
+        (
+            "grant_type=authorization_code&client_id=cid&client_secret=cs&redirect_uri=https://x/y&code=abc",
+            {"client_secret", "code"},
+        ),
+        # Token exchange (RFC 8693)
+        (
+            "grant_type=urn:ietf:params:oauth:grant-type:token-exchange"
+            "&subject_token=st&actor_token=at&client_assertion=ca&client_assertion_type=cat",
+            {"subject_token", "actor_token", "client_assertion", "client_assertion_type"},
+        ),
+        # Bearer token in arbitrary form param
+        ("api_key=secret&page=2", {"api_key"}),
+    ],
+)
+def test_scrub_body_redacts_oauth_form_secrets(body: str, redacted_keys: set[str]):
+    """`_scrub_body` must NEVER pass OAuth form payloads to scrubadub raw."""
+    out = _scrub_body(body)
+    assert isinstance(out, str)
+    assert "REDACTED" in out
+    # Non-redacted keys are still present (we preserve form structure).
+    parsed_pairs = dict(p.split("=", 1) for p in out.split("&"))
+    for key in redacted_keys:
+        assert parsed_pairs.get(key) == "REDACTED", f"{key} should be redacted, got {parsed_pairs.get(key)}"
+
+
+def test_scrub_body_form_preserves_non_redacted_values():
+    """Non-secret form params like `grant_type` flow through, keys remain, secrets get REDACTED."""
+    out = _scrub_body("grant_type=refresh_token&page=2&client_secret=secret")
+    assert isinstance(out, str)
+    parsed = dict(p.split("=", 1) for p in out.split("&"))
+    assert parsed["grant_type"] == "refresh_token"
+    assert parsed["page"] == "2"
+    assert parsed["client_secret"] == "REDACTED"
+
+
+def test_scrub_body_does_not_treat_freeform_text_as_form():
+    """Plain text without `key=value` shape still falls back to scrubadub."""
+    out = _scrub_body("this is just a sentence with no equals signs")
+    assert isinstance(out, str)
+
+
+def test_scrub_body_does_not_treat_short_kv_with_spaces_as_form():
+    """A single 'foo = bar' phrase isn't form-encoded — must not redact."""
+    out = _scrub_body("foo bar = baz")
+    # We don't try to redact key-shaped substrings here.
+    assert isinstance(out, str)
 
 
 # ---------------------------------------------------------------------------

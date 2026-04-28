@@ -19,18 +19,32 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 _REDACT_PARAM_NAMES: Final[frozenset[str]] = frozenset(
     {
+        # Generic auth/secret param names
         "api_key",
         "apikey",
         "access_token",
         "auth",
         "auth_token",
-        "client_secret",
         "key",
         "password",
         "secret",
         "sig",
         "signature",
         "token",
+        # OAuth 2.0 / token-exchange flow params (RFC 6749 / RFC 7521 / OIDC).
+        # These are usually sent in form bodies but can also appear in URLs;
+        # we cover them here so the same denylist serves both `scrub_url` and
+        # the form-urlencoded body scrubber in `sampling.py`.
+        "client_secret",
+        "client_assertion",
+        "client_assertion_type",
+        "code",
+        "code_verifier",
+        "id_token",
+        "id_token_hint",
+        "refresh_token",
+        "subject_token",
+        "actor_token",
     }
 )
 

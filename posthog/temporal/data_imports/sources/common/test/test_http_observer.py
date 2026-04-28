@@ -277,7 +277,7 @@ def test_sample_capture_skipped_without_context():
     request = _make_request()
     response = _make_response(status_code=200)
 
-    with patch("posthog.temporal.data_imports.sources.common.http.sampling.maybe_capture") as capture:
+    with patch("posthog.temporal.data_imports.sources.common.http.observer.maybe_capture") as capture:
         record_request(request, response, started_at_monotonic=time.monotonic())
 
     capture.assert_not_called()
@@ -286,7 +286,7 @@ def test_sample_capture_skipped_without_context():
 def test_sample_capture_skipped_on_exception(job_ctx):
     request = _make_request()
 
-    with patch("posthog.temporal.data_imports.sources.common.http.sampling.maybe_capture") as capture:
+    with patch("posthog.temporal.data_imports.sources.common.http.observer.maybe_capture") as capture:
         record_request(
             request,
             None,
@@ -301,7 +301,7 @@ def test_sample_capture_called_with_context_and_response(job_ctx):
     request = _make_request()
     response = _make_response(status_code=200)
 
-    with patch("posthog.temporal.data_imports.sources.common.http.sampling.maybe_capture") as capture:
+    with patch("posthog.temporal.data_imports.sources.common.http.observer.maybe_capture") as capture:
         record_request(request, response, started_at_monotonic=time.monotonic())
 
     capture.assert_called_once()
@@ -317,7 +317,7 @@ def test_observer_swallows_sampling_failures(job_ctx):
     response = _make_response(status_code=200)
 
     with patch(
-        "posthog.temporal.data_imports.sources.common.http.sampling.maybe_capture",
+        "posthog.temporal.data_imports.sources.common.http.observer.maybe_capture",
         side_effect=RuntimeError("sampling broken"),
     ):
         record_request(request, response, started_at_monotonic=time.monotonic())

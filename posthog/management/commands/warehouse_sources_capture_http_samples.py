@@ -10,7 +10,8 @@ Usage:
     python manage.py warehouse_sources_capture_http_samples enable \
         --source-type stripe --response-code 4xx --limit 50 --ttl 30m
 
-    # Multiple rules: pass --rule N times (later rules win on first-match)
+    # Multiple rules: pass --rule N times. Rules are evaluated in order and
+    # the FIRST matching rule wins, so put the most specific rule first.
     python manage.py warehouse_sources_capture_http_samples enable \
         --rule source_type=stripe,response_code=429,limit=20 \
         --rule source_type=hubspot,response_code=*,team_id=12,limit=10 \
@@ -97,7 +98,7 @@ class Command(BaseCommand):
             "--rule",
             action="append",
             default=[],
-            help="Add an extra rule as 'key=value,key=value'. Repeatable. First match wins.",
+            help="Add an extra rule as 'key=value,key=value'. Repeatable. Rules are evaluated in declared order; first match wins.",
         )
 
         sub.add_parser("disable", help="Disable capture (clears the Redis key + counters)")

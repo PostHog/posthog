@@ -65,10 +65,12 @@ class TrackedHTTPAdapter(HTTPAdapter):
 
 
 def make_tracked_adapter(retry: Retry | None = None, **kwargs: Any) -> TrackedHTTPAdapter:
-    """Construct a `TrackedHTTPAdapter` with a sensible default retry.
+    """Construct a `TrackedHTTPAdapter`.
 
-    Pass `retry=None` to disable retries entirely; pass a custom `Retry`
-    to override. Any extra kwargs are forwarded to `HTTPAdapter.__init__`.
+    `retry=None` (the default) uses the built-in `DEFAULT_RETRY` policy. To
+    truly opt out of retries, pass `retry=Retry(total=0)`. To override with
+    different retry settings, pass a custom `Retry` instance. Any extra
+    kwargs are forwarded to `HTTPAdapter.__init__`.
     """
     if retry is None:
         retry = DEFAULT_RETRY
@@ -80,7 +82,11 @@ def make_tracked_session(
     retry: Retry | None = None,
     headers: dict[str, str] | None = None,
 ) -> requests.Session:
-    """Return a fresh `requests.Session` with tracked HTTP/HTTPS adapters."""
+    """Return a fresh `requests.Session` with tracked HTTP/HTTPS adapters.
+
+    See `make_tracked_adapter` for the `retry` parameter semantics — `None`
+    uses `DEFAULT_RETRY`; pass `Retry(total=0)` to disable retries.
+    """
     session = requests.Session()
     adapter = make_tracked_adapter(retry=retry)
     session.mount("https://", adapter)
