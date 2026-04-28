@@ -41,6 +41,58 @@ interface InitKeaProps {
     replaceInitialPathInWindow?: boolean
 }
 
+// Break kea logic graph cycles after unmount so unmounted BuiltLogic
+// instances don't transitively retain the rest of the graph if some external
+// closure still holds them.
+//
+// kea v4's `unmountLogic` removes a built logic from `mounted`, `counter`,
+// and `wrapperContexts.builtLogics`, but does NOT clear the BuiltLogic
+// object's own `connections`, `events`, `listeners`, `selectors`, etc. Each
+// logic's `connections` map points at every transitively connected logic, so
+// once any single unmounted BuiltLogic is rooted from outside (e.g. by a
+// React fiber alternate, a redux middleware closure, or a stale Monaco model
+// ref), the entire connected graph stays alive.
+//
+// Heap-snapshot diffs on /sql showed 5 BuiltLogic instances per visit for
+// every connected logic, including singletons. Nulling these fields on
+// afterUnmount caps the leak at the empty BuiltLogic shell.
+//
+// Safe because kea doesn't guarantee post-unmount logic access. `isMounted()`
+// lives in the BuiltLogic's closure (not in a data field) and continues to
+// work. Plugins that need `logic.cache` etc. read it in `beforeUnmount`,
+// which runs before this `afterUnmount`.
+const cycleBreakerPlugin: KeaPlugin = {
+    name: 'cycleBreaker',
+    events: {
+        afterUnmount(logic) {
+            const l = logic as any
+            // Clear the heavy closure-bearing fields synchronously. These
+            // are what retain reselect machinery, listener bodies, and
+            // propsChanged/beforeUnmount2 closures that hold an unmounted
+            // BuiltLogic alive when any external closure still references it.
+            l.events = {}
+            l.listeners = {}
+
+            // Defer clearing `connections` to the next macrotask. kea v4's
+            // `unmountLogic` reads `logic.connections[pathString]` and
+            // `connectedLogic.events.beforeUnmount?.()` per iteration. After
+            // `.reverse()` the outer logic is unmounted first, so clearing
+            // its `connections` synchronously makes subsequent iterations
+            // dereference `undefined.events` and crash.
+            //
+            // setTimeout(0) waits until kea's full unmount sweep completes.
+            // We don't gate on `isMounted()` because that checks the counter
+            // for `pathString`, which can be true again if a fresh build at
+            // the same path was mounted in the interim — but that's a
+            // DIFFERENT BuiltLogic instance with its own `connections` map,
+            // so clearing this stale instance's `connections` is safe.
+            setTimeout(() => {
+                l.connections = {}
+            }, 0)
+        },
+    },
+}
+
 // Used in some tests to make life easier
 let errorsSilenced = false
 
@@ -131,6 +183,10 @@ export function initKea({
         }),
         subscriptionsPlugin,
         waitForPlugin,
+        // Must be appended LAST so its afterUnmount runs after every other
+        // plugin and the user-provided beforeUnmount/afterUnmount events have
+        // had a chance to read logic.cache, logic.events, etc.
+        cycleBreakerPlugin,
     ]
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {
