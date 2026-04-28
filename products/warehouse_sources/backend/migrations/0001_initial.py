@@ -4,17 +4,17 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
-def _create_batch_status_view(apps, schema_editor):
+def _create_latest_status_view(apps, schema_editor):
     schema_editor.execute("""
-        CREATE VIEW v_last_external_data_job_batch_status AS
+        CREATE VIEW v_latest_source_batch_status AS
         SELECT DISTINCT ON (batch_id) *
-        FROM posthog_externaldatajobbatchstatus
+        FROM warehouse_sources_sourcebatchstatus
         ORDER BY batch_id ASC, id DESC
     """)
 
 
-def _drop_batch_status_view(apps, schema_editor):
-    schema_editor.execute("DROP VIEW IF EXISTS v_last_external_data_job_batch_status")
+def _drop_latest_status_view(apps, schema_editor):
+    schema_editor.execute("DROP VIEW IF EXISTS v_latest_source_batch_status")
 
 
 class Migration(migrations.Migration):
@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="ExternalDataJobBatch",
+            name="SourceBatch",
             fields=[
                 (
                     "id",
@@ -80,15 +80,15 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
             ],
             options={
-                "db_table": "posthog_externaldatajobbatch",
+                "db_table": "warehouse_sources_sourcebatch",
                 "indexes": [
-                    models.Index(fields=["team_id", "schema_id"], name="edjb_team_schema_idx"),
-                    models.Index(fields=["run_uuid"], name="edjb_run_uuid_idx"),
+                    models.Index(fields=["team_id", "schema_id"], name="sb_team_schema_idx"),
+                    models.Index(fields=["run_uuid"], name="sb_run_uuid_idx"),
                 ],
             },
         ),
         migrations.CreateModel(
-            name="ExternalDataJobBatchStatus",
+            name="SourceBatchStatus",
             fields=[
                 (
                     "id",
@@ -121,19 +121,19 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="statuses",
-                        to="warehouse_sources.externaldatajobbatch",
+                        to="warehouse_sources.sourcebatch",
                     ),
                 ),
             ],
             options={
-                "db_table": "posthog_externaldatajobbatchstatus",
+                "db_table": "warehouse_sources_sourcebatchstatus",
                 "indexes": [
                     models.Index(
                         fields=["batch_id", "-id", "job_state"],
-                        name="edjbs_batch_id_desc_state_idx",
+                        name="sbs_batch_id_desc_state_idx",
                     ),
                 ],
             },
         ),
-        migrations.RunPython(_create_batch_status_view, _drop_batch_status_view),
+        migrations.RunPython(_create_latest_status_view, _drop_latest_status_view),
     ]

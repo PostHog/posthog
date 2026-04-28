@@ -3,7 +3,7 @@ from django.db import models
 from posthog.models.utils import sane_repr
 
 
-class ExternalDataJobBatch(models.Model):
+class SourceBatch(models.Model):
     class Status(models.TextChoices):
         WAITING = "waiting", "waiting"
         EXECUTING = "executing", "executing"
@@ -48,14 +48,14 @@ class ExternalDataJobBatch(models.Model):
     __repr__ = sane_repr("id", "team_id", "schema_id", "batch_index")
 
     class Meta:
-        db_table = "posthog_externaldatajobbatch"
+        db_table = "warehouse_sources_sourcebatch"
         indexes = [
-            models.Index(fields=["team_id", "schema_id"], name="edjb_team_schema_idx"),
-            models.Index(fields=["run_uuid"], name="edjb_run_uuid_idx"),
+            models.Index(fields=["team_id", "schema_id"], name="sb_team_schema_idx"),
+            models.Index(fields=["run_uuid"], name="sb_run_uuid_idx"),
         ]
 
 
-class ExternalDataJobBatchStatus(models.Model):
+class SourceBatchStatus(models.Model):
     class State(models.TextChoices):
         WAITING = "waiting", "waiting"
         EXECUTING = "executing", "executing"
@@ -64,7 +64,7 @@ class ExternalDataJobBatchStatus(models.Model):
         FAILED = "failed", "failed"
 
     batch = models.ForeignKey(
-        ExternalDataJobBatch,
+        SourceBatch,
         on_delete=models.CASCADE,
         related_name="statuses",
     )
@@ -75,10 +75,10 @@ class ExternalDataJobBatchStatus(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        db_table = "posthog_externaldatajobbatchstatus"
+        db_table = "warehouse_sources_sourcebatchstatus"
         indexes = [
             models.Index(
                 fields=["batch_id", "-id", "job_state"],
-                name="edjbs_batch_id_desc_state_idx",
+                name="sbs_batch_id_desc_state_idx",
             ),
         ]

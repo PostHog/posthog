@@ -16,9 +16,9 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
-BATCH_TABLE = "posthog_externaldatajobbatch"
-STATUS_TABLE = "posthog_externaldatajobbatchstatus"
-STATUS_VIEW = "v_last_external_data_job_batch_status"
+BATCH_TABLE = "warehouse_sources_sourcebatch"
+STATUS_TABLE = "warehouse_sources_sourcebatchstatus"
+STATUS_VIEW = "v_latest_source_batch_status"
 
 # Namespace for advisory locks to avoid collisions with other PostHog subsystems.
 ADVISORY_LOCK_NAMESPACE = 0x57485300  # "WHS\0" in hex
