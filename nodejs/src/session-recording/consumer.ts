@@ -9,6 +9,7 @@ import {
     IngestionWarningsOutput,
     LogEntriesOutput,
     OverflowOutput,
+    ReplayEventsOutput,
     TophogOutput,
 } from '../ingestion/common/outputs'
 import { IngestionConsumerConfig } from '../ingestion/config'
@@ -90,7 +91,7 @@ export class SessionRecordingIngester {
         private config: SessionRecordingIngesterConfig,
         postgres: PostgresRouter,
         outputs: IngestionOutputs<
-            IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | LogEntriesOutput
+            IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | LogEntriesOutput | ReplayEventsOutput
         >,
         kafkaMetadataProducer: KafkaProducerWrapper,
         redisPool: RedisPool,
@@ -152,10 +153,7 @@ export class SessionRecordingIngester {
         const retentionService = new RetentionService(this.redisPool, this.teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const metadataStore = new SessionMetadataStore(
-            this.kafkaMetadataProducer,
-            this.config.SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC
-        )
+        const metadataStore = new SessionMetadataStore(outputs)
         const consoleLogStore = new SessionConsoleLogStore(outputs, {
             messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
         })

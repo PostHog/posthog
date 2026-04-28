@@ -24,6 +24,7 @@ import {
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
+    REPLAY_EVENTS_OUTPUT,
     TOPHOG_OUTPUT,
 } from '../ingestion/common/outputs'
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
@@ -879,6 +880,12 @@ describe('Session Recording Consumer Integration', () => {
             [LOG_ENTRIES_OUTPUT]: new SingleIngestionOutput(
                 LOG_ENTRIES_OUTPUT,
                 'log_entries_test',
+                kafkaMetadataProducer,
+                'test'
+            ),
+            [REPLAY_EVENTS_OUTPUT]: new SingleIngestionOutput(
+                REPLAY_EVENTS_OUTPUT,
+                KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
                 kafkaMetadataProducer,
                 'test'
             ),

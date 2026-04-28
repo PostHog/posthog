@@ -7,6 +7,9 @@ import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
 } from '../../config/kafka-topics'
+import { DEFAULT_PRODUCER, REPLAY_EVENTS_OUTPUT } from '../../ingestion/common/outputs'
+import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../../ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import {
     HealthCheckResult,
@@ -119,7 +122,15 @@ export class RecordingApi {
 
         // Initialize Kafka producer for emitting deletion events
         this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
-        const metadataStore = new SessionMetadataStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS)
+        const replayEventsOutputs = new IngestionOutputs({
+            [REPLAY_EVENTS_OUTPUT]: new SingleIngestionOutput(
+                REPLAY_EVENTS_OUTPUT,
+                KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+                this.kafkaProducer,
+                DEFAULT_PRODUCER
+            ),
+        })
+        const metadataStore = new SessionMetadataStore(replayEventsOutputs)
         const featureStore = new SessionFeatureStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES)
 
         // Initialize ClickHouse client for block listing queries

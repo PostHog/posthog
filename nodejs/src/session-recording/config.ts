@@ -165,6 +165,8 @@ export type SessionReplayOutputsConfig = {
     SESSION_REPLAY_OUTPUT_TOPHOG_PRODUCER: SessionReplayProducerName
 
     SESSION_REPLAY_OUTPUT_LOG_ENTRIES_PRODUCER: SessionReplayProducerName
+
+    SESSION_REPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: SessionReplayProducerName
 }
 
 export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConfig {
@@ -176,5 +178,6 @@ export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConf
         SESSION_REPLAY_OUTPUT_TOPHOG_TOPIC: KAFKA_CLICKHOUSE_TOPHOG,
         SESSION_REPLAY_OUTPUT_TOPHOG_PRODUCER: DEFAULT_PRODUCER,
         SESSION_REPLAY_OUTPUT_LOG_ENTRIES_PRODUCER: DEFAULT_PRODUCER,
+        SESSION_REPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: DEFAULT_PRODUCER,
     }
 }

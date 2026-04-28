@@ -3,6 +3,7 @@ import {
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
+    REPLAY_EVENTS_OUTPUT,
     TOPHOG_OUTPUT,
 } from '../../ingestion/common/outputs'
 import { IngestionOutputsBuilder } from '../../ingestion/outputs/ingestion-outputs-builder'
@@ -29,5 +30,9 @@ export function createOutputsRegistry() {
         .register(LOG_ENTRIES_OUTPUT, {
             topicKey: 'SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC',
             producerKey: 'SESSION_REPLAY_OUTPUT_LOG_ENTRIES_PRODUCER',
+        })
+        .register(REPLAY_EVENTS_OUTPUT, {
+            topicKey: 'SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC',
+            producerKey: 'SESSION_REPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER',
         })
 }
