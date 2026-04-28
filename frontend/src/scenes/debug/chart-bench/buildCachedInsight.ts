@@ -16,7 +16,7 @@ import type { BenchData } from './generateBenchData'
  *
  * We deliberately don't try to match real PostHog data — the goal is to feed
  * `trendsDataLogic` enough structure that the adapters (`ActionsLineGraph`,
- * `TrendsLineChartD3`) render without touching the backend.
+ * `TrendsLineChart`) render without touching the backend.
  */
 export interface BuiltInsight {
     query: InsightVizNode

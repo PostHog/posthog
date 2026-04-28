@@ -23,7 +23,7 @@ import { RealAdaptersCell } from './RealAdaptersCell'
  *
  *   - `hog`            — raw `lib/hog-charts` LineChart, synthetic data
  *   - `chartjs`        — raw chart.js Chart, synthetic data
- *   - `adapter-hog`    — real `TrendsLineChartD3` adapter fed through the
+ *   - `adapter-hog`    — real `TrendsLineChart` adapter fed through the
  *                        full insight kea logic tree (insight + data +
  *                        insightViz + trendsData) with cached results
  *   - `adapter-chartjs`— real `ActionsLineGraph` adapter (same logic tree,
@@ -63,7 +63,7 @@ declare global {
 const CHART_OPTIONS: { label: string; value: ChartKind }[] = [
     { label: 'hog-charts (raw)', value: 'hog' },
     { label: 'chart.js (raw)', value: 'chartjs' },
-    { label: 'hog-charts (TrendsLineChartD3 adapter)', value: 'adapter-hog' },
+    { label: 'hog-charts (TrendsLineChart adapter)', value: 'adapter-hog' },
     { label: 'chart.js (ActionsLineGraph adapter)', value: 'adapter-chartjs' },
 ]
 
@@ -285,7 +285,7 @@ export function ChartBenchScene(): JSX.Element {
                     onChange={setShowGrid}
                     // The grid toggle only affects the raw cells — adapter
                     // modes always draw a grid (hog-charts sets `showGrid:true`
-                    // inside TrendsLineChartD3, chart.js draws grid by default).
+                    // inside TrendsLineChart, chart.js draws grid by default).
                     disabledReason={
                         chart.startsWith('adapter-')
                             ? 'Grid is baked into the adapter at this size — raw cells only'

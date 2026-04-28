@@ -5,7 +5,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
-import { TrendsLineChartD3 } from 'scenes/trends/viz/TrendsLineChartD3'
+import { TrendsLineChart } from 'scenes/trends/viz/TrendsLineChart'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -27,7 +27,7 @@ interface RealAdaptersCellProps {
 /**
  * Mounts the real insight kea logic tree with synthetic cached data and
  * renders either the chart.js-based `ActionsLineGraph` or the hog-charts-based
- * `TrendsLineChartD3`. No HTTP — `dataNodeLogic` picks up `cachedResults` in
+ * `TrendsLineChart`. No HTTP — `dataNodeLogic` picks up `cachedResults` in
  * its `afterMount`/`propsChanged` hooks and calls `setResponse` directly,
  * so the insight pipeline sees our data as if it came from the API.
  *
@@ -67,7 +67,7 @@ export function RealAdaptersCell({ kind, data, runKey, fillArea }: RealAdaptersC
                 <BindLogic logic={insightDataLogic} props={insightProps}>
                     <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                         <BindLogic logic={insightVizDataLogic} props={insightProps}>
-                            {kind === 'adapter-hog' ? <TrendsLineChartD3 /> : <ActionsLineGraph />}
+                            {kind === 'adapter-hog' ? <TrendsLineChart /> : <ActionsLineGraph />}
                         </BindLogic>
                     </BindLogic>
                 </BindLogic>
