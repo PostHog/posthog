@@ -5,9 +5,7 @@ import structlog
 from posthog.email import EmailMessage
 from posthog.models.subscription import Subscription
 
-# Reason strings flow into the disabled-subscription email body, so they are
-# effectively a public contract — keep them as module-level constants so call
-# sites and tests stay in sync.
+# User-visible reason embedded in the disabled-subscription email body.
 SLACK_INTEGRATION_DISCONNECTED_REASON = "Slack integration disconnected"
 
 logger = structlog.get_logger(__name__)
@@ -27,7 +25,10 @@ def disable_invalid_subscription(subscription: Subscription, reason: str) -> Non
         reason=reason,
     )
     Subscription.objects.filter(pk=subscription.pk).update(enabled=False)
-    subscription.refresh_from_db()
+    # Mirror the UPDATE in memory so callers see the new state without a fresh
+    # SELECT — refresh_from_db() would also drop the eagerly-loaded created_by
+    # relation (loaded via select_related at the activity site).
+    subscription.enabled = False
 
     if subscription.created_by and subscription.created_by.email:
         send_notifications_for_disabled_subscription(subscription, reason, [subscription.created_by.email])
@@ -40,11 +41,12 @@ def send_notifications_for_disabled_subscription(subscription: Subscription, rea
         recipient_count=len(targets),
     )
 
-    if subscription.title:
-        subject = f'PostHog subscription "{subscription.title}" has been disabled'
-    else:
-        subject = "Your PostHog subscription has been disabled"
-    title = subscription.title or "your subscription"
+    display_name = subscription.title or "your subscription"
+    subject = (
+        f'PostHog subscription "{subscription.title}" has been disabled'
+        if subscription.title
+        else "Your PostHog subscription has been disabled"
+    )
     campaign_key = f"subscription-disabled-notification-{subscription.id}-{timezone.now().timestamp()}"
 
     message = EmailMessage(
@@ -53,7 +55,7 @@ def send_notifications_for_disabled_subscription(subscription: Subscription, rea
         template_name="subscription_disabled",
         template_context={
             "subscription_url": subscription.url,
-            "subscription_title": title,
+            "subscription_title": display_name,
             "reason": reason,
         },
     )
