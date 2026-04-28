@@ -42,6 +42,17 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                             Search over the last 30 days
                         </LemonButton>
                     </li>
+                    <li>
+                        <LemonButton
+                            type="secondary"
+                            fullWidth={true}
+                            size="xsmall"
+                            data-attr="expand-replay-listing-to-all-time"
+                            onClick={() => setFilters({ date_from: 'all' })}
+                        >
+                            Search over all time
+                        </LemonButton>
+                    </li>
                     <LemonDivider dashed={true} />
                     <li>
                         <Link to="https://posthog.com/docs/session-replay/data-retention" target="_blank">
