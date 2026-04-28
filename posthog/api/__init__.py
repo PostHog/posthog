@@ -116,7 +116,6 @@ from . import (
     advanced_activity_logs,
     alert,
     annotation,
-    app_metrics,
     async_migration,
     authentication,
     cli_auth,
@@ -432,22 +431,6 @@ register_grandfathered_environment_nested_viewset(
     user_product_list.UserProductListViewSet,
     "environment_user_product_list",
     ["team_id"],
-)
-
-environment_app_metrics_router, legacy_project_app_metrics_router = register_grandfathered_environment_nested_viewset(
-    r"app_metrics", app_metrics.AppMetricsViewSet, "environment_app_metrics", ["team_id"]
-)
-environment_app_metrics_router.register(
-    r"historical_exports",
-    app_metrics.HistoricalExportsAppMetricsViewSet,
-    "environment_app_metrics_historical_exports",
-    ["team_id", "plugin_config_id"],
-)
-legacy_project_app_metrics_router.register(
-    r"historical_exports",
-    app_metrics.HistoricalExportsAppMetricsViewSet,
-    "project_app_metrics_historical_exports",
-    ["team_id", "plugin_config_id"],
 )
 
 environment_batch_exports_router, legacy_project_batch_exports_router = (

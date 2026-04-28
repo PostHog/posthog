@@ -107,6 +107,14 @@ If the required events or properties do not exist, inform the user immediately i
 
 For complex investigations, combine multiple query types. For example, use `query-trends` to identify when a metric changed, then `query-funnel` to check if conversion was affected, then `query-trends` with breakdowns to isolate the segment.
 
+### Session replay enrichment
+
+Session recordings provide visual context for errors and user behavior. When investigating issues, look for associated recordings:
+
+- If you have a **session recording ID** (from `$session_id` in event properties, or from other tool results), call `session-recording-get` with that ID. If the recording exists, present it to the user. A 404 means the session was not recorded.
+- If you have a **person or distinct_id** but no session ID, use `query-session-recordings-list` to find recordings filtered by person UUID or properties.
+- For **error tracking issues**, the issue itself does not include session IDs. To find related recordings, use `query-session-recordings-list` with an event filter for `$exception` matching the error. If a specific person is involved, also filter by `person_uuid` to see all their sessions. If no person context is available, filter by `$exception` alone to find all sessions with that error. Use `date_from` to match the issue's time range — e.g., if the error was first seen 10 days ago, set `date_from` accordingly so recordings from that period are included.
+
 ### URL patterns
 
 All PostHog app URLs must use relative paths without a domain (no us.posthog.com, eu.posthog.com, app.posthog.com), and omit the `/project/:id/` prefix. Never include `/-/` in URLs.

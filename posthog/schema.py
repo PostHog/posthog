@@ -278,14 +278,15 @@ class OrderDirection(StrEnum):
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
-    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    COHORT = "cohort"
     REVENUE_ANALYTICS = "revenue_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
 class AssistantEventType(StrEnum):
@@ -3371,15 +3372,16 @@ class MultiQuestionFormQuestionType(StrEnum):
 
 
 class MultipleBreakdownType(StrEnum):
-    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    COHORT = "cohort"
     REVENUE_ANALYTICS = "revenue_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
 class NativeMarketingSource(StrEnum):
@@ -8224,6 +8226,15 @@ class SourceFieldInputConfig(BaseModel):
     name: str
     placeholder: str
     required: bool
+    secret: bool = Field(
+        ...,
+        description=(
+            "Marks this field as containing sensitive data. The value is stripped from"
+            " API responses regardless of the rendering `type` (so a multi-line PEM"
+            " blob can use `textarea` and still be redacted). Required: source authors"
+            " must explicitly classify every field."
+        ),
+    )
     type: SourceFieldInputConfigType
 
 
@@ -9625,6 +9636,14 @@ class AssistantRecordingsQuery(BaseModel):
             " activity_score).\n- `cohort`: Filter recordings to persons belonging to a"
             ' cohort. Example: `{ type: "cohort", key: "id", value: 42, operator:'
             ' "in" }`.'
+        ),
+    )
+    session_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "Filter to specific session recording IDs. Use this when you have known"
+            " session IDs (e.g., from $session_id on events) to fetch multiple"
+            " recordings in a single call."
         ),
     )
 

@@ -2,7 +2,7 @@ import type { Series } from 'lib/hog-charts'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
 
-import { computeSeriesNonZeroMax, goalLinesToReferenceLines } from './goalLinesAdapter'
+import { alertThresholdsToReferenceLines, computeSeriesNonZeroMax, goalLinesToReferenceLines } from './goalLinesAdapter'
 
 const makeSeries = (data: number[], overrides: Partial<Series> = {}): Series => ({
     key: 'a',
@@ -22,7 +22,7 @@ describe('goalLinesAdapter', () => {
         it('ignores hidden series', () => {
             const result = computeSeriesNonZeroMax([
                 makeSeries([1, 2, 3]),
-                makeSeries([1000], { key: 'b', hidden: true }),
+                makeSeries([1000], { key: 'b', visibility: { excluded: true } }),
             ])
             expect(result).toBe(3)
         })
@@ -84,6 +84,39 @@ describe('goalLinesAdapter', () => {
             ]
             const result = goalLinesToReferenceLines(goals, series)
             expect(result).toHaveLength(2)
+        })
+    })
+
+    describe('alertThresholdsToReferenceLines', () => {
+        it('returns an empty array for nullish/empty input', () => {
+            expect(alertThresholdsToReferenceLines(null)).toEqual([])
+            expect(alertThresholdsToReferenceLines(undefined)).toEqual([])
+            expect(alertThresholdsToReferenceLines([])).toEqual([])
+        })
+
+        it('maps each threshold to a ReferenceLine with variant "alert"', () => {
+            const lines: SchemaGoalLine[] = [
+                { label: 'Upper', value: 100 },
+                { label: 'Lower', value: 10 },
+            ]
+            const result = alertThresholdsToReferenceLines(lines)
+            expect(result).toHaveLength(2)
+            expect(result[0]).toMatchObject({
+                value: 100,
+                orientation: 'horizontal',
+                variant: 'alert',
+                label: 'Upper',
+                labelPosition: 'start',
+            })
+            expect(result[1]).toMatchObject({ value: 10, variant: 'alert' })
+        })
+
+        it('does not apply the displayIfCrossed filter (always renders thresholds)', () => {
+            const lines: SchemaGoalLine[] = [
+                { label: 'Crossed', value: 1, displayIfCrossed: false },
+                { label: 'Above', value: 9999, displayIfCrossed: false },
+            ]
+            expect(alertThresholdsToReferenceLines(lines).map((r) => r.label)).toEqual(['Crossed', 'Above'])
         })
     })
 })
