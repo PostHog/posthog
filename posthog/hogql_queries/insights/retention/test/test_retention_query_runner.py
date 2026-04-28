@@ -2888,6 +2888,99 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    def test_retention_first_time_ever_event_breakdown_value_changes_per_actor(self):
+        # Regression for inflated user counts when an event-property breakdown's value changes
+        # over an actor's lifetime (feature flag assignments, plan tier, version, etc.).
+        # Each actor must appear in exactly one breakdown bucket and be counted once across
+        # the whole insight, mirroring the unbreakdown total.
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # Person1: first WATCH on day 1 with no flag, then later events with control / test.
+        # The cohorting event (first-ever WATCH) carries an empty flag value.
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(1), {}),
+                ("person1", _date(2), {"flag": "control"}),
+                ("person1", _date(3), {"flag": "test"}),
+                ("person1", _date(5), {"flag": "test"}),
+            ],
+            "WATCH",
+        )
+
+        # Person2: first WATCH on day 2 with flag = test, returns day 4 also tagged test.
+        _create_events(
+            self.team,
+            [
+                ("person2", _date(2), {"flag": "test"}),
+                ("person2", _date(4), {"flag": "test"}),
+            ],
+            "WATCH",
+        )
+
+        flush_persons_and_events()
+
+        common_query: dict[str, Any] = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+            "retentionFilter": {
+                "period": "Day",
+                "totalIntervals": 7,
+                "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                "targetEntity": {"id": "WATCH", "name": "WATCH", "type": TREND_FILTER_TYPE_EVENTS},
+                "returningEntity": {"id": "WATCH", "name": "WATCH", "type": "events"},
+            },
+        }
+
+        unbreakdown_result = self.run_query(query=common_query)
+        unbreakdown_totals = [row["values"][0]["count"] for row in unbreakdown_result]
+        # Day 1: person1 cohorted; Day 2: person2 cohorted.
+        self.assertEqual(unbreakdown_totals, [0, 1, 1, 0, 0, 0, 0, 0])
+        self.assertEqual(sum(unbreakdown_totals), 2)
+
+        breakdown_query = {**common_query, "breakdownFilter": {"breakdown": "flag", "breakdown_type": "event"}}
+        breakdown_result = self.run_query(query=breakdown_query)
+
+        breakdown_values = {row.get("breakdown_value") for row in breakdown_result}
+        # Each actor's breakdown_value is pinned to their cohorting (first-ever) event:
+        # person1 -> "" (empty flag), person2 -> "test". "control" should not appear.
+        self.assertEqual(breakdown_values, {"", "test"})
+
+        empty_results = [row for row in breakdown_result if row.get("breakdown_value") == ""]
+        test_results = [row for row in breakdown_result if row.get("breakdown_value") == "test"]
+
+        self.assertEqual(
+            pluck(empty_results, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0
+                [1, 1, 1, 0, 1, 0, 0],  # Day 1: person1 (cohorted with empty flag), returns day 2,3,5
+                [0, 0, 0, 0, 0, 0, 0],  # Day 2
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7
+            ],
+        )
+        self.assertEqual(
+            pluck(test_results, "values", "count"),
+            [
+                [0, 0, 0, 0, 0, 0, 0],  # Day 0
+                [0, 0, 0, 0, 0, 0, 0],  # Day 1
+                [1, 0, 1, 0, 0, 0, 0],  # Day 2: person2 (cohorted with test), returns day 4
+                [0, 0, 0, 0, 0, 0, 0],  # Day 3
+                [0, 0, 0, 0, 0, 0, 0],  # Day 4
+                [0, 0, 0, 0, 0, 0, 0],  # Day 5
+                [0, 0, 0, 0, 0, 0, 0],  # Day 6
+                [0, 0, 0, 0, 0, 0, 0],  # Day 7
+            ],
+        )
+
+        # Sum of cohort-day counts across all breakdown buckets must equal the unbreakdown total —
+        # i.e. no actor is double-counted across breakdown values.
+        breakdown_cohort_total = sum(row["values"][0]["count"] for row in breakdown_result)
+        self.assertEqual(breakdown_cohort_total, sum(unbreakdown_totals))
+
     def test_retention_first_time_ever_with_cohort_breakdown(self):
         """Test first time ever retention with cohort breakdown"""
         # Create cohorts

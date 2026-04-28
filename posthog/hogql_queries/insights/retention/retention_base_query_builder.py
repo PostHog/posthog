@@ -113,24 +113,47 @@ class RetentionBaseQueryBuilder(ABC):
         if not self.query.breakdownFilter:
             return
 
-        breakdown_expr = None
+        property_name: str | None = None
+        breakdown_type: str | None = None
+        group_type_index: int | None = None
 
         if self.query.breakdownFilter.breakdowns:
             # supporting only single breakdowns for now
             breakdown = self.query.breakdownFilter.breakdowns[0]
-            breakdown_expr = breakdown_extract_expr(
-                str(breakdown.property), cast(str, breakdown.type), breakdown.group_type_index
-            )
+            property_name = str(breakdown.property)
+            breakdown_type = cast(str, breakdown.type)
+            group_type_index = breakdown.group_type_index
         elif self.query.breakdownFilter.breakdown is not None:
-            breakdown_expr = breakdown_extract_expr(
-                cast(str, self.query.breakdownFilter.breakdown),
-                cast(str, self.query.breakdownFilter.breakdown_type),
-                self.query.breakdownFilter.breakdown_group_type_index,
-            )
+            property_name = cast(str, self.query.breakdownFilter.breakdown)
+            breakdown_type = cast(str, self.query.breakdownFilter.breakdown_type)
+            group_type_index = self.query.breakdownFilter.breakdown_group_type_index
 
-        if breakdown_expr:
-            base_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_expr))
-            cast(list[ast.Expr], base_query.group_by).append(ast.Field(chain=["breakdown_value"]))
+        if property_name is None or breakdown_type is None:
+            return
+
+        breakdown_value_expr = self._actor_level_breakdown_expr(property_name, breakdown_type, group_type_index)
+        # Resolve breakdown_value at the actor level — i.e. as an aggregate over the same
+        # GROUP BY actor_id used for the rest of the inner query. Adding the per-row breakdown
+        # expression to GROUP BY (the original behaviour) split a single actor across multiple
+        # (actor_id, breakdown_value) groups whenever the property's value changed across that
+        # actor's events (feature flag assignments, plan tier, app version, etc.), inflating the
+        # total user count.
+        base_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_value_expr))
+
+    def _actor_level_breakdown_expr(
+        self, property_name: str, breakdown_type: str, group_type_index: int | None
+    ) -> ast.Expr:
+        if breakdown_type == "cohort":
+            # Cohort breakdowns are applied as a WHERE filter (see _base_query_union_for_cohort_breakdown
+            # in the runner) — the value here is the cohort id, which is constant per group.
+            return ast.Constant(value=str(property_name))
+
+        per_row_expr = breakdown_extract_expr(property_name, breakdown_type, group_type_index)
+        # Pin the breakdown to the value at the actor's earliest event in scope. For
+        # first-ever / first-time retention with the same start and return entity (the most
+        # common configuration), this is the cohorting event itself; for recurring retention
+        # it is deterministic and stable so an actor never appears in more than one bucket.
+        return ast.Call(name="argMin", args=[per_row_expr, ast.Field(chain=["events", "timestamp"])])
 
     def events_timestamp_filter(self, field: ast.Expr | None = None) -> ast.Expr:
         return self.runner.events_timestamp_filter(field=field)
