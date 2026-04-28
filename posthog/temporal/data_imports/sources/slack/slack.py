@@ -286,6 +286,8 @@ def _channel_messages_generator(
 
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    if "event" not in table.column_names:
+        return table_from_py_list([])
     event_col = table.column("event").to_pylist()
 
     # Deduplicate by (ts, channel) — Slack retries delivery on timeout, so the same
