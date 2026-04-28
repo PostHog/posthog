@@ -10,12 +10,24 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
+import { performQuery } from '~/queries/query'
+import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
+import {
+    CyclotronJobInvocationGlobals,
+    FilterLogicalOperator,
+    PreflightStatus,
+    PropertyDefinition,
+    PropertyDefinitionType,
+    PropertyFilterType,
+    Realm,
+} from '~/types'
 
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
 import type { EmailTemplate } from './types'
+import { renderWysiwygToHtml } from './wysiwygRender'
 
 export type { EmailTemplate }
 
@@ -89,6 +101,25 @@ export interface EditorRef extends _EditorRef {}
 
 type JSONTemplate = Parameters<Editor['loadDesign']>[0]
 
+export type EmailContentTab = 'visual' | 'plaintext' | 'wysiwyg'
+
+export type WysiwygRecentEvent = {
+    event: string
+    timestamp: string
+    properties: Record<string, any>
+    person?: { id: string; properties: Record<string, any>; name: string }
+}
+
+const DEFAULT_WYSIWYG_PREVIEW_WIDTH: number = 480
+
+const DEFAULT_WYSIWYG_SOURCE = `<!-- Edit raw HTML or react.email JSX (e.g. <Html>, <Container>, <Text>). -->
+<!-- Liquid tokens like {{ event.properties.foo }} render with the event you pick above. -->
+<div style="font-family: sans-serif; padding: 24px;">
+  <h1>Hi {{ person.properties.email }} 👋</h1>
+  <p>Thanks for triggering <strong>{{ event.event }}</strong>.</p>
+</div>
+`
+
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
@@ -131,9 +162,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         closeWithConfirmation: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
-        setActiveContentTab: (tab: 'visual' | 'plaintext') => ({ tab }),
+        setActiveContentTab: (tab: EmailContentTab) => ({ tab }),
         revealAdvancedField: (key: EmailMetaFieldKey) => ({ key }),
         hideAdvancedField: (key: EmailMetaFieldKey) => ({ key }),
+        setWysiwygPreviewHtml: (html: string) => ({ html }),
+        setWysiwygPreviewError: (error: string | null) => ({ error }),
+        setWysiwygSelectedEvent: (eventName: string) => ({ eventName }),
+        setWysiwygPreviewWidth: (width: number) => ({ width }),
+        setWysiwygSampleGlobals: (globals: CyclotronJobInvocationGlobals | null) => ({ globals }),
     }),
     reducers({
         emailEditorRef: [
@@ -185,18 +221,52 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             },
         ],
         activeContentTab: [
-            'visual' as 'visual' | 'plaintext',
+            'visual' as EmailContentTab,
             {
                 setActiveContentTab: (_, { tab }) => tab,
                 applyTemplate: (_, { template }) => {
+                    const hasWysiwyg = !!template.content.email.wysiwygSource
+                    if (hasWysiwyg) {
+                        return 'wysiwyg'
+                    }
                     const hasHtml = !!template.content.email.html
                     return hasHtml ? 'visual' : 'plaintext'
                 },
             },
         ],
+        wysiwygPreviewHtml: [
+            '' as string,
+            {
+                setWysiwygPreviewHtml: (_, { html }) => html,
+            },
+        ],
+        wysiwygPreviewError: [
+            null as string | null,
+            {
+                setWysiwygPreviewError: (_, { error }) => error,
+            },
+        ],
+        wysiwygSelectedEvent: [
+            '' as string,
+            {
+                setWysiwygSelectedEvent: (_, { eventName }) => eventName,
+            },
+        ],
+        wysiwygPreviewWidth: [
+            DEFAULT_WYSIWYG_PREVIEW_WIDTH,
+            {
+                setWysiwygPreviewWidth: (_, { width }) => Math.max(200, width),
+            },
+        ],
+        wysiwygSampleGlobals: [
+            null as CyclotronJobInvocationGlobals | null,
+            {
+                setWysiwygSampleGlobals: (_, { globals }) => globals,
+            },
+        ],
     }),
 
-    loaders(() => ({
+    loaders(({ actions, values }) => ({
         templates: [
             [] as MessageTemplate[],
             {
@@ -215,6 +285,73 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         limit: 1000, // Get a large number of person properties
                     })
                     return response.results
+                },
+            },
+        ],
+        wysiwygRecentEvents: [
+            [] as WysiwygRecentEvent[],
+            {
+                loadWysiwygRecentEvents: async (payload?: { eventName?: string }) => {
+                    const eventName = payload?.eventName
+                    const query: EventsQuery = {
+                        kind: NodeKind.EventsQuery,
+                        select: ['*', 'person'],
+                        after: '-7d',
+                        limit: 10,
+                        orderBy: ['timestamp DESC'],
+                        modifiers: {
+                            personsOnEventsMode: 'person_id_no_override_properties_on_events',
+                        },
+                    }
+                    if (eventName) {
+                        query.fixedProperties = [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: PropertyFilterType.HogQL,
+                                        key: hogql`event = ${eventName}`,
+                                    },
+                                ],
+                            },
+                        ]
+                    }
+
+                    const response = await performQuery(query)
+                    const results = (response?.results ?? []) as Array<[any, any]>
+                    const matched = results.map(([event, person]) => ({
+                        event: event.event,
+                        timestamp: event.timestamp,
+                        properties: event.properties || {},
+                        person: person
+                            ? {
+                                  id: person.id,
+                                  properties: person.properties,
+                                  name: person.name || 'Unknown person',
+                              }
+                            : undefined,
+                    }))
+
+                    if (matched.length > 0 && !values.wysiwygSampleGlobals) {
+                        const first = matched[0]
+                        actions.setWysiwygSampleGlobals({
+                            event: {
+                                uuid: '',
+                                distinct_id: '',
+                                timestamp: first.timestamp,
+                                elements_chain: '',
+                                url: '',
+                                event: first.event,
+                                properties: first.properties,
+                            },
+                            person: first.person,
+                            groups: {},
+                            project: { id: 0, name: '', url: '' },
+                            source: { name: '', url: '' },
+                        } as CyclotronJobInvocationGlobals)
+                    }
+
+                    return matched
                 },
             },
         ],
@@ -290,6 +427,25 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     return
                 }
 
+                if (values.activeContentTab === 'wysiwyg') {
+                    const source = formValues.wysiwygSource ?? ''
+                    try {
+                        const renderedHtml = await renderWysiwygToHtml(source)
+                        const finalValues: EmailTemplate = {
+                            ...formValues,
+                            html: ['native_email', 'native_email_template'].includes(props.type)
+                                ? renderedHtml
+                                : escapeHTMLStringCurlies(renderedHtml),
+                            wysiwygSource: source,
+                        }
+                        props.onChange(finalValues)
+                        actions.setIsModalOpen(false)
+                    } catch (err: any) {
+                        lemonToast.error(`Failed to render WYSIWYG email: ${err?.message ?? err}`)
+                    }
+                    return
+                }
+
                 const editor = values.emailEditorRef?.editor
                 if (!editor || !values.isEmailEditorReady) {
                     return
@@ -324,6 +480,12 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         setEmailTemplateValue: ({ name, value }) => {
+            const key = Array.isArray(name) ? name[0] : name
+
+            if (key === 'wysiwygSource') {
+                void renderWysiwygPreview(actions, values, value as string)
+            }
+
             if (values.isModalOpen) {
                 // When open we only update on save
                 return
@@ -332,8 +494,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (name === 'html') {
                 return
             }
-
-            const key = Array.isArray(name) ? name[0] : name
 
             props.onChange({
                 ...props.value,
@@ -350,9 +510,41 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
         setIsModalOpen: ({ isModalOpen }) => {
             if (isModalOpen && props.value) {
-                const hasHtml = !!props.value.html
-                actions.setActiveContentTab(hasHtml ? 'visual' : 'plaintext')
+                if (props.value.wysiwygSource) {
+                    actions.setActiveContentTab('wysiwyg')
+                } else {
+                    const hasHtml = !!props.value.html
+                    actions.setActiveContentTab(hasHtml ? 'visual' : 'plaintext')
+                }
             }
+        },
+
+        setActiveContentTab: ({ tab }) => {
+            if (tab === 'wysiwyg') {
+                if (values.wysiwygRecentEvents.length === 0) {
+                    actions.loadWysiwygRecentEvents({})
+                }
+                if (!values.emailTemplate?.wysiwygSource) {
+                    actions.setEmailTemplateValue('wysiwygSource', DEFAULT_WYSIWYG_SOURCE)
+                } else {
+                    void renderWysiwygPreview(actions, values)
+                }
+            }
+        },
+
+        setWysiwygSelectedEvent: ({ eventName }) => {
+            if (eventName) {
+                actions.loadWysiwygRecentEvents({ eventName })
+            }
+        },
+
+        loadWysiwygRecentEventsSuccess: () => {
+            // Once events arrive, re-render the preview using the freshly-set globals.
+            actions.setEmailTemplateValue('wysiwygSource', values.emailTemplate?.wysiwygSource ?? '')
+        },
+
+        setWysiwygSampleGlobals: () => {
+            void renderWysiwygPreview(actions, values)
         },
 
         applyTemplate: ({ template }) => {
@@ -396,6 +588,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     emailContent = {
                         ...currentValues,
                         html: '',
+                    }
+                } else if (values.activeContentTab === 'wysiwyg') {
+                    const source = currentValues?.wysiwygSource ?? ''
+                    const renderedHtml = await renderWysiwygToHtml(source)
+                    emailContent = {
+                        ...currentValues,
+                        html: ['native_email', 'native_email_template'].includes(props.type)
+                            ? renderedHtml
+                            : escapeHTMLStringCurlies(renderedHtml),
+                        wysiwygSource: source,
                     }
                 } else {
                     const editor = values.emailEditorRef?.editor
@@ -447,16 +649,44 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         }
     }),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values }) => {
         if (props.value) {
             actions.resetEmailTemplate(props.value)
             autoRevealAdvancedFields(actions, props)
+            if (props.value.wysiwygSource) {
+                actions.setActiveContentTab('wysiwyg')
+            }
         }
 
         actions.loadTemplates()
         actions.loadPersonPropertyDefinitions()
+
+        if (values.activeContentTab === 'wysiwyg') {
+            actions.loadWysiwygRecentEvents({})
+        }
     }),
 ])
+
+async function renderWysiwygPreview(
+    actions: Record<string, any>,
+    values: Record<string, any>,
+    sourceOverride?: string
+): Promise<void> {
+    const source = sourceOverride ?? values.emailTemplate?.wysiwygSource ?? ''
+    if (!source) {
+        actions.setWysiwygPreviewHtml('')
+        actions.setWysiwygPreviewError(null)
+        return
+    }
+    try {
+        const globals = values.wysiwygSampleGlobals ? { ...values.wysiwygSampleGlobals } : {}
+        const html = await renderWysiwygToHtml(source, globals)
+        actions.setWysiwygPreviewHtml(html)
+        actions.setWysiwygPreviewError(null)
+    } catch (err: any) {
+        actions.setWysiwygPreviewError(err?.message ?? String(err))
+    }
+}
 
 function escapeHTMLStringCurlies(htmlString: string): string {
     const parser = new DOMParser()

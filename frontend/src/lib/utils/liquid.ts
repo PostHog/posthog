@@ -30,4 +30,9 @@ export class LiquidRenderer {
 
         return this.liquid.parse(decodedTemplate)
     }
+
+    public static async render(template: string, globals: Record<string, any> = {}): Promise<string> {
+        const parsed = this.parse(template)
+        return await this.liquid.render(parsed, globals)
+    }
 }

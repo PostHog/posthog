@@ -14,13 +14,16 @@ import {
     IconPlus,
     IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
@@ -29,7 +32,12 @@ import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
-import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
+import {
+    EMAIL_TYPE_SUPPORTED_FIELDS,
+    EmailTemplaterLogicProps,
+    WysiwygRecentEvent,
+    emailTemplaterLogic,
+} from './emailTemplaterLogic'
 
 export type EmailEditorMode = 'full' | 'preview'
 
@@ -97,6 +105,188 @@ function PlainTextEditor(): JSX.Element {
     )
 }
 
+function WysiwygPreviewPane(): JSX.Element {
+    const { wysiwygPreviewHtml, wysiwygPreviewError, wysiwygPreviewWidth } = useValues(emailTemplaterLogic)
+    const { setWysiwygPreviewWidth } = useActions(emailTemplaterLogic)
+
+    const containerRef = useRef<HTMLDivElement | null>(null)
+
+    const onMouseDown = useCallback(
+        (e: React.MouseEvent) => {
+            e.preventDefault()
+            const startX = e.clientX
+            const startWidth = wysiwygPreviewWidth
+
+            const onMove = (ev: MouseEvent): void => {
+                const delta = startX - ev.clientX
+                setWysiwygPreviewWidth(startWidth + delta)
+            }
+
+            const onUp = (): void => {
+                document.removeEventListener('mousemove', onMove)
+                document.removeEventListener('mouseup', onUp)
+                document.body.classList.remove('is-resizing')
+            }
+
+            document.addEventListener('mousemove', onMove)
+            document.addEventListener('mouseup', onUp)
+            document.body.classList.add('is-resizing')
+        },
+        [setWysiwygPreviewWidth, wysiwygPreviewWidth]
+    )
+
+    return (
+        <div
+            ref={containerRef}
+            className="relative flex flex-col border-l shrink-0"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ width: wysiwygPreviewWidth }}
+        >
+            <div
+                className="absolute top-0 bottom-0 left-0 w-2 -ml-1 cursor-col-resize z-10 hover:bg-accent/40"
+                onMouseDown={onMouseDown}
+                title="Drag to resize preview"
+            />
+            <div className="px-2 py-1 border-b text-xs text-muted shrink-0">Rendered preview</div>
+            {wysiwygPreviewError ? (
+                <div className="p-2">
+                    <LemonBanner type="error">{wysiwygPreviewError}</LemonBanner>
+                </div>
+            ) : (
+                <iframe
+                    srcDoc={
+                        wysiwygPreviewHtml ||
+                        '<p style="color:#999;padding:12px;font-family:sans-serif">Preview will appear here</p>'
+                    }
+                    sandbox=""
+                    title="WYSIWYG email preview"
+                    className="flex-1 bg-white"
+                />
+            )}
+        </div>
+    )
+}
+
+function WysiwygEventPicker(): JSX.Element {
+    const { wysiwygSampleGlobals, wysiwygRecentEvents, wysiwygRecentEventsLoading } = useValues(emailTemplaterLogic)
+    const { setWysiwygSelectedEvent, setWysiwygSampleGlobals, loadWysiwygRecentEvents } =
+        useActions(emailTemplaterLogic)
+    const [eventPickerOpen, setEventPickerOpen] = useState(false)
+
+    return (
+        <div className="flex gap-2 items-center px-2 py-1 border-b shrink-0">
+            <span className="text-xs text-muted">Preview with event</span>
+            <Popover
+                overlay={
+                    <TaxonomicFilter
+                        groupType={TaxonomicFilterGroupType.Events}
+                        value={wysiwygSampleGlobals?.event?.event || ''}
+                        onChange={(_, value) => {
+                            if (typeof value === 'string') {
+                                setWysiwygSelectedEvent(value)
+                                setEventPickerOpen(false)
+                            }
+                        }}
+                        allowNonCapturedEvents
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.CustomEvents, TaxonomicFilterGroupType.Events]}
+                    />
+                }
+                visible={eventPickerOpen}
+                onClickOutside={() => setEventPickerOpen(false)}
+                placement="bottom-start"
+            >
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    onClick={() => setEventPickerOpen(!eventPickerOpen)}
+                    loading={wysiwygRecentEventsLoading}
+                >
+                    {wysiwygSampleGlobals?.event?.event || 'Select event'}
+                </LemonButton>
+            </Popover>
+            {wysiwygRecentEvents.length > 0 && (
+                <LemonSelect
+                    size="xsmall"
+                    placeholder="Recent matches"
+                    options={wysiwygRecentEvents.slice(0, 10).map((evt: WysiwygRecentEvent, idx: number) => ({
+                        label: `${evt.event} • ${new Date(evt.timestamp).toLocaleString()}`,
+                        value: idx,
+                    }))}
+                    value={wysiwygRecentEvents.findIndex(
+                        (evt: WysiwygRecentEvent) => evt.timestamp === wysiwygSampleGlobals?.event?.timestamp
+                    )}
+                    onChange={(idx) => {
+                        if (idx === null || idx === undefined) {
+                            return
+                        }
+                        const evt = wysiwygRecentEvents[idx]
+                        if (!evt) {
+                            return
+                        }
+                        setWysiwygSampleGlobals({
+                            event: {
+                                uuid: '',
+                                distinct_id: '',
+                                timestamp: evt.timestamp,
+                                elements_chain: '',
+                                url: '',
+                                event: evt.event,
+                                properties: evt.properties,
+                            },
+                            person: evt.person,
+                            groups: {},
+                            project: { id: 0, name: '', url: '' },
+                            source: { name: '', url: '' },
+                        } as any)
+                    }}
+                />
+            )}
+            <LemonButton
+                type="tertiary"
+                size="xsmall"
+                onClick={() => loadWysiwygRecentEvents({ eventName: wysiwygSampleGlobals?.event?.event })}
+            >
+                Refresh
+            </LemonButton>
+        </div>
+    )
+}
+
+function WysiwygEditor(): JSX.Element {
+    const { logicProps } = useValues(emailTemplaterLogic)
+
+    return (
+        <LemonField name="wysiwygSource" className="flex flex-col flex-1 min-h-0">
+            {({ value, onChange }: ChildFunctionProps) => {
+                const sourceValue = value || ''
+                return (
+                    <div className="flex flex-1 min-h-0">
+                        <div className="relative flex flex-col flex-1 min-w-0">
+                            <WysiwygEventPicker />
+                            <CodeEditorResizeable
+                                className="flex-1"
+                                language="html"
+                                value={sourceValue}
+                                onChange={(v?: string) => onChange(v ?? '')}
+                                globals={logicProps.variables}
+                                options={{
+                                    wordWrap: 'on',
+                                    lineNumbers: 'off',
+                                    minimap: { enabled: false },
+                                }}
+                                minHeight="100%"
+                                maxHeight="100%"
+                                allowManualResize={false}
+                            />
+                        </div>
+                        <WysiwygPreviewPane />
+                    </div>
+                )
+            }}
+        </LemonField>
+    )
+}
+
 function DestinationEmailTemplaterForm({
     mode,
     fieldsHidden,
@@ -151,9 +341,10 @@ function DestinationEmailTemplaterForm({
                     <>
                         <LemonTabs
                             activeKey={activeContentTab}
-                            onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
+                            onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext' | 'wysiwyg')}
                             tabs={[
                                 { key: 'visual', label: 'Visual' },
+                                { key: 'wysiwyg', label: 'WYSIWYG' },
                                 { key: 'plaintext', label: 'Plain text' },
                             ]}
                             className="px-2 shrink-0 border-b"
@@ -193,6 +384,7 @@ function DestinationEmailTemplaterForm({
                                 />
                             </div>
                             {activeContentTab === 'plaintext' && <PlainTextEditor />}
+                            {activeContentTab === 'wysiwyg' && <WysiwygEditor />}
                         </div>
                     </>
                 ) : (
@@ -528,9 +720,10 @@ function NativeEmailTemplaterForm({
                     <>
                         <LemonTabs
                             activeKey={activeContentTab}
-                            onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext')}
+                            onChange={(key) => setActiveContentTab(key as 'visual' | 'plaintext' | 'wysiwyg')}
                             tabs={[
                                 { key: 'visual', label: 'Visual' },
+                                { key: 'wysiwyg', label: 'WYSIWYG' },
                                 { key: 'plaintext', label: 'Plain text' },
                             ]}
                             className="px-2 shrink-0 border-b"

@@ -13,4 +13,10 @@ export type EmailTemplate = {
     cc?: string
     bcc?: string
     preheader?: string
+    /**
+     * Raw source for the WYSIWYG editor. Either an HTML string or a
+     * react.email component module. Rendered to `html` at submit time via
+     * `@react-email/render`.
+     */
+    wysiwygSource?: string
 }
