@@ -75,11 +75,19 @@
 }
 
 /*
+ * Reset various annoying global styles from global styles.
+ */
+[data-quill] p {
+    margin-bottom: 0;
+}
+
+/*
  * Override #2: register the quill-only utilities PostHog's compiler skipped.
  * Scoped to `[data-quill]` so they don't pollute the rest of the app.
  * Specificity (0,2,0) beats Tailwind's plain class (0,1,0), so these always
  * win inside the subtree even if PostHog later adds a same-named class.
  */
+
 [data-quill] .bg-background {
     background-color: var(--background);
 }

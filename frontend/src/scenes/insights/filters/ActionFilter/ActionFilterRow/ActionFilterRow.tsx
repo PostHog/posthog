@@ -8,9 +8,13 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback } from 'react'
 
-import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import {
+    TaxonomicAutocomplete,
+    TaxonomicFilterHeadless,
+} from 'lib/components/TaxonomicFilter/headless'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -542,6 +546,80 @@ export function ActionFilterRow({
                             )}
                         >
                             <div className="flex-1 min-w-36 overflow-hidden">{filterElement}</div>
+                            {/* Disposable parity preview: render the new
+                                TaxonomicAutocomplete next to the legacy
+                                TaxonomicPopover so we can A/B them on the
+                                same Series row. Remove once the new picker
+                                replaces the old one. */}
+                            <div
+                                className="flex-1 min-w-36 overflow-hidden"
+                                data-attr={`series-parity-autocomplete-${index}`}
+                            >
+                                <TaxonomicFilterHeadless.Root
+                                    // Skip the legacy rootProps wrapper —
+                                    // its onKeyDown intercepts Tab/Arrow
+                                    // for the old list UI we don't render
+                                    // here, and traps Tab off the trigger.
+                                    bindRootProps={false}
+                                    taxonomicGroupTypes={effectiveActionsTaxonomicGroupTypes}
+                                    onChange={(group, changedValue, item) => {
+                                        const groupType = taxonomicFilterGroupTypeToEntityType(group.type)
+                                        if (!groupType) {
+                                            return
+                                        }
+                                        updateFilter({
+                                            type: groupType,
+                                            id: changedValue ? String(changedValue) : null,
+                                            name: item?.name ?? '',
+                                            index,
+                                        })
+                                    }}
+                                >
+                                    <TaxonomicAutocomplete.Root
+                                        key={`${filter.type}:${String(filter.id ?? '')}`}
+                                        triggerLabel="All events"
+                                        defaultSelected={
+                                            filter.id != null && filter.type
+                                                ? {
+                                                      groupType:
+                                                          filter.type === EntityTypes.ACTIONS
+                                                              ? TaxonomicFilterGroupType.Actions
+                                                              : TaxonomicFilterGroupType.Events,
+                                                      value: value ?? null,
+                                                      name: String(name ?? filter.id),
+                                                      friendlyLabel: name ? String(name) : undefined,
+                                                  }
+                                                : null
+                                        }
+                                    >
+                                        <TaxonomicAutocomplete.Popover>
+                                            <TaxonomicAutocomplete.Trigger>
+                                                {({ selected, label, open }) => (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        fullWidth
+                                                        data-attr={`series-parity-autocomplete-trigger-${index}`}
+                                                        aria-expanded={open}
+                                                        sideIcon={<IconChevronDown />}
+                                                    >
+                                                         {selected ? <EntityFilterInfo filter={filter} showIcon /> : <span className="text-secondary">{label}</span>}
+                                                    </LemonButton>
+                                                )}
+                                            </TaxonomicAutocomplete.Trigger>
+                                            <TaxonomicAutocomplete.Content>
+                                                <TaxonomicAutocomplete.Header rootTitle="Pick event or action" />
+                                                <TaxonomicAutocomplete.RootView>
+                                                    <div className="p-1">
+                                                        <TaxonomicAutocomplete.Input />
+                                                    </div>
+                                                    <TaxonomicAutocomplete.Chips />
+                                                    <TaxonomicAutocomplete.List className="max-h-80" />
+                                                </TaxonomicAutocomplete.RootView>
+                                            </TaxonomicAutocomplete.Content>
+                                        </TaxonomicAutocomplete.Popover>
+                                    </TaxonomicAutocomplete.Root>
+                                </TaxonomicFilterHeadless.Root>
+                            </div>
                             {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None &&
                                 mathAvailability !== MathAvailability.FunnelsOnly && (

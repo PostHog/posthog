@@ -15,6 +15,8 @@ import { useCallback } from 'react'
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
@@ -28,6 +30,8 @@ export function useTaxonomicLocalOverrides(): GetLocalOverride {
     const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { experiments } = useValues(experimentsLogic)
+    const { dataWarehouseTablesAndViews } = useValues(dataWarehouseSettingsSceneLogic)
+    const { columnsJoinedToPersons } = useValues(joinsLogic)
 
     return useCallback(
         (groupType: TaxonomicFilterGroupType): TaxonomicDefinitionTypes[] | undefined => {
@@ -42,10 +46,22 @@ export function useTaxonomicLocalOverrides(): GetLocalOverride {
                     return nameSortedDashboards as unknown as TaxonomicDefinitionTypes[]
                 case TaxonomicFilterGroupType.Experiments:
                     return experiments as unknown as TaxonomicDefinitionTypes[]
+                case TaxonomicFilterGroupType.DataWarehouse:
+                    return dataWarehouseTablesAndViews as unknown as TaxonomicDefinitionTypes[]
+                case TaxonomicFilterGroupType.DataWarehousePersonProperties:
+                    return columnsJoinedToPersons as unknown as TaxonomicDefinitionTypes[]
                 default:
                     return undefined
             }
         },
-        [actionsSorted, recentFilterItems, pinnedFilterItems, nameSortedDashboards, experiments]
+        [
+            actionsSorted,
+            recentFilterItems,
+            pinnedFilterItems,
+            nameSortedDashboards,
+            experiments,
+            dataWarehouseTablesAndViews,
+            columnsJoinedToPersons,
+        ]
     )
 }

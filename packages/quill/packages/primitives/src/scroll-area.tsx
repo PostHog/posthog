@@ -189,12 +189,14 @@ function ScrollArea({
     hideScrollbars = false,
     alwaysShowScrollbars = false,
     showScrollToButton,
+    viewportClassName,
     ...props
 }: ScrollAreaPrimitive.Root.Props & {
     scrollShadows?: boolean
     hideScrollbars?: boolean
     alwaysShowScrollbars?: boolean
     showScrollToButton?: ShowScrollToButton
+    viewportClassName?: string
 }): React.ReactElement {
     const viewportRef = React.useRef<HTMLDivElement | null>(null)
     const edges = resolveEdges(showScrollToButton)
@@ -217,7 +219,7 @@ function ScrollArea({
             <ScrollAreaPrimitive.Viewport
                 ref={viewportRef}
                 data-slot="scroll-area-viewport"
-                className="quill-scroll-area__viewport"
+                className={cn("quill-scroll-area__viewport", viewportClassName)}
             >
                 {children}
             </ScrollAreaPrimitive.Viewport>

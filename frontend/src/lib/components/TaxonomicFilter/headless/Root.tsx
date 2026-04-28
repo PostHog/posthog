@@ -18,7 +18,7 @@ export function TaxonomicFilterRoot({
 }: TaxonomicFilterRootProps): JSX.Element {
     const api = useTaxonomicFilter(opts)
     return (
-        <TaxonomicFilterContext.Provider value={api}>
+        <TaxonomicFilterContext.Provider value={api} data-quill>
             <div className={className} {...(bindRootProps ? api.rootProps : {})}>
                 {children}
             </div>
