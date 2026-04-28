@@ -8,9 +8,9 @@
             "type": "number"
         },
         "daily_run_cap": {
-            "description": "Maximum count-triggered report runs per calendar day (UTC). Defaults to 10.",
+            "description": "Maximum count-triggered report runs per calendar day (UTC). Min 1. Defaults to 10.",
             "maximum": 2147483647,
-            "minimum": -2147483648,
+            "minimum": 1,
             "type": "number"
         },
         "deleted": {

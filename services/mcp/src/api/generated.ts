@@ -15812,8 +15812,8 @@ export namespace Schemas {
        */
       cooldown_minutes?: number;
       /**
-       * Maximum count-triggered report runs per calendar day (UTC). Defaults to 10.
-       * @minimum -2147483648
+       * Maximum count-triggered report runs per calendar day (UTC). Min 1. Defaults to 10.
+       * @minimum 1
        * @maximum 2147483647
        */
       daily_run_cap?: number;
@@ -26785,8 +26785,8 @@ export namespace Schemas {
        */
       cooldown_minutes?: number;
       /**
-       * Maximum count-triggered report runs per calendar day (UTC). Defaults to 10.
-       * @minimum -2147483648
+       * Maximum count-triggered report runs per calendar day (UTC). Min 1. Defaults to 10.
+       * @minimum 1
        * @maximum 2147483647
        */
       daily_run_cap?: number;

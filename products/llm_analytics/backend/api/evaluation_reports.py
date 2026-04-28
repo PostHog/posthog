@@ -115,10 +115,11 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                 ),
             },
             "daily_run_cap": {
+                "min_value": 1,
                 "help_text": (
-                    f"Maximum count-triggered report runs per calendar day (UTC). "
+                    f"Maximum count-triggered report runs per calendar day (UTC). Min 1. "
                     f"Defaults to {EvaluationReport.DAILY_RUN_CAP_DEFAULT}."
-                )
+                ),
             },
         }
 
@@ -144,8 +145,9 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-        # On create without an explicit frequency, fall through to the model default so
-        # trigger_threshold / cooldown_minutes bounds still get enforced against every_n.
+        # Numeric bounds for trigger_threshold / cooldown_minutes / daily_run_cap are enforced
+        # by the field-level min_value / max_value validators. This block only handles the
+        # cross-field "required" rules that the field validators can't express on their own.
         frequency = attrs.get("frequency") or (
             self.instance.frequency if self.instance else EvaluationReport.Frequency.EVERY_N
         )
@@ -157,27 +159,6 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             )
             if threshold is None:
                 raise serializers.ValidationError({"trigger_threshold": "Required when frequency is 'every_n'."})
-            if threshold < EvaluationReport.TRIGGER_THRESHOLD_MIN:
-                raise serializers.ValidationError(
-                    {"trigger_threshold": f"Minimum is {EvaluationReport.TRIGGER_THRESHOLD_MIN}."}
-                )
-            if threshold > EvaluationReport.TRIGGER_THRESHOLD_MAX:
-                raise serializers.ValidationError(
-                    {"trigger_threshold": f"Maximum is {EvaluationReport.TRIGGER_THRESHOLD_MAX}."}
-                )
-            cooldown = (
-                attrs.get("cooldown_minutes")
-                if "cooldown_minutes" in attrs
-                else (self.instance.cooldown_minutes if self.instance else EvaluationReport.COOLDOWN_MINUTES_DEFAULT)
-            )
-            if cooldown < EvaluationReport.COOLDOWN_MINUTES_MIN:
-                raise serializers.ValidationError(
-                    {"cooldown_minutes": f"Minimum is {EvaluationReport.COOLDOWN_MINUTES_MIN} minutes."}
-                )
-            if cooldown > EvaluationReport.COOLDOWN_MINUTES_MAX:
-                raise serializers.ValidationError(
-                    {"cooldown_minutes": f"Maximum is {EvaluationReport.COOLDOWN_MINUTES_MAX} minutes."}
-                )
         elif frequency == EvaluationReport.Frequency.SCHEDULED:
             rrule_str = attrs.get("rrule") if "rrule" in attrs else (self.instance.rrule if self.instance else "")
             if not rrule_str:
