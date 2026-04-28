@@ -81,7 +81,8 @@ class MarketingAnalyticsAggregatedQueryRunner(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> dict[str, ast.Expr]:
         """Build column mappings excluding Campaign and Source columns for aggregated queries"""
-        # Start with base columns but exclude Campaign, Source, ID (strings) and rate metrics
+        # Start with base columns but exclude string dimensions (Campaign / Source / Ad group / Ad)
+        # and rate metrics — those can't be summed in the aggregated overview.
         all_columns: dict[str, ast.Expr] = {
             str(k): v
             for k, v in BASE_COLUMN_MAPPING.items()
@@ -90,6 +91,10 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 MarketingAnalyticsBaseColumns.ID,
                 MarketingAnalyticsBaseColumns.CAMPAIGN,
                 MarketingAnalyticsBaseColumns.SOURCE,
+                MarketingAnalyticsBaseColumns.AD_GROUP,
+                MarketingAnalyticsBaseColumns.AD_GROUP_ID,
+                MarketingAnalyticsBaseColumns.AD,
+                MarketingAnalyticsBaseColumns.AD_ID,
                 MarketingAnalyticsBaseColumns.CPC,
                 MarketingAnalyticsBaseColumns.CTR,
                 MarketingAnalyticsBaseColumns.REPORTED_ROAS,

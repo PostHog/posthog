@@ -4,7 +4,7 @@ import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
@@ -153,6 +153,19 @@ export const MarketingAnalyticsTable = ({
                                                       },
                                                   ],
                                               },
+                                              {
+                                                  title: 'Ad level',
+                                                  options: [
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.AdGroup,
+                                                          label: 'Ad group',
+                                                      },
+                                                      {
+                                                          value: MarketingAnalyticsDrillDownLevel.Ad,
+                                                          label: 'Ad',
+                                                      },
+                                                  ],
+                                              },
                                           ]
                                         : []),
                                 ]}
@@ -171,6 +184,16 @@ export const MarketingAnalyticsTable = ({
             {validationWarnings && validationWarnings.length > 0 && (
                 <div className="pt-2">
                     <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
+                </div>
+            )}
+            {(drillDownLevel === MarketingAnalyticsDrillDownLevel.AdGroup ||
+                drillDownLevel === MarketingAnalyticsDrillDownLevel.Ad) && (
+                <div className="pt-2 px-2">
+                    <LemonBanner type="info" dismissKey="marketing-analytics-ad-level-info">
+                        Ad group and ad metrics come directly from your ad platform. Conversion goals aren't shown at
+                        this level because events can't be attributed to a specific ad. Make sure the ad group and ad
+                        tables are enabled in your source sync settings to see data here.
+                    </LemonBanner>
                 </div>
             )}
             <div className="relative marketing-analytics-table-container">

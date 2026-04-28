@@ -55,6 +55,8 @@ const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([
     MarketingAnalyticsDrillDownLevel.Medium,
     MarketingAnalyticsDrillDownLevel.Content,
     MarketingAnalyticsDrillDownLevel.Term,
+    MarketingAnalyticsDrillDownLevel.AdGroup,
+    MarketingAnalyticsDrillDownLevel.Ad,
 ])
 
 export enum MarketingSourceStatus {

@@ -5168,6 +5168,10 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Source = 'source',
     ReportedConversion = 'reported_conversion',
     ReportedConversionValue = 'reported_conversion_value',
+    AdGroupId = 'ad_group_id',
+    AdGroupName = 'ad_group_name',
+    AdId = 'ad_id',
+    AdName = 'ad_name',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -5201,6 +5205,10 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
         required: false,
         isCurrency: true,
     },
+    [MarketingAnalyticsColumnsSchemaNames.AdGroupId]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdGroupName]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdId]: { type: ['string'], required: false, isCurrency: false },
+    [MarketingAnalyticsColumnsSchemaNames.AdName]: { type: ['string'], required: false, isCurrency: false },
 }
 
 export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
@@ -5244,6 +5252,8 @@ export enum MarketingAnalyticsDrillDownLevel {
     Channel = 'channel',
     Source = 'source',
     Campaign = 'campaign',
+    AdGroup = 'ad_group',
+    Ad = 'ad',
     Medium = 'medium',
     Content = 'content',
     Term = 'term',
@@ -5253,6 +5263,10 @@ export enum MarketingAnalyticsBaseColumns {
     Id = 'ID',
     Campaign = 'Campaign',
     Source = 'Source',
+    AdGroup = 'Ad group',
+    AdGroupId = 'Ad group ID',
+    Ad = 'Ad',
+    AdId = 'Ad ID',
     Cost = 'Cost',
     Clicks = 'Clicks',
     Impressions = 'Impressions',
@@ -5267,6 +5281,9 @@ export enum MarketingAnalyticsBaseColumns {
 export type MarketingAnalyticsDrillDownConfig = {
     columnAlias: string
     excludedBaseColumns: MarketingAnalyticsBaseColumns[]
+    // When true, this level can't be attributed to events — drop conversion goal columns.
+    // Used for ad-group / ad levels where events can't be mapped to a specific ad.
+    excludesConversionGoals?: boolean
 }
 
 export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
@@ -5279,6 +5296,10 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
             MarketingAnalyticsBaseColumns.Id,
             MarketingAnalyticsBaseColumns.Campaign,
             MarketingAnalyticsBaseColumns.Source,
+            MarketingAnalyticsBaseColumns.AdGroup,
+            MarketingAnalyticsBaseColumns.AdGroupId,
+            MarketingAnalyticsBaseColumns.Ad,
+            MarketingAnalyticsBaseColumns.AdId,
         ],
     },
     [MarketingAnalyticsDrillDownLevel.Source]: {
@@ -5287,11 +5308,39 @@ export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
             MarketingAnalyticsBaseColumns.Id,
             MarketingAnalyticsBaseColumns.Campaign,
             MarketingAnalyticsBaseColumns.Source,
+            MarketingAnalyticsBaseColumns.AdGroup,
+            MarketingAnalyticsBaseColumns.AdGroupId,
+            MarketingAnalyticsBaseColumns.Ad,
+            MarketingAnalyticsBaseColumns.AdId,
         ],
     },
     [MarketingAnalyticsDrillDownLevel.Campaign]: {
         columnAlias: MarketingAnalyticsBaseColumns.Campaign,
-        excludedBaseColumns: [],
+        // Ad-group / ad columns aren't emitted by the CTE at campaign level.
+        excludedBaseColumns: [
+            MarketingAnalyticsBaseColumns.AdGroup,
+            MarketingAnalyticsBaseColumns.AdGroupId,
+            MarketingAnalyticsBaseColumns.Ad,
+            MarketingAnalyticsBaseColumns.AdId,
+        ],
+    },
+    [MarketingAnalyticsDrillDownLevel.AdGroup]: {
+        // Show Campaign + Source as parent context, plus Ad group + ID. Hide Id (campaign id),
+        // Ad / AdId since they don't apply at this level.
+        columnAlias: MarketingAnalyticsBaseColumns.AdGroup,
+        excludedBaseColumns: [
+            MarketingAnalyticsBaseColumns.Id,
+            MarketingAnalyticsBaseColumns.Ad,
+            MarketingAnalyticsBaseColumns.AdId,
+        ],
+        excludesConversionGoals: true,
+    },
+    [MarketingAnalyticsDrillDownLevel.Ad]: {
+        // Full hierarchy: Campaign + Source + Ad group + Ad + Ad ID. Hide campaign Id and
+        // Ad group ID to keep the table readable.
+        columnAlias: MarketingAnalyticsBaseColumns.Ad,
+        excludedBaseColumns: [MarketingAnalyticsBaseColumns.Id, MarketingAnalyticsBaseColumns.AdGroupId],
+        excludesConversionGoals: true,
     },
     [MarketingAnalyticsDrillDownLevel.Medium]: {
         columnAlias: 'Medium',

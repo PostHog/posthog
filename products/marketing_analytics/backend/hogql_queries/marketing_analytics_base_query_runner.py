@@ -101,6 +101,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             date_range=date_range,
             team=self.team,
             base_currency=self.team.base_currency or DEFAULT_CURRENCY,
+            drill_down_level=self.config.drill_down_level,
         )
         return MarketingSourceFactory(context=context)
 
@@ -167,6 +168,33 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         ast.Alias(alias=self.config.campaign_field, expr=ast.Constant(value="")),
                         ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
                         ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+                # Emit the parent campaign hierarchy alongside the ad group fields so the
+                # outer query can show context columns (Campaign + Source + Ad group).
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_id_field]),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.AD:
+                # Full hierarchy: Campaign + Source + Ad group + Ad.
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_group_id_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_name_field]),
+                        ast.Field(chain=[MarketingSourceAdapter.ad_id_field]),
                         ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
                     ]
                 )

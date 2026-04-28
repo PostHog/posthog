@@ -236,11 +236,20 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
                     (c) => c.columnAlias
                 )
-                const staleGroupingColumns = allGroupingAliases.filter((c) => c !== groupingAlias)
                 // Columns excluded at the current drill-down level (e.g. ID/Campaign at Source level).
                 // Without this filter, switching drill-down levels leaves stale columns in the select,
                 // and the stale response data renders as raw JSON (no matching context.columns render fn).
                 const excludedColumns = new Set<string>(drillDownConfig.excludedBaseColumns)
+                // A grouping alias is "stale" only when it isn't a valid base column at the new level.
+                // At AD_GROUP / AD, Campaign and Source are valid context columns, not stale. Without
+                // this guard, switching from Channel → Ad group would remap Campaign / Source onto
+                // the new grouping column and erase them from the select.
+                const validBaseColumnsAtLevel = new Set<string>(
+                    Object.values(MarketingAnalyticsBaseColumns).filter((c) => !excludedColumns.has(c))
+                )
+                const staleGroupingColumns = allGroupingAliases.filter(
+                    (c) => c !== groupingAlias && !validBaseColumnsAtLevel.has(c)
+                )
 
                 // Same rule as marketingAnalyticsTableLogic: at UTM levels the Cost metric is excluded
                 // so cost-per-conversion for the draft goal must be excluded too.

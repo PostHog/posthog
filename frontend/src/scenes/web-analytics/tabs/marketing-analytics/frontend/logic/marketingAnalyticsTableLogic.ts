@@ -79,19 +79,22 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
                 // cost can't be attributed to a specific UTM value.
                 const costAvailable = !config.excludedBaseColumns.includes(MarketingAnalyticsBaseColumns.Cost)
 
-                const selectColumns = [
-                    ...baseColumns,
-                    ...conversionGoals
-                        .map((goal) =>
-                            costAvailable
-                                ? [
-                                      goal.conversion_goal_name,
-                                      `${MarketingAnalyticsConstants.CostPer} ${goal.conversion_goal_name}`,
-                                  ]
-                                : [goal.conversion_goal_name]
-                        )
-                        .flat(),
-                ].filter(isNotNil)
+                // At ad-group / ad levels, events can't be attributed to a specific ad so
+                // conversion goals are dropped entirely.
+                const conversionGoalColumns = config.excludesConversionGoals
+                    ? []
+                    : conversionGoals
+                          .map((goal) =>
+                              costAvailable
+                                  ? [
+                                        goal.conversion_goal_name,
+                                        `${MarketingAnalyticsConstants.CostPer} ${goal.conversion_goal_name}`,
+                                    ]
+                                  : [goal.conversion_goal_name]
+                          )
+                          .flat()
+
+                const selectColumns = [...baseColumns, ...conversionGoalColumns].filter(isNotNil)
                 return selectColumns
             },
         ],

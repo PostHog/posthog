@@ -7,7 +7,12 @@ from typing import Any, Generic, Optional, TypeVar
 
 import structlog
 
-from posthog.schema import MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsConstants, SourceMap
+from posthog.schema import (
+    MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
+    SourceMap,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
@@ -70,6 +75,12 @@ class MetaAdsConfig(BaseMarketingConfig):
 
     campaign_table: DataWarehouseTable
     stats_table: DataWarehouseTable
+    # Ad-group (adset) and ad tables are optional — only present when the user has
+    # those schemas marked for sync in their data warehouse.
+    adset_table: Optional[DataWarehouseTable] = None
+    adset_stats_table: Optional[DataWarehouseTable] = None
+    ad_table: Optional[DataWarehouseTable] = None
+    ad_stats_table: Optional[DataWarehouseTable] = None
 
 
 @dataclass
@@ -120,6 +131,10 @@ class QueryContext:
     team: Team
     global_filters: list[Any] = field(default_factory=list)
     base_currency: str = DEFAULT_CURRENCY
+    # Drill-down level controls which platform tables the adapter pulls from.
+    # CAMPAIGN (default) and below query campaign-level stats. AD_GROUP / AD switch
+    # to ad-group / ad-level tables when the adapter supports them.
+    drill_down_level: MarketingAnalyticsDrillDownLevel = MarketingAnalyticsDrillDownLevel.CAMPAIGN
 
 
 class MarketingSourceAdapter(ABC, Generic[ConfigType]):
@@ -139,6 +154,13 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     cost_field: str = MarketingAnalyticsColumnsSchemaNames.COST
     reported_conversion_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION
     reported_conversion_value_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE
+    # Ad-group / ad granularity. Emitted by every adapter (NULL when the source doesn't
+    # support that granularity or the query isn't at that drill-down level) so the
+    # campaign_costs CTE has a stable schema.
+    ad_group_name_field: str = MarketingAnalyticsColumnsSchemaNames.AD_GROUP_NAME
+    ad_group_id_field: str = MarketingAnalyticsColumnsSchemaNames.AD_GROUP_ID
+    ad_name_field: str = MarketingAnalyticsColumnsSchemaNames.AD_NAME
+    ad_id_field: str = MarketingAnalyticsColumnsSchemaNames.AD_ID
     match_key_field: str = MATCH_KEY_FIELD
 
     CONSTANT_VALUE_PREFIX = MarketingAnalyticsConstants.CONST_
@@ -271,6 +293,30 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Get the reported conversion value (monetary) field expression"""
         pass
 
+    def _get_ad_group_name_field(self) -> ast.Expr:
+        """Get the ad group name field expression. Default NULL — adapters that support
+        ad-group granularity override this when the query is at AD_GROUP or AD level."""
+        return ast.Constant(value=None)
+
+    def _get_ad_group_id_field(self) -> ast.Expr:
+        """Get the ad group ID field expression. Default NULL."""
+        return ast.Constant(value=None)
+
+    def _get_ad_name_field(self) -> ast.Expr:
+        """Get the ad name field expression. Default NULL — adapters that support
+        ad granularity override this when the query is at AD level."""
+        return ast.Constant(value=None)
+
+    def _get_ad_id_field(self) -> ast.Expr:
+        """Get the ad ID field expression. Default NULL."""
+        return ast.Constant(value=None)
+
+    def supports_level(self, level: MarketingAnalyticsDrillDownLevel) -> bool:
+        """Whether this adapter can return data for the given drill-down level.
+        Default: supports campaign-level and below (channel, source, campaign, utm levels).
+        Override in adapters that implement AD_GROUP / AD level tables."""
+        return level not in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
+
     @abstractmethod
     def _get_where_conditions(self) -> list[ast.Expr]:
         """Get WHERE condition expressions"""
@@ -357,28 +403,53 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     def _build_select_columns(self) -> list[ast.Expr]:
         """Build the standardized SELECT columns for marketing analytics queries.
         match_key first (stable position for joins), then data columns.
+
+        The ad_group / ad columns are only emitted at AD_GROUP / AD drill-down levels —
+        at other levels the 9-column schema is preserved for backward compatibility.
         """
-        return [
+        columns: list[ast.Expr] = [
             ast.Alias(alias=self.match_key_field, expr=self.get_campaign_match_field()),
             ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
             ast.Alias(alias=self.campaign_id_field, expr=self._get_campaign_id_field()),
             ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
-            ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
-            ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
-            ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
-            ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
-            ast.Alias(alias=self.reported_conversion_value_field, expr=self._get_reported_conversion_value_field()),
         ]
+        if self.context.drill_down_level in (
+            MarketingAnalyticsDrillDownLevel.AD_GROUP,
+            MarketingAnalyticsDrillDownLevel.AD,
+        ):
+            columns.extend(
+                [
+                    ast.Alias(alias=self.ad_group_name_field, expr=self._get_ad_group_name_field()),
+                    ast.Alias(alias=self.ad_group_id_field, expr=self._get_ad_group_id_field()),
+                    ast.Alias(alias=self.ad_name_field, expr=self._get_ad_name_field()),
+                    ast.Alias(alias=self.ad_id_field, expr=self._get_ad_id_field()),
+                ]
+            )
+        columns.extend(
+            [
+                ast.Alias(alias=self.impressions_field, expr=self._get_impressions_field()),
+                ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
+                ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
+                ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
+                ast.Alias(alias=self.reported_conversion_value_field, expr=self._get_reported_conversion_value_field()),
+            ]
+        )
+        return columns
 
     def build_query(self) -> Optional[ast.SelectQuery]:
         """
         Build SelectQuery that returns marketing data in standardized format.
 
-        MUST return columns in this exact order and format (9 columns):
+        MUST return columns in this exact order and format (13 columns):
         - match_key (string): Campaign match field for joining with conversion goals
         - campaign_name (string): Campaign identifier (human-readable name)
         - campaign_id (string): Campaign identifier (platform ID)
         - source_name (string): Source identifier
+        - ad_group_name (string | null): Ad group name (null when not at AD_GROUP/AD level
+          or when the source doesn't support it)
+        - ad_group_id (string | null): Ad group platform ID
+        - ad_name (string | null): Ad name (null when not at AD level)
+        - ad_id (string | null): Ad platform ID
         - impressions (float): Number of impressions
         - clicks (float): Number of clicks
         - cost (float): Total cost in base currency

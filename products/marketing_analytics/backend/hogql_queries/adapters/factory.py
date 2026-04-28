@@ -313,14 +313,22 @@ class MarketingSourceFactory:
     def _create_metaads_config(
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[MetaAdsConfig]:
-        """Create Meta Ads adapter config with campaign and stats tables"""
+        """Create Meta Ads adapter config with campaign, adset, ad and their stats tables.
+
+        The ad-group (adset) and ad tables are optional — picked up when the user has
+        those schemas enabled for sync. When absent, AD_GROUP / AD drill-down levels
+        simply show no data for this source.
+        """
         patterns = TABLE_PATTERNS[NativeMarketingSource.META_ADS]
         campaign_table = None
         campaign_stats_table = None
+        adset_table = None
+        adset_stats_table = None
+        ad_table = None
+        ad_stats_table = None
 
         for table in tables:
             table_suffix = table.name.split(".")[-1].lower()
-
             schema_name = _extract_schema_name(table_suffix, source.source_type)
 
             # Check for campaign table (exclusions apply to schema name only, not user prefix)
@@ -328,21 +336,34 @@ class MarketingSourceFactory:
                 ex in schema_name for ex in patterns["campaign_table_exclusions"]
             ):
                 campaign_table = table
-            # Check for stats table
+            # Check for campaign stats table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
+            # Ad-group / ad tables — match on schema name to avoid conflicts with
+            # user-configured prefixes, and exclude the stats variants to keep entity
+            # tables separate.
+            elif schema_name == "adsets":
+                adset_table = table
+            elif schema_name == "adset_stats":
+                adset_stats_table = table
+            elif schema_name == "ads":
+                ad_table = table
+            elif schema_name == "ad_stats":
+                ad_stats_table = table
 
         if not (campaign_table and campaign_stats_table):
             return None
 
-        config = MetaAdsConfig(
+        return MetaAdsConfig(
             source_type=source.source_type,
             campaign_table=campaign_table,
             stats_table=campaign_stats_table,
+            adset_table=adset_table,
+            adset_stats_table=adset_stats_table,
+            ad_table=ad_table,
+            ad_stats_table=ad_stats_table,
             source_id=str(source.id),
         )
-
-        return config
 
     def _create_tiktokads_config(
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
@@ -599,6 +620,10 @@ class MarketingSourceFactory:
 
         queries: list[ast.SelectQuery | ast.SelectSetQuery] = []
         for adapter in sorted_adapters:
+            # Skip adapters that don't support the current drill-down level (e.g. a
+            # source without ad-group tables synced when the user drills to AD_GROUP).
+            if not adapter.supports_level(self.context.drill_down_level):
+                continue
             try:
                 query = adapter.build_query()
                 if query is not None:
@@ -609,7 +634,7 @@ class MarketingSourceFactory:
                 )
 
         if not queries:
-            return build_fallback_empty_query_ast()
+            return build_fallback_empty_query_ast(drill_down_level=self.context.drill_down_level)
 
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
 

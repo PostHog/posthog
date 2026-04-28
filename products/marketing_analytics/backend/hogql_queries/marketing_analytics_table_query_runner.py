@@ -156,6 +156,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             MarketingAnalyticsDrillDownLevel.MEDIUM,
             MarketingAnalyticsDrillDownLevel.CONTENT,
             MarketingAnalyticsDrillDownLevel.TERM,
+            MarketingAnalyticsDrillDownLevel.AD_GROUP,
+            MarketingAnalyticsDrillDownLevel.AD,
         ):
             join_condition: ast.Expr = ast.CompareOperation(
                 left=ast.Field(chain=["current_period", campaign_alias]),
@@ -271,7 +273,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> dict[str, ast.Expr]:
         level = self.config.drill_down_level
-        excluded = DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
+        level_config = DRILL_DOWN_LEVEL_CONFIG[level]
+        excluded = level_config["excluded_base_columns"]
 
         all_columns: dict[str, ast.Expr]
         if excluded:
@@ -280,11 +283,13 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             all_columns = {str(k): v for k, v in BASE_COLUMN_MAPPING.items()}
 
         # Add conversion goal columns using the aggregator.
-        # "Cost per conversion" is only meaningful when the Cost metric exists at this
-        # drill-down level — at UTM levels (medium/content/term) Cost is excluded because
-        # we can't attribute platform cost to a specific UTM value, so cost-per-conversion
-        # must be hidden too.
-        if conversion_aggregator:
+        # Two axes matter:
+        # - "Cost per <goal>" only makes sense when Cost is in the select at this level.
+        #   At UTM levels (medium/content/term) Cost is excluded, so cost-per-conversion
+        #   is hidden too.
+        # - At ad-group / ad levels, events can't be mapped to a specific ad, so
+        #   conversion goals are dropped entirely.
+        if conversion_aggregator and not level_config.get("excludes_conversion_goals"):
             include_cost_per = MarketingAnalyticsBaseColumns.COST not in excluded
             conversion_columns = conversion_aggregator.get_conversion_goal_columns(include_cost_per=include_cost_per)
             all_columns.update(conversion_columns)
@@ -292,26 +297,37 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         return all_columns
 
     def _build_aggregated_level_columns(self, excluded: frozenset) -> dict[str, ast.Expr]:
-        """Build column mapping for aggregated views (channel/source level).
-        The CTE repurposes campaign_name to hold the grouping value.
+        """Build column mapping for drill-down levels that have a custom primary column.
+
+        The "primary" column is the grouping dimension shown first (e.g. "Ad group" at
+        AD_GROUP level). For levels whose alias matches a base column (AD_GROUP/AD),
+        the primary expression comes from BASE_COLUMN_MAPPING. For repurposed levels
+        (CHANNEL/SOURCE), the alias has no matching base column, so we fall back to
+        CAMPAIGN whose expression the CTE has aliased to hold the grouping value.
         """
         columns: dict[str, ast.Expr] = {}
         alias = self.config.get_campaign_column_alias()
-        base_expr = BASE_COLUMN_MAPPING[MarketingAnalyticsBaseColumns.CAMPAIGN]
+        primary_key = next(
+            (k for k in BASE_COLUMN_MAPPING if str(k) == alias),
+            MarketingAnalyticsBaseColumns.CAMPAIGN,
+        )
+        base_expr = BASE_COLUMN_MAPPING[primary_key]
         columns[alias] = ast.Alias(alias=alias, expr=base_expr.expr) if isinstance(base_expr, ast.Alias) else base_expr
         for col_key, col_expr in BASE_COLUMN_MAPPING.items():
-            if col_key not in excluded and col_key != MarketingAnalyticsBaseColumns.CAMPAIGN:
+            if col_key not in excluded and col_key != primary_key:
                 columns[str(col_key)] = col_expr
         return columns
 
     def _build_select_query(self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None) -> ast.SelectQuery:
         """Build the complete SELECT query with base columns and conversion goal columns"""
         level = self.config.drill_down_level
+        level_config = DRILL_DOWN_LEVEL_CONFIG[level]
         # Same invariant as _build_select_columns_mapping: if Cost is excluded at this level,
         # joining campaign_costs buys us nothing but phantom rows from the FULL OUTER JOIN.
-        bypass_campaign_costs = (
-            MarketingAnalyticsBaseColumns.COST in DRILL_DOWN_LEVEL_CONFIG[level]["excluded_base_columns"]
-        )
+        bypass_campaign_costs = MarketingAnalyticsBaseColumns.COST in level_config["excluded_base_columns"]
+        # At AD_GROUP / AD level events can't be mapped to a specific ad, so drop
+        # the conversion goals join entirely.
+        skip_conversion_goals_join = level_config.get("excludes_conversion_goals", False)
 
         # Get conversion goal components
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
@@ -335,7 +351,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
 
         # Add single unified conversion goals join if we have conversion goals
-        if conversion_aggregator:
+        # (skip at ad-group / ad levels — no event attribution possible there).
+        if conversion_aggregator and not skip_conversion_goals_join:
             if level in (
                 MarketingAnalyticsDrillDownLevel.CHANNEL,
                 MarketingAnalyticsDrillDownLevel.SOURCE,
