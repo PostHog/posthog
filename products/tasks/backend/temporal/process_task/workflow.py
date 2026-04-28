@@ -75,6 +75,8 @@ class TaskEvent(StrEnum):
 
 INACTIVITY_TIMEOUT = timedelta(minutes=5)
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
+RELAY_SANDBOX_EVENTS_LEGACY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=65)
+RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 MAX_CI_REPETITIONS = 3
 DEFAULT_CI_MESSAGE = """\
@@ -114,6 +116,7 @@ After fixing, commit and push so CI can re-run.
 #   2. Second cleanup PR (after another full drain): delete this helper and
 #      `_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT`.
 _PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT = "tasks-ci-follow-up-pr-context"
+_PATCH_ID_LONG_RELAY_TIMEOUT = "tasks-long-relay-timeout"
 
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
@@ -732,6 +735,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     ) -> None:
         """Start the SSE relay activity as a concurrent task (best-effort)."""
         try:
+            start_to_close_timeout = (
+                RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT
+                if workflow.patched(_PATCH_ID_LONG_RELAY_TIMEOUT)
+                else RELAY_SANDBOX_EVENTS_LEGACY_START_TO_CLOSE_TIMEOUT
+            )
             relay_input = RelaySandboxEventsInput(
                 run_id=self.context.run_id,
                 task_id=self.context.task_id,
@@ -744,7 +752,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 relay_sandbox_events,
                 relay_input,
-                start_to_close_timeout=timedelta(minutes=65),
+                start_to_close_timeout=start_to_close_timeout,
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,

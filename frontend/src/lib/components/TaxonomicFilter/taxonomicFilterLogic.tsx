@@ -3,6 +3,7 @@ import {
     BuiltLogic,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -1688,11 +1689,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
     }),
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, cache }) => {
+        cache.openedAt = Date.now()
+        cache.hadSelection = false
         // Initial fire — the model dedupes against taxonomy defaults and already-loaded names.
         if (props.eventNames?.length) {
             actions.ensureLoadedForEvents(props.eventNames)
         }
+    }),
+    beforeUnmount(({ values, cache }) => {
+        posthog.capture('taxonomic filter closed', {
+            dwellMs: Date.now() - (cache.openedAt ?? Date.now()),
+            hadSelection: !!cache.hadSelection,
+            groupType: values.activeTab,
+        })
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // When the in-context events change (e.g. an insight series swaps event), ask the model
@@ -1701,7 +1711,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             actions.ensureLoadedForEvents(props.eventNames)
         }
     }),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         selectItem: ({ group, value, item, meta }) => {
             if (item) {
                 const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
@@ -1763,8 +1773,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     }, 0)
                 }
 
+                cache.hadSelection = true
                 props.onChange?.(group, value, item)
             } else if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
+                cache.hadSelection = true
                 props.onChange?.(group, value, item)
             } else if (props.onEnter) {
                 props.onEnter(values.searchQuery)
