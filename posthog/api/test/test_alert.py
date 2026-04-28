@@ -917,7 +917,7 @@ class TestAlertDestinations(APIBaseTest):
             "operator": "exact",
             "type": "event",
         }
-        assert "Slack #alerts" in hog_function.name
+        assert "Slack #alerts" in (hog_function.name or "")
 
     def test_create_webhook_destination_creates_linked_hog_function(self) -> None:
         response = self.client.post(
