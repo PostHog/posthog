@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -34,7 +35,7 @@ class ResendSource(ResumableSource[ResendSourceConfig, ResendResumeConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.RESEND,
             label="Resend",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Resend API key to pull your Resend data into the PostHog Data warehouse.
 
 You can create an API key in your [Resend API keys settings](https://resend.com/api-keys).
@@ -57,6 +58,7 @@ Grant the key **full access** or a read-enabled access token so the following re
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="re_...",
+                        secret=True,
                     ),
                 ],
             ),

@@ -25,7 +25,7 @@ class TestResendSource:
 
         assert config.name.value == "Resend"
         assert config.label == "Resend"
-        assert config.releaseStatus == "beta"
+        assert config.releaseStatus == "alpha"
         assert config.iconPath == "/static/services/resend.png"
         assert len(config.fields) == 1
 
@@ -33,6 +33,7 @@ class TestResendSource:
         assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.name == "api_key"
         assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
+        assert api_key_field.secret is True
         assert api_key_field.required is True
 
     def test_non_retryable_errors(self):
