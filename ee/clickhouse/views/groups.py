@@ -808,6 +808,46 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
 
 class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Name of the usage metric. Must be unique per group type within the project.",
+    )
+    format = serializers.ChoiceField(
+        choices=GroupUsageMetric.Format.choices,
+        default=GroupUsageMetric.Format.NUMERIC,
+        help_text="How the metric value is formatted in the UI. One of `numeric` or `currency`.",
+    )
+    interval = serializers.IntegerField(
+        default=7,
+        help_text="Rolling time window in days used to compute the metric. Defaults to 7.",
+    )
+    display = serializers.ChoiceField(
+        choices=GroupUsageMetric.Display.choices,
+        default=GroupUsageMetric.Display.NUMBER,
+        help_text="Visual representation in the UI. One of `number` or `sparkline`.",
+    )
+    filters = serializers.DictField(
+        help_text=(
+            "HogQL filter definition used to compute the metric. Same shape as HogFunction filters: "
+            "a dict containing an `events` list and optional `properties` list."
+        ),
+    )
+    math = serializers.ChoiceField(
+        choices=GroupUsageMetric.Math.choices,
+        default=GroupUsageMetric.Math.COUNT,
+        help_text=(
+            "Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` "
+            "on matching events."
+        ),
+    )
+    math_property = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.",
+    )
+
     class Meta:
         model = GroupUsageMetric
         fields = ("id", "name", "format", "interval", "display", "filters", "math", "math_property")
@@ -835,7 +875,7 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
     destroy=extend_schema(tags=["customer_analytics"]),
 )
 class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "group"
+    scope_object = "usage_metric"
     queryset = GroupUsageMetric.objects.all()
     serializer_class = GroupUsageMetricSerializer
 
