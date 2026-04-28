@@ -171,7 +171,8 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
     }
 
     /**
-     * Evaluate a wait step's filters against the incoming event.
+     * Evaluate a wait step's filters against the incoming event. Either an
+     * event match or a property condition match wakes the step.
      */
     private async evaluateStepFilters(
         action: Extract<HogFlowAction, { type: 'wait_until_event' | 'wait_until_condition' }>,
@@ -179,53 +180,54 @@ export class CdpHogflowSubscriptionMatcherConsumer extends CdpConsumerBase {
     ): Promise<boolean> {
         const filterGlobals = convertToHogFunctionFilterGlobal(globals)
 
-        if (action.type === 'wait_until_event') {
-            // Any configured event matching wakes the step (OR semantics).
-            for (const eventConfig of action.config.events) {
-                const bytecode = eventConfig.filters?.bytecode
-                if (!bytecode || !Array.isArray(bytecode) || bytecode.length === 0) {
-                    // No bytecode means match on event name alone. Check if the
-                    // event name matches any configured event.
-                    const configuredNames = extractEventNames(eventConfig.filters)
-                    if (configuredNames.includes(globals.event.event) || configuredNames.length === 0) {
-                        return true
-                    }
-                    continue
-                }
+        const events = action.type === 'wait_until_event' ? action.config.events : ((action.config as any).events ?? [])
 
+        for (const eventConfig of events) {
+            if (await this.evaluateEventConfig(eventConfig, globals, filterGlobals, action.id)) {
+                return true
+            }
+        }
+
+        if (action.type === 'wait_until_condition') {
+            const bytecode = action.config.condition?.filters?.bytecode
+            if (Array.isArray(bytecode) && bytecode.length > 0) {
                 try {
                     const result = await execHog(bytecode, { globals: filterGlobals })
                     if (result.execResult?.result === true) {
                         return true
                     }
                 } catch (err) {
-                    logger.warn('Filter evaluation error for wait_until_event', {
+                    logger.warn('Filter evaluation error for wait_until_condition', {
                         actionId: action.id,
                         error: String(err),
                     })
                 }
             }
-            return false
         }
 
-        if (action.type === 'wait_until_condition') {
-            const bytecode = action.config.condition?.filters?.bytecode
-            if (!bytecode || !Array.isArray(bytecode) || bytecode.length === 0) {
-                return false
-            }
+        return false
+    }
+
+    private async evaluateEventConfig(
+        eventConfig: { filters?: any },
+        globals: HogFunctionInvocationGlobals,
+        filterGlobals: ReturnType<typeof convertToHogFunctionFilterGlobal>,
+        actionId: string
+    ): Promise<boolean> {
+        const bytecode = eventConfig.filters?.bytecode
+        if (Array.isArray(bytecode) && bytecode.length > 0) {
             try {
                 const result = await execHog(bytecode, { globals: filterGlobals })
                 return result.execResult?.result === true
             } catch (err) {
-                logger.warn('Filter evaluation error for wait_until_condition', {
-                    actionId: action.id,
-                    error: String(err),
-                })
+                logger.warn('Event filter evaluation error', { actionId, error: String(err) })
                 return false
             }
         }
 
-        return false
+        // No bytecode: match on event name alone. An empty event list matches nothing.
+        const configuredNames = extractEventNames(eventConfig.filters)
+        return configuredNames.includes(globals.event.event)
     }
 
     /**
