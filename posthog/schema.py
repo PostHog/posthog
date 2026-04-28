@@ -832,6 +832,16 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
+class BiasRisk(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    multiple_variant_percentage: float = Field(
+        ...,
+        description=("Observed share of users assigned to `$multiple`, as a percentage (0-100)."),
+    )
+
+
 class BillingSpendResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
@@ -6708,6 +6718,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -7506,6 +7517,7 @@ class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -10652,6 +10664,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(

@@ -6962,6 +6962,11 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    export interface BiasRisk {
+      /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
+      multiple_variant_percentage: number;
+    }
+
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -16548,6 +16553,7 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponseTotalExposures = {[key: string]: number};
 
     export interface ExperimentExposureQueryResponse {
+      bias_risk?: BiasRisk | null;
       date_range: DateRange;
       kind?: ExperimentExposureQueryResponseKind;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
@@ -32747,6 +32753,7 @@ export namespace Schemas {
     export type QueryResponseAlternative21TotalExposures = {[key: string]: number};
 
     export interface QueryResponseAlternative21 {
+      bias_risk?: BiasRisk | null;
       date_range: DateRange;
       kind?: QueryResponseAlternative21Kind;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
