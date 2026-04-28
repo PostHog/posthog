@@ -37,6 +37,7 @@ from posthog.temporal.subscriptions.activities import (
     deliver_subscription,
     fetch_due_subscriptions_activity,
     update_delivery_record,
+    validate_subscription_for_delivery,
 )
 from posthog.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
@@ -49,6 +50,7 @@ from posthog.temporal.subscriptions.types import (
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
+    ValidateSubscriptionForDeliveryInputs,
 )
 from posthog.temporal.subscriptions.workflows import (
     HandleSubscriptionValueChangeWorkflow,
@@ -69,6 +71,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     [
         fetch_due_subscriptions_activity,
         create_delivery_record,
+        validate_subscription_for_delivery,
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
@@ -81,6 +84,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
         create_delivery_record,
+        validate_subscription_for_delivery,
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
@@ -387,27 +391,42 @@ async def test_deliver_subscription_report_slack(
     assert mock_send_slack_async.await_count == 1
 
 
-@patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
-@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
-@freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
-async def test_process_subscription_records_missing_slack_integration_failure(
+async def test_validate_subscription_for_delivery_ok_for_valid_slack(team, user):
+    """Pre-flight validation passes when target_type=slack and an integration exists."""
+    from posthog.models.integration import Integration
+
+    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack")
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="vsd001", name="Validate OK")
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+        integration=integration,
+    )
+
+    env = ActivityEnvironment()
+    result = await env.run(
+        validate_subscription_for_delivery,
+        ValidateSubscriptionForDeliveryInputs(subscription_id=subscription.id),
+    )
+
+    assert result.ok is True
+    assert result.skip_reason is None
+    assert result.error is None
+
+
+@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
+@pytest.mark.asyncio
+async def test_validate_subscription_for_delivery_rejects_missing_slack_integration(
     mock_get_slack: MagicMock,
-    mock_build_snapshot: MagicMock,
-    temporal_client: Client,
     team,
     user,
 ):
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="slk001", name="Slack fail")
-    mock_build_snapshot.return_value = {
-        "id": insight.id,
-        "short_id": str(insight.short_id),
-        "name": insight.name or "",
-        "dashboard_tile_id": None,
-        "query_hash": "mock_cache_key",
-        "cache_key": "mock_cache_key",
-        "query_results": {"result": []},
-    }
+    """Pre-flight validation rejects target_type=slack subscriptions with no integration."""
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="vsd002", name="Validate fail")
     subscription = await sync_to_async(create_subscription)(
         team=team,
         insight=insight,
@@ -415,36 +434,93 @@ async def test_process_subscription_records_missing_slack_integration_failure(
         target_type="slack",
         target_value="C12345|#test-channel",
     )
-    await sync_to_async(ExportedAsset.objects.create)(
-        team=team,
-        insight=insight,
-        export_format="image/png",
-        content_location="s3://bucket/slack-fail.png",
+
+    env = ActivityEnvironment()
+    result = await env.run(
+        validate_subscription_for_delivery,
+        ValidateSubscriptionForDeliveryInputs(subscription_id=subscription.id),
     )
 
-    with pytest.raises(Exception):
-        async with await WorkflowEnvironment.start_time_skipping() as env:
-            async with Worker(
-                env.client,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-                workflows=[ProcessSubscriptionWorkflow],
-                activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
-                interceptors=[SloInterceptor()],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-                activity_executor=ThreadPoolExecutor(max_workers=10),
-                debug_mode=True,
-            ):
-                await env.client.execute_workflow(
-                    ProcessSubscriptionWorkflow.run,
-                    TrackedSubscriptionInputs(
-                        subscription_id=subscription.id,
+    assert result.ok is False
+    assert result.skip_reason == "slack_integration_missing"
+    assert result.error == {
+        "message": "No Slack integration configured",
+        "type": "missing_integration",
+    }
+    assert result.recipient == subscription.target_value
+    mock_get_slack.assert_called_once_with(subscription.team_id)
+
+
+@patch("posthog.temporal.subscriptions.activities.send_slack_message_with_integration_async", new_callable=AsyncMock)
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("posthog.slo.events.posthoganalytics")
+@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_process_subscription_short_circuits_on_validation_failure_keeps_slo_success(
+    mock_get_slack: MagicMock,
+    mock_slo_analytics: MagicMock,
+    mock_exporter: MagicMock,
+    mock_send_slack_async: AsyncMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    """Regression test for the SLO failure root cause.
+
+    Production triage showed 211 `slo_operation_completed` events / 7 days with
+    `outcome=failure, error_type=ApplicationError, sample="No Slack integration
+    configured for this team"`. This test pins the new behavior: validation
+    short-circuits before the heavy export work, the workflow returns cleanly
+    (no raise), and the SLO outcome stays `success`. A future change that
+    re-introduces the raise would fail this test loudly.
+    """
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="slk001", name="Slack fail")
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=10),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ProcessSubscriptionWorkflow.run,
+                TrackedSubscriptionInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                    trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
                         team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
                         distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
                     ),
-                    id=str(uuid.uuid4()),
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
-                )
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
 
+    # Heavy work must NOT be invoked — the whole point of this PR.
+    mock_exporter.export_asset_direct.assert_not_called()
+    mock_send_slack_async.assert_not_called()
+    # Validation calls the helper once; the deliver path never gets a chance.
+    mock_get_slack.assert_called_once_with(subscription.team_id)
+
+    # Delivery row finalized with FAILED + per-recipient missing-integration error.
     row = await sync_to_async(SubscriptionDelivery.objects.filter(subscription_id=subscription.id).latest)("created_at")
     assert row.status == SubscriptionDelivery.Status.FAILED
     assert row.recipient_results == [
@@ -457,7 +533,19 @@ async def test_process_subscription_records_missing_slack_integration_failure(
             },
         }
     ]
-    mock_get_slack.assert_called_once_with(subscription.team_id)
+
+    # SCHEDULED triggers always advance, even on failure.
+    refreshed = await sync_to_async(type(subscription).objects.get)(pk=subscription.id)
+    assert refreshed.next_delivery_date != subscription.next_delivery_date
+
+    # SLO regression invariant: outcome=success, NOT failure+ApplicationError.
+    completed_calls = [
+        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+    ]
+    assert len(completed_calls) == 1
+    props = completed_calls[0].kwargs["properties"]
+    assert props["outcome"] == SloOutcome.SUCCESS
+    assert props.get("error_type") != "ApplicationError"
 
 
 @patch("posthog.slo.events.posthoganalytics")

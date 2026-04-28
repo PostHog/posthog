@@ -98,6 +98,24 @@ class DeliverSubscriptionInputs:
 
 
 @dataclasses.dataclass
+class ValidateSubscriptionForDeliveryInputs:
+    subscription_id: int
+
+
+@dataclasses.dataclass
+class ValidateSubscriptionForDeliveryResult:
+    """Result of pre-delivery validation. `ok=True` means the workflow proceeds
+    with `create_export_assets`. `ok=False` means we short-circuit with the
+    per-recipient failure details captured for the delivery record.
+    """
+
+    ok: bool
+    skip_reason: typing.Optional[str] = None
+    error: typing.Optional[dict[str, str]] = None  # {"message": ..., "type": ...}
+    recipient: typing.Optional[str] = None  # subscription.target_value snapshot
+
+
+@dataclasses.dataclass
 class ProcessSubscriptionWorkflowInputs:
     subscription_id: int
     team_id: int = 0

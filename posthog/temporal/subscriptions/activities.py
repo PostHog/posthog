@@ -30,6 +30,8 @@ from posthog.temporal.subscriptions.types import (
     RecipientResult,
     SubscriptionInfo,
     UpdateDeliveryRecordInputs,
+    ValidateSubscriptionForDeliveryInputs,
+    ValidateSubscriptionForDeliveryResult,
 )
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -292,6 +294,63 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
 
 @temporalio.activity.defn
+async def validate_subscription_for_delivery(
+    inputs: ValidateSubscriptionForDeliveryInputs,
+) -> ValidateSubscriptionForDeliveryResult:
+    """Pre-flight validation that runs before `create_export_assets`.
+
+    Confirms the delivery prerequisites are met (target_type supported, Slack
+    integration present when target_type=slack). Lets the workflow short-circuit
+    with FAILED status before burning the expensive Selenium PNG render and
+    fan-out export work on subscriptions that cannot succeed without user
+    intervention.
+    """
+    subscription = await database_sync_to_async(
+        Subscription.objects.select_related("integration").get,
+        thread_sensitive=False,
+    )(pk=inputs.subscription_id)
+
+    if subscription.target_type not in SUPPORTED_TARGET_TYPES:
+        await LOGGER.awarning(
+            "validate_subscription_for_delivery.unsupported_target",
+            subscription_id=inputs.subscription_id,
+            target_type=subscription.target_type,
+        )
+        return ValidateSubscriptionForDeliveryResult(
+            ok=False,
+            skip_reason="unsupported_target",
+            error={
+                "message": f"Unsupported target_type: {subscription.target_type}",
+                "type": "unsupported_target",
+            },
+            recipient=subscription.target_value,
+        )
+
+    if subscription.target_type == "slack":
+        integration = subscription.integration
+        if integration is None or integration.kind != "slack":
+            integration = await database_sync_to_async(get_slack_integration_for_team, thread_sensitive=False)(
+                subscription.team_id
+            )
+        if not integration:
+            await LOGGER.awarning(
+                "validate_subscription_for_delivery.slack_integration_missing",
+                subscription_id=inputs.subscription_id,
+            )
+            return ValidateSubscriptionForDeliveryResult(
+                ok=False,
+                skip_reason="slack_integration_missing",
+                error={
+                    "message": "No Slack integration configured",
+                    "type": "missing_integration",
+                },
+                recipient=subscription.target_value,
+            )
+
+    return ValidateSubscriptionForDeliveryResult(ok=True)
+
+
+@temporalio.activity.defn
 async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
     recipient_results: list[RecipientResult] = []
 
@@ -410,37 +469,28 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 )
 
             if not integration:
+                # Defense-in-depth backstop. The pre-flight
+                # `validate_subscription_for_delivery` activity gates this case
+                # earlier, so reaching here means the integration was deleted
+                # between validation and delivery. Mirror the `if not assets:`
+                # pattern above: log + capture + return cleanly so the SLO
+                # outcome stays `success` (we successfully recorded the failure).
                 LOGGER.warning(
                     "deliver_subscription.no_slack_integration",
                     subscription_id=inputs.subscription_id,
                 )
-                missing_integration_error = {
-                    "message": "No Slack integration configured",
-                    "type": "missing_integration",
-                }
+                _capture_delivery_failed_event(subscription, Exception("No Slack integration configured for this team"))
                 recipient_results.append(
                     RecipientResult(
                         recipient=subscription.target_value,
                         status="failed",
-                        error=missing_integration_error,
+                        error={
+                            "message": "No Slack integration configured",
+                            "type": "missing_integration",
+                        },
                     )
                 )
-                # Same shape as ProcessSubscriptionWorkflow success-path serialization so
-                # update_delivery_record gets per-recipient rows from ActivityError.details.
-                raise ApplicationError(
-                    "No Slack integration configured for this team",
-                    {
-                        "recipient_results": [
-                            {
-                                "recipient": r.recipient,
-                                "status": r.status,
-                                **({"error": r.error} if r.error else {}),
-                            }
-                            for r in recipient_results
-                        ]
-                    },
-                    non_retryable=True,
-                )
+                return DeliverSubscriptionResult(recipient_results=recipient_results)
 
             LOGGER.info("deliver_subscription.sending_slack_message", subscription_id=subscription.id)
             delivery_result = await send_slack_message_with_integration_async(

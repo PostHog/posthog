@@ -27,6 +27,7 @@ from posthog.temporal.subscriptions.activities import (
     deliver_subscription,
     fetch_due_subscriptions_activity,
     update_delivery_record,
+    validate_subscription_for_delivery,
 )
 from posthog.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from posthog.temporal.subscriptions.types import (
@@ -44,6 +45,7 @@ from posthog.temporal.subscriptions.types import (
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
+    ValidateSubscriptionForDeliveryInputs,
 )
 
 # Rolling-deploy deprecation bundle (TODO slug: subscriptions-patched-cleanup)
@@ -274,6 +276,41 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     maximum_attempts=3,
                 ),
             )
+
+            # Phase 0: Pre-flight validation. Cheap activity that confirms the
+            # delivery prerequisites are met (target_type supported, Slack
+            # integration present when target_type=slack). On failure, short-
+            # circuit with FAILED status — avoids burning the expensive
+            # create_export_assets + fan-out export work on subscriptions that
+            # cannot succeed without user intervention. The SLO outcome stays
+            # `success`: we successfully detected and recorded the failure.
+            validation = await temporalio.workflow.execute_activity(
+                validate_subscription_for_delivery,
+                ValidateSubscriptionForDeliveryInputs(subscription_id=inputs.subscription_id),
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(seconds=30),
+                    maximum_attempts=3,
+                ),
+            )
+            if not validation.ok:
+                temporalio.workflow.logger.warning(
+                    "process_subscription.validation_skip",
+                    extra={
+                        "subscription_id": inputs.subscription_id,
+                        "skip_reason": validation.skip_reason,
+                    },
+                )
+                delivery_recipient_results = [
+                    {
+                        "recipient": validation.recipient,
+                        "status": "failed",
+                        "error": validation.error,
+                    }
+                ]
+                final_status = DeliveryStatus.FAILED
+                return  # finally block updates the delivery record + advances next_delivery_date
 
             # Phase 1: Prepare — create ExportedAssets and persist insight snapshots
             # onto SubscriptionDelivery.content_snapshot (written from within the
