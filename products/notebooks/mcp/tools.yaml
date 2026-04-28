@@ -128,3 +128,6 @@ tools:
     notebooks-all-activity-retrieve:
         operation: notebooks_all_activity_retrieve
         enabled: false
+    notebooks-collab-stream-retrieve:
+        operation: notebooks_collab_stream_retrieve
+        enabled: false
