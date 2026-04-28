@@ -3,12 +3,12 @@ from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-import requests
 import structlog
 from dateutil import parser
 from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.snapchat_ads.settings import (
     BASE_URL,
@@ -32,7 +32,7 @@ def fetch_account_currency(ad_account_id: str, access_token: str) -> str | None:
     so we fetch it from the ad account endpoint once per sync.
     """
     try:
-        response = requests.get(
+        response = make_tracked_session().get(
             f"{BASE_URL}/adaccounts/{ad_account_id}",
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=30,

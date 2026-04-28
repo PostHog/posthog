@@ -13,6 +13,7 @@ Before coding, read:
 
 - `posthog/temporal/data_imports/sources/source.template` (use the top-of-file TODOs as a starting reference, but verify target files against the current source implementations — the template can drift, e.g. it currently still points at the old `posthog/warehouse/types.py` path instead of `products/data_warehouse/backend/types.py`)
 - `posthog/temporal/data_imports/sources/README.md`
+- `posthog/temporal/data_imports/sources/SOURCES.md` — inventory of every registered source with its communication method (HTTP / vendor SDK / gRPC / DB protocol / webhook) and tracked-transport state. Skim this first to see how similar sources are wired and what state today's source you're touching is in. **Keep it in sync** — see "Updating SOURCES.md" below.
 - `posthog/temporal/data_imports/sources/common/base.py` — base classes (`SimpleSource`, `ResumableSource`, `WebhookSource`) and the `FieldType` union
 - `posthog/temporal/data_imports/sources/common/resumable.py` — `ResumableSourceManager`
 - `posthog/temporal/data_imports/sources/common/webhook_s3.py` — `WebhookSourceManager`
@@ -166,6 +167,46 @@ Save state **after** yielding each batch, not before — so if we crash we re-yi
 - Add `webhookFields` to `SourceConfig` for post-setup inputs (e.g. signing secret).
 - In `source_for_pipeline`, call `self.get_webhook_source_manager(inputs)` and pass its iterator alongside the pull iterator so a single sync pulls historical + webhook-delivered rows.
 - Populate `SourceSchema.supports_webhooks=True` only for endpoints where webhooks are actually viable (usually incremental/append-only ones).
+
+## Outbound HTTP must go through the tracked transport
+
+Every HTTP call from `posthog/temporal/data_imports/sources/**` must go through `make_tracked_session()` (from
+`posthog.temporal.data_imports.sources.common.http`). The tracked session attaches `team_id`, `source_type`,
+`external_data_source_id`, `external_data_schema_id`, and `external_data_job_id` to every outbound request's
+log line and OTel metric, and participates in opt-in sample capture.
+
+- For raw `requests` usage: `make_tracked_session(headers=..., retry=...)` returns a `requests.Session`. Use
+  `session.get/post/...` instead of the module-level `requests.get/...` shortcuts.
+- For sources that already go through `rest_source.RESTClient`: it defaults to a tracked session
+  automatically; no change needed.
+- For vendor SDKs that accept a session/HTTP-client hook (Stripe `RequestsClient(session=...)`,
+  gspread `authorize(credentials, session=...)`, BigQuery via `AuthorizedSession` + `TrackedHTTPAdapter`),
+  inject one. Reference patterns live in `stripe/stripe.py`, `google_sheets/google_sheets.py`, and
+  `bigquery/bigquery.py`.
+- For vendor SDKs with no injection seam (today: `bingads`, `linkedin-api`'s `RestliClient`, anything
+  pure-gRPC), add a `# nosemgrep: data-imports-http-transport-...` pragma with a one-line reason and record
+  the source as `⚠️ Vendor SDK` in `SOURCES.md`.
+
+CI enforces this via `.semgrep/rules/data-imports-http-transport.yaml`. The rule bans direct `requests.Session()`,
+`requests.<verb>(...)`, and `httpx.Client/AsyncClient/<verb>` inside `sources/**`. Type-only imports
+(`from requests import Response`, `from requests.exceptions import HTTPError`) remain allowed.
+
+## Updating SOURCES.md
+
+`posthog/temporal/data_imports/sources/SOURCES.md` is the inventory of every registered source, its
+communication method, and whether its outbound traffic is tracked. Update it as part of the same PR
+whenever you:
+
+- **Add a new source** — initially as a Scaffolded entry; move it into the Implemented table once you
+  ship working sync logic.
+- **Implement a previously scaffolded source** — move the row into the Implemented table and fill in
+  comm method, primary library, and tracked-transport state.
+- **Migrate a vendor SDK** to inject a tracked session — flip the source from `⚠️ Vendor SDK` to `✅`.
+- **Switch a source's protocol** — e.g. swap REST for gRPC, add webhook support alongside the pull API,
+  or move from `requests` to a vendor SDK. Update both the comm method and tracked-transport columns.
+
+Keep the entries alphabetical within each table. If you add a partially-tracked source, also append a
+short "Notes on partially-tracked sources" entry explaining what blocks tracking (no SDK seam, gRPC, etc.).
 
 ## Required coding conventions
 
