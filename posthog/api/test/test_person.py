@@ -421,7 +421,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIsNone(async_deletion.delete_verified_at)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    @mock.patch("posthog.api.person.PersonViewSet._queue_delete_recordings")
+    @mock.patch("posthog.api.person.queue_person_recording_deletion")
     def test_delete_person_and_recordings(self, _mock_queue_delete):
         person = _create_person(
             team=self.team,
@@ -437,7 +437,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(Person.objects.filter(team=self.team).count(), 0)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
-    @mock.patch("posthog.api.person.PersonViewSet._queue_delete_recordings")
+    @mock.patch("posthog.api.person.queue_person_recording_deletion")
     def test_delete_person_and_recordings_and_events(self, _mock_queue_delete):
         person = _create_person(
             team=self.team,
@@ -588,7 +588,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
         self.assertEqual(async_deletion.key, str(person.uuid))
 
-    @mock.patch("posthog.api.person.PersonViewSet._queue_delete_recordings")
+    @mock.patch("posthog.api.person.queue_person_recording_deletion")
     def test_bulk_delete_with_recordings(self, _mock_queue_delete):
         """Test that bulk_delete queues recording deletion"""
         person = _create_person(
@@ -637,6 +637,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("distinct_ids or ids", str(response.content))
+
+    def test_bulk_delete_validation_rejects_both_ids_and_distinct_ids(self):
+        response = self.client.post(
+            f"/api/person/bulk_delete/",
+            {"ids": [str(uuid4())], "distinct_ids": ["did_1"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("not both", str(response.content))
 
     def test_bulk_delete_no_matching_persons(self):
         response = self.client.post(
@@ -747,7 +755,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["results"][0]["person_uuid"], str(person1.uuid))
 
-    @mock.patch("posthog.api.person.delete_person")
+    @mock.patch("posthog.models.person.bulk_delete.delete_person")
     def test_bulk_delete_partial_failure(self, mock_delete_person):
         """Test that bulk_delete continues when a single person fails to delete and reports errors"""
         person1 = _create_person(

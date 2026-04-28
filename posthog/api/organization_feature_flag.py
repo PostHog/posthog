@@ -36,6 +36,11 @@ class CopyFlagsRequestSerializer(serializers.Serializer):
         default=False,
         help_text="Whether to also copy scheduled changes for this flag",
     )
+    disable_copied_flag = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status",
+    )
 
 
 class CopyFlagsResultSerializer(serializers.Serializer):
@@ -122,6 +127,7 @@ class OrganizationFeatureFlagView(
         from_project = body.get("from_project")
         target_project_ids = body.get("target_project_ids")
         copy_schedule = body.get("copy_schedule", False)  # Optional parameter to copy schedules
+        disable_copied_flag = body.get("disable_copied_flag", False)
 
         if not feature_flag_key or not from_project or not target_project_ids:
             return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
@@ -276,7 +282,7 @@ class OrganizationFeatureFlagView(
                 "key": flag_to_copy.key,
                 "name": flag_to_copy.name,
                 "filters": filters,
-                "active": flag_to_copy.active,
+                "active": False if disable_copied_flag else flag_to_copy.active,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,
                 "deleted": False,
                 "evaluation_runtime": flag_to_copy.evaluation_runtime,

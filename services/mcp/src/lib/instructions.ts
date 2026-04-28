@@ -6,7 +6,7 @@ export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
     if (!groupTypes || groupTypes.length === 0) {
         return ''
     }
-    return groupTypes.map((gt) => gt.group_type).join(', ')
+    return `Defined group types: ${groupTypes.map((gt) => gt.group_type).join(', ')}`
 }
 
 export function buildActiveEnvironmentContextPrompt(
@@ -112,6 +112,10 @@ export class ToolDomainExtractor {
         return this.getDomains()
             .map((d) => `- ${d}`)
             .join('\n')
+    }
+
+    toCompact(): string {
+        return this.getDomains().join('|')
     }
 
     private groupByCategory(tools: ToolInfo[]): Map<string, string[]> {
@@ -235,6 +239,10 @@ export function buildToolDomainsBlock(tools: ToolInfo[]): string {
     return new ToolDomainExtractor(tools).toMarkdown()
 }
 
+export function buildToolDomainsCompact(tools: ToolInfo[]): string {
+    return new ToolDomainExtractor(tools).toCompact()
+}
+
 export interface QueryToolInfo {
     name: string
     title: string
@@ -250,18 +258,42 @@ export class QueryToolCatalog {
     constructor(private readonly tools: QueryToolInfo[]) {}
 
     toMarkdown(): string {
-        const queryTools = this.tools
-            .filter((t) => t.name.startsWith('query-'))
-            .sort((a, b) => a.name.localeCompare(b.name))
+        const queryTools = this.filteredAndSorted()
         if (queryTools.length === 0) {
             return ''
         }
         return queryTools.map((t) => `- \`${t.name}\` — ${t.systemPromptHint ?? t.title}`).join('\n')
     }
+
+    toCompact(): string {
+        const queryTools = this.filteredAndSorted()
+        if (queryTools.length === 0) {
+            return ''
+        }
+        return queryTools.map((t) => t.name.replace(/^query-/, '')).join('|')
+    }
+
+    private filteredAndSorted(): QueryToolInfo[] {
+        return this.tools.filter((t) => t.name.startsWith('query-')).sort((a, b) => a.name.localeCompare(b.name))
+    }
 }
 
 export function buildQueryToolsBlock(tools: QueryToolInfo[]): string {
     return new QueryToolCatalog(tools).toMarkdown()
+}
+
+export function buildQueryToolsCompact(tools: QueryToolInfo[]): string {
+    return new QueryToolCatalog(tools).toCompact()
+}
+
+export interface BuildInstructionsV2Options {
+    /**
+     * Render `{tool_domains}` and `{query_tools}` as a single pipe-separated
+     * line (and strip the `query-` prefix from query tool names) instead of
+     * markdown bullet lists. Used by the single-exec instructions template
+     * where every byte counts against the 2048-char `instructions` budget.
+     */
+    compact?: boolean
 }
 
 export function buildInstructionsV2(
@@ -270,13 +302,17 @@ export function buildInstructionsV2(
     groupTypes?: GroupType[],
     metadata?: string,
     tools?: ToolInfo[],
-    queryTools?: QueryToolInfo[]
+    queryTools?: QueryToolInfo[],
+    options?: BuildInstructionsV2Options
 ): string {
+    const compact = options?.compact ?? false
+    const renderToolDomains = compact ? buildToolDomainsCompact : buildToolDomainsBlock
+    const renderQueryTools = compact ? buildQueryToolsCompact : buildQueryToolsBlock
     return formatPrompt(template, {
         guidelines: guidelines.trim(),
         defined_groups: buildDefinedGroupsBlock(groupTypes),
         metadata: metadata?.trim() ?? '',
-        tool_domains: tools ? buildToolDomainsBlock(tools) : '',
-        query_tools: queryTools ? buildQueryToolsBlock(queryTools) : '',
+        tool_domains: tools ? renderToolDomains(tools) : '',
+        query_tools: queryTools ? renderQueryTools(queryTools) : '',
     })
 }
