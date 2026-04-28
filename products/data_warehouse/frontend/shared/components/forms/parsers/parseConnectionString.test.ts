@@ -168,10 +168,22 @@ describe('parseClickhouseConnectionString', () => {
         expect(fieldMap(result.fields).port).toBe('9440')
     })
 
-    it('honors ?secure=true override on a clickhouse:// URL and switches default to 9440', () => {
+    it('honors ?secure=true override on a clickhouse:// URL and switches default to 9440 (native family)', () => {
         const result = parseClickhouseConnectionString('clickhouse://default:pw@localhost/default?secure=true')
         expect(fieldMap(result.fields).secure).toBe('true')
         expect(fieldMap(result.fields).port).toBe('9440')
+    })
+
+    it('honors ?secure=true override on an http:// URL and switches default to 8443 (HTTP family)', () => {
+        const result = parseClickhouseConnectionString('http://default:pw@localhost/default?secure=true')
+        expect(fieldMap(result.fields).secure).toBe('true')
+        expect(fieldMap(result.fields).port).toBe('8443')
+    })
+
+    it('honors ?secure=false override on an https:// URL and switches default to 8123 (HTTP family)', () => {
+        const result = parseClickhouseConnectionString('https://default:pw@localhost/default?secure=false')
+        expect(fieldMap(result.fields).secure).toBe('false')
+        expect(fieldMap(result.fields).port).toBe('8123')
     })
 
     it('respects an explicit port over the scheme default', () => {

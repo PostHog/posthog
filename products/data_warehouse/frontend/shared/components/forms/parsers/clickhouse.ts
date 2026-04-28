@@ -1,15 +1,23 @@
 import type { ParseResult, ParsedField } from './types'
 
+type SchemeFamily = 'http' | 'native'
+
 interface SchemeDefaults {
     secure: 'true' | 'false'
     port: number
+    family: SchemeFamily
 }
 
 const SCHEME_DEFAULTS: Record<string, SchemeDefaults> = {
-    'https:': { secure: 'true', port: 8443 },
-    'clickhouses:': { secure: 'true', port: 9440 },
-    'http:': { secure: 'false', port: 8123 },
-    'clickhouse:': { secure: 'false', port: 9000 },
+    'https:': { secure: 'true', port: 8443, family: 'http' },
+    'clickhouses:': { secure: 'true', port: 9440, family: 'native' },
+    'http:': { secure: 'false', port: 8123, family: 'http' },
+    'clickhouse:': { secure: 'false', port: 9000, family: 'native' },
+}
+
+const FAMILY_PORTS: Record<SchemeFamily, { secure: number; insecure: number }> = {
+    http: { secure: 8443, insecure: 8123 },
+    native: { secure: 9440, insecure: 9000 },
 }
 
 const TRUTHY = new Set(['true', '1', 'yes'])
@@ -55,9 +63,15 @@ export function parseClickhouseConnectionString(str: string): ParseResult {
     const secureOverride = overrideSecure(result.searchParams)
     const secure = secureOverride ?? defaults.secure
     // When the user flips the secure flag via query param against the scheme default,
-    // pick the scheme's "other" canonical port so the form lands on something sensible.
+    // pick the *same family's* other canonical port — flipping http → https stays in
+    // the HTTP family (8123 ↔ 8443), and clickhouse ↔ clickhouses stays native (9000 ↔ 9440).
+    const familyPorts = FAMILY_PORTS[defaults.family]
     const inferredPort =
-        secureOverride && secureOverride !== defaults.secure ? (secure === 'true' ? 9440 : 9000) : defaults.port
+        secureOverride && secureOverride !== defaults.secure
+            ? secure === 'true'
+                ? familyPorts.secure
+                : familyPorts.insecure
+            : defaults.port
     const port = result.port || String(inferredPort)
 
     const fields: ParsedField[] = [
