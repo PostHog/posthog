@@ -54,6 +54,24 @@ describe('createXAxisTickCallback', () => {
             expected: ['10:00', '10:01', '10:02'],
         },
         {
+            scenario: 'inferred from midnight-only datetimes never produces hourly labels',
+            interval: undefined,
+            allDays: ['2025-01-01 00:00:00', '2025-02-01 00:00:00', '2025-03-01 00:00:00'],
+            expected: ['2025', 'February', 'March'],
+        },
+        {
+            scenario: 'inferred from sparse midnight-only data falls back to daily formatting',
+            interval: undefined,
+            allDays: ['2025-04-01 00:00:00', '2025-04-01 00:00:00', '2025-04-02 00:00:00'],
+            expected: ['April', 'April', 'Apr 2'],
+        },
+        {
+            scenario: 'inferred from non-uniform gaps uses median to avoid outliers',
+            interval: undefined,
+            allDays: ['2025-01-01 00:00:00', '2025-01-01 00:01:00', '2025-02-01 00:00:00', '2025-03-01 00:00:00'],
+            expected: ['2025', '2025', 'February', 'March'],
+        },
+        {
             scenario: 'second interval formats as HH:mm',
             interval: 'second' as const,
             allDays: ['2025-04-01 14:30:00', '2025-04-01 14:30:01', '2025-04-01 14:30:02'],

@@ -38,6 +38,12 @@ Actions are user-defined event filters. If the plan includes an action series, y
 {"query":{"dateRange":{"date_from":"-30d"},"interval":"month","kind":"TrendsQuery","series":[{"event":"user signed up","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"BoldNumber"}}}
 ```
 
+### Pageviews in the last 5 minutes (note: minute uses uppercase `M`; lowercase `m` means months)
+
+```
+{"query":{"dateRange":{"date_from":"-5M"},"interval":"minute","kind":"TrendsQuery","series":[{"event":"$pageview","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"ActionsLineGraph"}}}
+```
+
 ### Show a bar chart of the organic search traffic for the last month grouped by week.
 
 ```

@@ -132,18 +132,36 @@ function inferInterval(parsedDates: Dayjs[]): IntervalType {
     if (parsedDates.length < 2) {
         return 'day'
     }
-    const diffHours = parsedDates[1].diff(parsedDates[0], 'hour')
-    if (diffHours < 1) {
-        return 'minute'
+
+    // If every timestamp is at midnight (00:00:00), the data is at least daily granularity.
+    // Without this guard, sparse SQL results or duplicated rows can make the first-pair diff
+    // look sub-daily and produce a stream of '00:00' x-axis labels for what is really monthly
+    // or daily data.
+    const allAtMidnight = parsedDates.every((d) => d.hour() === 0 && d.minute() === 0 && d.second() === 0)
+
+    // Use the median gap (lower median) instead of just the first gap so the inference is robust
+    // to non-uniform spacing — e.g. a duplicated first row, or one outlier gap among many.
+    const gapsMs: number[] = []
+    for (let i = 1; i < parsedDates.length; i++) {
+        gapsMs.push(parsedDates[i].diff(parsedDates[i - 1], 'millisecond'))
     }
-    if (diffHours < 24) {
-        return 'hour'
+    gapsMs.sort((a, b) => a - b)
+    const medianMs = gapsMs[Math.floor((gapsMs.length - 1) / 2)]
+    const medianHours = medianMs / 3_600_000
+    const medianDays = medianMs / 86_400_000
+
+    if (!allAtMidnight) {
+        if (medianHours < 1) {
+            return 'minute'
+        }
+        if (medianHours < 24) {
+            return 'hour'
+        }
     }
-    const diffDays = parsedDates[1].diff(parsedDates[0], 'day')
-    if (diffDays >= 25) {
+    if (medianDays >= 25) {
         return 'month'
     }
-    if (diffDays >= 5) {
+    if (medianDays >= 5) {
         return 'week'
     }
     return 'day'

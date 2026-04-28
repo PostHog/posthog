@@ -344,9 +344,13 @@ export const LineGraph = ({
                 tickBorderDash: [4, 2],
             }
 
-            const isDateAxis = xSeriesData.column.type.name === 'DATE' || xSeriesData.column.type.name === 'DATETIME'
+            const isDateOnlyAxis = xSeriesData.column.type.name === 'DATE'
+            const isDateAxis = isDateOnlyAxis || xSeriesData.column.type.name === 'DATETIME'
+            // DATE columns can't carry sub-day information, so force at-least-daily formatting
+            // and let inferInterval handle the DATETIME case (where the data may genuinely be hourly).
             const xAxisTickCallback = isDateAxis
                 ? createXAxisTickCallback({
+                      interval: isDateOnlyAxis ? 'day' : undefined,
                       allDays: xSeriesData.data,
                       timezone,
                   })

@@ -53,8 +53,15 @@ export interface AssistantDateRange {
  */
 export interface AssistantDurationRange {
     /**
-     * Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary.
-     * Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.
+     * Duration in the past. Supported units are case-sensitive: `s` (second), `M` (minute, uppercase),
+     * `h` (hour), `d` (day), `w` (week), `m` (month, lowercase), `q` (quarter), `y` (year), `all` (all time).
+     * IMPORTANT: minutes are uppercase `M` and months are lowercase `m` — they are NOT interchangeable.
+     * `-5M` means the last 5 minutes; `-5m` means the last 5 months. When the user says "minutes",
+     * always emit uppercase `M`.
+     * Use the `Start` suffix to define the exact left date boundary.
+     * Examples: `-30s` last 30 seconds, `-5M` last 5 minutes, `-2h` last 2 hours, `-1d` last day,
+     * `-180d` last 180 days, `-12m` last 12 months, `-1y` last year, `mStart` this month start,
+     * `-1dStart` yesterday's start.
      */
     date_from: string
 }
@@ -1329,7 +1336,10 @@ export interface AssistantErrorTrackingQuery {
  */
 export interface AssistantRecordingsQuery {
     kind: NodeKind.RecordingsQuery
-    /** Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d". */
+    /**
+     * Start of the date range. Supports relative dates like `-7d`, `-24h`, `-5M` (5 minutes — note the uppercase
+     * `M`; lowercase `m` means months) or ISO 8601 format. Default: `-3d`.
+     */
     date_from?: string | null
     /** End of the date range. Supports relative dates or ISO 8601 format. Default: now. */
     date_to?: string | null

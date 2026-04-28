@@ -580,7 +580,7 @@ const AssistantRecordingsQuery = z.object({
         .string()
         .nullable()
         .describe(
-            'Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d".'
+            'Start of the date range. Supports relative dates like `-7d`, `-24h`, `-5M` (5 minutes — note the uppercase `M`; lowercase `m` means months) or ISO 8601 format. Default: `-3d`.'
         )
         .optional(),
     date_to: z
