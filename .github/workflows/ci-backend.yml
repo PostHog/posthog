@@ -436,6 +436,14 @@ jobs:
                   include-hidden-files: true
                   retention-days: 2
 
+            - name: Upload OpenAPI response validation report
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: openapi-response-validation-products-${{ strategy.job-index }}
+                  path: '**/openapi_response_validation_report.json'
+                  if-no-files-found: warn
+
             - name: Verify new snapshots for flakiness
               if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
               shell: bash
@@ -1426,6 +1434,14 @@ jobs:
               with:
                   name: junit-results-backend-${{ matrix.artifact_key }}
                   path: junit-*.xml
+
+            - name: Upload OpenAPI response validation report
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: openapi-response-validation-backend-${{ matrix.artifact_key }}
+                  path: openapi_response_validation_report.json
+                  if-no-files-found: warn
 
     # Aggregate and commit snapshot changes from all matrix jobs
 

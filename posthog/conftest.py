@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 from urllib.parse import quote_plus
 
@@ -10,8 +11,10 @@ from django.core.management.commands.flush import Command as FlushCommand
 from django.db import connections
 
 from infi.clickhouse_orm import Database
+from rest_framework.test import APIClient
 
 from posthog.clickhouse.client import sync_execute
+from posthog.test.openapi_response_validation import build_openapi_response_validator
 
 
 def create_clickhouse_tables():
@@ -445,6 +448,10 @@ def pytest_configure(config):
     # Set default databases for Django test classes
     TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
     TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+    config.addinivalue_line(
+        "markers",
+        "skip_openapi_response_validation: skip OpenAPI response validation for this test",
+    )
 
 
 def _runs_on_internal_pr() -> bool:
@@ -462,3 +469,38 @@ def _runs_on_internal_pr() -> bool:
 def pytest_runtest_setup(item: pytest.Item) -> None:
     if "requires_secrets" in item.keywords and not _runs_on_internal_pr():
         pytest.skip("Skipping test that requires internal secrets on external PRs")
+
+
+@pytest.fixture(autouse=True)
+def validate_api_responses_against_openapi_spec(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    if "skip_openapi_response_validation" in request.keywords:
+        return
+
+    validator = build_openapi_response_validator()
+    original_request = APIClient.request
+
+    def wrapped_request(client: APIClient, **kwargs: object) -> object:
+        response = original_request(client, **kwargs)
+        validator.validate_response(response)
+        return response
+
+    monkeypatch.setattr(APIClient, "request", wrapped_request)
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    validator = build_openapi_response_validator()
+    report = validator.recorder.write_machine_readable_report("openapi_response_validation_report.json")
+    terminal_reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if terminal_reporter is not None:
+        terminal_reporter.write_line(
+            json.dumps(
+                {
+                    "event": "openapi_response_validation_summary",
+                    "exitstatus": exitstatus,
+                    "summary": report["summary"],
+                },
+                sort_keys=True,
+            )
+        )
