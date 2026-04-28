@@ -43,14 +43,6 @@ services:
     seaweedfs:
         profiles: [replay]
 
-    # OpenSearch capability - LLM trace reverse index
-    opensearch:
-        profiles: [opensearch]
-    opensearch-dashboards:
-        profiles: [opensearch]
-    opensearch-init:
-        profiles: [opensearch]
-
     # Cloud provider emulators
     localstack:
         profiles: [localstack]

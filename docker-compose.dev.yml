@@ -502,12 +502,14 @@ services:
             service: opensearch
         ports:
             - '127.0.0.1:9201:9200'
+        profiles: [opensearch]
     opensearch-dashboards:
         extends:
             file: docker-compose.base.yml
             service: opensearch-dashboards
         ports:
             - '127.0.0.1:5601:5601'
+        profiles: [opensearch]
     opensearch-init:
         image: curlimages/curl:8.10.1
         depends_on:
@@ -517,6 +519,7 @@ services:
         volumes:
             - ./products/llm_analytics/opensearch:/work:ro
         entrypoint: ['sh', '/work/init.sh']
+        profiles: [opensearch]
 
     temporal:
         extends:
