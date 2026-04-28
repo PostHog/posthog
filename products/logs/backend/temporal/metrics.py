@@ -118,19 +118,23 @@ def record_alerts_active(count: int) -> None:
     gauge.set(count)
 
 
-def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime | None) -> None:
-    # Emits -1 when checkpoint is None — dashboards/alerts must treat negative as
-    # "unavailable", not a real lag value.
+def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime) -> None:
     meter = get_metric_meter()
     gauge = meter.create_gauge(
         "logs_alerting_ingestion_checkpoint_lag_seconds",
         "Wall-clock age of the logs-ingestion checkpoint used to anchor alert windows",
     )
-    if checkpoint is None:
-        gauge.set(-1)
-        return
     lag_seconds = max(0, int((now - checkpoint).total_seconds()))
     gauge.set(lag_seconds)
+
+
+def increment_checkpoint_unavailable() -> None:
+    meter = get_metric_meter()
+    counter = meter.create_counter(
+        "logs_alerting_checkpoint_unavailable_total",
+        "Cycles where the logs-ingestion checkpoint could not be resolved (no alerts due, or fetch failure)",
+    )
+    counter.add(1)
 
 
 def record_check_duration(duration_ms: int) -> None:

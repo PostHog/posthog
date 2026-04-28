@@ -1131,7 +1131,11 @@ export const sceneLogic = kea<sceneLogicType>([
 
             const unmount = cache.mountedTabLogic[tabId]
             if (unmount) {
-                window.setTimeout(unmount, 50)
+                try {
+                    unmount()
+                } catch (error) {
+                    console.error('Error unmounting previous tab logic:', error)
+                }
                 delete cache.mountedTabLogic[tabId]
             }
             if (exportedScene?.logic) {
@@ -1318,19 +1322,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                 }
                 actions.setExportedScene(exportedScene, sceneId, sceneKey, tabId, params)
-
-                if (exportedScene.logic) {
-                    // initialize the logic and give it 50ms to load before opening the scene
-                    const props = { ...exportedScene.paramsToProps?.(params), tabId }
-                    const unmount = exportedScene.logic.build(props).mount()
-                    try {
-                        await breakpoint(50)
-                    } catch (e) {
-                        // if we change the scene while waiting these 50ms, unmount
-                        unmount()
-                        throw e
-                    }
-                }
             }
             actions.setScene(sceneId, sceneKey, tabId, params, clickedLink || wasNotLoaded, exportedScene)
         },

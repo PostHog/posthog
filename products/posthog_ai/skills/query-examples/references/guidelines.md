@@ -48,6 +48,12 @@ Table | Description
 SELECT id, name, short_id FROM system.insights WHERE NOT deleted LIMIT 10
 ```
 
+**Example - Count insight variables:**
+
+```sql
+SELECT count() AS total FROM system.insight_variables
+```
+
 **System Models Reference**
 
 Schema reference for PostHog's core system models, organized by domain:

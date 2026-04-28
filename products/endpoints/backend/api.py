@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
+from asgiref.sync import async_to_sync
 from dateutil.parser import isoparse
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema_view
@@ -60,7 +61,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
-from posthog.ducklake.common import get_duckgres_server_for_team
+from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -138,6 +139,85 @@ ENDPOINT_BREAKDOWN_LIMIT = 10_000
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
 logger = structlog.get_logger(__name__)
+
+
+def _emit_endpoint_failure_signal(
+    team,
+    endpoint: "Endpoint",
+    exc: BaseException,
+    *,
+    materialized: bool,
+    version: int | None = None,
+    saved_query_id: Union[str, uuid.UUID, None] = None,
+    query_kind: str | None = None,
+    executed_sql: str | None = None,
+    saved_query_status: str | None = None,
+    saved_query_last_run_at: str | None = None,
+    saved_query_columns: dict | None = None,
+    endpoint_columns: list | None = None,
+) -> None:
+    """Fire a Signal when an endpoint execution fails, so the AI can reason about it later.
+
+    Fails silently — signal emission must never mask the underlying error.
+    """
+    from products.signals.backend.api import emit_signal
+
+    try:
+        error_class = type(exc).__name__
+        error_msg = str(exc)
+        version_str = f" v{version}" if version else ""
+
+        if materialized:
+            execution_mode = "materialized"
+            context = (
+                f"The materialized table (saved_query_id={saved_query_id}) may be stale, missing, or have a schema mismatch. "
+                f"Check whether the materialization refresh completed successfully and whether the underlying query still produces valid columns."
+            )
+            if saved_query_status:
+                context += f"\nSaved query status: {saved_query_status}"
+            if saved_query_last_run_at:
+                context += f", last materialized at: {saved_query_last_run_at}"
+            if saved_query_columns:
+                context += f"\nMaterialized table columns: {saved_query_columns}"
+            if endpoint_columns:
+                context += f"\nEndpoint version columns: {endpoint_columns}"
+        else:
+            execution_mode = "inline"
+            context = (
+                f"The query is executed on-demand against live data. "
+                f"Common causes: invalid HogQL syntax, missing or renamed properties, query timeout, or incompatible variable overrides."
+            )
+
+        parts = [
+            f"Endpoint '{endpoint.name}'{version_str} failed during {execution_mode} execution.",
+            f"Error: {error_class}: {error_msg}",
+        ]
+        if query_kind:
+            parts.append(f"Query kind: {query_kind}")
+        if executed_sql:
+            parts.append(f"Executed HogQL: {executed_sql}")
+        parts.append(context)
+        parts.append(f"Endpoint path: {endpoint.endpoint_path}")
+        description = "\n".join(parts)
+
+        async_to_sync(emit_signal)(
+            team=team,
+            source_product="endpoints",
+            source_type="endpoint_execution_failed",
+            source_id=f"{team.id}:{endpoint.name}",
+            description=description,
+            weight=0.5,
+            extra={
+                "endpoint_name": endpoint.name,
+                "endpoint_version": version,
+                "materialized": materialized,
+                "saved_query_id": str(saved_query_id) if saved_query_id else None,
+                "error_class": error_class,
+                "error_message": error_msg,
+            },
+        )
+    except Exception:
+        logger.exception("Failed to emit endpoint failure signal", endpoint_name=endpoint.name)
 
 
 def _add_where_condition(select_query: ast.SelectQuery, condition: ast.Expr) -> None:
@@ -332,7 +412,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return queryset.filter(deleted=False)
 
     def get_serializer_class(self):
-        return None  # We use Pydantic models instead
+        return serializers.Serializer  # We use Pydantic models instead; this fallback satisfies drf-spectacular
 
     def get_throttles(self):
         return [EndpointBurstThrottle(), EndpointSustainedThrottle()]
@@ -374,6 +454,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "sync_frequency": sync_frequency_interval_to_sync_frequency(
                     version.saved_query.sync_frequency_interval
                 ),
+                "saved_query_id": str(version.saved_query.id),
             }
         else:
             can_mat, reason = version.can_materialize()
@@ -424,6 +505,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             "created_by": UserBasicSerializer(endpoint.created_by).data if hasattr(endpoint, "created_by") else None,
             "is_materialized": version.is_materialized,
             "current_version": endpoint.current_version,
+            "current_version_id": str(version.id),
             "versions_count": endpoint.versions.count(),
             "derived_from_insight": endpoint.derived_from_insight,
             "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
@@ -1549,6 +1631,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         offset: int | None = None,
     ) -> Response:
         """Execute against a materialized table in S3."""
+        materialized_hogql_query = None
+        query_kind = None
         try:
             version = version or endpoint.get_version()
             if not version.saved_query:
@@ -1705,6 +1789,22 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "materialized": True,
                     "saved_query_id": saved_query.id if saved_query else None,
                 },
+            )
+            _emit_endpoint_failure_signal(
+                self.team,
+                endpoint,
+                e,
+                materialized=True,
+                version=version.version if version else None,
+                saved_query_id=saved_query.id if saved_query else None,
+                query_kind=query_kind,
+                executed_sql=materialized_hogql_query.query if materialized_hogql_query else None,
+                saved_query_status=saved_query.status if saved_query else None,
+                saved_query_last_run_at=(
+                    saved_query.last_run_at.isoformat() if saved_query and saved_query.last_run_at else None
+                ),
+                saved_query_columns=saved_query.columns if saved_query else None,
+                endpoint_columns=version.columns if version else None,
             )
             raise
 
@@ -1889,7 +1989,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if not ff_result:
             return False
 
-        server = get_duckgres_server_for_team(self.team_id)
+        server = get_duckgres_server_for_organization(str(self.team.organization_id))
         if server is None:
             logger.info("Ducklake skip: no duckgres server", endpoint_name=endpoint.name, team_id=self.team_id)
         return server is not None
@@ -1903,7 +2003,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         from posthog.ducklake.client import execute_ducklake_query
 
         try:
-            result = execute_ducklake_query(self.team_id, query=HogQLQuery(query=query["query"]))
+            result = execute_ducklake_query(
+                self.team_id,
+                query=HogQLQuery(query=query["query"]),
+                organization_id=str(self.team.organization_id),
+            )
             response_data: dict = {
                 "results": result.results,
                 "columns": result.columns,
@@ -2008,6 +2112,16 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "materialized": False,
                     "endpoint_name": endpoint.name,
                 },
+            )
+            _emit_endpoint_failure_signal(
+                self.team,
+                endpoint,
+                e,
+                materialized=False,
+                version=version.version if version else None,
+                query_kind=query_kind,
+                executed_sql=query.get("query") if query_kind == "HogQLQuery" else None,
+                endpoint_columns=version.columns if version else None,
             )
             raise
 
@@ -2311,9 +2425,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             match = re.search(r"There's no column.*in table", error.message)
             if match:
                 # TODO: remove once we support all column types
-                raise ValidationError(
-                    match.group(0) + ". Note: While in beta, not all column types may be fully supported"
-                )
+                raise ValidationError(match.group(0) + ". Not all column types are fully supported yet.")
         return
 
     def _tag_client_query_id(self, query_id: str | None):

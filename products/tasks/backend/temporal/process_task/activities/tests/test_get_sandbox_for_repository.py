@@ -29,6 +29,7 @@ class TestGetSandboxForRepositoryActivity:
             github_integration_id=github_integration.id,
             repository=test_task.repository,
             distinct_id=test_task.created_by.distinct_id or "test-user-id",
+            task_created_by_id=test_task.created_by_id,
         )
 
     @pytest.mark.django_db

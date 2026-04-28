@@ -60,7 +60,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLICK_HOUSE,
-            betaSource=True,
+            releaseStatus="beta",
             caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",
             docsUrl="https://posthog.com/docs/cdp/sources/clickhouse",
@@ -73,6 +73,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="play.clickhouse.com",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -80,6 +81,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="8443",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -87,6 +89,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="default",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="user",
@@ -94,6 +97,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="default",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -101,6 +105,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldSelectConfig(
                         name="secure",

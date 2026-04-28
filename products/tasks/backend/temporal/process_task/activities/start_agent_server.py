@@ -72,7 +72,7 @@ def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxBa
             " https://gateway.us.posthog.com/health 2>&1 || echo 'CURL_GATEWAY: failed'"
         )
 
-        if ctx.allowed_domains:
+        if ctx.allowed_domains is not None:
             cmd = (
                 f"cd /scripts && env -0 > {ENV_FILE} && "
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(checks)}"
@@ -121,7 +121,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         sandbox_url = input.sandbox_url
         connect_token = input.sandbox_connect_token
 
-        emit_agent_log(ctx.run_id, "info", "Starting agent server")
+        emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
@@ -143,6 +143,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             token=access_token,
             project_id=ctx.team_id,
             scopes=scopes,
+            interaction_origin=ctx.interaction_origin,
         )
         if task.created_by_id:
             user_mcp_configs = get_user_mcp_server_configs(
@@ -166,7 +167,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 "No MCP configs were resolved for this run. PostHog MCP tools will be unavailable in the agent session.",
             )
 
-        if ctx.allowed_domains:
+        if ctx.allowed_domains is not None:
             environment_name = ctx.sandbox_environment_name or ctx.sandbox_environment_id or "selected environment"
             emit_agent_log(
                 ctx.run_id,
@@ -204,10 +205,10 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 mark_mcp_token_issued(ctx.run_id)
 
             # emit agentsh logs
-            if ctx.allowed_domains:
+            if ctx.allowed_domains is not None:
                 _emit_agentsh_log_tail(ctx, sandbox)
         except Exception as e:
-            if ctx.allowed_domains:
+            if ctx.allowed_domains is not None:
                 _emit_agentsh_log_tail(ctx, sandbox)
             _emit_agent_server_log_tail(ctx, sandbox)
             raise SandboxExecutionError(
@@ -221,7 +222,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 cause=e,
             )
 
-        if ctx.allowed_domains:
+        if ctx.allowed_domains is not None:
             emit_agent_log(ctx.run_id, "debug", "agentsh policy initialized successfully")
             _emit_agentsh_log_tail(ctx, sandbox)
         _emit_agent_server_log_tail(ctx, sandbox)
@@ -230,7 +231,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         # domains are restricted so we can verify the env wrapper + DNS proxy work.
         _run_connectivity_diagnostics(ctx, sandbox)
 
-        emit_agent_log(ctx.run_id, "info", f"Agent server started at {sandbox_url}")
+        emit_agent_log(ctx.run_id, "debug", f"Agent server started at {sandbox_url}")
         activity.logger.info(f"Agent server started at {sandbox_url} for task {ctx.task_id}")
 
         return StartAgentServerOutput(sandbox_url=sandbox_url, connect_token=connect_token)
