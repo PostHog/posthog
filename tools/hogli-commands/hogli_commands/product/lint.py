@@ -6,8 +6,8 @@ import os
 
 import click
 
-from .checks import CHECKS, CheckContext, is_isolated_product
-from .paths import PRODUCTS_DIR, load_structure
+from .checks import CHECKS, CheckContext, is_isolated_product, validate_facade_alternation
+from .paths import PRODUCTS_DIR, TACH_TOML, load_structure
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
 
@@ -71,6 +71,21 @@ def lint_product(name: str, verbose: bool = True, detailed: bool = False, struct
     return issues
 
 
+def _lint_facade_alternation() -> list[str]:
+    """Validate the canonical [[interfaces]] alternation in tach.toml.
+
+    Global check — runs once, not per product. Surfaces stale entries
+    (listed but missing/non-isolated) and missing entries (isolated but
+    not listed in the canonical alternation).
+    """
+    if not TACH_TOML.exists():
+        return []
+    issues = validate_facade_alternation(TACH_TOML.read_text(), PRODUCTS_DIR)
+    for issue in issues:
+        _gh_annotation("error", "tach", "facade alternation", issue, file="tach.toml")
+    return issues
+
+
 def lint_all_products() -> None:
     product_dirs = sorted(
         d
@@ -97,8 +112,21 @@ def lint_all_products() -> None:
             failed.append(product_dir.name)
         click.echo("")
 
-    if failed:
-        click.echo(f"✗ {len(failed)} product(s) failed: {', '.join(failed)}")
+    click.echo("─ tach.toml (canonical facade alternation)")
+    alternation_issues = _lint_facade_alternation()
+    if alternation_issues:
+        click.echo(f"  ✗ {len(alternation_issues)} issue(s)")
+        for issue in alternation_issues:
+            click.echo(f"    → {issue}")
+    else:
+        click.echo("  ✓ ok")
+    click.echo("")
+
+    if failed or alternation_issues:
+        if failed:
+            click.echo(f"✗ {len(failed)} product(s) failed: {', '.join(failed)}")
+        if alternation_issues:
+            click.echo(f"✗ {len(alternation_issues)} tach.toml facade alternation issue(s)")
         raise SystemExit(1)
 
     click.echo(f"✓ All {len(product_dirs)} products passed")
