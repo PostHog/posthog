@@ -2,6 +2,11 @@ import type { ParseResult, ParsedField } from './types'
 
 const DEFAULT_PORT = 3306
 
+// MySQL's `ssl=PREFERRED` (the server default) means "try SSL, fall back to plaintext",
+// which is semantically weaker than our binary `using_ssl=true` (required). We map it
+// to `'true'` anyway because the destination form is a single boolean: rounding up keeps
+// the parsed default secure-by-default, and a server that genuinely cannot speak SSL
+// will fail loudly rather than silently downgrading.
 const TRUTHY = new Set(['true', '1', 'yes', 'required', 'preferred'])
 const FALSY = new Set(['false', '0', 'no', 'disabled'])
 
