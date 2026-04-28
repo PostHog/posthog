@@ -144,8 +144,10 @@ class TestIsBotFunction:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        index_call = result.left
-        patterns_array = index_call.args[1]
+        assert isinstance(result, ast.CompareOperation)
+        assert isinstance(result.left, ast.Call)
+        patterns_array = result.left.args[1]
+        assert isinstance(patterns_array, ast.Array)
         pattern_values = [expr.value for expr in patterns_array.exprs if isinstance(expr, ast.Constant)]
         # is_bot should NOT include ^$ pattern — empty UA is not a confirmed bot
         assert "^$" not in pattern_values
