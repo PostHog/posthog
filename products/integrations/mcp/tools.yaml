@@ -40,7 +40,19 @@ tools:
         enabled: false
     integrations-channels-retrieve:
         operation: integrations_channels_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - integration:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List integration channels
+        description: >
+            List the channels available for a given integration (e.g. Slack channels for a Slack integration). Returns
+            each channel's id and name. Use this to find a channel_id when wiring up Slack delivery for an alert (pass
+            the result into the cdp-functions-create inputs.channel field). Requires an integration ID; use
+            integrations-list to find it.
     integrations-clickup-lists-retrieve:
         operation: integrations_clickup_lists_retrieve
         enabled: false

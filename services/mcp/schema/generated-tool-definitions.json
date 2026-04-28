@@ -120,7 +120,7 @@
         }
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user. subscribed_users only controls email recipients — to also deliver to a Slack channel or HTTPS webhook, follow up with cdp-functions-create using type=internal_destination and template_id=template-slack (or template-webhook), filters scoped to this alert's id (events=[{id:\"$insight_alert_firing\"}], properties=[{key:\"alert_id\", value:\"<alert.id>\", operator:\"exact\", type:\"event\"}]), and inputs containing slack_workspace + channel for Slack or url for webhooks. Use integrations-list to look up a Slack integration's ID and integrations-channels-retrieve to list channels for it.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -180,7 +180,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null. Slack/webhook delivery is stored as a HogFunction filtered on this alert's id — manage it via cdp-functions-create / cdp-functions-partial-update / cdp-functions-delete (see alert-create for the recipe).",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -345,7 +345,7 @@
         }
     },
     "cdp-functions-create": {
-        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.",
+        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field. To deliver an insight alert to Slack or a webhook, use type=internal_destination with template_id=template-slack (or template-webhook), filters scoped to the alert id (events=[{id:\"$insight_alert_firing\"}], properties=[{key:\"alert_id\", value:\"<alert.id>\", operator:\"exact\", type:\"event\"}]), and inputs containing slack_workspace + channel for Slack or url for webhooks.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Create function",
@@ -2195,6 +2195,21 @@
         "feature": "integrations",
         "summary": "Get integration",
         "title": "Get integration",
+        "required_scopes": ["integration:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integrations-channels-retrieve": {
+        "description": "List the channels available for a given integration (e.g. Slack channels for a Slack integration). Returns each channel's id and name. Use this to find a channel_id when wiring up Slack delivery for an alert (pass the result into the cdp-functions-create inputs.channel field). Requires an integration ID; use integrations-list to find it.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List integration channels",
+        "title": "List integration channels",
         "required_scopes": ["integration:read"],
         "new_mcp": true,
         "annotations": {

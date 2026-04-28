@@ -24,7 +24,11 @@ tools:
             warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to
             derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with
             their values. Use 'filters' to control which events trigger the function. Transformations run during
-            ingestion and have an 'execution_order' field.
+            ingestion and have an 'execution_order' field. To deliver an insight alert to Slack or a webhook, use
+            type=internal_destination with template_id=template-slack (or template-webhook), filters scoped to the
+            alert id (events=[{id:"$insight_alert_firing"}], properties=[{key:"alert_id", value:"<alert.id>",
+            operator:"exact", type:"event"}]), and inputs containing slack_workspace + channel for Slack or url for
+            webhooks.
         exclude_params:
             - _create_in_folder
             - batch_export_id

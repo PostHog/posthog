@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    IntegrationsChannelsRetrieveParams,
     IntegrationsDestroyParams,
     IntegrationsListQueryParams,
     IntegrationsRetrieveParams,
@@ -40,6 +41,21 @@ const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.Integra
     },
 })
 
+const IntegrationsChannelsRetrieveSchema = IntegrationsChannelsRetrieveParams.omit({ project_id: true })
+
+const integrationsChannelsRetrieve = (): ToolBase<typeof IntegrationsChannelsRetrieveSchema, unknown> => ({
+    name: 'integrations-channels-retrieve',
+    schema: IntegrationsChannelsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof IntegrationsChannelsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/channels/`,
+        })
+        return result
+    },
+})
+
 const IntegrationsListSchema = IntegrationsListQueryParams
 
 const integrationsList = (): ToolBase<
@@ -65,5 +81,6 @@ const integrationsList = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
+    'integrations-channels-retrieve': integrationsChannelsRetrieve,
     'integrations-list': integrationsList,
 }
