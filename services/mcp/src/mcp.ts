@@ -14,6 +14,7 @@ import {
     isFeatureFlagEnabled,
     type MCPAnalyticsContext,
 } from '@/lib/analytics'
+import { hasScope } from '@/lib/api'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
@@ -542,8 +543,9 @@ export class MCP extends McpAgent<Env> {
 
         // Fetch group types and metadata in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
+        const apiKey = await context.stateManager.getApiKey()
         const [groupTypes, metadata] = await Promise.all([
-            resolvedProjectId
+            resolvedProjectId && hasScope(apiKey.scopes, 'group:read')
                 ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
                 : Promise.resolve(undefined),
             context.stateManager.getEnvironmentPrompt(),
