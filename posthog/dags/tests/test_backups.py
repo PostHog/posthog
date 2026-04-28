@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 import pytest
@@ -194,7 +194,7 @@ def run_backup_test(
     job_config: BackupConfig,
     sharded: bool = False,
 ):
-    def create_bucket(name: str, s3_client: boto3.client) -> None:
+    def create_bucket(name: str, s3_client: Any) -> None:
         try:
             s3_client.create_bucket(Bucket=name)
         except s3_client.exceptions.BucketAlreadyExists:
@@ -282,7 +282,7 @@ def run_backup_test(
         # Assert that the backup was created
         statuses = [
             status
-            for status in cluster.map_all_hosts(partial(get_backup_status, run_id=run_id)).result().values()
+            for status in cluster.map_all_hosts(partial(get_backup_status, run_id=str(run_id))).result().values()
             if status is not None
         ]
         assert len(statuses) > 0, "No status found for the backup"

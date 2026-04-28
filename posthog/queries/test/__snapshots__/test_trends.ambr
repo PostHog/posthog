@@ -932,6 +932,18 @@
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -946,7 +958,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
   '''
   
   SELECT groupArray(day_start) as date,
@@ -998,7 +1010,7 @@
   ORDER BY breakdown_value
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
   '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
@@ -1014,7 +1026,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
+# name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.4
   '''
   
   SELECT groupArray(day_start) as date,
@@ -1639,6 +1651,18 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_person_filtering_in_cohort_in_action.1
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -1672,7 +1696,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestTrends.test_person_filtering_in_cohort_in_action.1
+# name: TestTrends.test_person_filtering_in_cohort_in_action.2
   '''
   
   SELECT groupArray(day_start) as date,
@@ -4095,6 +4119,18 @@
 # ---
 # name: TestTrends.test_trends_any_event_total_count
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_trends_any_event_total_count.1
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4119,7 +4155,7 @@
      ORDER BY day_start)
   '''
 # ---
-# name: TestTrends.test_trends_any_event_total_count.1
+# name: TestTrends.test_trends_any_event_total_count.2
   '''
   
   SELECT groupArray(day_start) as date,
@@ -4147,6 +4183,18 @@
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_trends_breakdown_cumulative.1
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
          count(*) as count
@@ -4161,7 +4209,7 @@
   OFFSET 0
   '''
 # ---
-# name: TestTrends.test_trends_breakdown_cumulative.1
+# name: TestTrends.test_trends_breakdown_cumulative.2
   '''
   
   SELECT groupArray(day_start) as date,
@@ -4423,6 +4471,18 @@
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range
   '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_trends_compare_day_interval_relative_range.1
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4447,7 +4507,7 @@
      ORDER BY day_start)
   '''
 # ---
-# name: TestTrends.test_trends_compare_day_interval_relative_range.1
+# name: TestTrends.test_trends_compare_day_interval_relative_range.2
   '''
   
   SELECT groupArray(day_start) as date,
@@ -4473,7 +4533,7 @@
      ORDER BY day_start)
   '''
 # ---
-# name: TestTrends.test_trends_compare_day_interval_relative_range.2
+# name: TestTrends.test_trends_compare_day_interval_relative_range.3
   '''
   
   SELECT groupArray(day_start) as date,
@@ -4781,6 +4841,18 @@
   '''
 # ---
 # name: TestTrends.test_trends_per_day_cumulative
+  '''
+  /* celery:posthog.tasks.tasks.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '''
+# ---
+# name: TestTrends.test_trends_per_day_cumulative.1
   '''
   
   SELECT groupArray(day_start) as date,

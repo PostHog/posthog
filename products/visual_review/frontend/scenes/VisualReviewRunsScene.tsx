@@ -55,14 +55,25 @@ const TAB_COUNT_TYPES: Record<ReviewState, 'warning' | 'highlight' | 'default' |
 }
 
 export function VisualReviewRunsScene(): JSX.Element {
-    const { runs, runsLoading, activeTab, counts, repoFullName } = useValues(visualReviewRunsSceneLogic)
-    const { loadRuns, loadCounts, setActiveTab } = useActions(visualReviewRunsSceneLogic)
+    const { runs, runsLoading, activeTab, counts, repoFullName, page, totalCount } =
+        useValues(visualReviewRunsSceneLogic)
+    const { loadRuns, loadCounts, setActiveTab, setPage } = useActions(visualReviewRunsSceneLogic)
 
     const columns: LemonTableColumns<RunApi> = [
         {
             title: 'Branch',
             key: 'branch',
             render: (_, run) => <BranchCell run={run} repoFullName={repoFullName} />,
+        },
+        {
+            title: 'Type',
+            key: 'run_type',
+            width: 90,
+            render: (_, run) => (
+                <LemonTag type="muted" size="small" className="uppercase">
+                    {run.run_type}
+                </LemonTag>
+            ),
         },
         {
             title: 'Commit',
@@ -162,7 +173,14 @@ export function VisualReviewRunsScene(): JSX.Element {
                 dataSource={runs}
                 columns={columns}
                 loading={runsLoading}
-                pagination={{ pageSize: 20 }}
+                pagination={{
+                    controlled: true,
+                    pageSize: 20,
+                    currentPage: page,
+                    entryCount: totalCount,
+                    onBackward: () => setPage(page - 1),
+                    onForward: () => setPage(page + 1),
+                }}
                 nouns={['run', 'runs']}
                 emptyState={EMPTY_MESSAGES[activeTab]}
                 onRow={(run) => ({

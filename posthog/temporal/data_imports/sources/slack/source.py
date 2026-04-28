@@ -1,19 +1,36 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
+
+if TYPE_CHECKING:
+    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
     SourceFieldOauthConfig,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+)
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookSourceManager,
+    is_webhook_feature_flag_enabled,
+)
 from posthog.temporal.data_imports.sources.generated_configs import SlackSourceConfig
 from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
 from posthog.temporal.data_imports.sources.slack.slack import (
+    SlackResumeConfig,
     get_channels,
     slack_source,
     validate_credentials as validate_slack_credentials,
@@ -23,10 +40,39 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
+class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], WebhookSource[SlackSourceConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SLACK
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from posthog.temporal.data_imports.sources.slack.webhook_template import template
+
+        return template
+
+    @property
+    def webhook_resource_map(self) -> dict[str, str]:
+        # Slack channel IDs are used as both schema names and webhook event keys,
+        # so this is an identity mapping. We return an empty dict and rely on the
+        # fallback in get_or_create_webhook_hog_function that defaults to using
+        # the schema name as the object type.
+        return {}
+
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
+    def create_webhook(self, config: SlackSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+        return WebhookCreationResult(
+            success=False,
+            error="Slack does not support automatic webhook creation. Please follow the manual setup instructions.",
+        )
+
+    def delete_webhook(self, config: SlackSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+        # Slack does not expose an API to remove an Events API Request URL — the user has to
+        # toggle it off manually in the app settings. Returning success lets the HogFunction
+        # be cleaned up without showing the user a misleading "deletion failed" error.
+        return WebhookDeletionResult(success=True)
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -36,7 +82,7 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
             iconPath="/static/services/slack.png",
             featureFlag="slack-dwh",
             unreleasedSource=True,
-            betaSource=True,
+            releaseStatus="alpha",
             fields=cast(
                 list[FieldType],
                 [
@@ -47,6 +93,28 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
                         kind="slack",
                         requiredScopes="channels:read groups:read channels:history groups:history users:read users:read.email reactions:read",
                     )
+                ],
+            ),
+            webhookSetupCaption="""To set up the webhook manually:
+
+1. Go to your [Slack App Settings](https://api.slack.com/apps) and select your app
+2. Click **Event Subscriptions** in the left sidebar and toggle it on
+3. Paste the webhook URL shown below into the **Request URL** field
+4. Under **Subscribe to bot events**, add the events: `message.channels`, `message.groups`
+5. Click **Save Changes**
+
+Once saved, copy the **Signing Secret** from **Basic Information > App Credentials** and add it to your source configuration for signature verification.""",
+            webhookFields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="signing_secret",
+                        label="Signing secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        secret=True,
+                        placeholder="",
+                    ),
                 ],
             ),
         )
@@ -82,6 +150,7 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
             raise ValueError("Slack access token not found")
 
         msg_config = messages_endpoint_config()
+        webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
         channels = get_channels(access_token)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
@@ -91,6 +160,7 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
                     name=ch["id"],
                     label=ch["name"],
                     supports_incremental=len(msg_config.incremental_fields) > 0,
+                    supports_webhooks=webhook_flag_enabled,
                     supports_append=len(msg_config.incremental_fields) > 0,
                     incremental_fields=msg_config.incremental_fields,
                 )
@@ -115,7 +185,15 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
         except Exception as e:
             return False, f"Failed to validate Slack credentials: {str(e)}"
 
-    def source_for_pipeline(self, config: SlackSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SlackResumeConfig]:
+        return ResumableSourceManager[SlackResumeConfig](inputs, SlackResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: SlackSourceConfig,
+        resumable_source_manager: ResumableSourceManager[SlackResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.slack_integration_id, inputs.team_id)
         access_token = integration.access_token
 
@@ -125,15 +203,19 @@ class SlackSource(SimpleSource[SlackSourceConfig], OAuthMixin):
         # For channel schemas, the schema name is the channel ID itself
         channel_id = inputs.schema_name if inputs.schema_name not in ENDPOINTS else None
 
+        webhook_source_manager = self.get_webhook_source_manager(inputs)
+
         return slack_source(
             access_token=access_token,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
             channel_id=channel_id,
+            webhook_source_manager=webhook_source_manager,
         )

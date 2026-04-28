@@ -11,7 +11,7 @@ from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.scopes import API_SCOPE_OBJECTS, APIScopeObject
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
 if TYPE_CHECKING:
@@ -55,7 +55,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
     "dashboard",
-    "dashboard_template",
     "experiment",
     "external_data_source",
     "feature_flag",
@@ -80,8 +79,10 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "dataset": "llm_analytics",
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
+    "llm_skill": "llm_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
+    "dashboard_template": "dashboard",
 }
 
 
@@ -279,7 +280,7 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
     if name == "customerjourney":
         return "customer_journey"
 
-    if name not in API_SCOPE_OBJECTS:
+    if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
 
     return cast(APIScopeObject, name)

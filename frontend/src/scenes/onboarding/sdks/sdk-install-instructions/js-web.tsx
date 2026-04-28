@@ -14,6 +14,20 @@ export function JSInstallSnippet(): JSX.Element {
     )
 }
 
+export function ReactInstallSnippet(): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Bash}>
+            {[
+                'npm install posthog-js @posthog/react',
+                '# OR',
+                'yarn add posthog-js @posthog/react',
+                '# OR',
+                'pnpm add posthog-js @posthog/react',
+            ].join('\n')}
+        </CodeSnippet>
+    )
+}
+
 export function JSSetupSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)

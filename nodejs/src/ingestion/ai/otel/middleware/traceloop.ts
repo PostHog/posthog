@@ -11,8 +11,6 @@ const STRIP_KEYS = [
     'traceloop.entity.output',
     'llm.is_streaming',
     'llm.usage.total_tokens',
-    'llm.response.finish_reason',
-    'llm.response.stop_reason',
 ]
 
 interface IndexedEntry {
@@ -156,6 +154,16 @@ function process(event: PluginEvent, next: () => void): void {
             props['$ai_tools'] = tools
         }
     }
+
+    // Map stop/finish reason to $ai_stop_reason before stripping
+    if (props['$ai_stop_reason'] === undefined) {
+        const stopReason = props['llm.response.stop_reason'] ?? props['llm.response.finish_reason']
+        if (stopReason !== undefined) {
+            props['$ai_stop_reason'] = stopReason
+        }
+    }
+    delete props['llm.response.stop_reason']
+    delete props['llm.response.finish_reason']
 
     props['$ai_lib'] = 'opentelemetry/traceloop'
 

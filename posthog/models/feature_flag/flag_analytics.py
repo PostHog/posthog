@@ -3,9 +3,11 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
@@ -255,3 +257,75 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
             pass
         except Exception as e:
             capture_exception(e)
+
+
+# Cross-project evaluation counts (used by the organization feature-flag projects grid)
+
+CROSS_PROJECT_EVALS_CACHE_TTL = 300
+
+
+def _flag_key_filter_sql() -> str:
+    """SQL for matching the `$feature_flag` property, using the materialized column when available.
+
+    Falls back to JSONExtractString so the query still works when the property
+    isn't materialized on this ClickHouse instance.
+    """
+    column = get_materialized_column_for_property("events", "properties", "$feature_flag")
+    if column is not None:
+        return f"{column.name} = %(flag_key)s"
+    return "JSONExtractString(properties, '$feature_flag') = %(flag_key)s"
+
+
+def _build_cross_project_evals_query() -> str:
+    return f"""
+SELECT team_id, count() AS evaluations
+FROM events
+PREWHERE event = '$feature_flag_called'
+WHERE {_flag_key_filter_sql()}
+  AND team_id IN %(team_ids)s
+  AND timestamp >= now() - INTERVAL 7 DAY
+GROUP BY team_id
+"""
+
+
+def get_evaluations_7d_by_team(flag_key: str, team_ids: list[int]) -> dict[int, int] | None:
+    """Return per-team 7-day counts of `$feature_flag_called` events for flag_key.
+
+    Returns a dict mapping team_id -> count (all requested team ids are present;
+    teams with no events map to 0). Returns `None` when ClickHouse fails so the
+    caller can render an unavailable state instead of a misleading zero.
+    """
+    if not team_ids:
+        return {}
+
+    tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY, name="get_evaluations_7d_by_team")
+    try:
+        rows = sync_execute(_build_cross_project_evals_query(), {"flag_key": flag_key, "team_ids": tuple(team_ids)})
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+    counts = dict.fromkeys(team_ids, 0)
+    for team_id, evaluations in rows:
+        counts[int(team_id)] = int(evaluations)
+    return counts
+
+
+def get_cached_evaluations_7d_by_team(flag_key: str, team_ids: list[int]) -> dict[int, int] | None:
+    """Cached variant of get_evaluations_7d_by_team with a 5-minute TTL.
+
+    Failure results (None) are not cached, so recovery is immediate once
+    ClickHouse is reachable again.
+    """
+    if not team_ids:
+        return {}
+
+    cache_key = f"flag_analytics:evals_7d:{flag_key}:" + ",".join(str(t) for t in sorted(team_ids))
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    result = get_evaluations_7d_by_team(flag_key, team_ids)
+    if result is not None:
+        cache.set(cache_key, result, timeout=CROSS_PROJECT_EVALS_CACHE_TTL)
+    return result

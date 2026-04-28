@@ -1018,6 +1018,7 @@ class TestSignupAPI(APIBaseTest):
             user = User.objects.get(email="alice@posthog.net")
             self.assertEqual(user.organization_memberships.count(), 1)
             membership = user.organization_memberships.first()
+            assert membership is not None
             self.assertEqual(membership.organization, new_org)
             self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
 
@@ -2178,10 +2179,8 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(len(member_join_emails), 0)
 
     @patch("posthoganalytics.capture")
-    @patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
-    def test_existing_user_can_sign_up_to_a_new_organization(
-        self, mock_update_billing_organization_users, mock_capture
-    ):
+    @patch("posthog.tasks.sync_billing.sync_members_to_billing.delay")
+    def test_existing_user_can_sign_up_to_a_new_organization(self, mock_sync_delay, mock_capture):
         user = self._create_user("test+159@posthog.com", VALID_TEST_PASSWORD, role_at_organization="product")
         new_org = Organization.objects.create(name="TestCo")
         new_team = Team.objects.create(organization=new_org)
@@ -2204,7 +2203,8 @@ class TestInviteSignupAPI(APIBaseTest):
                 valid_until=datetime(2038, 1, 19, 3, 14, 7),
             )
 
-        with self.is_cloud(True):
+        mock_sync_delay.reset_mock()
+        with self.is_cloud(True), self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(f"/api/signup/{invite.id}/")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(
@@ -2260,8 +2260,8 @@ class TestInviteSignupAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Assert that the org's distinct IDs are sent to billing
-        mock_update_billing_organization_users.assert_called_once_with(new_org)
+        # Assert that the billing sync was enqueued for the newly joined organization
+        mock_sync_delay.assert_called_once_with(str(new_org.id))
 
     @patch("posthoganalytics.capture")
     def test_cannot_use_claim_invite_endpoint_to_update_user(self, mock_capture):

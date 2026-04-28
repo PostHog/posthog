@@ -310,8 +310,8 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
                 return_value=1000,
             ),
             patch(
-                "ee.hogai.core.agent_modes.executables.has_llm_gateway_feature_flag",
-                return_value=False,
+                "ee.hogai.core.agent_modes.executables.get_llm_gateway_variant",
+                return_value="control",
             ),
         ):
             node = _create_agent_node(self.team, self.user)
