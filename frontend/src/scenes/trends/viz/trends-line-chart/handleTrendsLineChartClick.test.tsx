@@ -1,7 +1,7 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { CompareLabelType, EntityTypes } from '~/types'
 
-import type { IndexedTrendResult } from '../types'
+import type { IndexedTrendResult } from '../../types'
 import { handleTrendsLineChartClick, type TrendsLineChartClickDeps } from './handleTrendsLineChartClick'
 
 function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
