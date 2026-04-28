@@ -1578,14 +1578,13 @@ class FeatureFlagSerializer(
                         "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before renaming the flag."
                     )
 
-            with ImpersonatedContext(request):
-                instance = super().update(instance, validated_data)
-
             # Schedule async cleanup of FeatureFlagHashKeyOverride rows on commit.
-            # `transaction.on_commit` fires only if the outer atomic block commits — a
-            # rollback means the task never queues, so we never act on a flag change
-            # that didn't actually persist. The tasks themselves write to the persons
-            # DB via `db_manager(PERSONS_DB_FOR_WRITE)`.
+            # Registered BEFORE super().update() so that any failure in the write
+            # itself (e.g. IntegrityError, DatabaseError) rolls back the atomic
+            # block AND drops the on_commit registration — Django only fires
+            # on_commit callbacks if the enclosing transaction successfully commits.
+            # The tasks themselves write to the persons DB via
+            # `db_manager(PERSONS_DB_FOR_WRITE)`.
             from posthog.tasks.feature_flags import (
                 delete_hash_key_overrides_for_flag,
                 rewrite_hash_key_overrides_for_flag,
@@ -1620,6 +1619,9 @@ class FeatureFlagSerializer(
                             new_key=new_key,
                         )
                     )
+
+            with ImpersonatedContext(request):
+                instance = super().update(instance, validated_data)
 
         # Continue with the update outside of the transaction. This is an intentional choice
         # to avoid deadlocks. Not to mention, before making the concurrency changes, these
