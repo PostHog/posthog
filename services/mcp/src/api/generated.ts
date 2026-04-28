@@ -24,6 +24,7 @@ export namespace Schemas {
       AiMetric: '$ai_metric',
       AiFeedback: '$ai_feedback',
       AiEvaluation: '$ai_evaluation',
+      AiTag: '$ai_tag',
       AiTraceSummary: '$ai_trace_summary',
       AiGenerationSummary: '$ai_generation_summary',
       AiTraceClusters: '$ai_trace_clusters',
@@ -24645,6 +24646,57 @@ export namespace Schemas {
       results: TaggedItem[];
     }
 
+    /**
+     * * `llm` - LLM
+    * `hog` - Hog
+     */
+    export type TaggerTypeEnum = typeof TaggerTypeEnum[keyof typeof TaggerTypeEnum];
+
+
+    export const TaggerTypeEnum = {
+      Llm: 'llm',
+      Hog: 'hog',
+    } as const;
+
+    /**
+     * Nested serializer for model configuration.
+     */
+    export interface TaggerModelConfiguration {
+      provider: LLMProviderEnum;
+      /** @maxLength 100 */
+      model: string;
+      /** @nullable */
+      provider_key_id?: string | null;
+      /** @nullable */
+      readonly provider_key_name: string | null;
+    }
+
+    export interface Tagger {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      description?: string;
+      enabled?: boolean;
+      tagger_type?: TaggerTypeEnum;
+      /** Tagger configuration (varies by tagger_type) */
+      tagger_config: unknown;
+      conditions?: unknown;
+      model_configuration?: TaggerModelConfiguration | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      readonly created_by: UserBasic;
+      deleted?: boolean;
+    }
+
+    export interface PaginatedTaggerList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Tagger[];
+    }
+
     export interface TaskAutomation {
       readonly id: string;
       /** @maxLength 255 */
@@ -29990,6 +30042,23 @@ export namespace Schemas {
       /** @nullable */
       readonly external_schema?: PatchedTableExternalSchema;
       options?: PatchedTableOptions;
+    }
+
+    export interface PatchedTagger {
+      readonly id?: string;
+      /** @maxLength 400 */
+      name?: string;
+      description?: string;
+      enabled?: boolean;
+      tagger_type?: TaggerTypeEnum;
+      /** Tagger configuration (varies by tagger_type) */
+      tagger_config?: unknown;
+      conditions?: unknown;
+      model_configuration?: TaggerModelConfiguration | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      readonly created_by?: UserBasic;
+      deleted?: boolean;
     }
 
     /**
@@ -40183,6 +40252,40 @@ export namespace Schemas {
       Skipped: 'skipped',
       Starting: 'starting',
     } as const;
+
+    export type TaggersListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[];
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering
+
+    * `created_at` - Created At
+    * `-created_at` - Created At (descending)
+    * `updated_at` - Updated At
+    * `-updated_at` - Updated At (descending)
+    * `name` - Name
+    * `-name` - Name (descending)
+     */
+    order_by?: string[];
+    /**
+     * Search in name or description
+     */
+    search?: string;
+    };
 
     export type UserInterviewsListParams = {
     /**

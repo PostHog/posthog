@@ -81,7 +81,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="tagger",
-            index=models.Index(fields=["team", "enabled"], name="llm_analyti_team_id_tagger_enabled_idx"),
+            index=models.Index(fields=["team", "enabled"], name="llm_analyti_tagger_enabled_idx"),
         ),
         migrations.AddIndex(
             model_name="tagger",

@@ -1580,6 +1580,71 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const taggersCreateBodyNameMax = 400
+
+export const taggersCreateBodyTaggerTypeDefault = `llm`
+export const taggersCreateBodyModelConfigurationOneModelMax = 100
+
+export const TaggersCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taggersCreateBodyNameMax),
+    description: zod.string().optional(),
+    enabled: zod.boolean().optional(),
+    tagger_type: zod
+        .enum(['llm', 'hog'])
+        .describe('* `llm` - LLM\n* `hog` - Hog')
+        .default(taggersCreateBodyTaggerTypeDefault),
+    tagger_config: zod.unknown().describe('Tagger configuration (varies by tagger_type)'),
+    conditions: zod.unknown().optional(),
+    model_configuration: zod
+        .object({
+            provider: zod
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+                .describe(
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+                ),
+            model: zod.string().max(taggersCreateBodyModelConfigurationOneModelMax),
+            provider_key_id: zod.uuid().nullish(),
+            provider_key_name: zod.string().nullable(),
+        })
+        .describe('Nested serializer for model configuration.')
+        .nullish(),
+    deleted: zod.boolean().optional(),
+})
+
+/**
+ * Test Hog tagger code against sample events without saving.
+ */
+export const taggersTestHogCreateBodyNameMax = 400
+
+export const taggersTestHogCreateBodyTaggerTypeDefault = `llm`
+export const taggersTestHogCreateBodyModelConfigurationOneModelMax = 100
+
+export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(taggersTestHogCreateBodyNameMax),
+    description: zod.string().optional(),
+    enabled: zod.boolean().optional(),
+    tagger_type: zod
+        .enum(['llm', 'hog'])
+        .describe('* `llm` - LLM\n* `hog` - Hog')
+        .default(taggersTestHogCreateBodyTaggerTypeDefault),
+    tagger_config: zod.unknown().describe('Tagger configuration (varies by tagger_type)'),
+    conditions: zod.unknown().optional(),
+    model_configuration: zod
+        .object({
+            provider: zod
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+                .describe(
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+                ),
+            model: zod.string().max(taggersTestHogCreateBodyModelConfigurationOneModelMax),
+            provider_key_id: zod.uuid().nullish(),
+            provider_key_name: zod.string().nullable(),
+        })
+        .describe('Nested serializer for model configuration.')
+        .nullish(),
+    deleted: zod.boolean().optional(),
+})
+
 export const datasetItemsCreateBodyRefTraceIdMax = 255
 
 export const datasetItemsCreateBodyRefSourceIdMax = 255

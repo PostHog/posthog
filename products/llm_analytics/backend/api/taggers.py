@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -64,7 +64,7 @@ class TaggerConfigSerializer(serializers.Serializer):
         return data
 
 
-class ModelConfigurationSerializer(serializers.Serializer):
+class TaggerModelConfigurationSerializer(serializers.Serializer):
     """Nested serializer for model configuration."""
 
     provider = serializers.ChoiceField(choices=LLMProvider.choices)
@@ -88,7 +88,7 @@ class ModelConfigurationSerializer(serializers.Serializer):
 
 class TaggerSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
+    model_configuration = TaggerModelConfigurationSerializer(required=False, allow_null=True)
     tagger_config = serializers.JSONField(help_text="Tagger configuration (varies by tagger_type)")
     tagger_type = serializers.ChoiceField(choices=TaggerType.choices, default=TaggerType.LLM)
 
@@ -261,7 +261,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         )
 
     def perform_update(self, serializer: BaseSerializer) -> None:
-        instance_before: Tagger = serializer.instance  # type: ignore[assignment]
+        instance_before = cast(Tagger, serializer.instance)
         is_deletion = serializer.validated_data.get("deleted") is True and not instance_before.deleted
         old_enabled_value = instance_before.enabled
 
