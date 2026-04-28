@@ -101,45 +101,43 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
             ["data_warehouse_series_unsupported_breakdown"],
         )
 
-    def test_disallows_multi_breakdowns_for_data_warehouse_series(self) -> None:
-        query = TrendsQuery(
-            series=self._data_warehouse_series(),
-            breakdownFilter=BreakdownFilter(
-                breakdowns=[
-                    Breakdown(property="$browser", type=BreakdownType.EVENT),
-                    Breakdown(property="$geoip_country_code", type=BreakdownType.PERSON),
-                ]
-            ),
-        )
-
-        with self.assertRaises(ValidationError) as context:
-            ValidateDataWarehouseBreakdown().validate(self._context(query))
-
-        self.assertIn(
-            "Multi-breakdowns not supported for trends insights with a data warehouse series.",
-            str(context.exception),
-        )
-        self.assertEqual(
-            context.exception.get_codes(),
-            ["data_warehouse_series_unsupported_breakdown"],
-        )
-
     @parameterized.expand(
         [
             (
-                "data_warehouse_type",
-                Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                "single_data_warehouse_type",
+                [Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE)],
             ),
             (
-                "hogql_type",
-                Breakdown(property="status", type=MultipleBreakdownType.HOGQL),
+                "single_hogql_type",
+                [Breakdown(property="status", type=MultipleBreakdownType.HOGQL)],
+            ),
+            (
+                "multiple_data_warehouse_types",
+                [
+                    Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                    Breakdown(property="status", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                ],
+            ),
+            (
+                "multiple_hogql_types",
+                [
+                    Breakdown(property="properties.plan", type=MultipleBreakdownType.HOGQL),
+                    Breakdown(property="properties.status", type=MultipleBreakdownType.HOGQL),
+                ],
+            ),
+            (
+                "multiple_mixed_supported_types",
+                [
+                    Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                    Breakdown(property="properties.status", type=MultipleBreakdownType.HOGQL),
+                ],
             ),
         ]
     )
-    def test_allows_supported_single_item_multi_breakdown(self, _name: str, breakdown: Breakdown) -> None:
+    def test_allows_supported_multi_breakdowns(self, _name: str, breakdowns: list[Breakdown]) -> None:
         query = TrendsQuery(
             series=self._data_warehouse_series(),
-            breakdownFilter=BreakdownFilter(breakdowns=[breakdown]),
+            breakdownFilter=BreakdownFilter(breakdowns=breakdowns),
         )
 
         ValidateDataWarehouseBreakdown().validate(self._context(query))
@@ -147,27 +145,41 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
     @parameterized.expand(
         [
             (
-                "default_event_type",
-                Breakdown(property="$browser"),
+                "single_default_event_type",
+                [Breakdown(property="$browser")],
             ),
             (
-                "explicit_event_type",
-                Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+                "single_explicit_event_type",
+                [Breakdown(property="$browser", type=MultipleBreakdownType.EVENT)],
             ),
             (
-                "person_type",
-                Breakdown(property="$geoip_country_code", type=MultipleBreakdownType.PERSON),
+                "single_person_type",
+                [Breakdown(property="$geoip_country_code", type=MultipleBreakdownType.PERSON)],
             ),
             (
-                "data_warehouse_person_property_type",
-                Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY),
+                "single_data_warehouse_person_property_type",
+                [Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE_PERSON_PROPERTY)],
+            ),
+            (
+                "multiple_with_unsupported_second_item",
+                [
+                    Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                    Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+                ],
+            ),
+            (
+                "multiple_with_unsupported_first_item",
+                [
+                    Breakdown(property="$browser", type=MultipleBreakdownType.EVENT),
+                    Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE),
+                ],
             ),
         ]
     )
-    def test_disallows_unsupported_single_item_multi_breakdown(self, _name: str, breakdown: Breakdown) -> None:
+    def test_disallows_unsupported_multi_breakdown_items(self, _name: str, breakdowns: list[Breakdown]) -> None:
         query = TrendsQuery(
             series=self._data_warehouse_series(),
-            breakdownFilter=BreakdownFilter(breakdowns=[breakdown]),
+            breakdownFilter=BreakdownFilter(breakdowns=breakdowns),
         )
 
         with self.assertRaises(ValidationError) as context:
