@@ -7,7 +7,7 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Optional, cast
 from urllib.parse import urlencode, urlparse
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -84,6 +84,8 @@ github_api_request_counter = Counter(
     "Number of GitHub API requests made through a GitHub integration.",
     labelnames=["integration_id", "method", "endpoint", "status_code"],
 )
+
+GITHUB_API_VERSION = "2022-11-28"
 github_api_rate_limit_remaining_gauge = Gauge(
     "github_integration_api_rate_limit_remaining",
     "Most recently observed GitHub API rate limit remaining count by integration and resource.",
@@ -123,38 +125,39 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
-        SLACK = "slack"
-        SLACK_POSTHOG_CODE = "slack-posthog-code"
-        SALESFORCE = "salesforce"
-        HUBSPOT = "hubspot"
-        GOOGLE_PUBSUB = "google-pubsub"
-        GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
-        GOOGLE_ADS = "google-ads"
-        GOOGLE_SHEETS = "google-sheets"
-        GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
-        SNAPCHAT = "snapchat"
-        LINKEDIN_ADS = "linkedin-ads"
-        REDDIT_ADS = "reddit-ads"
-        TIKTOK_ADS = "tiktok-ads"
+        AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
-        INTERCOM = "intercom"
+        CLICKUP = "clickup"
+        CUSTOMERIO_APP = "customerio-app"
+        CUSTOMERIO_TRACK = "customerio-track"
+        CUSTOMERIO_WEBHOOK = "customerio-webhook"
+        DATABRICKS = "databricks"
         EMAIL = "email"
-        LINEAR = "linear"
+        FIREBASE = "firebase"
         GITHUB = "github"
         GITLAB = "gitlab"
-        META_ADS = "meta-ads"
-        TWILIO = "twilio"
-        CLICKUP = "clickup"
-        VERCEL = "vercel"
-        DATABRICKS = "databricks"
-        AZURE_BLOB = "azure-blob"
-        FIREBASE = "firebase"
+        GOOGLE_ADS = "google-ads"
+        GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
+        GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
+        GOOGLE_PUBSUB = "google-pubsub"
+        GOOGLE_SHEETS = "google-sheets"
+        HUBSPOT = "hubspot"
+        INTERCOM = "intercom"
         JIRA = "jira"
+        LINEAR = "linear"
+        LINKEDIN_ADS = "linkedin-ads"
+        META_ADS = "meta-ads"
         PINTEREST_ADS = "pinterest-ads"
+        POSTGRESQL = "postgresql"
+        REDDIT_ADS = "reddit-ads"
+        SALESFORCE = "salesforce"
+        SLACK = "slack"
+        SLACK_POSTHOG_CODE = "slack-posthog-code"
+        SNAPCHAT = "snapchat"
         STRIPE = "stripe"
-        CUSTOMERIO_APP = "customerio-app"
-        CUSTOMERIO_WEBHOOK = "customerio-webhook"
-        CUSTOMERIO_TRACK = "customerio-track"
+        TIKTOK_ADS = "tiktok-ads"
+        TWILIO = "twilio"
+        VERCEL = "vercel"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -2098,6 +2101,56 @@ class GitHubIntegrationError(Exception):
     pass
 
 
+class GitHubRateLimitError(GitHubIntegrationError):
+    """GitHub API rate limit exhausted for this installation."""
+
+    def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
+        super().__init__(message)
+        self.reset_at = reset_at
+        self.retry_after = retry_after
+
+
+def raise_if_github_rate_limited(response: requests.Response) -> None:
+    """Raise GitHubRateLimitError when the response signals a GitHub rate limit.
+
+    Handles both primary (403 + body) and secondary (429) rate limit formats.
+    Safe to call unconditionally after every GitHub API response.
+    """
+    if response.status_code == 429:
+        is_rate_limited = True
+    elif response.status_code == 403:
+        try:
+            body = response.text
+        except Exception:
+            body = ""
+        is_rate_limited = "rate limit" in body.lower()
+    else:
+        return
+
+    if not is_rate_limited:
+        return
+
+    def _int_header(name: str) -> int | None:
+        val = response.headers.get(name)
+        if not val:
+            return None
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return None
+
+    reset_at = _int_header("x-ratelimit-reset")
+    retry_after = _int_header("retry-after")
+    if retry_after is None and reset_at is not None:
+        retry_after = max(1, reset_at - int(time.time()))
+
+    raise GitHubRateLimitError(
+        f"GitHub API rate limit exceeded (resets at {reset_at})",
+        reset_at=reset_at,
+        retry_after=retry_after,
+    )
+
+
 class GitHubIntegration:
     integration: Integration
 
@@ -2136,7 +2189,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {jwt_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -2224,7 +2277,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=10,
             )
@@ -2395,6 +2448,15 @@ class GitHubIntegration:
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
             self.integration.save()
 
+    def get_access_token(self) -> str:
+        """Return a valid installation access token, refreshing it if expired."""
+        if self.access_token_expired():
+            self.refresh_access_token()
+        token = self.integration.sensitive_config.get("access_token")
+        if not token:
+            raise GitHubIntegrationError("Access token unavailable after refresh")
+        return token
+
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
@@ -2416,7 +2478,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=timeout,
             )
@@ -2501,7 +2563,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
 
@@ -2920,7 +2982,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
 
@@ -2981,7 +3043,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=10,
             )
@@ -3083,7 +3145,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3110,7 +3172,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
             timeout=10,
         )
@@ -3139,7 +3201,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3162,7 +3224,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3197,7 +3259,7 @@ class GitHubIntegration:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
             if get_response.status_code == 200:
@@ -3221,7 +3283,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3262,7 +3324,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3293,7 +3355,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3332,7 +3394,7 @@ class GitHubIntegration:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
         )
 
@@ -3959,3 +4021,104 @@ class StripeIntegration:
             return OAuthApplication.objects.filter(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID).first()
 
         return None
+
+
+class Credentials(NamedTuple):
+    """PostgreSQL credentials."""
+
+    user: str
+    password: str
+
+
+class Authority(NamedTuple):
+    """PostgreSQL authority parameters."""
+
+    host: str
+    port: int
+
+
+MISSING_CERT_PATH = "/tmp/posthog/batch-exports/MISSING.crt"
+
+
+class TLS(NamedTuple):
+    """PostgreSQL TLS parameters.
+
+    NOTE: If a root CA file exists in the default '~/.postgresql/root.crt' path libpq
+    treats `sslmode='require'` as `sslmode='verify-ca'`.
+
+    **This is not what we want**
+
+    If a user has not provided a root certificate (by setting `ssl_root_cert` to the
+    cert's contents) or asked to use the system store explicitly (by setting
+    `ssl_root_cert='system'`, in version >=16), then whatever is present in the default
+    path should not be used.
+
+    This could be a problem if, for example, another application or library or
+    dependency bundled in the same container ships with a default cert.
+
+    For this reason we require `ssl_root_cert` to not be `None` (as that would translate
+    to the default path), and it defaults to an application-scoped path under `/tmp/`.
+    """
+
+    ssl_mode: Literal["prefer", "require", "verify-ca", "verify-full"]
+    ssl_root_cert: str | Literal["system"] = MISSING_CERT_PATH
+
+
+class PostgreSQLIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        self.integration = integration
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        host: str,
+        port: int,
+        user: str,
+        password: str,
+        ssl_mode: Literal["prefer", "require", "verify-ca", "verify-full"] = "require",
+        ssl_root_cert: str | Literal["system"] | None = None,
+        created_by: User | None = None,
+    ) -> Integration:
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.POSTGRESQL,
+            integration_id=f"{team_id}-{host}-{port}-{user}",
+            defaults={
+                "config": {
+                    "host": host,
+                    "port": port,
+                    "user": user,
+                    "ssl_mode": ssl_mode,
+                    "ssl_root_cert": ssl_root_cert,
+                },
+                "sensitive_config": {
+                    "password": password,
+                },
+                "created_by": created_by,
+            },
+        )
+
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    def authority(self) -> Authority:
+        return Authority(self.integration.config["host"], self.integration.config["port"])
+
+    def credentials(self) -> Credentials:
+        return Credentials(self.integration.config["user"], self.integration.sensitive_config["password"])
+
+    def tls(self) -> TLS:
+        if (ssl_root_cert := self.integration.config.get("ssl_root_cert", None)) is not None:
+            return TLS(
+                ssl_mode=self.integration.config["ssl_mode"],
+                ssl_root_cert=ssl_root_cert,
+            )
+        else:
+            # Preserve the default ssl_root_cert if one was not provided
+            return TLS(ssl_mode=self.integration.config["ssl_mode"])

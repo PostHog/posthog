@@ -47,12 +47,22 @@ import {
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
-const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5
+const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5 // on the 0-100 scale (0.5 = 0.5%)
 
 export function filterLowMultipleVariant<T extends { variant: string; percentage: number }>(variants: T[]): T[] {
     return variants.filter(
         (v) => v.variant !== EXPERIMENT_VARIANT_MULTIPLE || v.percentage > MULTIPLE_VARIANT_WARNING_THRESHOLD
     )
+}
+
+/**
+ * Resolves the effective multi-variant handling, applying the backend default when unset.
+ * See posthog/hogql_queries/experiments/exposure_query_logic.py (default = `EXCLUDE`).
+ */
+export function resolveMultipleVariantHandling(
+    handling: 'exclude' | 'first_seen' | undefined
+): 'exclude' | 'first_seen' {
+    return handling ?? 'exclude'
 }
 
 export function isEventExposureConfig(config: ExperimentExposureConfig): config is ExperimentEventExposureConfig {
