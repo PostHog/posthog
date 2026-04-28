@@ -1,12 +1,11 @@
 name: Pre-merge check
-# Runs cheap static checks against the simulated post-merge tree (master + PR
-# head). Catches the class of break where two PRs are individually clean but
-# their combination is invalid — e.g. a duplicate-kwarg SyntaxError from
-# overlapping merges that per-PR CI cannot see because it runs on PR head only.
+# Lints the projected post-merge tree (master + PR head) to catch breakages
+# only visible after the merge — e.g. a SyntaxError from two PRs each cleanly
+# adding the same kwarg in overlapping positions. Per-PR CI runs against PR
+# head only and cannot see this class of bug.
 #
-# Intentionally narrow: only fast static checks (ruff). Does not run the full
-# test matrix on the merged state — that would defeat the cheapness that makes
-# this viable as a per-push gate.
+# Intentionally narrow: only fast static checks (ruff). Anything heavier on
+# the merged state functionally becomes a merge queue, which we don't want.
 on:
     pull_request:
         types: [opened, synchronize, reopened, ready_for_review]
@@ -21,39 +20,18 @@ concurrency:
 jobs:
     pre-merge-check:
         name: Pre-merge check
-        # GitHub-hosted, not depot. This is a sub-2-minute lint job — depot's
-        # faster compute doesn't pay off, and ubuntu-latest avoids the per-min
-        # depot charge for a job that runs many times per PR.
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
-            - name: Checkout PR head (not GitHub's auto-merge ref)
-              # We deliberately check out the PR head SHA — overriding
-              # actions/checkout's default-for-pull_request behaviour of
-              # checking out refs/pull/N/merge — so we can perform an explicit
-              # `git merge origin/master` in the next step. This gives:
-              #   1. A clear error message on textual merge conflicts.
-              #   2. Master fetched at job-start, slightly fresher than
-              #      GitHub's pre-computed merge ref (which is created at PR
-              #      push time and can lag if master moves before the runner
-              #      picks up the job).
-              # fetch-depth: 0 is needed so `git merge` can find the common
-              # ancestor with master.
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - name: Check out the merged tree
+              # GitHub computes a synthetic merge commit at refs/pull/N/merge
+              # for every pull_request event — i.e. master + PR head, merged.
+              # actions/checkout uses this ref by default for pull_request
+              # events; we name it explicitly so the intent is obvious.
+              uses: actions/checkout@v6
               with:
-                  fetch-depth: 0
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
-
-            - name: Merge current master into PR head
-              run: |
-                  git config user.name "pre-merge-check"
-                  git config user.email "noreply@posthog.com"
-                  git fetch --no-tags origin master
-                  if ! git merge --no-edit --no-ff origin/master; then
-                      echo "::error::Merge conflict against current master — please rebase the PR."
-                      exit 1
-                  fi
+                  ref: refs/pull/${{ github.event.pull_request.number }}/merge
+                  fetch-depth: 1
 
             - name: Install uv
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
@@ -62,7 +40,6 @@ jobs:
                   enable-cache: false
 
             - name: Run ruff check on merged tree
-              # Catches Python SyntaxError (e.g. duplicate kwargs from overlapping
-              # merges), undefined names, broken imports. Pinned to the repo's
-              # ruff version to match local + ci-python.yml behaviour.
+              # Catches Python SyntaxError, undefined names, broken imports
+              # introduced by the merge. Pinned to the repo's ruff version.
               run: uvx ruff@0.14.11 check .
