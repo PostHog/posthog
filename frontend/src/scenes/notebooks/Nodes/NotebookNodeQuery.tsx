@@ -159,18 +159,16 @@ function NotebookSQLEditorSettings({
 
     return (
         <div
-            className="p-3"
+            className="h-96 min-h-72 overflow-hidden"
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={(event) => event.stopPropagation()}
         >
-            <div className="h-96 min-h-72 overflow-hidden rounded border">
-                <SQLEditor
-                    tabId={tabId}
-                    mode={SQLEditorMode.Embedded}
-                    panel={SQLEditorPanel.Query}
-                    defaultShowDatabaseTree={false}
-                />
-            </div>
+            <SQLEditor
+                tabId={tabId}
+                mode={SQLEditorMode.Embedded}
+                panel={SQLEditorPanel.Query}
+                defaultShowDatabaseTree={false}
+            />
         </div>
     )
 }
