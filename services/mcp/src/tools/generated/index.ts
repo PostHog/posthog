@@ -6,6 +6,7 @@ import { GENERATED_TOOLS as alerts } from './alerts'
 import { GENERATED_TOOLS as annotations } from './annotations'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
+import { GENERATED_TOOLS as clustering } from './clustering'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
 import { GENERATED_TOOLS as conversations } from './conversations'
 import { GENERATED_TOOLS as core } from './core'
@@ -19,7 +20,6 @@ import { GENERATED_TOOLS as evaluations } from './evaluations'
 import { GENERATED_TOOLS as experiments } from './experiments'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
 import { GENERATED_TOOLS as integrations } from './integrations'
-import { GENERATED_TOOLS as llm_analytics } from './llm_analytics'
 import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
@@ -42,6 +42,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...annotations,
     ...cdp_function_templates,
     ...cdp_functions,
+    ...clustering,
     ...cohorts,
     ...conversations,
     ...core,
@@ -55,7 +56,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...experiments,
     ...feature_flags,
     ...integrations,
-    ...llm_analytics,
     ...logs,
     ...notebooks,
     ...persons,
