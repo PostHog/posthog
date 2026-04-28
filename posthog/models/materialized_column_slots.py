@@ -66,6 +66,13 @@ class MaterializedColumnSlot(UUIDTModel):
         choices=MaterializedColumnSlotState,
         default=MaterializedColumnSlotState.PENDING,
     )
+    # Stores the Temporal `workflow_run_id`, not the `workflow_id`. The legacy field name predates
+    # the weekly schedule — once a single Temporal schedule (`weekly-dmat-backfill-execution`)
+    # reuses the same workflow_id every Sunday, that value would no longer distinguish "this
+    # firing's commits" from "last week's firing's commits". The activity uses run_id (which is
+    # unique per execution and stable across activity retries) for that idempotency check.
+    # Rename held back per safe-django-migrations.md ("Don't rename columns in production");
+    # use `slot.backfill_temporal_workflow_id` knowing it actually contains a run_id.
     backfill_temporal_workflow_id = models.CharField(max_length=400, null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
 

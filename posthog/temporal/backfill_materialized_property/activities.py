@@ -6,6 +6,7 @@ from typing import Optional
 from django.db import transaction
 
 import structlog
+import posthoganalytics
 from temporalio import activity
 
 from posthog.clickhouse.cluster import AlterTableMutationRunner, get_cluster
@@ -42,7 +43,7 @@ class UpdateSlotStateInputs:
     error_message: Optional[str] = None
 
 
-def _generate_property_extraction_sql() -> str:
+def _generate_property_extraction_sql(property_name_param: str = "property_name") -> str:
     """SQL fragment that pulls a single property out of `properties` as a string.
 
     Byte-identical to the HogQL printer's JSON-fallback extraction
@@ -52,10 +53,13 @@ def _generate_property_extraction_sql() -> str:
     column, depending on whether the slot is READY for that property — disagreement would
     show up as different values for the same event before vs after backfill.
 
-    Uses the %(property_name)s placeholder for safe parameterization. Caller must pass
-    `property_name` in the query params dict.
+    The single-property-per-mutation path uses the default `%(property_name)s` placeholder.
+    The batched-mutation path passes a per-slot param key (`prop_<uuid>`) so multiple
+    extractions can coexist in one mutation's params dict. Either way, the literal SQL
+    around the placeholder is identical — that's the parity guarantee the dmat-vs-JSON
+    consistency test pins.
     """
-    return "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %(property_name)s), ''), 'null'), '^\"|\"$', '')"
+    return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %({property_name_param})s), ''), 'null'), '^\"|\"$', '')"
 
 
 @activity.defn
@@ -124,82 +128,70 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
 
 
 @activity.defn
-def update_slot_state(inputs: UpdateSlotStateInputs) -> bool:
+def update_slot_state(inputs: UpdateSlotStateInputs) -> None:
+    """Update the state of a materialized column slot with activity logging.
+
+    Raises `MaterializedColumnSlot.DoesNotExist` if the slot is gone — this is the legacy
+    per-slot workflow's terminal step and a missing slot at this point means an operator
+    deleted it mid-backfill. Failing loud lets the workflow surface that as an error rather
+    than logging "Workflow completed successfully" against a slot that no longer exists.
     """
-    Update the state of a materialized column slot with activity logging.
+    slot = MaterializedColumnSlot.objects.select_related("team", "property_definition").get(id=inputs.slot_id)
+    old_state = slot.state
 
-    Returns True if update succeeded.
-    """
-    try:
-        slot = MaterializedColumnSlot.objects.select_related("team", "property_definition").get(id=inputs.slot_id)
-        old_state = slot.state
+    slot.state = inputs.state
 
-        slot.state = inputs.state
-
-        # Store or clear error message
-        if inputs.error_message:
-            slot.error_message = inputs.error_message
-            logger.error(
-                "Slot state update with error",
-                slot_id=inputs.slot_id,
-                old_state=old_state,
-                new_state=inputs.state,
-                error_message=inputs.error_message,
-            )
-        elif inputs.state == "BACKFILL":
-            # Clear error message when transitioning to BACKFILL (e.g., on retry)
-            slot.error_message = None
-
-        slot.save()
-
-        logger.info(
-            "Updated slot state",
+    if inputs.error_message:
+        slot.error_message = inputs.error_message
+        logger.error(
+            "Slot state update with error",
             slot_id=inputs.slot_id,
-            team_id=slot.team_id,
             old_state=old_state,
             new_state=inputs.state,
+            error_message=inputs.error_message,
+        )
+    elif inputs.state == "BACKFILL":
+        # Clear error message when transitioning to BACKFILL (e.g., on retry)
+        slot.error_message = None
+
+    slot.save()
+
+    logger.info(
+        "Updated slot state",
+        slot_id=inputs.slot_id,
+        team_id=slot.team_id,
+        old_state=old_state,
+        new_state=inputs.state,
+    )
+
+    if inputs.state in ["READY", "ERROR"]:
+        activity_name = (
+            "materialized_column_backfill_completed"
+            if inputs.state == "READY"
+            else "materialized_column_backfill_failed"
         )
 
-        # Log activity for state transitions to READY or ERROR
-        if inputs.state in ["READY", "ERROR"]:
-            property_name = slot.property_definition.name if slot.property_definition else "Unknown"
-
-            activity_name = (
-                "materialized_column_backfill_completed"
-                if inputs.state == "READY"
-                else "materialized_column_backfill_failed"
-            )
-
-            log_activity(
-                organization_id=slot.team.organization_id,
-                team_id=slot.team_id,
-                user=None,  # System user for workflow-triggered updates
-                was_impersonated=False,
-                item_id=str(slot.id),
-                scope="DataManagement",
-                activity=activity_name,
-                detail=Detail(
-                    name=property_name,
-                    changes=[
-                        Change(
-                            type="MaterializedColumnSlot",
-                            action="changed",
-                            field="state",
-                            before=old_state,
-                            after=inputs.state,
-                        ),
-                    ],
-                ),
-            )
-
-        return True
-
-    except MaterializedColumnSlot.DoesNotExist:
-        logger.warning("Slot not found for state update", slot_id=inputs.slot_id)
-        return False
-    except Exception as e:
-        logger.exception("Failed to update slot state", slot_id=inputs.slot_id, error=str(e))
-        raise
+        log_activity(
+            organization_id=slot.team.organization_id,
+            team_id=slot.team_id,
+            user=None,  # System user for workflow-triggered updates
+            was_impersonated=False,
+            item_id=str(slot.id),
+            scope="DataManagement",
+            activity=activity_name,
+            detail=Detail(
+                name=slot.property_definition.name,
+                changes=[
+                    Change(
+                        type="MaterializedColumnSlot",
+                        action="changed",
+                        field="state",
+                        before=old_state,
+                        after=inputs.state,
+                    ),
+                ],
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -400,12 +392,26 @@ def assign_pending_slots(inputs: AssignPendingSlotsInputs) -> AssignPendingSlots
             and s.backfill_temporal_workflow_id != inputs.workflow_id
         ]
         if stranded:
+            stale_workflow_ids = sorted({s.backfill_temporal_workflow_id for s in stranded})
+            stranded_slot_ids = [str(s.id) for s in stranded]
             logger.warning(
                 "Stranded BACKFILL slots from a prior workflow run — operator action required to retry",
                 current_workflow_run_id=inputs.workflow_id,
                 count=len(stranded),
-                slot_ids=[str(s.id) for s in stranded],
-                stale_workflow_ids=sorted({s.backfill_temporal_workflow_id for s in stranded}),
+                slot_ids=stranded_slot_ids,
+                stale_workflow_ids=stale_workflow_ids,
+            )
+            # Surface to Sentry so oncall is alerted (the workflow itself does not fail —
+            # stranded slots are harmless to users because HogQL falls back to JSON for
+            # state != READY — but they need an operator to reset them to PENDING for the
+            # next cycle, otherwise they sit forever holding a column index hostage).
+            posthoganalytics.capture_exception(
+                Exception("dmat: stranded BACKFILL slots require operator action"),
+                properties={
+                    "current_workflow_run_id": inputs.workflow_id,
+                    "stranded_slot_ids": stranded_slot_ids,
+                    "stale_workflow_ids": stale_workflow_ids,
+                },
             )
 
         # Compaction trigger: count free string columns across the global pool. We trigger when
@@ -436,6 +442,21 @@ def assign_pending_slots(inputs: AssignPendingSlotsInputs) -> AssignPendingSlots
                 # The compaction planner needs to avoid every column currently in use, plus
                 # whatever PENDING assignments we're about to make below.
                 compaction_plan = _plan_compaction_targets(slots_to_compact, set(used_indexes))
+                skipped = [str(s.id) for s in slots_to_compact if str(s.id) not in compaction_plan]
+                if skipped:
+                    # Compaction is best-effort; skipped slots stay on their existing column for
+                    # this cycle. But sustained skipping means the column pool isn't recovering
+                    # and we'll run out of free columns for new PENDING slots — alert oncall so
+                    # they can investigate before the next assign_pending_slots actually fails.
+                    posthoganalytics.capture_exception(
+                        Exception("dmat: compaction planner skipped slots — column pool may be exhausting"),
+                        properties={
+                            "workflow_run_id": inputs.workflow_id,
+                            "free_count_before_compaction": free_count,
+                            "skipped_slot_ids": skipped,
+                            "compacted_slot_count": len(compaction_plan),
+                        },
+                    )
 
         if not pending and not compaction_plan and not reclaimed_from_this_run:
             logger.info(
@@ -606,12 +627,7 @@ def _build_batched_update_command(assignments: list[_ColumnAssignment]) -> tuple
             # slot_id is unique → param key is collision-free across the entire mutation.
             param_key = f"prop_{slot_id.replace('-', '')}"
             params[param_key] = property_name
-            extract_sql = (
-                "replaceRegexpAll("
-                f"nullIf(nullIf(JSONExtractRaw(properties, %({param_key})s), ''), 'null'),"
-                " '^\"|\"$', ''"
-                ")"
-            )
+            extract_sql = _generate_property_extraction_sql(param_key)
             branches.append(f"team_id = {int(team_id)}")
             branches.append(extract_sql)
             all_team_ids.add(team_id)

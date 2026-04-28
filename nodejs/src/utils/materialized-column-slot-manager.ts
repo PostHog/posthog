@@ -1,5 +1,6 @@
 import { MaterializedColumnSlot } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
+import { DmatKillSwitch } from './dmat-kill-switch'
 import { LazyLoader, TEAM_AND_SLOTS_REFRESH_AGE_MS, TEAM_AND_SLOTS_REFRESH_JITTER_MS } from './lazy-loader'
 
 /**
@@ -15,11 +16,20 @@ import { LazyLoader, TEAM_AND_SLOTS_REFRESH_AGE_MS, TEAM_AND_SLOTS_REFRESH_JITTE
  * Only slots in BACKFILL or READY state with a non-null `slot_index` are loaded — PENDING
  * slots have not been packed into a column yet, and ERROR slots are quiesced until
  * an operator transitions them back to PENDING for retry.
+ *
+ * If the optional `DmatKillSwitch` is provided and currently `isDisabled()`, every
+ * `getSlots*` call short-circuits to an empty array — `extractDynamicMaterializedColumns`
+ * already does nothing when the slot list is empty, so the kill switch cascades through
+ * the existing code path with no per-event branch in the hot loop. HogQL reads are
+ * unaffected; this only stops new dmat-column writes.
  */
 export class MaterializedColumnSlotManager {
     private lazyLoader: LazyLoader<MaterializedColumnSlot[]>
 
-    constructor(private postgres: PostgresRouter) {
+    constructor(
+        private postgres: PostgresRouter,
+        private killSwitch?: DmatKillSwitch
+    ) {
         this.lazyLoader = new LazyLoader({
             name: 'MaterializedColumnSlotManager',
             refreshAgeMs: TEAM_AND_SLOTS_REFRESH_AGE_MS,
@@ -32,6 +42,9 @@ export class MaterializedColumnSlotManager {
 
     /** Returns the team's slot config, or an empty array if none are configured. */
     public async getSlots(teamId: number): Promise<MaterializedColumnSlot[]> {
+        if (this.killSwitch?.isDisabled()) {
+            return []
+        }
         return (await this.lazyLoader.get(String(teamId))) ?? []
     }
 
@@ -40,6 +53,13 @@ export class MaterializedColumnSlotManager {
      * batch of events before per-event lookups happen.
      */
     public async getSlotsForTeams(teamIds: number[]): Promise<Record<string, MaterializedColumnSlot[]>> {
+        if (this.killSwitch?.isDisabled()) {
+            const empty: Record<string, MaterializedColumnSlot[]> = {}
+            for (const id of teamIds) {
+                empty[String(id)] = []
+            }
+            return empty
+        }
         const results = await this.lazyLoader.getMany(teamIds.map(String))
         const converted: Record<string, MaterializedColumnSlot[]> = {}
         for (const [key, value] of Object.entries(results)) {

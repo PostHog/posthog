@@ -7,7 +7,7 @@ from posthog.test.base import _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import MaterializedColumnSlotState
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
 from posthog.temporal.backfill_materialized_property.activities import (
     BackfillMaterializedColumnInputs,
     UpdateSlotStateInputs,
@@ -104,8 +104,7 @@ class TestUpdateSlotState:
         new_state,
         error_message,
     ):
-        """Test updating slot state."""
-        result = activity_environment.run(
+        activity_environment.run(
             update_slot_state,
             UpdateSlotStateInputs(
                 slot_id=str(materialized_slot.id),
@@ -114,9 +113,6 @@ class TestUpdateSlotState:
             ),
         )
 
-        assert result is True
-
-        # Verify state was updated
         materialized_slot.refresh_from_db()
         assert materialized_slot.state == new_state
 
@@ -139,17 +135,17 @@ class TestUpdateSlotState:
         assert materialized_slot_error.state == MaterializedColumnSlotState.BACKFILL
         assert materialized_slot_error.error_message is None
 
-    def test_update_slot_state_not_found(self, activity_environment):
-        """Test that activity returns False when slot not found."""
-        result = activity_environment.run(
-            update_slot_state,
-            UpdateSlotStateInputs(
-                slot_id="00000000-0000-0000-0000-000000000000",
-                state="READY",
-            ),
-        )
-
-        assert result is False
+    def test_update_slot_state_not_found_raises(self, activity_environment):
+        # Missing slot at this point means an operator deleted the row mid-backfill;
+        # the activity must surface that as an error rather than silently no-op.
+        with pytest.raises(MaterializedColumnSlot.DoesNotExist):
+            activity_environment.run(
+                update_slot_state,
+                UpdateSlotStateInputs(
+                    slot_id="00000000-0000-0000-0000-000000000000",
+                    state="READY",
+                ),
+            )
 
 
 @pytest.mark.django_db(transaction=True)

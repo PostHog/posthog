@@ -78,9 +78,17 @@ if _is_cloud:
         ),
     ]
 
-# Step 2a: ADD the new dmat_string columns to the data tables (where they physically live).
+# Step 2a: ADD the new dmat_string columns to every table the events_json_mv SELECT touches
+# AND every table writable_events fans out from. Skipping any of these would either fail the
+# MV recreate (if the target lacks a column the SELECT projects) or silently drop columns at
+# the Distributed boundary on the path that's still missing the schema.
+#
+# Tables and where they live:
+# - sharded_events: data nodes only (sharded)
+# - events: DATA nodes (distributed read table)
+# - writable_events: DATA nodes always (legacy MSK path), AND INGESTION_EVENTS nodes on cloud
+#   (WarpStream path added in 0232 — see that migration for why this is cloud-only)
 operations += [
-    # sharded_events / events on DATA nodes (matches migration 0179's split).
     run_sql_with_exceptions(
         ALTER_TABLE_ADD_DMAT_STRING_COLUMNS(
             table=EVENTS_DATA_TABLE(),
@@ -100,6 +108,17 @@ operations += [
         node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
+    ),
+    # writable_events on DATA nodes — required on every install so the MSK MV recreate below
+    # can project dmat_string_10..99 into it. Without this, self-hosted installs (which have
+    # no INGESTION_EVENTS path at all) would fail at the MV recreate step.
+    run_sql_with_exceptions(
+        ALTER_TABLE_ADD_DMAT_STRING_COLUMNS(
+            table="writable_events",
+            start=_NEW_STRING_RANGE_START,
+            end_exclusive=_NEW_STRING_RANGE_END,
+        ),
+        node_roles=[NodeRole.DATA],
     ),
 ]
 
