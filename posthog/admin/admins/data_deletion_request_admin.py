@@ -11,7 +11,6 @@ from django.utils.html import format_html
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
-from posthog.event_usage import report_user_action
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
     ExecutionMode,
@@ -31,6 +30,11 @@ CRITERIA_FIELDS = {
     "start_time",
     "end_time",
     "hogql_predicate",
+    "person_uuids",
+    "person_distinct_ids",
+    "person_drop_profiles",
+    "person_drop_events",
+    "person_drop_recordings",
 }
 CLICKHOUSE_TEAM_GROUP = "ClickHouse Team"
 
@@ -157,6 +161,16 @@ class DataDeletionRequestForm(forms.ModelForm):
         widget=forms.Textarea(attrs={"rows": 4, "style": "font-family: monospace; width: 100%;"}),
         help_text="Optional HogQL boolean expression (validated against the events table). "
         "Combined with the other filters via AND. Example: properties.$browser = 'Chrome'.",
+    )
+    person_uuids = ArrayTextareaField(
+        required=False,
+        help_text="One person UUID per line. You can also paste a JSON array. "
+        "Combined with person_distinct_ids; total ≤ 1000.",
+    )
+    person_distinct_ids = ArrayTextareaField(
+        required=False,
+        help_text="One person distinct ID per line. You can also paste a JSON array. "
+        "Combined with person_uuids; total ≤ 1000.",
     )
 
     class Meta:
@@ -376,6 +390,20 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Person targets",
+            {
+                "fields": (
+                    "person_uuids",
+                    "person_distinct_ids",
+                    "person_drop_profiles",
+                    "person_drop_events",
+                    "person_drop_recordings",
+                ),
+                "classes": ("data-deletion-person-fields",),
+                "description": "Only used for person_removal requests.",
+            },
+        ),
+        (
             "ClickHouse stats",
             {
                 "fields": (
@@ -446,6 +474,29 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         if obj.request_type == RequestType.EVENT_REMOVAL and obj.properties:
             obj.properties = []
             messages.info(request, "Properties cleared — event removal requests do not use properties.")
+        if obj.request_type == RequestType.PERSON_REMOVAL and (
+            obj.events or obj.delete_all_events or obj.hogql_predicate
+        ):
+            obj.events = []
+            obj.delete_all_events = False
+            obj.hogql_predicate = ""
+            messages.info(
+                request,
+                "Event filters cleared — person removal requests do not use events/hogql_predicate.",
+            )
+        if obj.request_type != RequestType.PERSON_REMOVAL and (
+            obj.person_uuids
+            or obj.person_distinct_ids
+            or obj.person_drop_profiles
+            or obj.person_drop_events
+            or obj.person_drop_recordings
+        ):
+            obj.person_uuids = []
+            obj.person_distinct_ids = []
+            obj.person_drop_profiles = None
+            obj.person_drop_events = None
+            obj.person_drop_recordings = None
+            messages.info(request, "Person targets cleared — only person_removal requests use them.")
         super().save_model(request, obj, form, change)
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
@@ -454,6 +505,15 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         if obj:
             if obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties:
                 messages.warning(request, "This is a property removal request but no properties are specified.")
+            if obj.request_type == RequestType.PERSON_REMOVAL:
+                if not (obj.person_uuids or obj.person_distinct_ids):
+                    messages.warning(request, "This is a person removal request but no person targets are specified.")
+                elif not (obj.person_drop_profiles or obj.person_drop_events or obj.person_drop_recordings):
+                    messages.warning(
+                        request,
+                        "This person removal request has no drop flag set "
+                        "(profiles/events/recordings) — nothing will be deleted.",
+                    )
             extra_context["is_draft"] = obj.status == RequestStatus.DRAFT
             extra_context["submit_url"] = reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk])
             extra_context["can_approve"] = (
@@ -502,11 +562,29 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
         missing_properties = obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties
-        can_submit = not missing_properties
+        missing_person_selectors = obj.request_type == RequestType.PERSON_REMOVAL and not (
+            obj.person_uuids or obj.person_distinct_ids
+        )
+        missing_person_drop_flag = obj.request_type == RequestType.PERSON_REMOVAL and not (
+            obj.person_drop_profiles or obj.person_drop_events or obj.person_drop_recordings
+        )
+        can_submit = not (missing_properties or missing_person_selectors or missing_person_drop_flag)
 
         if request.method == "POST":
-            if not can_submit:
+            if missing_properties:
                 messages.error(request, "Cannot submit: property removal request requires at least one property.")
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+            if missing_person_selectors:
+                messages.error(
+                    request,
+                    "Cannot submit: person removal request requires at least one person UUID or distinct ID.",
+                )
+                return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+            if missing_person_drop_flag:
+                messages.error(
+                    request,
+                    "Cannot submit: person removal request requires at least one drop flag (profiles/events/recordings).",
+                )
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
             updated = DataDeletionRequest.objects.filter(
                 pk=obj.pk,
@@ -520,20 +598,6 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
             obj.refresh_from_db()
             self.log_change(request, obj, "Submitted: status changed from draft to pending.")
-            report_user_action(
-                request.user,
-                event="data_deletion_request:submitted",
-                properties={
-                    "request_id": str(obj.pk),
-                    "request_type": obj.request_type,
-                    "target_team_id": obj.team_id,
-                    "has_events": bool(obj.events),
-                    "delete_all_events": obj.delete_all_events,
-                    "has_hogql_predicate": bool(obj.hogql_predicate),
-                    "event_count": obj.count,
-                    "part_count": obj.part_count,
-                },
-            )
             messages.success(request, "Request submitted and is now pending.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
@@ -541,6 +605,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             **self.admin_site.each_context(request),
             "obj": obj,
             "missing_properties": missing_properties,
+            "missing_person_selectors": missing_person_selectors,
+            "missing_person_drop_flag": missing_person_drop_flag,
+            "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
             "can_submit": can_submit,
             "fetch_stats_url": reverse("admin:posthog_datadeletionrequest_fetch_stats", args=[obj.pk]),
             "opts": self.model._meta,
@@ -554,6 +621,15 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
 
         if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
+
+        if obj.request_type == RequestType.PERSON_REMOVAL:
+            # No ClickHouse query yet for person_removal — just count selectors.
+            obj.count = len(obj.person_uuids) + len(obj.person_distinct_ids)
+            obj.stats_calculated_at = timezone.now()
+            obj.save(update_fields=["count", "stats_calculated_at", "updated_at"])
+            self.log_change(request, obj, "Counted person_removal selectors.")
+            messages.success(request, f"Selector count: {obj.count} person target(s).")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_submit", args=[obj.pk]))
 
         try:
@@ -597,6 +673,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
 
         if request.method == "POST":
             execution_mode = request.POST.get("execution_mode", ExecutionMode.IMMEDIATE)
+            if obj.request_type == RequestType.PERSON_REMOVAL:
+                # person_removal is always IMMEDIATE — ignore any submitted value.
+                execution_mode = ExecutionMode.IMMEDIATE
             if execution_mode not in ExecutionMode.values:
                 messages.error(request, f"Invalid execution mode: {execution_mode!r}.")
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_approve", args=[obj.pk]))
@@ -633,6 +712,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             **self.admin_site.each_context(request),
             "obj": obj,
             "supports_deferred": supports_deferred,
+            "is_person_removal": obj.request_type == RequestType.PERSON_REMOVAL,
             "execution_mode_choices": ExecutionMode.choices,
             "default_execution_mode": ExecutionMode.IMMEDIATE,
             "opts": self.model._meta,

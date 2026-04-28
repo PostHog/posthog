@@ -44,7 +44,7 @@ export function TrendsTooltip({
     onRowClick,
 }: TrendsTooltipProps): React.ReactElement {
     // TODO: CI bands and moving-average datasets aren't yet built in the hog-charts path. When they
-    // are, the bridge (or TrendsLineChartD3) will need to mark them as non-tooltip rows — legacy
+    // are, the bridge (or TrendsLineChart) will need to mark them as non-tooltip rows — legacy
     // Chart.js path used a `hideTooltip: true` flag on the dataset for this.
     const seriesData: SeriesDatum[] = context.seriesData.map((entry, idx) => {
         const meta = entry.series.meta ?? {}

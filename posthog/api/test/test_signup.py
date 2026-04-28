@@ -1018,6 +1018,7 @@ class TestSignupAPI(APIBaseTest):
             user = User.objects.get(email="alice@posthog.net")
             self.assertEqual(user.organization_memberships.count(), 1)
             membership = user.organization_memberships.first()
+            assert membership is not None
             self.assertEqual(membership.organization, new_org)
             self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
 

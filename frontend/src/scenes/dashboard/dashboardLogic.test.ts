@@ -307,6 +307,20 @@ describe('dashboardLogic', () => {
         insightsModel.mount()
     })
 
+    describe('key() guard', () => {
+        it.each([
+            ['NaN', NaN],
+            ['undefined', undefined as unknown as number],
+            ['Infinity', Infinity],
+        ])('throws when id is %s', (_label, id) => {
+            expect(() => dashboardLogic({ id })).toThrow(/non-finite id/)
+        })
+
+        it('accepts a finite numeric id', () => {
+            expect(() => dashboardLogic({ id: 42 })).not.toThrow()
+        })
+    })
+
     describe('tile layouts', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 5 })

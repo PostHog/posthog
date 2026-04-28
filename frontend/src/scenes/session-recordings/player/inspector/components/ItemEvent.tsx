@@ -1,8 +1,8 @@
 import './ImagePreview.scss'
 
 import clsx from 'clsx'
-import { useActions } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, Link } from '@posthog/lemon-ui'
@@ -19,8 +19,11 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, ceilMsToClosestSecond, isString } from 'lib/utils'
 import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
+import { getPromotedPropertyForEvent } from 'lib/utils/promotedEventProperty'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
+
+import { promotedEventPropertiesModel } from '~/models/promotedEventPropertiesModel'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
@@ -80,13 +83,28 @@ function ExceptionTitlePill({ event }: { event: Record<string, any> }): JSX.Elem
     )
 }
 
-export function ItemEvent({ item, groupCount }: ItemEventProps): JSX.Element {
+export function ItemEvent({ item, groupCount, groupedItems }: ItemEventProps): JSX.Element {
+    const { promotedProperties } = useValues(promotedEventPropertiesModel)
+    const { ensureLoadedForEvents } = useActions(promotedEventPropertiesModel)
+    useEffect(() => {
+        ensureLoadedForEvents([item.data.event])
+    }, [item.data.event, ensureLoadedForEvents])
+
+    const promotedPropertyKey = getPromotedPropertyForEvent(item.data.event, promotedProperties)
+    // When events are grouped at the top level, only surface the promoted-property value if every
+    // grouped child has the same value for it — otherwise it would be misleading to label the
+    // group with the first child's value (e.g. five `$pageview`s on different pathnames).
+    const isGrouped = groupedItems && groupedItems.length > 1
+    const groupedValuesAgree =
+        !isGrouped ||
+        !promotedPropertyKey ||
+        groupedItems.every(
+            (g) => g.data.properties?.[promotedPropertyKey] === item.data.properties?.[promotedPropertyKey]
+        )
+    const promotedValue = promotedPropertyKey && groupedValuesAgree ? item.data.properties?.[promotedPropertyKey] : null
+
     const subValue =
-        item.data.event === '$pageview' ? (
-            item.data.properties.$pathname || item.data.properties.$current_url
-        ) : item.data.event === '$screen' ? (
-            item.data.properties.$screen_name
-        ) : item.data.event === '$web_vitals' ? (
+        item.data.event === '$web_vitals' ? (
             <SummarizeWebVitals properties={item.data.properties} />
         ) : item.data.elements.length ? (
             <AutocapturePreviewImage elements={item.data.elements} properties={item.data.properties} />
@@ -96,12 +114,14 @@ export function ItemEvent({ item, groupCount }: ItemEventProps): JSX.Element {
             <AIEventSummary event={item.data} />
         ) : item.data.event === '$exception' ? (
             <ExceptionTitlePill event={item.data} />
+        ) : promotedValue != null && promotedValue !== '' ? (
+            String(promotedValue)
         ) : null
 
     return (
         <div data-attr="item-event" className="font-light w-full @container">
-            <div className="flex flex-row w-full justify-between gap-2 items-center px-2 py-1 text-xs cursor-pointer">
-                <div className="truncate">
+            <div className="flex flex-row w-full gap-2 items-center px-2 py-1 text-xs cursor-pointer">
+                <div className="truncate flex-1 min-w-0">
                     <PropertyKeyInfo
                         className="font-medium"
                         disablePopover={true}
@@ -114,14 +134,23 @@ export function ItemEvent({ item, groupCount }: ItemEventProps): JSX.Element {
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                     {subValue ? (
-                        <div className="text-secondary truncate" title={isString(subValue) ? subValue : undefined}>
+                        <div
+                            className={clsx(
+                                'text-secondary',
+                                // Only string sub-values (e.g. a promoted property's value) need to truncate; the
+                                // component sub-values like SummarizeWebVitals or ExceptionTitlePill manage their
+                                // own layout and must not be clipped or wrapped.
+                                isString(subValue) && 'truncate max-w-[40ch] min-w-0'
+                            )}
+                            title={isString(subValue) ? subValue : undefined}
+                        >
                             {subValue}
                         </div>
                     ) : null}
                     {groupCount && groupCount > 1 ? (
                         <span
                             className={clsx(
-                                'inline-flex items-center justify-center rounded-full min-w-4 h-4 px-0.5 text-white text-xxs font-bold',
+                                'inline-flex shrink-0 items-center justify-center rounded-full min-w-4 h-4 px-0.5 text-white text-xxs font-bold',
                                 item.highlightColor === 'danger' ? 'bg-fill-error-highlight' : 'bg-secondary-3000-hover'
                             )}
                         >
@@ -251,9 +280,13 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
 
 function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; index: number }): JSX.Element {
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
+    const { promotedProperties } = useValues(promotedEventPropertiesModel)
     const [expanded, setExpanded] = useState(false)
 
     const seekToEvent = (): void => seekToTime(ceilMsToClosestSecond(event.timeInRecording) - 1000)
+
+    const promotedPropertyKey = getPromotedPropertyForEvent(event.data.event, promotedProperties)
+    const promotedValue = promotedPropertyKey ? event.data.properties?.[promotedPropertyKey] : null
 
     return (
         <div className={index > 0 ? 'border-t' : ''}>
@@ -268,13 +301,21 @@ function GroupedEventRow({ event, index }: { event: InspectorListItemEvent; inde
                         className="shrink-0 text-secondary !py-0"
                     />
                     <PropertyKeyInfo
-                        className="truncate"
+                        className="truncate flex-1 min-w-0"
                         disablePopover
                         disableIcon
                         ellipsis
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(event.data))}
                         type={TaxonomicFilterGroupType.Events}
                     />
+                    {promotedValue != null && promotedValue !== '' ? (
+                        <span
+                            className="text-secondary truncate shrink-0 max-w-[40ch] pl-2 pr-2"
+                            title={isString(promotedValue) ? promotedValue : undefined}
+                        >
+                            {String(promotedValue)}
+                        </span>
+                    ) : null}
                 </div>
             </div>
             {expanded ? (
