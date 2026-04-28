@@ -58,6 +58,17 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
 
         ValidateDataWarehouseBreakdown().validate(self._context(query))
 
+    def test_allows_hogql_single_breakdown(self) -> None:
+        query = TrendsQuery(
+            series=self._data_warehouse_series(),
+            breakdownFilter=BreakdownFilter(
+                breakdown="status",
+                breakdown_type=BreakdownType.HOGQL,
+            ),
+        )
+
+        ValidateDataWarehouseBreakdown().validate(self._context(query))
+
     @parameterized.expand(
         [
             (
@@ -120,6 +131,16 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
             series=self._data_warehouse_series(),
             breakdownFilter=BreakdownFilter(
                 breakdowns=[Breakdown(property="plan", type=MultipleBreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        ValidateDataWarehouseBreakdown().validate(self._context(query))
+
+    def test_allows_single_item_multi_breakdown_with_hogql_type(self) -> None:
+        query = TrendsQuery(
+            series=self._data_warehouse_series(),
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="status", type=MultipleBreakdownType.HOGQL)],
             ),
         )
 
