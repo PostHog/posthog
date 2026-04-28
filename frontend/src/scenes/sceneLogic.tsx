@@ -1640,51 +1640,55 @@ export const sceneLogic = kea<sceneLogicType>([
     }),
 
     afterMount(({ actions, cache, values }) => {
-        cache.disposables.add(() => {
-            const syncPinnedTabsFromStorage = (): void => {
-                const storedPinned = getPersistedPinnedState()
-                const currentTabs = values.tabs
-                const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
+        cache.disposables.add(
+            () => {
+                const syncPinnedTabsFromStorage = (): void => {
+                    const storedPinned = getPersistedPinnedState()
+                    const currentTabs = values.tabs
+                    const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
 
-                const previousActiveTab = currentTabs.find((tab) => tab.active)
-                const nextActiveTab = updatedTabs.find((tab) => tab.active)
+                    const previousActiveTab = currentTabs.find((tab) => tab.active)
+                    const nextActiveTab = updatedTabs.find((tab) => tab.active)
 
-                cache.skipNextPinnedSync = true
-                actions.setTabs(updatedTabs)
-                actions.setHomepage(storedPinned?.homepage ?? null)
+                    cache.skipNextPinnedSync = true
+                    actions.setTabs(updatedTabs)
+                    actions.setHomepage(storedPinned?.homepage ?? null)
 
-                if (!nextActiveTab?.pinned) {
-                    return
+                    if (!nextActiveTab?.pinned) {
+                        return
+                    }
+
+                    const location = router.values.currentLocation
+                    const pathnameChanged = nextActiveTab.pathname !== location?.pathname
+                    const searchChanged = (nextActiveTab.search ?? '') !== (location?.search ?? '')
+                    const hashChanged = (nextActiveTab.hash ?? '') !== (location?.hash ?? '')
+
+                    // When the active pinned tab changes remotely, make sure the local window navigates too.
+                    // Use replace instead of push to avoid growing the history stack in idle
+                    // tabs that receive cross-tab sync events (history state is non-heap memory).
+                    if (previousActiveTab?.id !== nextActiveTab.id || pathnameChanged || searchChanged || hashChanged) {
+                        router.actions.replace(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
+                    }
                 }
 
-                const location = router.values.currentLocation
-                const pathnameChanged = nextActiveTab.pathname !== location?.pathname
-                const searchChanged = (nextActiveTab.search ?? '') !== (location?.search ?? '')
-                const hashChanged = (nextActiveTab.hash ?? '') !== (location?.hash ?? '')
-
-                // When the active pinned tab changes remotely, make sure the local window navigates too.
-                // Use replace instead of push to avoid growing the history stack in idle
-                // tabs that receive cross-tab sync events (history state is non-heap memory).
-                if (previousActiveTab?.id !== nextActiveTab.id || pathnameChanged || searchChanged || hashChanged) {
-                    router.actions.replace(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
+                const onStorage = (event: StorageEvent): void => {
+                    if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
+                        return
+                    }
+                    syncPinnedTabsFromStorage()
                 }
-            }
 
-            const onStorage = (event: StorageEvent): void => {
-                if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
-                    return
-                }
                 syncPinnedTabsFromStorage()
-            }
-
-            syncPinnedTabsFromStorage()
-            window.addEventListener('storage', onStorage)
-            return () => window.removeEventListener('storage', onStorage)
+                window.addEventListener('storage', onStorage)
+                return () => window.removeEventListener('storage', onStorage)
+            },
+            'pinnedTabsStorageListener',
             // pauseOnPageHidden=false: kea-disposables otherwise tears this down on visibilitychange
             // hidden and re-runs the setup on visible — re-firing syncPinnedTabsFromStorage() on every
             // browser-tab return. That sync used to clobber in-memory sceneParams (now also fixed in
             // mergePinnedTabs); even with the merge fixed there's no benefit to re-running it here, only
             // unnecessary work and a regression footgun. The listener is a passive event subscription.
-        }, 'pinnedTabsStorageListener', { pauseOnPageHidden: false })
+            { pauseOnPageHidden: false }
+        )
     }),
 ])
