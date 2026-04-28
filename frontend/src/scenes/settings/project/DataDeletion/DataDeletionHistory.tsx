@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { DataDeletionRequest, DataDeletionStatus } from './dataDeletionLogic'
@@ -43,6 +44,94 @@ function summarize(row: DataDeletionRequest): string {
     return `${typeLabel}: ${eventsLabel}`
 }
 
+function DetailField({
+    label,
+    children,
+    fullWidth,
+}: {
+    label: string
+    children: React.ReactNode
+    fullWidth?: boolean
+}): JSX.Element {
+    return (
+        <div className={fullWidth ? 'col-span-full' : undefined}>
+            <div className="text-muted-alt mb-1 text-[11px] font-medium uppercase tracking-wider">{label}</div>
+            <div className="text-sm">{children}</div>
+        </div>
+    )
+}
+
+function ExpandedRow({ row }: { row: DataDeletionRequest }): JSX.Element {
+    const isAllEvents = row.delete_all_events
+    const hasEvents = row.events.length > 0
+    const hasProperties = row.properties.length > 0
+    const hasPredicate = !!row.hogql_predicate
+    const hasNotes = !!row.notes
+
+    return (
+        <div className="bg-surface-primary flex flex-col gap-4 p-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <DetailField label="Time range">
+                    <TZLabel time={row.start_time} timestampStyle="absolute" />
+                    <span className="text-secondary mx-1">→</span>
+                    <TZLabel time={row.end_time} timestampStyle="absolute" />
+                </DetailField>
+                <DetailField label="Matched events at submit time">
+                    {row.count === null ? (
+                        <span className="text-muted">Not yet computed</span>
+                    ) : (
+                        row.count.toLocaleString()
+                    )}
+                </DetailField>
+            </div>
+
+            {row.request_type === 'event_removal' && (
+                <DetailField label="Events" fullWidth>
+                    {isAllEvents ? (
+                        <span className="text-secondary italic">All events in the time range</span>
+                    ) : hasEvents ? (
+                        <div className="flex flex-wrap gap-1">
+                            {row.events.map((name) => (
+                                <LemonTag key={name} type="completion">
+                                    {name}
+                                </LemonTag>
+                            ))}
+                        </div>
+                    ) : (
+                        <span className="text-muted">Predicate-matched events only</span>
+                    )}
+                </DetailField>
+            )}
+
+            {row.request_type === 'property_removal' && hasProperties && (
+                <DetailField label="Properties to remove" fullWidth>
+                    <div className="flex flex-wrap gap-1">
+                        {row.properties.map((name) => (
+                            <LemonTag key={name} type="completion">
+                                {name}
+                            </LemonTag>
+                        ))}
+                    </div>
+                </DetailField>
+            )}
+
+            {hasPredicate && (
+                <DetailField label="SQL expression" fullWidth>
+                    <CodeSnippet language={Language.SQL} compact wrap>
+                        {row.hogql_predicate}
+                    </CodeSnippet>
+                </DetailField>
+            )}
+
+            {hasNotes && (
+                <DetailField label="Notes for reviewers" fullWidth>
+                    <p className="whitespace-pre-wrap">{row.notes}</p>
+                </DetailField>
+            )}
+        </div>
+    )
+}
+
 export function DataDeletionHistory(): JSX.Element {
     const { deletionRequests, deletionRequestsLoading } = useValues(dataDeletionLogic)
     const { cancelRequest, loadDeletionRequests } = useActions(dataDeletionLogic)
@@ -69,34 +158,8 @@ export function DataDeletionHistory(): JSX.Element {
                 rowKey="id"
                 emptyState="No data deletion requests yet."
                 expandable={{
-                    expandedRowRender: (row) => (
-                        <div className="flex flex-col gap-1 p-2 text-sm">
-                            <div>
-                                <b>Time range:</b> <TZLabel time={row.start_time} timestampStyle="absolute" /> &rarr;{' '}
-                                <TZLabel time={row.end_time} timestampStyle="absolute" />
-                            </div>
-                            {row.events.length > 0 && (
-                                <div>
-                                    <b>Events:</b> {row.events.join(', ')}
-                                </div>
-                            )}
-                            {row.properties.length > 0 && (
-                                <div>
-                                    <b>Properties:</b> {row.properties.join(', ')}
-                                </div>
-                            )}
-                            {row.hogql_predicate && (
-                                <div>
-                                    <b>HogQL predicate:</b> <code>{row.hogql_predicate}</code>
-                                </div>
-                            )}
-                            {row.notes && (
-                                <div>
-                                    <b>Notes:</b> {row.notes}
-                                </div>
-                            )}
-                        </div>
-                    ),
+                    expandedRowRender: (row) => <ExpandedRow row={row} />,
+                    noIndent: true,
                 }}
                 columns={[
                     { title: 'Summary', render: (_, row) => summarize(row) },
