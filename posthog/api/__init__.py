@@ -11,6 +11,7 @@ from posthog.api import (
     metalytics,
     my_notifications,
     project,
+    user_integration,
 )
 from posthog.api.batch_imports import BatchImportViewSet
 from posthog.api.csp_reporting import CSPReportingViewSet
@@ -727,7 +728,13 @@ router.register(r"webauthn/signup-register", webauthn.WebAuthnSignupRegistration
 router.register(r"webauthn/login", webauthn.WebAuthnLoginViewSet, "webauthn_login")
 router.register(r"webauthn/credentials", webauthn.WebAuthnCredentialViewSet, "webauthn_credentials")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
-router.register(r"users", user.UserViewSet, "users")
+users_router = router.register(r"users", user.UserViewSet, "users")
+users_router.register(
+    r"integrations",
+    user_integration.UserIntegrationViewSet,
+    "user_integration",
+    ["uuid"],
+)
 router.register(
     r"user_home_settings",
     user_home_settings.UserHomeSettingsViewSet,
