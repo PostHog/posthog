@@ -6,34 +6,34 @@ import { getSeriesColor } from 'lib/colors'
 
 import type { RemotePresence } from './notebookCollabLogic'
 
-/** Meta payload dispatched to the plugin to upsert a remote caret. */
-export type RemotePresenceUpdate = {
+// Remote presence, used both as:
+// - the meta payload dispatched to the plugin `transaction.setMeta(REMOTE_PRESENCE_META, ...)`
+// - the per-client value stored in plugin state
+// `lastSeenAt` is stamped by the logic at dispatch time and used here only for TTL pruning.
+export type ClientPresence = RemotePresence & {
     clientId: string
-    presence: RemotePresence
+    lastSeenAt: number
 }
 
-type StoredPresence = RemotePresence & { lastSeenAt: number }
-
 type PluginState = {
-    /** keyed by clientId */
-    presences: Map<string, StoredPresence>
+    // keyed by clientId
+    clients: Map<string, ClientPresence>
 }
 
 export const REMOTE_PRESENCE_META = 'remote-presence-update'
-const META_KEY = REMOTE_PRESENCE_META
-const PRESENCE_TTL_MS = 30_000
 const META_PRUNE = 'remote-presence-prune'
+const PRESENCE_TTL_MS = 30_000
 
 export const remotePresencePluginKey = new PluginKey<PluginState>('remote-presence')
 
-function buildDecorations(state: EditorState, presences: Map<string, StoredPresence>): DecorationSet {
-    if (presences.size === 0) {
+function buildDecorations(state: EditorState, clients: Map<string, ClientPresence>): DecorationSet {
+    if (clients.size === 0) {
         return DecorationSet.empty
     }
     const docSize = state.doc.content.size
     const decorations: Decoration[] = []
 
-    for (const [clientId, presence] of presences) {
+    for (const presence of clients.values()) {
         const head = clamp(presence.head, 0, docSize)
 
         // Caret as a side-positioned widget. side:-1 keeps it in front of any
@@ -41,8 +41,8 @@ function buildDecorations(state: EditorState, presences: Map<string, StoredPrese
         // caret still wins visually. Range-selection highlights will land with
         // the separate :presence-stream (clicks/drags without edits).
         decorations.push(
-            Decoration.widget(head, () => buildCaretDom(clientId, presence), {
-                key: `presence-${clientId}`,
+            Decoration.widget(head, () => buildCaretDom(presence), {
+                key: `presence-${presence.clientId}`,
                 side: -1,
             })
         )
@@ -51,11 +51,11 @@ function buildDecorations(state: EditorState, presences: Map<string, StoredPrese
     return DecorationSet.create(state.doc, decorations)
 }
 
-function buildCaretDom(clientId: string, presence: StoredPresence): HTMLElement {
+function buildCaretDom(presence: ClientPresence): HTMLElement {
     const root = document.createElement('span')
     root.className = 'NotebookRemotePresence'
     root.style.setProperty('--remote-presence-color', getSeriesColor(presence.userId))
-    root.dataset.clientId = clientId
+    root.dataset.clientId = presence.clientId
 
     const flag = document.createElement('span')
     flag.className = 'NotebookRemotePresence__flag'
@@ -75,12 +75,12 @@ function clamp(n: number, min: number, max: number): number {
     return n
 }
 
-function pruneStale(presences: Map<string, StoredPresence>, now: number): Map<string, StoredPresence> | null {
-    let next: Map<string, StoredPresence> | null = null
-    for (const [id, p] of presences) {
+function pruneStale(clients: Map<string, ClientPresence>, now: number): Map<string, ClientPresence> | null {
+    let next: Map<string, ClientPresence> | null = null
+    for (const [id, p] of clients) {
         if (now - p.lastSeenAt > PRESENCE_TTL_MS) {
             if (!next) {
-                next = new Map(presences)
+                next = new Map(clients)
             }
             next.delete(id)
         }
@@ -95,33 +95,33 @@ export const RemotePresenceExtension = Extension.create({
         const plugin = new Plugin<PluginState>({
             key: remotePresencePluginKey,
             state: {
-                init: () => ({ presences: new Map() }),
+                init: () => ({ clients: new Map() }),
                 apply: (transaction, prev): PluginState => {
-                    let presences = prev.presences
+                    let clients = prev.clients
 
                     // 1. Project stored positions (pre-transaction coords) forward through any doc changes.
-                    if (transaction.docChanged && presences.size > 0) {
-                        const mapped = new Map<string, StoredPresence>()
-                        for (const [id, p] of presences) {
+                    if (transaction.docChanged && clients.size > 0) {
+                        const mapped = new Map<string, ClientPresence>()
+                        for (const [id, p] of clients) {
                             mapped.set(id, { ...p, head: transaction.mapping.map(p.head) })
                         }
-                        presences = mapped
+                        clients = mapped
                     }
 
                     // 2. Apply meta after mapping: an upsert piggybacked on a remote step already
                     //    carries post-transaction coords, so mapping it again would double-shift.
-                    const meta = transaction.getMeta(META_KEY) as RemotePresenceUpdate | undefined
+                    const meta = transaction.getMeta(REMOTE_PRESENCE_META) as ClientPresence | undefined
                     if (meta) {
-                        presences = new Map(presences)
-                        presences.set(meta.clientId, { ...meta.presence, lastSeenAt: Date.now() })
+                        clients = new Map(clients)
+                        clients.set(meta.clientId, meta)
                     } else if (transaction.getMeta(META_PRUNE)) {
-                        const pruned = pruneStale(presences, Date.now())
+                        const pruned = pruneStale(clients, Date.now())
                         if (pruned) {
-                            presences = pruned
+                            clients = pruned
                         }
                     }
 
-                    return presences === prev.presences ? prev : { presences }
+                    return clients === prev.clients ? prev : { clients }
                 },
             },
             props: {
@@ -130,7 +130,7 @@ export const RemotePresenceExtension = Extension.create({
                     if (!pluginState) {
                         return null
                     }
-                    return buildDecorations(state, pluginState.presences)
+                    return buildDecorations(state, pluginState.clients)
                 },
             },
             view: (view) => {
@@ -138,10 +138,10 @@ export const RemotePresenceExtension = Extension.create({
                 // we never receive another transaction for the doc.
                 const interval = window.setInterval(() => {
                     const pluginState = remotePresencePluginKey.getState(view.state)
-                    if (!pluginState || pluginState.presences.size === 0) {
+                    if (!pluginState || pluginState.clients.size === 0) {
                         return
                     }
-                    const stale = pruneStale(pluginState.presences, Date.now())
+                    const stale = pruneStale(pluginState.clients, Date.now())
                     if (stale) {
                         view.dispatch(view.state.tr.setMeta(META_PRUNE, true))
                     }

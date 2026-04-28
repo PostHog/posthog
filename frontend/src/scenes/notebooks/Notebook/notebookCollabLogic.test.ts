@@ -79,7 +79,10 @@ describe('notebookCollabLogic', () => {
             const [tr] = (editor.view.dispatch as jest.Mock).mock.calls[0]
             expect(tr.getMeta(REMOTE_PRESENCE_META)).toEqual({
                 clientId: REMOTE_CLIENT_ID,
-                presence: { userId: 42, userName: 'Remote User', head: 2 },
+                userId: 42,
+                userName: 'Remote User',
+                head: 2,
+                lastSeenAt: expect.any(Number),
             })
             // doc and collab version should be untouched
             expect(editor.state.doc.textContent).toBe(startDoc)
@@ -125,7 +128,10 @@ describe('notebookCollabLogic', () => {
             const [tr] = (editor.view.dispatch as jest.Mock).mock.calls[0]
             expect(tr.getMeta(REMOTE_PRESENCE_META)).toEqual({
                 clientId: REMOTE_CLIENT_ID,
-                presence: { userId: 42, userName: 'Remote User', head: 5 },
+                userId: 42,
+                userName: 'Remote User',
+                head: 5,
+                lastSeenAt: expect.any(Number),
             })
             expect(tr.docChanged).toBe(true)
         })

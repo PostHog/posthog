@@ -11,7 +11,7 @@ import { TTEditor } from 'lib/components/RichContentEditor/types'
 import { uuid } from 'lib/utils'
 
 import type { notebookCollabLogicType } from './notebookCollabLogicType'
-import { REMOTE_PRESENCE_META, RemotePresenceUpdate } from './RemotePresenceExtension'
+import { ClientPresence, REMOTE_PRESENCE_META } from './RemotePresenceExtension'
 
 /** SSE `event: step` body from the collab stream endpoint */
 type StreamStepEvent = {
@@ -45,11 +45,11 @@ export type RemoteStep = {
 export function applyRemoteStep(editor: TTEditor, remote: RemoteStep): void {
     const expected = getVersion(editor.state) + 1
 
-    const presenceMeta = (): RemotePresenceUpdate | null => {
+    const presenceMeta = (): ClientPresence | null => {
         if (!remote.presence) {
             return null
         }
-        return { clientId: remote.clientId, presence: remote.presence }
+        return { clientId: remote.clientId, ...remote.presence, lastSeenAt: Date.now() }
     }
 
     if (remote.version < expected) {
