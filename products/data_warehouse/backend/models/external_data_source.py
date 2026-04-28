@@ -104,45 +104,13 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.deleted_at = datetime.now()
         self.save()
 
-        self._cleanup_cdc_resources()
-
-    def _cleanup_cdc_resources(self) -> None:
-        """Drop the Temporal schedule (always) + PostHog-managed slot/publication.
-
-        Schedule lives on our side, slot lives on the customer's DB.
-        """
-        # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
-        from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
-
-        # Schedule key = source id. Delete unconditionally; NotFound is a no-op.
-        try:
-            from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
-
-            delete_cdc_extraction_schedule(str(self.id))
-        except Exception:
-            logger.exception("Failed to delete CDC extraction schedule", source_id=str(self.id))
-
-        cdc_config = PostgresCDCConfig.from_source(self)
-        if not cdc_config.enabled or cdc_config.management_mode != "posthog":
-            return
-        if not cdc_config.slot_name or not cdc_config.publication_name:
-            return
-
-        # Drop slot and publication on the source database
-        try:
-            from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import (
-                cdc_pg_connection,
-                drop_slot_and_publication,
+        if self.source_type == ExternalDataSourceType.POSTGRES:
+            # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
+            from posthog.temporal.data_imports.sources.postgres.cdc.cleanup import (
+                cleanup_cdc_resources_on_source_deletion,
             )
 
-            with cdc_pg_connection(self, connect_timeout=10) as conn:
-                drop_slot_and_publication(conn, cdc_config.slot_name, cdc_config.publication_name)
-        except Exception:
-            logger.exception(
-                "Failed to drop CDC slot/publication on source DB (best-effort)",
-                source_id=str(self.id),
-                slot_name=cdc_config.slot_name,
-            )
+            cleanup_cdc_resources_on_source_deletion(self)
 
     def reload_schemas(self):
         from products.data_warehouse.backend.data_load.service import (

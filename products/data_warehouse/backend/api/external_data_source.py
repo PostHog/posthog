@@ -83,10 +83,7 @@ from products.data_warehouse.backend.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
-from products.data_warehouse.backend.models.external_data_schema import (
-    propagate_postgres_source_schema_to_schemas,
-    sync_old_schemas_with_new_schemas,
-)
+from products.data_warehouse.backend.models.external_data_schema import sync_old_schemas_with_new_schemas
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
@@ -628,14 +625,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         source_config: Config = source.parse_config(new_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
 
-        # When config.schema changes, push it into each row's schema_metadata —
-        # else pipeline (metadata wins) and discovery (config wins) drift apart.
-        postgres_schema_changed = (
-            instance.source_type == ExternalDataSourceType.POSTGRES
-            and job_inputs_were_submitted
-            and existing_job_inputs.get("schema") != new_job_inputs.get("schema")
-        )
-
         if job_inputs_were_submitted:
             if instance.source_type == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
@@ -654,18 +643,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
-            elif postgres_schema_changed:
-                # Re-discover for the metadata rewrite below.
-                discovered_schemas = source.get_schemas(source_config, instance.team_id)
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
-
-        if postgres_schema_changed and not updated_source.is_direct_postgres and discovered_schemas is not None:
-            propagate_postgres_source_schema_to_schemas(
-                source_id=str(updated_source.id),
-                team_id=updated_source.team_id,
-                discovered_source_schemas=discovered_schemas,
-            )
 
         if updated_source.is_direct_postgres and discovered_schemas is not None:
             schema_names = {schema.name: schema.label for schema in discovered_schemas}
