@@ -16,21 +16,21 @@ dependencies = [
     "asyncpg>=0.30.0",
     "redis==5.3.1",
     "litellm==1.83.7",
-    "orjson>=3.10.0",
+    "orjson>=3.11.6",
     "prometheus-client>=0.21.0",
     "prometheus-fastapi-instrumentator>=7.0.0",
     "structlog>=24.4.0",
     "httpx>=0.28.0",
     "posthoganalytics>=3.0.0",
     "cachetools>=5.5.0",
-    "python-multipart>=0.0.9",
+    "python-multipart>=0.0.26",
     "boto3>=1.42.65",
 ]
 
 [dependency-groups]
 dev = [
     "ruff>=0.8.0",
-    "pytest>=8.0.0",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
     "pytest-rerunfailures>=16.0",
