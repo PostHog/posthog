@@ -116,8 +116,7 @@ test.describe('Workflows', () => {
             await expect(page.getByRole('heading', { name: 'Message categories' })).toBeVisible()
             await expect(page.getByText('Marketing opt-out list')).toBeVisible()
 
-            // Wait for skeleton loaders to finish
-            await expect(page.locator('[data-attr="opt-out-scene"] .LemonSkeleton')).not.toBeAttached({
+            await expect(page.getByTestId('opt-out-scene').locator('.LemonSkeleton')).toHaveCount(0, {
                 timeout: 10000,
             })
 
@@ -127,26 +126,24 @@ test.describe('Workflows', () => {
 
     test.describe('tab navigation', () => {
         test('can navigate between all top-level tabs', async ({ page }) => {
-            await page.waitForSelector('[data-attr="workflows-scene"]', { timeout: 10000 })
+            const sceneTabs = page.getByTestId('workflows-scene-tabs')
+
+            await expect(sceneTabs).toBeVisible()
             await page.waitForSelector('[data-attr="workflows-table"][data-loading="false"]', { timeout: 10000 })
 
-            // Navigate to Library tab
-            await page.click('[data-attr="workflows-scene-tabs"] >> text=Library')
+            await sceneTabs.getByRole('tab', { name: 'Library' }).click()
             await page.waitForSelector('[data-attr="message-templates-table"]', { timeout: 10000 })
             await expect(page).toHaveURL(/\/workflows\/library/)
 
-            // Navigate to Channels tab
-            await page.click('[data-attr="workflows-scene-tabs"] >> text=Channels')
+            await sceneTabs.getByRole('tab', { name: 'Channels' }).click()
             await page.waitForSelector('[data-attr="message-channels"]', { timeout: 10000 })
             await expect(page).toHaveURL(/\/workflows\/channels/)
 
-            // Navigate to Opt-outs tab
-            await page.click('[data-attr="workflows-scene-tabs"] >> text=Opt-outs')
+            await sceneTabs.getByRole('tab', { name: 'Opt-outs' }).click()
             await page.waitForSelector('[data-attr="opt-out-scene"]', { timeout: 10000 })
             await expect(page).toHaveURL(/\/workflows\/opt-outs/)
 
-            // Navigate back to Workflows tab
-            await page.click('[data-attr="workflows-scene-tabs"] >> text=Workflows')
+            await sceneTabs.getByRole('tab', { name: 'Workflows' }).click()
             await page.waitForSelector('[data-attr="workflows-table"][data-loading="false"]', { timeout: 10000 })
             await expect(page).toHaveURL(/\/workflows\/workflows|\/workflows$/)
         })

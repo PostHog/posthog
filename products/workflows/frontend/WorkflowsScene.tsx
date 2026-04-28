@@ -167,7 +167,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     ]
 
     return (
-        <SceneContent className="workflows">
+        <SceneContent className="workflows" data-attr="workflows-scene">
             <SceneTitleSection
                 name={sceneConfigurations[Scene.Workflows].name}
                 description={sceneConfigurations[Scene.Workflows].description}
