@@ -8,13 +8,13 @@ import {
 } from '../ingestion/common/config'
 import { KafkaBrokerConfig } from '../ingestion/config'
 import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { type SessionReplayProducerName } from '../session-recording/config'
 import { createProducerRegistry } from '../session-replay/recording-api/outputs/producer-registry'
 import { createOutputsRegistry } from '../session-replay/recording-api/outputs/registry'
 import { RecordingApi } from '../session-replay/recording-api/recording-api'
 import {
     RecordingApiConfig,
     RecordingApiOutputsConfig,
+    type RecordingApiProducerName,
     getDefaultRecordingApiOutputsConfig,
 } from '../session-replay/recording-api/types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
@@ -38,7 +38,7 @@ export class RecordingApiServer implements NodeServer {
     private config: RecordingApiServerConfig
 
     private postgres?: PostgresRouter
-    private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
+    private producerRegistry?: KafkaProducerRegistry<RecordingApiProducerName>
 
     constructor(config: Partial<RecordingApiServerConfig> = {}) {
         this.config = {

@@ -5,12 +5,15 @@
  * Recording API-specific types.
  */
 import { CommonConfig } from '../../common/config'
-import { DEFAULT_PRODUCER } from '../../ingestion/common/outputs'
-import {
-    SessionRecordingApiConfig,
-    SessionRecordingConfig,
-    SessionReplayProducerName,
-} from '../../session-recording/config'
+import { DEFAULT_PRODUCER, type DefaultProducer, type WarpstreamProducer } from '../../ingestion/common/outputs'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from '../../session-recording/config'
+
+/**
+ * Recording API only needs DEFAULT + WARPSTREAM producers — its outputs are
+ * ClickHouse-bound deletion tombstones, so the ingestion-internal cluster
+ * (INGESTION) is not a relevant target here.
+ */
+export type RecordingApiProducerName = DefaultProducer | WarpstreamProducer
 
 // Re-export all shared encryption types so existing recording-api imports still work
 export {
@@ -64,8 +67,8 @@ export type RecordingApiConfig = Pick<
  * producer keys live here.
  */
 export type RecordingApiOutputsConfig = {
-    SESSION_REPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: SessionReplayProducerName
-    SESSION_REPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: SessionReplayProducerName
+    SESSION_REPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: RecordingApiProducerName
+    SESSION_REPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: RecordingApiProducerName
 }
 
 export function getDefaultRecordingApiOutputsConfig(): RecordingApiOutputsConfig {

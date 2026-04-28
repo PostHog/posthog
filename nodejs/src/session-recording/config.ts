@@ -5,12 +5,22 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '../config/kafka-topics'
-import { DEFAULT_PRODUCER, type DefaultProducer, type WarpstreamProducer } from '../ingestion/common/outputs'
+import {
+    DEFAULT_PRODUCER,
+    type DefaultProducer,
+    type IngestionProducer,
+    type WarpstreamProducer,
+} from '../ingestion/common/outputs'
 import { isDevEnv } from '../utils/env-utils'
 import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from './constants'
 
-/** Session replay only uses DEFAULT and WARPSTREAM producers. */
-export type SessionReplayProducerName = DefaultProducer | WarpstreamProducer
+/**
+ * Session replay uses DEFAULT, WARPSTREAM, and INGESTION producers.
+ *
+ * INGESTION is for the dedicated Kafka cluster between capture and ingestion —
+ * the natural target for the DLQ and overflow topics that live there.
+ */
+export type SessionReplayProducerName = DefaultProducer | WarpstreamProducer | IngestionProducer
 
 export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_HOST: string
