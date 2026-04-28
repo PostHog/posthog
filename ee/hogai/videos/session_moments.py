@@ -146,9 +146,6 @@ class SessionMomentsLLMAnalyzer:
                     "duration": moment.duration_s,
                     "playback_speed": SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
                     "show_metadata_footer": True,
-                    # Tags this row as an internal LLM-generated clip so it doesn't count against
-                    # the per-team user-export quota in posthog/api/exports.py.
-                    "mode": "screenshot",
                 },
                 created_by=self.user,
                 created_at=created_at,

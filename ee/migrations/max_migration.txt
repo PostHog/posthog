@@ -1,1 +1,1 @@
-0042_teamsessionsummariesconfig
+0042_team_session_summaries_config
