@@ -797,7 +797,16 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.activeExportedScene, s.activeSceneLogicPropsWithTabId],
             (activeExportedScene, activeSceneLogicPropsWithTabId): BuiltLogic | null => {
                 if (activeExportedScene?.logic) {
-                    return activeExportedScene.logic.build(activeSceneLogicPropsWithTabId)
+                    try {
+                        return activeExportedScene.logic.build(activeSceneLogicPropsWithTabId)
+                    } catch (e) {
+                        // Building a keyed logic with undefined key (e.g. during a scene
+                        // transition before paramsToProps has resolved) throws
+                        // "Undefined key for logic". Swallow it so the scene doesn't
+                        // hard-crash; the next render with resolved params will rebuild.
+                        posthog.captureException(e, { source: 'sceneLogic.activeSceneLogic' })
+                        return null
+                    }
                 }
 
                 return null
