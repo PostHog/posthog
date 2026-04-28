@@ -1,0 +1,54 @@
+name: Pre-merge check
+# Runs cheap static checks against the simulated post-merge tree (master + PR
+# head). Catches the class of break where two PRs are individually clean but
+# their combination is invalid — e.g. a duplicate-kwarg SyntaxError from
+# overlapping merges that per-PR CI cannot see because it runs on PR head only.
+#
+# Intentionally narrow: only fast static checks (ruff). Does not run the full
+# test matrix on the merged state — that would defeat the cheapness that makes
+# this viable as a per-push gate.
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+    contents: read
+
+concurrency:
+    group: pre-merge-check-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+jobs:
+    pre-merge-check:
+        name: Pre-merge check
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@v6
+              with:
+                  # Full history so we can merge master into PR head locally.
+                  fetch-depth: 0
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+
+            - name: Merge current master into PR head
+              run: |
+                  git config user.name "pre-merge-check"
+                  git config user.email "noreply@posthog.com"
+                  git fetch --no-tags origin master
+                  if ! git merge --no-edit --no-ff origin/master; then
+                      echo "::error::Merge conflict against current master — please rebase the PR."
+                      exit 1
+                  fi
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
+
+            - name: Run ruff check on merged tree
+              # Catches Python SyntaxError (e.g. duplicate kwargs from overlapping
+              # merges), undefined names, broken imports. Pinned to the repo's
+              # ruff version to match local + ci-python.yml behaviour.
+              run: uvx ruff@0.14.11 check .
