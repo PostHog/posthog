@@ -1063,15 +1063,15 @@ def break_part(
                     f"({config.max_part_size_gib} GiB). INSERT SELECT may not have broken sufficiently."
                 )
 
-            # Capture pre-attach state for the row delta check after ATTACH PARTITION FROM.
-            # Row count of the partition on source table (excluding the old part) so
-            # we can compute the row delta after ATTACH PARTITION FROM.
+            # Pre-attach row count, excluding the old part by prefix (not exact name) so a
+            # mid-flight mutation renaming the old part can't slip past the filter.
+            old_part_prefix = "_".join(part.part_name.split("_")[:3])
             pre_attach_rows = client.execute(
                 "SELECT sum(rows) FROM system.parts "
                 "WHERE database = %(db)s AND table = %(table)s AND active "
                 "AND partition_id = %(partition_id)s "
-                "AND name != %(old_part)s",
-                {"db": database, "table": source_table, "partition_id": partition_id, "old_part": part.part_name},
+                "AND NOT startsWith(name, %(prefix)s)",
+                {"db": database, "table": source_table, "partition_id": partition_id, "prefix": old_part_prefix},
             )
             pre_attach_row_count = (pre_attach_rows[0][0] or 0) if pre_attach_rows else 0
 
@@ -1115,8 +1115,8 @@ def break_part(
                 "SELECT sum(rows) FROM system.parts "
                 "WHERE database = %(db)s AND table = %(table)s AND active "
                 "AND partition_id = %(partition_id)s "
-                "AND name != %(old_part)s",
-                {"db": database, "table": source_table, "partition_id": partition_id, "old_part": part.part_name},
+                "AND NOT startsWith(name, %(prefix)s)",
+                {"db": database, "table": source_table, "partition_id": partition_id, "prefix": old_part_prefix},
             )
             post_attach_row_count = (post_attach_rows[0][0] or 0) if post_attach_rows else 0
             added_rows = post_attach_row_count - pre_attach_row_count
@@ -1145,7 +1145,6 @@ def break_part(
             context.log.info("Replication complete — all replicas have the new parts")
 
             # -- Step 11: DROP the original part (re-query by prefix, mutations change suffix).
-            original_prefix = "_".join(part.part_name.split("_")[:3])
             current_parts = client.execute(
                 "SELECT name FROM system.parts "
                 "WHERE database = %(db)s AND table = %(table)s AND active "
@@ -1155,14 +1154,14 @@ def break_part(
                     "db": database,
                     "table": source_table,
                     "partition_id": partition_id,
-                    "prefix_pattern": f"{original_prefix}_%",
+                    "prefix_pattern": f"{old_part_prefix}_%",
                 },
             )
 
             if current_parts:
                 if len(current_parts) > 1:
                     context.log.warning(
-                        f"Found {len(current_parts)} parts matching prefix {original_prefix}: "
+                        f"Found {len(current_parts)} parts matching prefix {old_part_prefix}: "
                         f"{[r[0] for r in current_parts]}. Dropping the first match."
                     )
                 current_part_name = current_parts[0][0]
@@ -1195,7 +1194,7 @@ def break_part(
                     context.log.info(f"Dropped {current_part_name} (via leader replica)")
             else:
                 context.log.warning(
-                    f"Original oversized part (prefix {original_prefix}) not found in "
+                    f"Original oversized part (prefix {old_part_prefix}) not found in "
                     f"{source_table} partition {partition_id} — "
                     f"it may have been merged or dropped already. Skipping DROP PART."
                 )
