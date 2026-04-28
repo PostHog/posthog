@@ -5,6 +5,7 @@ import {
     createScales,
     createXScale,
     createYScale,
+    yTickCountForHeight,
 } from '../core/scales'
 import { DEFAULT_Y_AXIS_ID } from '../core/types'
 import { dimensions, makeSeries } from '../test-helpers'
@@ -115,11 +116,29 @@ describe('hog-charts scales', () => {
             expect('base' in scale).toBe(true)
         })
 
-        it('clamps minimum to 1e-10 to avoid log(0)', () => {
-            const series = [makeSeries({ key: 's1', data: [0, 10, 100] })]
+        it('uses one decade below smallest non-zero value as domain min', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 4, 21] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log' })
+            expect(scale.domain()[0]).toBe(1)
+        })
+
+        it('rounds domain max up to next nice multiple within its decade', () => {
+            const series = [makeSeries({ key: 's1', data: [4, 21] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log' })
+            expect(scale.domain()[1]).toBe(30)
+        })
+
+        it('handles sub-unit data by picking a fractional domain min', () => {
+            const series = [makeSeries({ key: 's1', data: [0.5, 8] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log' })
+            expect(scale.domain()[0]).toBeCloseTo(0.1, 10)
+        })
+
+        it('clamps zero values to the domain min via clamp(true)', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 4, 21] })]
             const scale = createYScale(series, dimensions, { scaleType: 'log' })
             const [domainMin] = scale.domain()
-            expect(domainMin).toBeGreaterThanOrEqual(1e-10)
+            expect(scale(0)).toBeCloseTo(scale(domainMin), 5)
         })
 
         it('maps higher values to lower pixel positions (top of chart)', () => {
@@ -128,13 +147,11 @@ describe('hog-charts scales', () => {
             expect(scale(100)).toBeLessThan(scale(1))
         })
 
-        it('falls back to a linear scale when all data is non-positive (log undefined)', () => {
+        it('falls back to a linear scale when no positive values exist', () => {
             const series = [makeSeries({ key: 's1', data: [-100, -50, -10] })]
             const scale = createYScale(series, dimensions, { scaleType: 'log' })
-            // Linear domain spans the data; not collapsed to a 1e-10 single point.
             const [domainMin, domainMax] = scale.domain()
             expect(domainMin).toBeLessThan(domainMax)
-            // The fallback is linear, so different inputs produce different outputs (not collapsed).
             expect(scale(-100)).not.toBeCloseTo(scale(-10), 0)
         })
     })
@@ -384,6 +401,20 @@ describe('hog-charts scales', () => {
             for (const v of result.get('r1')!.top) {
                 expect(v).toBeCloseTo(1, 5)
             }
+        })
+    })
+
+    describe('yTickCountForHeight', () => {
+        it.each([
+            { plotHeight: 0, expected: 2 },
+            { plotHeight: 80, expected: 2 },
+            { plotHeight: 160, expected: 2 },
+            { plotHeight: 240, expected: 3 },
+            { plotHeight: 480, expected: 6 },
+            { plotHeight: 640, expected: 8 },
+            { plotHeight: 1600, expected: 8 },
+        ])('plotHeight $plotHeight → $expected ticks', ({ plotHeight, expected }) => {
+            expect(yTickCountForHeight(plotHeight)).toBe(expected)
         })
     })
 

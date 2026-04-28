@@ -245,3 +245,30 @@ export const IntegrationsDomainConnectApplyUrlCreateBody = /* @__PURE__ */ zod
         config: zod.unknown().optional(),
     })
     .describe('Standard Integration serializer.')
+
+/**
+ * Start GitHub linking: either full App install or OAuth-only (user-to-server).
+
+``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
+``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
+under projects).
+
+- If the current project has **no** team-level GitHub ``Integration``, returns
+  ``install_url`` pointing at ``/installations/new`` (configure org + repos).
+- If the team **already** has a GitHub installation, returns ``install_url``
+  pointing at ``/login/oauth/authorize`` so the user only authorizes as
+  themselves for that installation (no repo scoping UI on GitHub).
+
+In both cases the response key is ``install_url`` for compatibility with callers.
+ * @summary Start GitHub personal integration linking
+ */
+export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object({
+    team_id: zod
+        .number()
+        .nullish()
+        .describe("Optional team/project id (e.g. PostHog Code); web UI uses the session's current team."),
+    connect_from: zod
+        .string()
+        .optional()
+        .describe('Optional client hint (e.g. posthog_code) for return routing after OAuth.'),
+})
