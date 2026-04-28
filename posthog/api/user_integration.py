@@ -177,8 +177,18 @@ class UserGitHubLinkStartResponseSerializer(serializers.Serializer):
 
 @extend_schema(tags=["core"])
 class UserIntegrationViewSet(viewsets.GenericViewSet):
+<<<<<<< HEAD
     """`/api/users/@me/integrations/` — manage the user's personal GitHub integrations."""
 
+||||||| parent of 5cba0a46276 (refactor(api): nest user integrations under users router)
+=======
+    """``/api/users/@me/integrations/`` — manage the user's personal GitHub integrations.
+
+    Session or OAuth access token (e.g. PostHog Code). Personal API keys are not
+    accepted. OAuth tokens must include ``user:read`` / ``user:write`` like other
+    ``@me`` user APIs. Implicitly scoped to ``request.user``.
+    """
+>>>>>>> 5cba0a46276 (refactor(api): nest user integrations under users router)
     scope_object = "user"
     required_scopes: list[str] | None = None
     scope_object_read_actions = ["list", "retrieve", "github_repos"]

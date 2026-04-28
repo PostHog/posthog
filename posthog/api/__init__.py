@@ -7,7 +7,6 @@ from posthog.api import (
     data_color_theme,
     hog_flow,
     hog_flow_template,
-    linked_accounts,
     metalytics,
     my_notifications,
     project,

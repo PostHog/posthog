@@ -220,7 +220,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         )
         from urllib.parse import urlencode
 
-        state_q = urlencode({"token": state, "source": "linked_accounts"})
+        state_q = urlencode({"token": state, "source": "user_integration"})
 
         response = self.client.get(
             "/complete/github-link/",

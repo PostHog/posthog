@@ -189,9 +189,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
             const { next, token, source } = fromParamsGivenUrl(state ?? '')
             const stateToken = token || state
 
-            // User-level GitHub flow (from Settings → Linked accounts): redirect to the
+            // User-level GitHub flow (personal integrations / UserIntegration): redirect to the
             // backend endpoint which handles UserIntegration creation server-side.
-            if (source === 'linked_accounts') {
+            if (source === 'user_integration') {
                 const backendUrl = combineUrl('/complete/github-link/', {
                     installation_id,
                     code,
