@@ -23,6 +23,7 @@ from django.core.cache import cache
 from django.test.client import Client
 
 from nanoid import generate
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
@@ -4460,6 +4461,81 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                 assert "description" not in survey, f"Description field should not be present in survey: {survey}"
 
             assert len(surveys) == 2
+
+    @parameterized.expand(
+        [
+            (
+                {
+                    "es": {
+                        "name": "Encuesta traducida",
+                        "description": "Internal translated description",
+                        "thankYouMessageHeader": "Gracias",
+                        "thankYouMessageDescription": "Agradecemos tus comentarios",
+                        "thankYouMessageCloseButtonText": "Cerrar",
+                    },
+                    "fr": {
+                        "description": "Description interne uniquement",
+                    },
+                },
+                {
+                    "es": {
+                        "name": "Encuesta traducida",
+                        "thankYouMessageHeader": "Gracias",
+                        "thankYouMessageDescription": "Agradecemos tus comentarios",
+                        "thankYouMessageCloseButtonText": "Cerrar",
+                    }
+                },
+            ),
+            (
+                {
+                    "fr": {
+                        "description": "Description interne uniquement",
+                    },
+                },
+                None,
+            ),
+            (None, None),
+        ],
+    )
+    def test_list_surveys_exposes_only_safe_translations(
+        self, translations: dict[str, dict[str, str]] | None, expected_translations: dict[str, dict[str, str]] | None
+    ):
+        Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey with translations",
+            description="Internal default description",
+            type="popover",
+            questions=[
+                {
+                    "type": "open",
+                    "question": "What's a survey?",
+                    "description": "Question description",
+                    "translations": {
+                        "es": {
+                            "question": "¿Qué es una encuesta?",
+                            "description": "Descripción de la pregunta",
+                        }
+                    },
+                }
+            ],
+            translations=translations,
+        )
+        self.client.logout()
+
+        response = self._get_surveys()
+        assert response.status_code == status.HTTP_200_OK
+
+        survey = response.json()["surveys"][0]
+        assert "description" not in survey
+        if expected_translations is None:
+            assert "translations" not in survey
+        else:
+            assert survey["translations"] == expected_translations
+        assert survey["questions"][0]["translations"]["es"] == {
+            "question": "¿Qué es una encuesta?",
+            "description": "Descripción de la pregunta",
+        }
 
     def test_list_surveys_uses_hypercache(self):
         # TODO: Currently RemoteConfig uses this to decide whether to return surveys or not

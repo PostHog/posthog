@@ -127,19 +127,46 @@ function SnapshotThumbnail({
     )
 }
 
-function RunInProgressEmptyState({ isProcessing }: { isProcessing: boolean }): JSX.Element {
-    const title = isProcessing ? 'Processing diffs' : 'Waiting for snapshots'
+const PENDING_STALE_THRESHOLD_MS = 15 * 60 * 1000
+
+function RunInProgressEmptyState({
+    isProcessing,
+    createdAt,
+    ciJobUrl,
+}: {
+    isProcessing: boolean
+    createdAt: string
+    ciJobUrl?: string
+}): JSX.Element {
+    const ageMs = Date.now() - new Date(createdAt).getTime()
+    const isStale = !isProcessing && ageMs > PENDING_STALE_THRESHOLD_MS
+
+    const title = isProcessing ? 'Processing diffs' : isStale ? 'Still waiting for snapshots' : 'Waiting for snapshots'
     const copy = isProcessing
         ? 'Snapshots are being compared against the baseline. This usually takes under a minute.'
-        : 'This run is waiting for the CI job to upload snapshot artifacts. It will appear here once the upload completes.'
+        : isStale
+          ? 'This run has been waiting for over 15 minutes. The CI job may have failed before uploading snapshots.'
+          : 'This run is waiting for the CI job to upload snapshot artifacts. It will appear here once the upload completes.'
 
     return (
         <PostHogCaptureOnViewed
             name="visual-review-run-in-progress-shown"
-            properties={{ is_processing: isProcessing }}
+            properties={{ is_processing: isProcessing, is_stale: isStale }}
             className="flex flex-col items-center justify-center text-center gap-3 py-12 px-6"
             data-attr="visual-review-run-in-progress"
         >
+            {isStale ? (
+                <LemonBanner type="warning" className="max-w-lg mb-4">
+                    The CI job hasn't reported back.{' '}
+                    {ciJobUrl ? (
+                        <Link to={ciJobUrl} target="_blank" className="font-semibold">
+                            Check CI logs
+                        </Link>
+                    ) : (
+                        'Check your CI logs to see if the job failed.'
+                    )}
+                </LemonBanner>
+            ) : null}
             <DetectiveHog className="w-32 h-32" />
             <h2 className="m-0">{title}</h2>
             <p className="max-w-md text-tertiary m-0">
@@ -202,7 +229,11 @@ export function VisualReviewRunScene(): JSX.Element {
         return (
             <SceneContent>
                 <SceneTitleSection name={run.branch} resourceType={{ type: 'visual_review' }} />
-                <RunInProgressEmptyState isProcessing={isRunProcessing} />
+                <RunInProgressEmptyState
+                    isProcessing={isRunProcessing}
+                    createdAt={run.created_at}
+                    ciJobUrl={run.metadata?.ci_job_url as string | undefined}
+                />
             </SceneContent>
         )
     }
