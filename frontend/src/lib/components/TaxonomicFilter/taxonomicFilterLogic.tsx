@@ -29,7 +29,10 @@ import {
     recentTaxonomicFiltersLogic,
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import {
+    hasPinnedContext,
+    taxonomicFilterPinnedPropertiesLogic,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
     ExcludedProperties,
@@ -107,6 +110,10 @@ import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 const PROPERTY_TAXONOMIC_GROUP_TYPES = new Set(Object.values(PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE))
+
+export interface SelectItemMeta {
+    position?: number
+}
 
 function indexAfterLastMetaGroup(
     filtered: TaxonomicFilterGroupType[],
@@ -344,10 +351,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         tabRight: true,
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setActiveTab: (activeTab: TaxonomicFilterGroupType) => ({ activeTab }),
-        selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => ({
+        selectItem: (
+            group: TaxonomicFilterGroup,
+            value: TaxonomicFilterValue | null,
+            item: any,
+            meta?: SelectItemMeta
+        ) => ({
             group,
             value,
             item,
+            meta,
         }),
         infiniteListResultsReceived: (groupType: TaxonomicFilterGroupType, results: ListStorage) => ({
             groupType,
@@ -1689,33 +1702,37 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         }
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ group, value, item }) => {
+        selectItem: ({ group, value, item, meta }) => {
             if (item) {
-                if (isQuickFilterItem(item)) {
-                    posthog.capture('taxonomic suggested filter selected', {
-                        query: values.searchQuery,
+                const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
+                const hadSearchInput = !!values.searchQuery
+                const wasQuickFilter = isQuickFilterItem(item)
+                const wasFromRecents = hasRecentContext(item)
+                const wasFromPinnedList = hasPinnedContext(item)
+
+                posthog.capture('taxonomic filter item selected', {
+                    groupType: values.activeTab,
+                    sourceGroupType,
+                    wasFromPinnedList,
+                    wasFromRecents,
+                    wasQuickFilter,
+                    hadSearchInput,
+                    position: meta?.position,
+                    query: values.searchQuery || undefined,
+                    ...(wasQuickFilter && {
                         filterName: item.name,
                         propertyKey: item.propertyKey,
                         operator: item.operator,
                         filterValue: item.filterValue,
                         propertyFilterType: item.propertyFilterType,
                         eventName: item.eventName,
-                        // Distinguish shortcuts picked from the dedicated SuggestedFilters tab
-                        // (where cross-group top matches aggregate) from those picked inline in
-                        // their origin group tab. Use activeTab, not group.type — `group` has
-                        // already been resolved to the shortcut's origin group by getItemGroup.
-                        source:
-                            values.activeTab === TaxonomicFilterGroupType.SuggestedFilters
-                                ? 'suggested_filters_tab'
-                                : 'keyword_shortcut',
-                    })
-                }
+                    }),
+                })
 
                 // Record to recents (deferred to avoid render loop).
                 // Skip property groups — these are just the key-picking step;
                 // the complete filter (with operator + value) is recorded by propertyFilterLogic.
                 // Skip QuickFilterItem shortcuts — they are synthetic, not real data definitions.
-                const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
                 const hasCompletePropertyFilter = hasRecentContext(item) && item._recentContext.propertyFilter
                 const isRecordedByPropertyFilterLogic =
                     !hasCompletePropertyFilter &&
