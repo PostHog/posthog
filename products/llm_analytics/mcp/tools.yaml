@@ -284,7 +284,8 @@ tools:
             Generate an AI-powered summary of an LLM trace or generation. Pass a trace_id or generation_id with a
             date_from — the backend fetches the data and returns a structured summary with title, flow diagram, summary
             bullets, and interesting notes. Results are cached. Use mode "minimal" (default) for 3-5 points or
-            "detailed" for 5-10 points. Rate-limited.
+            "detailed" for 5-10 points. Rate-limited; requires AI data processing approval for the organization.
+        requires_ai_consent: true
     llm-analytics-text-repr-create:
         operation: llm_analytics_text_repr_create
         enabled: false

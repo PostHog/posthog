@@ -152,7 +152,8 @@ jobs:
                   build-args: |
                       SCCACHE_LOG=debug
                       SCCACHE_NO_DAEMON=1
-                      BIN=${{ matrix.image }}
+                      BIN=${{ matrix.bin || matrix.image }}
+                      BUILD_FEATURES=${{ matrix.features || '' }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
