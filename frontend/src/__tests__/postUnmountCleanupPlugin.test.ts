@@ -2,6 +2,8 @@ import { actions, beforeUnmount, kea, listeners, path, reducers, selectors } fro
 
 import { initKeaTests } from '~/test/init'
 
+import type { testLogicType, observableLogicType } from './postUnmountCleanupPlugin.testType'
+
 // Regression test for the `postUnmountCleanupPlugin` registered in `initKea.ts`.
 //
 // Pins the contract that the QA review highlighted: the plugin clears
@@ -21,7 +23,7 @@ describe('postUnmountCleanupPlugin', () => {
         return testLogic.build()
     }
 
-    const testLogic = kea([
+    const testLogic = kea<testLogicType>([
         path(['__tests__', 'postUnmountCleanupPluginTestLogic']),
         actions({ ping: true }),
         reducers({ count: [0, { ping: (state: number) => state + 1 }] }),
@@ -78,7 +80,7 @@ describe('postUnmountCleanupPlugin', () => {
     it('lets beforeUnmount handlers see populated logic state before the clear', () => {
         let snapshotInBeforeUnmount: { events: number; listeners: number } | null = null
 
-        const observableLogic = kea([
+        const observableLogic = kea<observableLogicType>([
             path(['__tests__', 'postUnmountCleanupPluginObservableLogic']),
             actions({ tick: true }),
             reducers({ ticks: [0, { tick: (state: number) => state + 1 }] }),
