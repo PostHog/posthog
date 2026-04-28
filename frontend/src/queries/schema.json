@@ -17652,6 +17652,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17663,9 +17666,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17704,6 +17704,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17715,9 +17718,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17922,6 +17922,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17941,9 +17944,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "method": {
                     "const": "bayesian",
@@ -18003,6 +18003,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -18014,9 +18017,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "method": {
                     "const": "frequentist",

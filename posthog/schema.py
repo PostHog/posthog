@@ -6775,11 +6775,11 @@ class ExperimentStatsBase(BaseModel):
         extra="forbid",
     )
     covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
-    main_covariate_sum_product: float | None = None
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     step_counts: list[int] | None = None
@@ -6793,11 +6793,11 @@ class ExperimentStatsBaseValidated(BaseModel):
         extra="forbid",
     )
     covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
-    main_covariate_sum_product: float | None = None
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
     step_counts: list[int] | None = None
@@ -6813,12 +6813,12 @@ class ExperimentVariantResultBayesian(BaseModel):
     )
     chance_to_win: float | None = None
     covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     credible_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
-    main_covariate_sum_product: float | None = None
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
@@ -6836,11 +6836,11 @@ class ExperimentVariantResultFrequentist(BaseModel):
     )
     confidence_interval: list[float] | None = Field(default=None, max_length=2, min_length=2)
     covariate_sum: float | None = None
+    covariate_sum_product: float | None = None
     covariate_sum_squares: float | None = None
     denominator_sum: float | None = None
     denominator_sum_squares: float | None = None
     key: str
-    main_covariate_sum_product: float | None = None
     method: Literal["frequentist"] = "frequentist"
     number_of_samples: int
     numerator_denominator_sum_product: float | None = None
