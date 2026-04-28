@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { initKeaTests } from '~/test/init'
@@ -56,6 +56,101 @@ describe('LLMMessageDisplay', () => {
             </Provider>
         )
         expect(container.textContent).toContain(expectedSubstring)
+    })
+
+    it('renders content[].type=function with object arguments as a tool-call block', async () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'function',
+                    id: 'call_abc',
+                    function: {
+                        name: 'get_weather',
+                        arguments: { location: 'San Francisco' },
+                    },
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+        expect(container.textContent).toContain('get_weather')
+        expect(container.textContent).toContain('call_abc')
+        await waitFor(() => {
+            expect(container.textContent).toContain('location')
+            expect(container.textContent).toContain('San Francisco')
+        })
+    })
+
+    it('renders content[].type=function with stringified JSON arguments', async () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'function',
+                    function: {
+                        name: 'get_weather',
+                        arguments: '{"location": "Berlin"}',
+                    },
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+        expect(container.textContent).toContain('get_weather')
+        await waitFor(() => {
+            expect(container.textContent).toContain('location')
+            expect(container.textContent).toContain('Berlin')
+        })
+    })
+
+    it('renders content[].type=function with unparseable string arguments without crashing', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'function',
+                    function: {
+                        name: 'broken_call',
+                        arguments: '{not valid json',
+                    },
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+        expect(container.textContent).toContain('broken_call')
+        expect(container.textContent).toContain('{not valid json')
+    })
+
+    it('renders content[].type=function without an id', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'function',
+                    function: {
+                        name: 'no_id_call',
+                        arguments: {},
+                    },
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+        expect(container.textContent).toContain('no_id_call')
     })
 })
 

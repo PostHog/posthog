@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import React from 'react'
 
-import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled, IconWrench } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -479,6 +479,50 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
                         <div className="font-semibold mb-1">Transcript:</div>
                         <div className="whitespace-pre-wrap">{transcript}</div>
                     </div>
+                )}
+            </div>
+        )
+    }
+
+    if (
+        item.type === 'function' &&
+        'function' in item &&
+        item.function &&
+        typeof item.function === 'object' &&
+        typeof item.function.name === 'string'
+    ) {
+        const { name, arguments: rawArgs } = item.function
+        const callId = 'id' in item && typeof item.id === 'string' ? item.id : undefined
+
+        let parsedArgs: unknown = rawArgs
+        if (typeof rawArgs === 'string') {
+            try {
+                const maybeParsed = parsePartialJSON(rawArgs)
+                const isParsedEmpty =
+                    (Array.isArray(maybeParsed) && maybeParsed.length === 0) ||
+                    (isObject(maybeParsed) && Object.keys(maybeParsed as Record<string, unknown>).length === 0)
+                parsedArgs = isParsedEmpty ? rawArgs : maybeParsed
+            } catch {
+                parsedArgs = rawArgs
+            }
+        }
+
+        return (
+            <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs">
+                    <IconWrench className="text-muted shrink-0" />
+                    <span className="font-mono font-semibold">{name || '(unnamed function)'}</span>
+                    {callId && <span className="font-mono text-muted truncate">{callId}</span>}
+                </div>
+                {typeof parsedArgs === 'string' ? (
+                    <pre className="font-mono whitespace-pre-wrap text-xs m-0">{parsedArgs}</pre>
+                ) : (
+                    <HighlightedJSONViewer
+                        src={parsedArgs as object}
+                        name={null}
+                        collapsed={5}
+                        searchQuery={searchQuery}
+                    />
                 )}
             </div>
         )
