@@ -645,11 +645,14 @@ describe('llmPlaygroundLogic', () => {
             ])
         })
 
-        it('should ignore empty responses so the action cannot add blank assistant turns', () => {
+        it.each([
+            ['empty string', ''],
+            ['whitespace only', '   \n  '],
+        ])('should ignore %s responses so the action cannot add blank assistant turns', (_, response) => {
             const original = [{ role: 'user' as const, content: 'Hello' }]
             llmPlaygroundPromptsLogic.actions.setMessages(original)
 
-            llmPlaygroundPromptsLogic.actions.addResultToConversation('')
+            llmPlaygroundPromptsLogic.actions.addResultToConversation(response)
 
             expect(llmPlaygroundPromptsLogic.values.messages).toEqual(original)
         })
