@@ -1482,8 +1482,6 @@ describe('LogsIngestionConsumer', () => {
                 message: 'A long log message ' + 'x'.repeat(500),
             })
 
-            // 1000+ messages is where unbounded fan-out starves the loop in production.
-            // Locally the bench shows max event-loop lag ~800ms unbounded vs ~5ms with cap=50.
             const numberToTest = 1000
             const messages = await createKafkaMessages(
                 Array.from({ length: numberToTest }, () => ({ message: body })),
@@ -1492,14 +1490,13 @@ describe('LogsIngestionConsumer', () => {
 
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
-            // All messages should have been produced.
             const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
             expect(logsMessages).toHaveLength(numberToTest)
 
-            // Without the pLimit cap on per-message processing, longestDelay measured >500ms
-            // for batches of this size on the bench. With the cap (currently 50) it stays
-            // well under 200ms even on a loaded machine. Threshold below leaves CI headroom.
-            expect(longestDelay).toBeLessThan(500)
+            // Bounded concurrency keeps event-loop lag low. With pLimit(50) the lag stays
+            // around ~5ms in the bench. Threshold leaves headroom for slow CI machines.
+            // See `bin/bench-logs-ingestion.ts` for the unbounded-vs-bounded comparison.
+            expect(longestDelay).toBeLessThan(100)
         })
     })
 })
