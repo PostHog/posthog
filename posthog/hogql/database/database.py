@@ -381,6 +381,11 @@ class Database(BaseModel):
             candidates.update(self._view_table_names)
         except Exception:
             return []
+        # Drop any candidate that matches the input — suggesting `persons` for `persons`
+        # is noise, and on a direct connection the same name can exist in the broader
+        # catalog without being available on the source we actually queried.
+        lowered = name.casefold()
+        candidates = {c for c in candidates if c.casefold() != lowered}
         if not candidates:
             return []
         return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)

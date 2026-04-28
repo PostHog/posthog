@@ -238,7 +238,8 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             detail = str(e)
             extra: dict | None = None
             if isinstance(e, ExposedHogQLError):
-                detail, extra = enrich_hogql_validation_error(query, self.team, request.user, detail)
+                request_user = request.user if isinstance(request.user, User) else None
+                detail, extra = enrich_hogql_validation_error(query, self.team, request_user, detail)
             validation_error = ValidationError(detail, getattr(e, "code_name", None))
             if extra is not None:
                 validation_error.extra = extra  # type: ignore[attr-defined]
