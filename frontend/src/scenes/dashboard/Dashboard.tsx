@@ -39,6 +39,8 @@ interface DashboardProps {
     backTo?: { url: string; name: string }
 }
 
+const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
+
 // Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
 // DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
 function DashboardSceneWrapper(): JSX.Element {
@@ -48,29 +50,15 @@ function DashboardSceneWrapper(): JSX.Element {
 export const scene: SceneExport<DashboardLogicProps> = {
     component: DashboardSceneWrapper,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }) => {
-        // Defensive: `parseInt(undefined as any)` returns NaN, which historically slipped past
-        // dashboardLogic's `key()` (typeof NaN === 'number'). When that happened the logic mounted
-        // with a NaN id, never fired a load (since `if (props.id)` is falsy for NaN), and the scene
-        // was stuck on NotFound while a `?ref=NaN` request leaked out. Log so a regression here is
-        // visible in the browser console; the tightened key() guard then surfaces it loudly.
-        const parsed = typeof id === 'string' ? parseInt(id, 10) : NaN
-        if (!Number.isFinite(parsed)) {
-            // eslint-disable-next-line no-console
-            console.warn('Dashboard paramsToProps received non-numeric id:', id)
-        }
-        return { id: parsed, placement }
-    },
+    paramsToProps: ({ params: { id, placement } }) => ({ id: parseDashboardId(id), placement }),
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
 export function Dashboard({ id, dashboard, placement, themes, backTo }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
-    const parsedId = typeof id === 'string' ? parseInt(id, 10) : NaN
-
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parsedId, placement, dashboard }}>
+        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
             <DashboardScene backTo={backTo} />
         </BindLogic>
     )

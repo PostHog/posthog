@@ -242,37 +242,31 @@ const ensureActiveTab = (tabs: SceneTab[]): SceneTab[] => {
     return tabs
 }
 
-const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinned: SceneTab[]): SceneTab[] => {
+export const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinned: SceneTab[]): SceneTab[] => {
     if (!storedPinned) {
         return fallbackPinned.map((tab) => ({ ...tab, pinned: true }))
     }
 
     const storedTabs = storedPinned.tabs ?? []
 
-    // sceneParams is intentionally stripped during persistence (see tabToPersistableSnapshot) because it
-    // can be deep/cyclic. When merging back from storage we must NOT lose the in-memory sceneParams,
-    // otherwise the active scene's `paramsToProps` runs against an empty params bag — which silently
-    // dropped numeric route ids to NaN and stranded scenes like the dashboard on a stuck NotFound.
-    const activeById = new Map<string, boolean>()
-    const sceneParamsById = new Map<string, SceneParams | undefined>()
+    // sceneParams is stripped during persistence (see tabToPersistableSnapshot) because it can be
+    // deep/cyclic. Restore it from in-memory tabs so `paramsToProps` doesn't run against an empty bag.
+    const fallbackById = new Map<string, SceneTab>()
     for (const tab of fallbackPinned) {
-        activeById.set(tab.id, tab.active)
-        sceneParamsById.set(tab.id, tab.sceneParams)
+        fallbackById.set(tab.id, tab)
     }
 
-    const normalized = storedTabs.map((tab) => {
+    return storedTabs.map((tab) => {
         const id = tab.id || generateTabId()
-        const inMemorySceneParams = sceneParamsById.get(id)
+        const fallback = fallbackById.get(id)
         return {
             ...tab,
             id,
             pinned: true,
-            active: activeById.get(id) ?? false,
-            sceneParams: inMemorySceneParams ?? tab.sceneParams,
+            active: fallback?.active ?? false,
+            sceneParams: fallback?.sceneParams ?? tab.sceneParams,
         }
     })
-
-    return normalized
 }
 
 const composeTabsFromStorage = (storedPinned: PersistedPinnedState | null, baseTabs: SceneTab[]): SceneTab[] => {
@@ -1147,9 +1141,18 @@ export const sceneLogic = kea<sceneLogicType>([
                 delete cache.mountedTabLogic[tabId]
             }
             if (exportedScene?.logic) {
-                const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
-                const builtLogic = exportedScene?.logic(builtLogicProps)
-                cache.mountedTabLogic[tabId] = builtLogic.mount()
+                try {
+                    const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
+                    const builtLogic = exportedScene?.logic(builtLogicProps)
+                    cache.mountedTabLogic[tabId] = builtLogic.mount()
+                } catch (error) {
+                    // Scene logic builders (e.g. dashboardLogic.key()) can throw on malformed
+                    // route params like `/dashboard/abc`. Capture so regressions surface, then
+                    // route to Error404 so the user sees a proper 404 instead of a blank crash.
+                    posthog.captureException(error, { extra: { sceneId, sceneKey, tabId } })
+                    actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, 'REPLACE')
+                    return
+                }
             }
 
             const trackingKey = tabId || '__default__'
@@ -1670,11 +1673,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 return () => window.removeEventListener('storage', onStorage)
             },
             'pinnedTabsStorageListener',
-            // pauseOnPageHidden=false: kea-disposables otherwise tears this down on visibilitychange
-            // hidden and re-runs the setup on visible — re-firing syncPinnedTabsFromStorage() on every
-            // browser-tab return. That sync used to clobber in-memory sceneParams (now also fixed in
-            // mergePinnedTabs); even with the merge fixed there's no benefit to re-running it here, only
-            // unnecessary work and a regression footgun. The listener is a passive event subscription.
+            // Passive storage listener — no need to tear down/re-setup on visibility change.
             { pauseOnPageHidden: false }
         )
     }),
