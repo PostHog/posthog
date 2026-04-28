@@ -7,11 +7,6 @@ Usage:
 
 The key value is fixed so it survives database resets.
 
-For local MCP (Cursor, Inspector), grant product read scopes explicitly — defaults are empty.
-Example for logs + tracing + HogQL queries:
-
-    python manage.py setup_local_api_key --add-scopes logs:read tracing:read query:read
-
 Safety: Only runs when DEBUG=True and CLOUD_DEPLOYMENT is unset.
 """
 

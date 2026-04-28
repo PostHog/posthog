@@ -49,7 +49,7 @@ from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 # manual parsing in SpansViewSet is unchanged.
 
 
-class _DateRangeSerializer(serializers.Serializer):
+class _TracingDateRangeSerializer(serializers.Serializer):
     date_from = serializers.CharField(
         required=False,
         allow_null=True,
@@ -89,7 +89,7 @@ class _SpanPropertyFilterSerializer(serializers.Serializer):
 
 
 class _TracingQueryBodySerializer(serializers.Serializer):
-    dateRange = _DateRangeSerializer(
+    dateRange = _TracingDateRangeSerializer(
         required=False,
         help_text="Date range for the query. Defaults to last hour.",
     )
@@ -143,7 +143,7 @@ class _TracingQueryRequestSerializer(serializers.Serializer):
 
 
 class _TracingTraceRequestSerializer(serializers.Serializer):
-    dateRange = _DateRangeSerializer(
+    dateRange = _TracingDateRangeSerializer(
         required=False,
         help_text="Date range for the query. Defaults to last 24 hours.",
     )
