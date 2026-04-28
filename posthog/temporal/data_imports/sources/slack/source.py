@@ -142,6 +142,7 @@ Once saved, copy the **Signing Secret** from **Basic Information > App Credentia
                         label="Signing secret",
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
+                        secret=True,
                         placeholder="",
                     ),
                 ],
