@@ -12,6 +12,8 @@ from posthog.schema import NativeMarketingSource, SourceMap
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 
+from posthog.temporal.data_imports.sources.meta_ads.schemas import MetaAdsResource
+
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
 from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import BingAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
@@ -339,16 +341,15 @@ class MarketingSourceFactory:
             # Check for campaign stats table
             elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
                 campaign_stats_table = table
-            # Ad-group / ad tables — match on schema name to avoid conflicts with
-            # user-configured prefixes, and exclude the stats variants to keep entity
-            # tables separate.
-            elif schema_name == "adsets":
+            # Ad-group / ad tables — match against MetaAdsResource enum values so the
+            # mapping survives schema renames (rather than hardcoded string literals).
+            elif schema_name == MetaAdsResource.Adsets.value:
                 adset_table = table
-            elif schema_name == "adset_stats":
+            elif schema_name == MetaAdsResource.AdsetStats.value:
                 adset_stats_table = table
-            elif schema_name == "ads":
+            elif schema_name == MetaAdsResource.Ads.value:
                 ad_table = table
-            elif schema_name == "ad_stats":
+            elif schema_name == MetaAdsResource.AdStats.value:
                 ad_stats_table = table
 
         if not (campaign_table and campaign_stats_table):

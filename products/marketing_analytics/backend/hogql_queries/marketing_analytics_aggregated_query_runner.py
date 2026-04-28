@@ -8,6 +8,7 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQueryResponse,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsItem,
 )
 
@@ -30,7 +31,22 @@ class MarketingAnalyticsAggregatedQueryRunner(
     def _build_main_select_query(
         self, conversion_aggregator: Optional[ConversionGoalsAggregator] = None
     ) -> ast.SelectQuery:
-        """Build the main SELECT query for aggregated totals."""
+        """Build the main SELECT query for aggregated totals.
+
+        At AD_GROUP / AD the campaign_costs CTE has a different schema (hierarchy
+        columns added), the join keys are off (match_key is empty), and conversion
+        goals are gated out anyway — the aggregated overview makes no sense. Fail
+        loudly so a misconfigured tile doesn't silently return zeros.
+        """
+        if self.config.drill_down_level in (
+            MarketingAnalyticsDrillDownLevel.AD_GROUP,
+            MarketingAnalyticsDrillDownLevel.AD,
+        ):
+            raise ValueError(
+                f"MarketingAnalyticsAggregatedQuery does not support drill-down level "
+                f"{self.config.drill_down_level}. Aggregated totals are only meaningful at "
+                f"channel/source/campaign/utm levels."
+            )
         conversion_columns_mapping = self._build_select_columns_mapping(conversion_aggregator)
         from_clause = ast.JoinExpr(table=ast.Field(chain=[self.config.campaign_costs_cte_name]))
         if conversion_aggregator:

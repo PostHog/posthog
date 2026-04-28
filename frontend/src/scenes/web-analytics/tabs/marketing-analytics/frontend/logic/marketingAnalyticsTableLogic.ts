@@ -64,14 +64,20 @@ export const marketingAnalyticsTableLogic = kea<marketingAnalyticsTableLogicType
             (conversionGoals: ConversionGoalFilter[], drillDownLevel: MarketingAnalyticsDrillDownLevel) => {
                 const config = MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel]
 
+                // Dedupe in case the alias also appears in the filtered base columns
+                // (e.g. AD_GROUP / AD where the alias matches a base column that isn't
+                // excluded). Without this we'd render the primary column twice and
+                // confuse the URL/order machinery.
                 const baseColumns =
                     config.excludedBaseColumns.length > 0
-                        ? [
-                              config.columnAlias,
-                              ...Object.values(MarketingAnalyticsBaseColumns).filter(
-                                  (col) => !config.excludedBaseColumns.includes(col)
-                              ),
-                          ]
+                        ? Array.from(
+                              new Set([
+                                  config.columnAlias,
+                                  ...Object.values(MarketingAnalyticsBaseColumns).filter(
+                                      (col) => !config.excludedBaseColumns.includes(col)
+                                  ),
+                              ])
+                          )
                         : Object.values(MarketingAnalyticsBaseColumns).map((column) => column.toString())
 
                 // Cost per conversion only makes sense when the Cost metric exists at this level.

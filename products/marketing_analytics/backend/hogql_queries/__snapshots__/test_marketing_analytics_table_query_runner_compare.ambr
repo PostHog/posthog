@@ -39,8 +39,8 @@
               source)
   
   SELECT
-      campaign_costs.campaign AS Campaign,
       campaign_costs.id AS ID,
+      campaign_costs.campaign AS Campaign,
       campaign_costs.source AS Source,
       round(campaign_costs.total_cost, 2) AS Cost,
       round(campaign_costs.total_clicks, 0) AS Clicks,
@@ -65,8 +65,8 @@
   '''
   
   SELECT
-      tuple(current_period.Campaign, previous_period.Campaign) AS Campaign,
       tuple(current_period.ID, previous_period.ID) AS ID,
+      tuple(current_period.Campaign, previous_period.Campaign) AS Campaign,
       tuple(current_period.Source, previous_period.Source) AS Source,
       tuple(current_period.Cost, previous_period.Cost) AS Cost,
       tuple(current_period.Clicks, previous_period.Clicks) AS Clicks,
@@ -225,8 +225,8 @@
                   conv.source)
       
   SELECT
-          campaign_costs.campaign AS Campaign,
           campaign_costs.id AS ID,
+          campaign_costs.campaign AS Campaign,
           campaign_costs.source AS Source,
           round(campaign_costs.total_cost, 2) AS Cost,
           round(campaign_costs.total_clicks, 0) AS Clicks,
@@ -387,8 +387,8 @@
                   conv.source)
       
   SELECT
-          campaign_costs.campaign AS Campaign,
           campaign_costs.id AS ID,
+          campaign_costs.campaign AS Campaign,
           campaign_costs.source AS Source,
           round(campaign_costs.total_cost, 2) AS Cost,
           round(campaign_costs.total_clicks, 0) AS Clicks,
@@ -417,8 +417,8 @@
   '''
   
   SELECT
-      tuple(current_period.Campaign, previous_period.Campaign) AS Campaign,
       tuple(current_period.ID, previous_period.ID) AS ID,
+      tuple(current_period.Campaign, previous_period.Campaign) AS Campaign,
       tuple(current_period.Source, previous_period.Source) AS Source,
       tuple(current_period.Cost, previous_period.Cost) AS Cost,
       tuple(current_period.Clicks, previous_period.Clicks) AS Clicks,
@@ -577,8 +577,8 @@
                   conv.source)
       
   SELECT
-          campaign_costs.campaign AS Campaign,
           campaign_costs.id AS ID,
+          campaign_costs.campaign AS Campaign,
           campaign_costs.source AS Source,
           round(campaign_costs.total_cost, 2) AS Cost,
           round(campaign_costs.total_clicks, 0) AS Clicks,
@@ -739,8 +739,8 @@
                   conv.source)
       
   SELECT
-          campaign_costs.campaign AS Campaign,
           campaign_costs.id AS ID,
+          campaign_costs.campaign AS Campaign,
           campaign_costs.source AS Source,
           round(campaign_costs.total_cost, 2) AS Cost,
           round(campaign_costs.total_clicks, 0) AS Clicks,
@@ -770,8 +770,8 @@
     'query': '''
       
       SELECT
-          tuple(current_period.Campaign, previous_period.Campaign) AS Campaign,
           tuple(current_period.ID, previous_period.ID) AS ID,
+          tuple(current_period.Campaign, previous_period.Campaign) AS Campaign,
           tuple(current_period.Source, previous_period.Source) AS Source,
           tuple(current_period.Cost, previous_period.Cost) AS Cost,
           tuple(current_period.Clicks, previous_period.Clicks) AS Clicks,
@@ -858,8 +858,8 @@
                       source)
           
       SELECT
-              campaign_costs.campaign AS Campaign,
               campaign_costs.id AS ID,
+              campaign_costs.campaign AS Campaign,
               campaign_costs.source AS Source,
               round(campaign_costs.total_cost, 2) AS Cost,
               round(campaign_costs.total_clicks, 0) AS Clicks,
@@ -947,8 +947,8 @@
                       source)
           
       SELECT
-              campaign_costs.campaign AS Campaign,
               campaign_costs.id AS ID,
+              campaign_costs.campaign AS Campaign,
               campaign_costs.source AS Source,
               round(campaign_costs.total_cost, 2) AS Cost,
               round(campaign_costs.total_clicks, 0) AS Clicks,
@@ -971,8 +971,8 @@
     ''',
     'response': list([
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Brand-Campaign-EMEA'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Brand-Campaign-EMEA'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Brand-Campaign-EMEA'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TikTok Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=47.21),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=118.0),
@@ -985,8 +985,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Competitors-AMER'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Competitors-AMER'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Competitors-AMER'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TikTok Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=38.92),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=1.0),
@@ -999,8 +999,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024', value='TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024', value='TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024', value='TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='LinkedIn Ads', value='LinkedIn Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=31.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=24.42, value=31.92),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=4.0, value=4.0),
@@ -1013,8 +1013,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Analytics-Aug-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Analytics-Aug-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Analytics-Aug-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=23.12),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=4.0),
@@ -1027,8 +1027,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Comparison-Oct-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Comparison-Oct-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Comparison-Oct-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=13.49),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=3.0),
@@ -1041,8 +1041,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-Leadership-Static-Analytics-Aug-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-Leadership-Static-Analytics-Aug-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-Leadership-Static-Analytics-Aug-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=10.25),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=2.0),
@@ -1055,8 +1055,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Experimentation-AMER'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Experimentation-AMER'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Experimentation-AMER'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TikTok Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=7.43),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=1.0),
@@ -1069,8 +1069,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TestCorp-Search-EMEA-Analytics-Tools', value='TestCorp-Search-EMEA-Analytics-Tools'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TestCorp-Search-EMEA-Analytics-Tools', value='TestCorp-Search-EMEA-Analytics-Tools'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TestCorp-Search-EMEA-Analytics-Tools', value='TestCorp-Search-EMEA-Analytics-Tools'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Facebook Ads', value='Facebook Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=162.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=2.63, value=6.88),
         MarketingAnalyticsItem(changeFromPreviousPct=50.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=2.0, value=3.0),
@@ -1083,8 +1083,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Test-AB-Testing-AMER', value='Test-AB-Testing-AMER'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Test-AB-Testing-AMER', value='Test-AB-Testing-AMER'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Test-AB-Testing-AMER', value='Test-AB-Testing-AMER'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TikTok Ads', value='TikTok Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=-28.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=8.67, value=6.28),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=2.0, value=2.0),
@@ -1097,8 +1097,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-GroupB-Traffic-Engineering-Static-Dec-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-GroupB-Traffic-Engineering-Static-Dec-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-GroupB-Traffic-Engineering-Static-Dec-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=4.13),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=1.0),
@@ -1111,8 +1111,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='test_brand_campaign'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='test_brand_campaign'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='test_brand_campaign'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Facebook Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=3.43),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=2.0),
@@ -1125,8 +1125,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TestCorp-Search-AMER-Analytics-Tools', value='TestCorp-Search-AMER-Analytics-Tools'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TestCorp-Search-AMER-Analytics-Tools', value='TestCorp-Search-AMER-Analytics-Tools'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TestCorp-Search-AMER-Analytics-Tools', value='TestCorp-Search-AMER-Analytics-Tools'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Facebook Ads', value='Facebook Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=34.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=2.2, value=2.94),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=2.0, value=2.0),
@@ -1139,8 +1139,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.22, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-EMEA-Traffic-Technical-Static-Analytics-Aug-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-EMEA-Traffic-Technical-Static-Analytics-Aug-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-EMEA-Traffic-Technical-Static-Analytics-Aug-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=1.28),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=2.0),
@@ -1153,8 +1153,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Product-Analytics-EMEA'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Product-Analytics-EMEA'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Product-Analytics-EMEA'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Facebook Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=0.58),
         MarketingAnalyticsItem(changeFromPreviousPct=999999.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=1.0),
@@ -1167,8 +1167,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.06),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-GroupB-Traffic-Leadership-Static-Dec-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-GroupB-Traffic-Leadership-Static-Dec-2024'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-GroupB-Traffic-Leadership-Static-Dec-2024'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='LinkedIn Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
@@ -1181,8 +1181,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Test-Experimentation-EMEA', value='Test-Experimentation-EMEA'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Test-Experimentation-EMEA', value='Test-Experimentation-EMEA'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Test-Experimentation-EMEA', value='Test-Experimentation-EMEA'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TikTok Ads', value='TikTok Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
@@ -1195,8 +1195,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Product-Analytics-AMER'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Product-Analytics-AMER'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Product-Analytics-AMER'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Facebook Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
@@ -1209,8 +1209,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Session-Recording-AMER'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Session-Recording-AMER'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Session-Recording-AMER'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TikTok Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
@@ -1223,8 +1223,8 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='Cost per Reported Conversions', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
       ]),
       list([
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TestCorp-Search-EMEA-Mobile-Platform'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TestCorp-Search-EMEA-Mobile-Platform'),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Campaign', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TestCorp-Search-EMEA-Mobile-Platform'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TikTok Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=0.0, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),

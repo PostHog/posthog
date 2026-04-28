@@ -85,6 +85,13 @@ TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"
 
+# Placeholder shown in hierarchy columns when an optional parent table isn't synced.
+# Example: at AD drill-down with `ads` synced but not `adsets`, the ad_group_name /
+# ad_group_id columns surface this label so the user understands why the column is
+# blank — instead of showing NULL or an empty string. Adapter-agnostic: any source
+# that exposes optional hierarchy tables should reuse this.
+UNSYNCED_HIERARCHY_LABEL = "No sync"
+
 
 # Fallback query when no valid adapters are found. Emits either 9 or 13 columns to
 # match the schema adapters produce for the given drill-down level.
@@ -143,6 +150,11 @@ BASE_COLUMN_MAPPING = {
         alias=MarketingAnalyticsBaseColumns.SOURCE,
         expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.SOURCE]),
     ),
+    # Naming inconsistency: the schema name uses `_name` suffixes (`ad_group_name`,
+    # `ad_name`) while CAMPAIGN's schema name is just `campaign`. Predates this PR;
+    # changing the older convention would require a migration of saved source_map
+    # configs across all teams. The display alias ("Ad group" / "Ad") hides the
+    # inconsistency from the UI.
     MarketingAnalyticsBaseColumns.AD_GROUP: ast.Alias(
         alias=MarketingAnalyticsBaseColumns.AD_GROUP,
         expr=ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, MarketingAnalyticsColumnsSchemaNames.AD_GROUP_NAME]),

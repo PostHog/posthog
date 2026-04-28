@@ -21,7 +21,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
 from products.data_warehouse.backend.models import DataWarehouseTable
-from products.marketing_analytics.backend.hogql_queries.constants import MATCH_KEY_FIELD
+from products.marketing_analytics.backend.hogql_queries.constants import DRILL_DOWN_LEVEL_CONFIG, MATCH_KEY_FIELD
 
 logger = structlog.get_logger(__name__)
 
@@ -311,6 +311,23 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """Get the ad ID field expression. Default NULL."""
         return ast.Constant(value=None)
 
+    def _string_field_when_level(
+        self,
+        levels: tuple[MarketingAnalyticsDrillDownLevel, ...],
+        table: Optional[DataWarehouseTable],
+        column: str,
+    ) -> ast.Expr:
+        """Helper for adapters implementing hierarchy fields. Returns
+        toString(table.column) when the current drill-down level is in `levels`
+        and the table is configured; otherwise NULL.
+
+        Used to keep `_get_ad_group_*_field` / `_get_ad_*_field` overrides one-liners
+        across the 8 adapter implementations (Meta done, others to follow).
+        """
+        if table is not None and self.context.drill_down_level in levels:
+            return ast.Call(name="toString", args=[ast.Field(chain=[table.name, column])])
+        return ast.Constant(value=None)
+
     def supports_level(self, level: MarketingAnalyticsDrillDownLevel) -> bool:
         """Whether this adapter can return data for the given drill-down level.
         Default: supports campaign-level and below (channel, source, campaign, utm levels).
@@ -360,6 +377,21 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
             return self._get_campaign_id_field()
         return self._get_campaign_name_field()
 
+    def _get_match_key_expr(self) -> ast.Expr:
+        """Expression emitted as the `match_key` column. The runner JOINs adapter output
+        against unified_conversion_goals on this column — but at levels where that JOIN
+        is skipped (currently AD_GROUP / AD; gated by `excludes_conversion_goals`), the
+        match value is unused and emitting `campaign_name` is just a confusing duplicate
+        of the campaign column. Empty constant communicates intent and saves wire bytes.
+
+        Tied to DRILL_DOWN_LEVEL_CONFIG so any future level that flips
+        `excludes_conversion_goals` automatically inherits this behavior.
+        """
+        level_config = DRILL_DOWN_LEVEL_CONFIG.get(self.context.drill_down_level)
+        if level_config and level_config.get("excludes_conversion_goals"):
+            return ast.Constant(value="")
+        return self.get_campaign_match_field()
+
     def _apply_currency_conversion(
         self,
         table: DataWarehouseTable,
@@ -408,7 +440,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         at other levels the 9-column schema is preserved for backward compatibility.
         """
         columns: list[ast.Expr] = [
-            ast.Alias(alias=self.match_key_field, expr=self.get_campaign_match_field()),
+            ast.Alias(alias=self.match_key_field, expr=self._get_match_key_expr()),
             ast.Alias(alias=self.campaign_name_field, expr=self._get_campaign_name_field()),
             ast.Alias(alias=self.campaign_id_field, expr=self._get_campaign_id_field()),
             ast.Alias(alias=self.source_name_field, expr=self._get_source_name_field()),
@@ -440,15 +472,21 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         """
         Build SelectQuery that returns marketing data in standardized format.
 
-        MUST return columns in this exact order and format (13 columns):
+        Column count varies by drill-down level (the campaign_costs CTE consumer expects
+        the same shape from every adapter at a given level):
+
+        - At CHANNEL / SOURCE / CAMPAIGN / MEDIUM / CONTENT / TERM: 9 columns
+        - At AD_GROUP / AD: 13 columns (ad_group_name/id + ad_name/id inserted after
+          source_name)
+
+        Column order at AD_GROUP / AD:
         - match_key (string): Campaign match field for joining with conversion goals
         - campaign_name (string): Campaign identifier (human-readable name)
         - campaign_id (string): Campaign identifier (platform ID)
         - source_name (string): Source identifier
-        - ad_group_name (string | null): Ad group name (null when not at AD_GROUP/AD level
-          or when the source doesn't support it)
+        - ad_group_name (string | null): Ad group name (null when source doesn't support it)
         - ad_group_id (string | null): Ad group platform ID
-        - ad_name (string | null): Ad name (null when not at AD level)
+        - ad_name (string | null): Ad name (null at AD_GROUP level or unsupported)
         - ad_id (string | null): Ad platform ID
         - impressions (float): Number of impressions
         - clicks (float): Number of clicks

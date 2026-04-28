@@ -261,7 +261,11 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         .map((column) => (staleGroupingColumns.includes(column) ? groupingAlias : column))
                         .filter((column) => column === groupingAlias || !excludedColumns.has(column))
                         .filter((column, index, arr) => arr.indexOf(column) === index),
-                    ...(draftConversionGoal
+                    // Skip the draft goal entirely when the level can't attribute events
+                    // to a specific row (ad-group / ad). This mirrors the same gate in
+                    // marketingAnalyticsTableLogic.defaultColumns; without it the user
+                    // sees a phantom column the backend won't produce.
+                    ...(draftConversionGoal && !drillDownConfig.excludesConversionGoals
                         ? costAvailable
                             ? [
                                   draftConversionGoal.conversion_goal_name,
