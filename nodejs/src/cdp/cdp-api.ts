@@ -701,8 +701,8 @@ export class CdpApi {
                 // Only write replay markers after invocations are successfully queued,
                 // otherwise failed runs would disappear from the blocked list permanently
                 if (logEntries.length > 0) {
-                    this.hogFunctionMonitoringService.queueLogs(logEntries, 'hog_flow')
-                    await this.hogFunctionMonitoringService.flush()
+                    this.invocationResultsService.monitoringService.queueLogs(logEntries, 'hog_flow')
+                    await this.invocationResultsService.flush()
                 }
             }
 
