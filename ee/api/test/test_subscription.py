@@ -948,6 +948,30 @@ class TestSubscriptionTemporal(APILicensedTest):
             enabled=True,
         )
         with patch("ee.api.subscription.sync_connect") as temporal_mock:
+            temporal_mock.return_value.start_workflow = AsyncMock()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+                {"enabled": False},
+                format="json",
+            )
+            assert response.status_code == 200, response.content
+            temporal_mock.return_value.start_workflow.assert_not_called()
+
+    def test_patch_already_disabled_does_not_trigger_workflow(self):
+        """A PATCH that doesn't change anything material on an already-disabled subscription
+        should not trigger a workflow — the resulting state is still disabled."""
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+        )
+        with patch("ee.api.subscription.sync_connect") as temporal_mock:
+            temporal_mock.return_value.start_workflow = AsyncMock()
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
                 {"enabled": False},
