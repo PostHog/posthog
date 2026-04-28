@@ -43,7 +43,6 @@ class DuckLakeCatalog(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         choices=DuckLakeVersion.choices,
         null=True,
         blank=True,
-        default=None,
         help_text=(
             "DuckLake catalog version deployed on this duckling. "
             "Determines which DuckDB version must be used for backfill jobs. "

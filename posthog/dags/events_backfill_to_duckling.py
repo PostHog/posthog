@@ -105,16 +105,11 @@ def get_runtime_ducklake_version() -> int | None:
         if version == expected_version:
             return dl_version
 
-    logger.warning(
-        "duckling_unknown_duckdb_version",
-        duckdb_version=version,
-        known_versions=list(DUCKDB_VERSION_TO_DUCKLAKE.keys()),
-    )
     return None
 
 
 def check_ducklake_version_compatible(
-    catalog,
+    catalog: DuckLakeCatalog,
     context: AssetExecutionContext,
 ) -> bool:
     """Check if the current runtime is compatible with a catalog's ducklake version.
@@ -1575,7 +1570,11 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
 
-    # Verify ducklake version compatibility before proceeding
+    # Verify ducklake version compatibility before proceeding.
+    # We deliberately return (not raise) on mismatch: the partition succeeds
+    # with "skipped_version_mismatch" metadata so the wrong-version runtime
+    # doesn't burn retries. The correct-version runtime will pick it up via
+    # the sensor's retry-on-failure logic.
     if not check_ducklake_version_compatible(catalog, context):
         context.log.warning(
             f"Skipping duckling events backfill for team_id={team_id}: "
@@ -1729,7 +1728,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
     context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
 
-    # Verify ducklake version compatibility before proceeding
+    # Verify ducklake version compatibility before proceeding.
+    # We deliberately return (not raise) on mismatch: the partition succeeds
+    # with "skipped_version_mismatch" metadata so the wrong-version runtime
+    # doesn't burn retries. The correct-version runtime will pick it up via
+    # the sensor's retry-on-failure logic.
     if not check_ducklake_version_compatible(catalog, context):
         context.log.warning(
             f"Skipping duckling persons backfill for team_id={team_id}: "
