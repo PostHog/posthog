@@ -110,7 +110,13 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addGroupFilter: (
             taxonomicGroup: TaxonomicFilterGroup,
             propertyKey: TaxonomicFilterValue,
-            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string }
+            item: {
+                propertyFilterType?: PropertyFilterType
+                name?: string
+                key?: string
+                matchedOn?: string
+                matchedValue?: string
+            }
         ) => ({
             taxonomicGroup,
             propertyKey,
