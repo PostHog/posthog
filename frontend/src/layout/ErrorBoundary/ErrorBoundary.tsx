@@ -101,9 +101,11 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         {!isBrowserExtensionError && (
                             <>
                                 <p className="mb-2">
-                                    Click below to send this to an engineer. We'll attach the exception ID, stack trace,
-                                    and session replay automatically — just tell us what you were doing, and add a
-                                    screenshot if you think it will help.
+                                    Click below to send this to an engineer.{' '}
+                                    {exceptionEvent
+                                        ? "We'll attach the exception ID, stack trace, and session replay automatically"
+                                        : "We'll attach the session replay automatically"}{' '}
+                                    — just tell us what you were doing, and add a screenshot if you think it will help.
                                 </p>
                                 <div className="flex gap-2 flex-wrap">
                                     <LemonButton
