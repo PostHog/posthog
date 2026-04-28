@@ -3693,6 +3693,36 @@
             "readOnlyHint": true
         }
     },
+    "user-home-settings-get": {
+        "description": "Get the authenticated user's pinned navigation tabs and configured homepage for the current team. The homepage is the page opened when the user clicks the PostHog logo or hits `/` — it can point at any PostHog destination (dashboard, insight, search, scene, etc.). Pass `@me` as the UUID.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get pinned tabs and homepage.",
+        "title": "Get pinned tabs and homepage.",
+        "required_scopes": ["user:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "user-home-settings-update": {
+        "description": "Update the authenticated user's pinned tabs and/or homepage for the current team. Pass `@me` as the UUID. The homepage can be set to any PostHog destination by passing a tab descriptor with `pathname` (and optional `search`/`hash`) — for example `{ \"pathname\": \"/project/123/dashboard/45\" }` to make a dashboard the home, or `{ \"pathname\": \"/project/123/insights\", \"search\": \"?q=funnel\" }` for a search. Send `homepage: null` to clear it and fall back to the project default. `tabs` replaces the full pinned list when provided. Always confirm the destination with the user before applying — this changes their landing page on every login.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Update pinned tabs and homepage.",
+        "title": "Update pinned tabs and homepage.",
+        "required_scopes": ["user:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "user-settings-update": {
         "description": "Update the authenticated user's profile and settings using PATCH semantics — only the fields included in the request body are changed. Pass `@me` as the UUID; non-staff callers may only update their own account. Use `user-get` first to inspect current settings. `notification_settings` merges key-by-key; changing `email` triggers a verification flow; changing `password` also requires `current_password`. Always confirm changes with the user before applying.",
         "category": "Core",
