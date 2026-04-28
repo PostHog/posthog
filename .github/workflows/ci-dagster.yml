@@ -151,14 +151,15 @@ jobs:
                   echo "oldest_supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
 
     dagster:
-        name: Dagster tests (${{ matrix.runner }})
+        name: Dagster tests (${{ matrix.runner }}, ${{ matrix.group }}/4)
         needs: [changes]
-        timeout-minutes: 30
+        timeout-minutes: 15
         strategy:
             fail-fast: false
             matrix:
                 clickhouse-server-image: ${{ fromJson(needs.changes.outputs.oldest_supported) }}
                 runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest","blacksmith-2vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest"]') }}
+                group: [1, 2, 3, 4]
         if: needs.changes.outputs.dagster == 'true'
         runs-on: ${{ matrix.runner }}
         continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
@@ -258,17 +259,25 @@ jobs:
 
             - name: Run Dagster tests
               run: |
-                  pytest posthog/dags --junitxml=junit-dagster.xml
-
-            - name: Run products Dagster tests
-              run: |
-                  pytest products/**/dags --junitxml=junit-products.xml
+                  set +e
+                  pytest posthog/dags products/**/dags \
+                      --splits 4 --group ${{ matrix.group }} \
+                      --splitting-algorithm=duration_based_chunks \
+                      --durations=20 \
+                      --junitxml=junit-dagster-${{ matrix.group }}.xml
+                  exit_code=$?
+                  set -e
+                  if [ $exit_code -eq 5 ]; then
+                      echo "No tests collected for this shard; expected when splitting tests"
+                      exit 0
+                  fi
+                  exit $exit_code
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always() && !startsWith(matrix.runner, 'blacksmith')
               with:
-                  name: junit-results-dagster
+                  name: junit-results-dagster-${{ matrix.group }}
                   path: junit-*.xml
 
     # Job just to collate the status of the matrix jobs for requiring passing status
