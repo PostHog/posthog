@@ -255,18 +255,28 @@ def get_leading_sortkey_columns_for_schemas(
     port: int,
     table_names: list[str],
 ) -> dict[str, set[str]] | None:
-    """Return the leading SORTKEY column per table for the requested tables.
+    """Return the columns that drive `WHERE col >= …` predicate pushdown per table.
 
     Redshift is columnar with no traditional B-tree indexes; SORTKEYs are the
-    structure that accelerates `WHERE col >= …` predicate pushdown. For compound
-    sortkeys the column where `sortkey = 1` is the leading column; for interleaved
-    sortkeys Redshift uses negative values, with `sortkey = -1` being the leading
-    entry. Tables without sortkeys map to an empty set so the UI warning fires.
+    structure that accelerates predicate pushdown. The `sortkey` value reported
+    by `pg_table_def` encodes both the kind of sortkey and the column's
+    position:
 
-    Returns None when discovery fails so the caller can default to no-warning.
+    - **Compound sortkeys** use positive integers (1, 2, 3, …) where ``sortkey = 1``
+      is the leading column. Only the leading column meaningfully accelerates
+      `WHERE col >= …`; subsequent columns require equality predicates on
+      preceding columns to be useful.
+    - **Interleaved sortkeys** mix signs (e.g. ``-1, 2, -3, 4``). All non-zero
+      sortkey columns contribute equally to predicate pushdown by design — the
+      whole point of interleaved sortkeys is to give every column equal
+      weight. Treating only ``sortkey = -1`` as indexed produces false warnings
+      on the other interleaved columns.
+
+    Returns None when discovery fails so the caller defaults to no-warning.
+    Tables with no sortkey return an empty set so the warning fires.
     """
     if not table_names:
-        return {table: set() for table in table_names}
+        return {}
 
     result: dict[str, set[str]] = {table: set() for table in table_names}
 
@@ -292,15 +302,26 @@ def get_leading_sortkey_columns_for_schemas(
                 cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
                 cursor.execute(
                     sql.SQL("""
-                        SELECT tablename, "column"
+                        SELECT tablename, "column", sortkey
                         FROM pg_table_def
                         WHERE schemaname = {schema}
                           AND tablename = ANY({names})
-                          AND sortkey IN (1, -1)
+                          AND sortkey != 0
                     """).format(schema=sql.Literal(schema), names=sql.Literal(table_names))
                 )
-                for table_name, column_name in cursor.fetchall():
-                    result.setdefault(table_name, set()).add(column_name)
+                # Group rows by table so we can classify compound vs interleaved
+                # before deciding which columns count as indexed. Negative sortkey
+                # values are the marker Redshift uses for interleaved sortkeys.
+                rows_by_table: dict[str, list[tuple[str, int]]] = {}
+                for table_name, column_name, sortkey_value in cursor.fetchall():
+                    rows_by_table.setdefault(table_name, []).append((column_name, sortkey_value))
+
+                for table_name, sortkey_rows in rows_by_table.items():
+                    is_interleaved = any(sk < 0 for _, sk in sortkey_rows)
+                    if is_interleaved:
+                        result[table_name] = {col for col, _ in sortkey_rows}
+                    else:
+                        result[table_name] = {col for col, sk in sortkey_rows if sk == 1}
     except Exception as e:
         structlog.get_logger().warning("Failed to detect sortkeys for Redshift schemas", exc_info=e)
         return None
