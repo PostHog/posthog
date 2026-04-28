@@ -191,6 +191,19 @@ class SlackChannelSerializer(serializers.Serializer):
     )
 
 
+class SlackChannelsQuerySerializer(serializers.Serializer):
+    force_refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, bypass the 1h Redis cache and fetch fresh channels from Slack. Subject to per-team rate limiting (30/min).",
+    )
+    channel_id = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="When provided, look up only this channel by ID instead of returning the full list. Returns a single-element channels array, or empty if not found / not accessible.",
+    )
+
+
 class SlackChannelsResponseSerializer(serializers.Serializer):
     channels = SlackChannelSerializer(many=True, help_text="Slack channels visible to the PostHog Slack app.")
     lastRefreshedAt = serializers.CharField(
@@ -547,7 +560,10 @@ class IntegrationViewSet(
 
         raise ValidationError("Kind not supported")
 
-    @extend_schema(responses={200: SlackChannelsResponseSerializer})
+    @extend_schema(
+        parameters=[SlackChannelsQuerySerializer],
+        responses={200: SlackChannelsResponseSerializer},
+    )
     @action(methods=["GET"], detail=True, url_path="channels")
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()

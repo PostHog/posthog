@@ -13,11 +13,12 @@ import {
     PropertyDefinition,
     PropertyFilterType,
     PropertyOperator,
-    SlackChannelType,
     SubscriptionType,
     TimeUnitType,
     UserBasicType,
 } from '~/types'
+
+import type { SlackChannelApi } from 'products/integrations/frontend/generated/api.schemas'
 
 export const mockBasicUser: UserBasicType = {
     id: 0,
@@ -228,21 +229,23 @@ export const mockIntegration: IntegrationType = {
     created_by: mockBasicUser,
 }
 
-export const mockSlackChannel: SlackChannelType = {
+export const mockSlackChannel: SlackChannelApi = {
     id: 'C1234',
     name: '#general',
     is_private: false,
     is_ext_shared: false,
     is_member: false,
+    is_private_without_access: false,
 }
 
-export const mockSlackChannels: SlackChannelType[] = [
+export const mockSlackChannels: SlackChannelApi[] = [
     {
         id: 'C1',
         name: 'general',
         is_private: false,
         is_ext_shared: false,
         is_member: false,
+        is_private_without_access: false,
     },
     {
         id: 'C2',
@@ -250,6 +253,7 @@ export const mockSlackChannels: SlackChannelType[] = [
         is_private: false,
         is_ext_shared: false,
         is_member: true,
+        is_private_without_access: false,
     },
     {
         id: 'C3',
@@ -257,6 +261,7 @@ export const mockSlackChannels: SlackChannelType[] = [
         is_private: true,
         is_ext_shared: false,
         is_member: true,
+        is_private_without_access: false,
     },
     {
         id: 'C4',
@@ -264,6 +269,7 @@ export const mockSlackChannels: SlackChannelType[] = [
         is_private: false,
         is_ext_shared: true,
         is_member: false,
+        is_private_without_access: false,
     },
 ]
 

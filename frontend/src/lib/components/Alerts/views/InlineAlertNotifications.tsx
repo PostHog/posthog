@@ -13,18 +13,20 @@ import {
 } from 'lib/utils/alertUtils'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, SlackChannelType } from '~/types'
+import { HogFunctionType } from '~/types'
+
+import type { SlackChannelApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { ALERT_NOTIFICATION_TYPE_OPTIONS, alertNotificationLogic } from '../alertNotificationLogic'
 
-function resolveSlackChannelName(channelValue: string, slackChannels: SlackChannelType[]): string | null {
+function resolveSlackChannelName(channelValue: string, slackChannels: SlackChannelApi[]): string | null {
     const channelId = channelValue.split('|')[0]
     return slackChannels.find((c) => c.id === channelId)?.name ?? null
 }
 
 function getHogFunctionDestination(
     hf: HogFunctionType,
-    slackChannels: SlackChannelType[]
+    slackChannels: SlackChannelApi[]
 ): { type: string; detail: string | null } {
     const channelValue = hf.inputs?.channel?.value
     if (channelValue && typeof channelValue === 'string') {

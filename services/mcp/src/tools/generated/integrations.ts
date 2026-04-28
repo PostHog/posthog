@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     IntegrationsChannelsRetrieveParams,
+    IntegrationsChannelsRetrieveQueryParams,
     IntegrationsDestroyParams,
     IntegrationsListQueryParams,
     IntegrationsRetrieveParams,
@@ -41,7 +42,9 @@ const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.Integra
     },
 })
 
-const IntegrationsChannelsRetrieveSchema = IntegrationsChannelsRetrieveParams.omit({ project_id: true })
+const IntegrationsChannelsRetrieveSchema = IntegrationsChannelsRetrieveParams.omit({ project_id: true }).extend(
+    IntegrationsChannelsRetrieveQueryParams.shape
+)
 
 const integrationsChannelsRetrieve = (): ToolBase<
     typeof IntegrationsChannelsRetrieveSchema,
@@ -54,6 +57,10 @@ const integrationsChannelsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.SlackChannelsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/channels/`,
+            query: {
+                channel_id: params.channel_id,
+                force_refresh: params.force_refresh,
+            },
         })
         return result
     },

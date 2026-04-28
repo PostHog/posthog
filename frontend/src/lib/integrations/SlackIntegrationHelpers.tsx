@@ -14,7 +14,9 @@ import api from 'lib/api'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
 
-import { IntegrationType, SlackChannelType } from '~/types'
+import { IntegrationType } from '~/types'
+
+import type { SlackChannelApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
@@ -45,7 +47,7 @@ export function SlackNotConfiguredBanner(): JSX.Element {
     )
 }
 
-const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
+const getSlackChannelOptions = (slackChannels?: SlackChannelApi[] | null): LemonInputSelectOption[] | null => {
     return slackChannels
         ? slackChannels.map((x) => {
               const name = x.is_private_without_access ? 'Private Channel' : x.name
@@ -102,7 +104,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     // Sometimes the parent will only store the channel ID and not the name, so we need to handle that
     const modifiedValue = useMemo(() => {
         if (value?.split('|').length === 1) {
-            const channel = slackChannels.find((x: SlackChannelType) => x.id === value)
+            const channel = slackChannels.find((x: SlackChannelApi) => x.id === value)
 
             if (channel) {
                 return `${channel.id}|#${channel.name}`

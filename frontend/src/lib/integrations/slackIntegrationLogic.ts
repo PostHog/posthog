@@ -1,11 +1,12 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { SlackChannelType } from '~/types'
+import { integrationsChannelsRetrieve } from 'products/integrations/frontend/generated/api'
+import type { SlackChannelApi, SlackChannelsResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import type { slackIntegrationLogicType } from './slackIntegrationLogicType'
 
@@ -25,19 +26,23 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
 
     loaders(({ props }) => ({
         allSlackChannels: [
-            null as { channels: SlackChannelType[]; lastRefreshedAt: string } | null,
+            null as SlackChannelsResponseApi | null,
             {
                 loadAllSlackChannels: async ({ forceRefresh }) => {
-                    return await api.integrations.slackChannels(props.id, forceRefresh)
+                    return await integrationsChannelsRetrieve(String(getCurrentTeamId()), props.id, {
+                        force_refresh: forceRefresh,
+                    })
                 },
             },
         ],
         slackChannelById: [
-            null as SlackChannelType | null,
+            null as SlackChannelApi | null,
             {
                 loadSlackChannelById: async ({ channelId }, breakpoint) => {
                     await breakpoint(500)
-                    const res = await api.integrations.slackChannelsById(props.id, channelId)
+                    const res = await integrationsChannelsRetrieve(String(getCurrentTeamId()), props.id, {
+                        channel_id: channelId,
+                    })
                     return res.channels[0] || null
                 },
             },
@@ -46,13 +51,13 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
 
     reducers({
         _fetchedSlackChannels: [
-            [] as SlackChannelType[],
+            [] as SlackChannelApi[],
             {
                 loadAllSlackChannelsSuccess: (_, { allSlackChannels }) => allSlackChannels.channels ?? [],
             },
         ],
         _fetchedSlackChannelById: [
-            null as SlackChannelType | null,
+            null as SlackChannelApi | null,
             {
                 loadSlackChannelByIdSuccess: (_, { slackChannelById }) => slackChannelById,
             },
@@ -62,7 +67,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     selectors({
         slackChannels: [
             (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelById],
-            (_fetchedSlackChannels, _fetchedSlackChannelById): SlackChannelType[] => {
+            (_fetchedSlackChannels, _fetchedSlackChannelById): SlackChannelApi[] => {
                 const channels = [..._fetchedSlackChannels]
                 if (_fetchedSlackChannelById && !channels.find((x) => x.id === _fetchedSlackChannelById.id)) {
                     channels.push(_fetchedSlackChannelById)
@@ -72,7 +77,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         ],
         isMemberOfSlackChannel: [
             (s) => [s.slackChannels],
-            (slackChannels: SlackChannelType[]) => {
+            (slackChannels: SlackChannelApi[]) => {
                 return (channel: string) => {
                     const [channelId] = channel.split('|')
                     return slackChannels.find((x) => x.id === channelId)?.is_member ?? false
@@ -81,7 +86,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         ],
         isPrivateChannelWithoutAccess: [
             (s) => [s.slackChannels],
-            (slackChannels: SlackChannelType[]) => {
+            (slackChannels: SlackChannelApi[]) => {
                 return (channel: string) => {
                     const [channelId] = channel.split('|')
                     return slackChannels.find((x) => x.id === channelId)?.is_private_without_access ?? false
@@ -90,7 +95,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         ],
         getChannelRefreshButtonDisabledReason: [
             (s) => [s.allSlackChannels],
-            (allSlackChannels: { channels: SlackChannelType[]; lastRefreshedAt: string } | null) => (): string => {
+            (allSlackChannels: SlackChannelsResponseApi | null) => (): string => {
                 const now = dayjs()
                 if (allSlackChannels) {
                     const earliestRefresh = dayjs(allSlackChannels.lastRefreshedAt).add(

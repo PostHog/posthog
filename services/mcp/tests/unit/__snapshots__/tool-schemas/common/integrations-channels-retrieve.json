@@ -1,6 +1,16 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "channel_id": {
+            "description": "When provided, look up only this channel by ID instead of returning the full list. Returns a single-element channels array, or empty if not found / not accessible.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "force_refresh": {
+            "default": false,
+            "description": "When true, bypass the 1h Redis cache and fetch fresh channels from Slack. Subject to per-team rate limiting (30/min).",
+            "type": "boolean"
+        },
         "id": {
             "description": "A unique integer value identifying this integration.",
             "type": "number"

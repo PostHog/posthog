@@ -5095,15 +5095,6 @@ export interface EmailIntegrationDomainGroupedType {
     integrations: IntegrationType[]
 }
 
-export interface SlackChannelType {
-    id: string
-    name: string
-    is_private: boolean
-    is_ext_shared: boolean
-    is_member: boolean
-    is_private_without_access?: boolean
-}
-
 export interface TwilioPhoneNumberType {
     sid: string
     phone_number: string

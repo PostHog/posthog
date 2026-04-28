@@ -47,3 +47,21 @@ export const IntegrationsChannelsRetrieveParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const integrationsChannelsRetrieveQueryForceRefreshDefault = false
+
+export const IntegrationsChannelsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    channel_id: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'When provided, look up only this channel by ID instead of returning the full list. Returns a single-element channels array, or empty if not found / not accessible.'
+        ),
+    force_refresh: zod
+        .boolean()
+        .default(integrationsChannelsRetrieveQueryForceRefreshDefault)
+        .describe(
+            'When true, bypass the 1h Redis cache and fetch fresh channels from Slack. Subject to per-team rate limiting (30/min).'
+        ),
+})
