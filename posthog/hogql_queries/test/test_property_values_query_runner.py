@@ -205,7 +205,7 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("poll", ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, "force_cache"),
         ]
     )
-    def test_execution_mode_recorded_in_query_executed_event(self, _name, execution_mode, expected_value):
+    def test_execution_mode_recorded_in_slo_started_event(self, _name, execution_mode, expected_value):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
         flush_persons_and_events()
 

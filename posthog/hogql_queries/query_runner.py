@@ -101,7 +101,7 @@ from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_helpers import to_dict
-from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
@@ -1266,6 +1266,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             tag_queries(execution_mode=execution_mode.value)
             tag_queries(cache_key=cache_key)
 
+            slo_properties: dict[str, JsonValue] = {
+                "query_type": query_type,
+                "execution_mode": execution_mode.value,
+            }
+            if insight_id is not None:
+                slo_properties["insight_id"] = insight_id
+            if dashboard_id is not None:
+                slo_properties["dashboard_id"] = dashboard_id
+            if product_key is not None:
+                slo_properties["product_key"] = product_key
+
             with slo_operation(
                 spec=SloSpec(
                     distinct_id=distinct_id,
@@ -1274,13 +1285,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     team_id=self.team.id,
                     resource_id=self.query_id,
                 ),
-                properties={
-                    "query_type": query_type,
-                    "execution_mode": execution_mode.value,
-                    "insight_id": insight_id,
-                    "dashboard_id": dashboard_id,
-                    "product_key": product_key,
-                },
+                properties=slo_properties,
             ) as slo:
                 try:
                     # Abort early if the user doesn't have access to the query runner
@@ -1402,8 +1407,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
                 except Exception as exc:
                     error_category = classify_query_error(exc)
-                    # User errors and rate limits are not system failures —
-                    # count them as success for SLO purposes but tag for visibility
+                    # User errors and rate limits should not burn SLO error budget
                     if error_category in (QueryErrorCategory.USER_ERROR, QueryErrorCategory.RATE_LIMITED):
                         slo.succeed(execution_path="error", error_category=error_category.value)
                     else:
