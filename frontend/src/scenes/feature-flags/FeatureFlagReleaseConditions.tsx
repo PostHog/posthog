@@ -50,6 +50,9 @@ import {
 
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
+        if (property.value === null || property.value === undefined) {
+            return <LemonSnack>Cohort missing</LemonSnack>
+        }
         return (
             <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
                 {property.cohort_name || `ID ${property.value}`}

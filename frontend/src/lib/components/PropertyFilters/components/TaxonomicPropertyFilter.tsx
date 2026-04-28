@@ -155,7 +155,7 @@ export function TaxonomicPropertyFilter({
     const cohortName =
         filter?.type === PropertyFilterType.Cohort
             ? filter.cohort_name ||
-              (cohortValue !== undefined
+              (cohortValue !== undefined && cohortValue !== null
                   ? cohortsById[cohortValue]?.name || cohortsById[String(cohortValue)]?.name
                   : undefined)
             : undefined

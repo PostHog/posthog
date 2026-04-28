@@ -62,10 +62,12 @@ export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningL
 
                     if (property.type === PropertyFilterType.Cohort) {
                         const cohortId = property.value
-                        // Try both numeric and string keys since cohort IDs can be stored as either type
-                        const cohort = cohortsById[cohortId] ?? cohortsById[String(cohortId)]
-                        if (cohort?.is_static) {
-                            issues.push('static cohorts')
+                        if (cohortId !== null && cohortId !== undefined) {
+                            // Try both numeric and string keys since cohort IDs can be stored as either type
+                            const cohort = cohortsById[cohortId] ?? cohortsById[String(cohortId)]
+                            if (cohort?.is_static) {
+                                issues.push('static cohorts')
+                            }
                         }
                     }
 

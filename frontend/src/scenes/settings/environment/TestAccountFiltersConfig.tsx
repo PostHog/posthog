@@ -46,6 +46,9 @@ function createTestAccountFilterWarningLabels(
             // person properties can be checked for a label as if they were event properties
             // so, we can check each acceptable type and see if it returns a value
             if (filter.type === 'cohort') {
+                if (filter.value === null || filter.value === undefined) {
+                    return 'Cohort (missing)'
+                }
                 return `Cohort ${cohortsById[filter.value]?.name || filter.value}`
             }
             return (

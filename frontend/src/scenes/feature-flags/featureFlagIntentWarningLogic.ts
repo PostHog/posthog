@@ -130,11 +130,13 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                             if (property.type === PropertyFilterType.Cohort) {
                                 // cohortId may be numeric or stringified depending on filter source
                                 const cohortId = property.value
-                                const cohort = cohortsById[cohortId] ?? cohortsById[String(cohortId)]
-                                if (cohort?.is_static) {
-                                    issues.add('Static cohorts are not sent to SDKs')
-                                } else if (cohort && hasBehavioralCriteria(cohort)) {
-                                    issues.add('Behavioral cohorts cannot be evaluated locally')
+                                if (cohortId !== null && cohortId !== undefined) {
+                                    const cohort = cohortsById[cohortId] ?? cohortsById[String(cohortId)]
+                                    if (cohort?.is_static) {
+                                        issues.add('Static cohorts are not sent to SDKs')
+                                    } else if (cohort && hasBehavioralCriteria(cohort)) {
+                                        issues.add('Behavioral cohorts cannot be evaluated locally')
+                                    }
                                 }
                             }
 
