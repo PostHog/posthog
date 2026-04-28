@@ -672,8 +672,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     },
                 }
             },
-            submit: async (featureFlag) => {
-                await actions.submitFeatureFlagWithValidation(featureFlag)
+            submit: async () => {
+                // Validation/save uses reducer state in submitFeatureFlagWithValidation; kea-forms can omit nested updates from setFeatureFlagFilters.
+                await actions.submitFeatureFlagWithValidation({} as Partial<FeatureFlagType>)
             },
         },
     })),
@@ -2107,7 +2108,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadFeatureFlag()
             }
         },
-        submitFeatureFlagWithValidation: async ({ featureFlag }, breakpoint, action, previousState) => {
+        submitFeatureFlagWithValidation: async (_payload, breakpoint, action, previousState) => {
+            const featureFlag = values.featureFlag
             const originalFlag = values.originalFeatureFlag
             const keyChanged = originalFlag && featureFlag.id && originalFlag.key !== featureFlag.key
 

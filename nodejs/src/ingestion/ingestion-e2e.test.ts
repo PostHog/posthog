@@ -211,7 +211,6 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
     ) => {
         test(name, async () => {
             const hub = await createHub({
-                APP_METRICS_FLUSH_FREQUENCY_MS: 0,
                 ...baseConfig,
                 ...config.pluginServerConfig,
             })
