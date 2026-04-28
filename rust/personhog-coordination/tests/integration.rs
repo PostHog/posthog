@@ -1885,3 +1885,147 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
 
     cancel.cancel();
 }
+
+/// A `Draining` pod is still alive (lease present, heartbeating) and is
+/// still capable of running its handoff handler and writing a `DrainedAck`.
+/// `check_phase_advance` must therefore wait for that ack rather than
+/// treating the pod as dead and bypassing the drain. Regression test for
+/// the case where gating on `PodStatus::Ready` instead of registration
+/// presence let Freezing → Warming advance with potentially in-flight
+/// writes still being produced by the old owner.
+#[tokio::test]
+async fn draining_old_owner_blocks_phase_advance() {
+    use personhog_coordination::types::{
+        HandoffPhase, HandoffState, PodDrainedAck, PodStatus, RegisteredPod,
+    };
+
+    let store = test_store("draining-blocks-advance").await;
+    let cancel = CancellationToken::new();
+
+    // Register a Draining pod directly. This simulates a pod that was
+    // healthy, started shutting down, and now sits in Draining while
+    // working through its remaining handlers.
+    let lease = store.grant_lease(30).await.unwrap();
+    let draining_pod = RegisteredPod {
+        pod_name: "writer-draining".to_string(),
+        generation: String::new(),
+        status: PodStatus::Draining,
+        registered_at: 0,
+        last_heartbeat: 0,
+        controller: None,
+    };
+    store.register_pod(&draining_pod, lease).await.unwrap();
+
+    // Inject a Freezing handoff with the Draining pod as old_owner.
+    let handoff = HandoffState {
+        partition: 7,
+        old_owner: Some("writer-draining".to_string()),
+        new_owner: "writer-new".to_string(),
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+    };
+    store.put_handoff(&handoff).await.unwrap();
+
+    // Start the coordinator. Reconcile-on-startup will call
+    // `check_phase_advance`. Without the fix, it would observe the
+    // Draining pod, treat it as dead, and advance Freezing → Warming
+    // immediately. With the fix it must wait for a DrainedAck.
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+
+    // Give the coordinator time to run reconcile and any subsequent
+    // ack-watch firings. The handoff must remain in Freezing throughout.
+    for _ in 0..10 {
+        tokio::time::sleep(POLL_INTERVAL).await;
+        let h = store.get_handoff(7).await.unwrap();
+        assert!(
+            matches!(h, Some(ref s) if s.phase == HandoffPhase::Freezing),
+            "handoff must stay in Freezing while old_owner is Draining and unacked: {h:?}"
+        );
+    }
+
+    // Once the Draining pod writes its DrainedAck, the handoff should
+    // advance to Warming. The handoff watch's nudge picks up the ack-watch
+    // event and re-runs `check_phase_advance`.
+    store
+        .put_drained_ack(&PodDrainedAck {
+            pod_name: "writer-draining".to_string(),
+            partition: 7,
+            acked_at: 0,
+        })
+        .await
+        .unwrap();
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            matches!(
+                store.get_handoff(7).await.unwrap(),
+                Some(ref s) if s.phase == HandoffPhase::Warming
+            )
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// `cleanup_stale_handoffs` must use registration presence, not Ready
+/// status, when judging whether a pod is gone. Otherwise a `Draining` pod
+/// in the middle of a handoff would have its handoff record deleted
+/// before it could write its `DrainedAck`. Regression test for that
+/// scenario.
+#[tokio::test]
+async fn draining_old_owner_does_not_trigger_cleanup() {
+    use personhog_coordination::types::{HandoffPhase, HandoffState, PodStatus, RegisteredPod};
+
+    let store = test_store("draining-no-cleanup").await;
+    let cancel = CancellationToken::new();
+
+    store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
+
+    // Register a Draining pod with no DrainedAck written yet — the most
+    // failure-prone state for `cleanup_stale_handoffs`.
+    let lease = store.grant_lease(30).await.unwrap();
+    let draining_pod = RegisteredPod {
+        pod_name: "writer-draining".to_string(),
+        generation: String::new(),
+        status: PodStatus::Draining,
+        registered_at: 0,
+        last_heartbeat: 0,
+        controller: None,
+    };
+    store.register_pod(&draining_pod, lease).await.unwrap();
+
+    // Inject a Freezing handoff with the Draining pod as old_owner.
+    let handoff = HandoffState {
+        partition: 2,
+        old_owner: Some("writer-draining".to_string()),
+        new_owner: "writer-new".to_string(),
+        phase: HandoffPhase::Freezing,
+        started_at: 0,
+    };
+    store.put_handoff(&handoff).await.unwrap();
+
+    // Start the coordinator and a real pod. The new pod registering
+    // triggers a pod-change event and runs `cleanup_stale_handoffs`. With
+    // the bug, the Draining pod is "not active" and the handoff is
+    // deleted as stuck-on-dead-old-owner. With the fix, the handoff
+    // survives because the Draining pod's etcd key is still present.
+    let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
+    let _coord = start_coordinator(Arc::clone(&store), strategy, cancel.clone());
+    let _new_pod = start_pod(Arc::clone(&store), "writer-new", cancel.clone());
+
+    // Give pod-change handling time to run several times.
+    for _ in 0..10 {
+        tokio::time::sleep(POLL_INTERVAL).await;
+        let h = store.get_handoff(2).await.unwrap();
+        assert!(
+            h.is_some(),
+            "handoff for Draining old_owner must not be deleted by cleanup"
+        );
+    }
+
+    cancel.cancel();
+}

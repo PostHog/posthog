@@ -376,13 +376,20 @@ impl Coordinator {
                     // nothing to drain, advance as soon as routers are frozen.
                     None => true,
                     Some(name) => {
+                        // "Alive" here means the pod's etcd registration key
+                        // still exists (its lease hasn't expired) — not just
+                        // that it's `Ready`. A `Draining` pod is shutting
+                        // down gracefully but is still capable of running its
+                        // handoff handler and writing a `DrainedAck`, and may
+                        // still have inflight handlers. Bypassing the drain
+                        // requirement for such a pod would let the
+                        // coordinator advance to Warming while the old owner
+                        // is still producing — breaking the protocol's core
+                        // invariant. Only treat the old owner as drained
+                        // when its key is genuinely absent.
                         let pods = store.list_pods().await?;
-                        let old_owner_alive = pods
-                            .iter()
-                            .any(|p| p.pod_name == *name && p.status == PodStatus::Ready);
-                        if !old_owner_alive {
-                            // Dead or missing: can't ack, but also can't be
-                            // producing more writes. Treat as drained.
+                        let old_owner_present = pods.iter().any(|p| p.pod_name == *name);
+                        if !old_owner_present {
                             true
                         } else {
                             let drained_acks = store.list_drained_acks(partition).await?;
@@ -502,10 +509,11 @@ impl Coordinator {
             active_pods = filter_pods_for_k8s(k8s, &pods, active_pods).await;
         }
 
-        // Clean up any in-flight handoffs targeting pods that are no longer active.
-        // This happens when a pod crashes during the Warming phase before it can
-        // signal Ready — the handoff would be stuck forever otherwise.
-        Self::cleanup_stale_handoffs(store, &active_pods).await?;
+        // Clean up any in-flight handoffs targeting pods whose etcd
+        // registration has disappeared. This happens when a pod crashes
+        // during the Warming phase before it can ack — the handoff would
+        // be stuck forever otherwise.
+        Self::cleanup_stale_handoffs(store).await?;
 
         // Skip rebalancing while handoffs are in flight to prevent overlapping
         // rebalances from overwriting each other. The watch_handoffs_loop will
@@ -622,20 +630,29 @@ impl Coordinator {
 
     /// Delete handoffs that cannot progress because either the new_owner is
     /// gone, or the old_owner is gone before it wrote a DrainedAck.
-    async fn cleanup_stale_handoffs(store: &PersonhogStore, active_pods: &[String]) -> Result<()> {
+    ///
+    /// "Gone" here means the pod's etcd registration is absent — its lease
+    /// expired or it deregistered. A `Draining` pod is *not* gone: it is
+    /// still alive, still heartbeating, and still capable of running its
+    /// handoff handler. We deliberately don't reuse the assignment-eligible
+    /// pod set (which is `Ready`-only) for liveness here, because a Draining
+    /// pod that's mid-drain still owes the protocol a `DrainedAck` and must
+    /// be allowed to write it.
+    async fn cleanup_stale_handoffs(store: &PersonhogStore) -> Result<()> {
         let handoffs = store.list_handoffs().await?;
-        let active_set: std::collections::HashSet<&str> =
-            active_pods.iter().map(|s| s.as_str()).collect();
+        let pods = store.list_pods().await?;
+        let registered_set: std::collections::HashSet<&str> =
+            pods.iter().map(|p| p.pod_name.as_str()).collect();
 
         for handoff in &handoffs {
-            let new_owner_gone = !active_set.contains(handoff.new_owner.as_str());
+            let new_owner_gone = !registered_set.contains(handoff.new_owner.as_str());
 
             // Check if old_owner is gone and hasn't acked its drain yet.
             // A dead old_owner with a DrainedAck already present is fine —
             // the protocol has all it needs to advance. Without the ack the
             // handoff is stuck in Freezing forever.
             let stuck_on_dead_old_owner = match &handoff.old_owner {
-                Some(name) if !active_set.contains(name.as_str()) => {
+                Some(name) if !registered_set.contains(name.as_str()) => {
                     let drained = store.list_drained_acks(handoff.partition).await?;
                     !drained.iter().any(|a| a.pod_name == *name)
                 }
