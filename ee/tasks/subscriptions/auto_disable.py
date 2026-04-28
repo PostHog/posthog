@@ -1,8 +1,7 @@
-from django.utils import timezone
-
 import structlog
 
 from posthog.email import EmailMessage
+from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 
 # User-visible reason embedded in the disabled-subscription email body.
@@ -31,7 +30,19 @@ def disable_invalid_subscription(subscription: Subscription, reason: str) -> Non
     subscription.enabled = False
 
     if subscription.created_by and subscription.created_by.email:
-        send_notifications_for_disabled_subscription(subscription, reason, [subscription.created_by.email])
+        try:
+            send_notifications_for_disabled_subscription(subscription, reason, [subscription.created_by.email])
+        except Exception as e:
+            # Disabling is the durable side effect; email is best-effort. If the email
+            # fails (SMTP outage, ImproperlyConfigured on self-hosted, Customer.io 5xx)
+            # the SLO outcome must stay `success` — we successfully prevented the
+            # subscription from re-firing, which is the contract this code provides.
+            capture_exception(e)
+            logger.warning(
+                "subscription.send_disabled_notification_failed",
+                subscription_id=subscription.id,
+                error=str(e),
+            )
 
 
 def send_notifications_for_disabled_subscription(subscription: Subscription, reason: str, targets: list[str]) -> None:
@@ -47,7 +58,9 @@ def send_notifications_for_disabled_subscription(subscription: Subscription, rea
         if subscription.title
         else "Your PostHog subscription has been disabled"
     )
-    campaign_key = f"subscription-disabled-notification-{subscription.id}-{timezone.now().timestamp()}"
+    # Deterministic key — `MessagingRecord` dedupes on this campaign_key per recipient,
+    # so retries (Temporal, concurrent workflows, rolling deploys) don't double-send.
+    campaign_key = f"subscription-disabled-notification-{subscription.id}"
 
     message = EmailMessage(
         campaign_key=campaign_key,

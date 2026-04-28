@@ -56,3 +56,26 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub.refresh_from_db()
         assert sub.enabled is False
         send_mock.assert_not_called()
+
+    def test_disable_persists_when_email_send_fails(self):
+        """Disabling is the durable side effect; email is best-effort.
+
+        If the email send raises (SMTP outage, ImproperlyConfigured on self-hosted,
+        Customer.io 5xx) the subscription must still end up disabled and the caller
+        must not see an exception — the SLO outcome stays `success`.
+        """
+        sub = self._make_subscription()
+
+        with (
+            patch(
+                "ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription",
+                side_effect=RuntimeError("smtp down"),
+            ) as send_mock,
+            patch("ee.tasks.subscriptions.auto_disable.capture_exception") as capture_mock,
+        ):
+            disable_invalid_subscription(sub, SLACK_INTEGRATION_DISCONNECTED_REASON)
+
+        sub.refresh_from_db()
+        assert sub.enabled is False
+        send_mock.assert_called_once()
+        capture_mock.assert_called_once()
