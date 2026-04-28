@@ -129,7 +129,7 @@
                 {
                     "properties": {
                         "date_from": {
-                            "description": "Duration in the past. Supported units are case-sensitive: `s` (second), `M` (minute, uppercase), `h` (hour), `d` (day), `w` (week), `m` (month, lowercase), `q` (quarter), `y` (year), `all` (all time). IMPORTANT: minutes are uppercase `M` and months are lowercase `m` \u2014 they are NOT interchangeable. `-5M` means the last 5 minutes; `-5m` means the last 5 months. When the user says \"minutes\", always emit uppercase `M`. Use the `Start` suffix to define the exact left date boundary. Examples: `-30s` last 30 seconds, `-5M` last 5 minutes, `-2h` last 2 hours, `-1d` last day, `-180d` last 180 days, `-12m` last 12 months, `-1y` last year, `mStart` this month start, `-1dStart` yesterday's start.",
+                            "description": "Duration in the past. Supported units are case-sensitive: `s` (second), `M` (minute, uppercase), `h` (hour), `d` (day), `w` (week), `m` (month, lowercase), `q` (quarter), `y` (year), `all` (all time). IMPORTANT: minutes are uppercase `M` and months are lowercase `m` — they are NOT interchangeable. `-5M` means the last 5 minutes; `-5m` means the last 5 months. When the user says \"minutes\", always emit uppercase `M`. Use the `Start` suffix to define the exact left date boundary. Examples: `-30s` last 30 seconds, `-5M` last 5 minutes, `-2h` last 2 hours, `-1d` last day, `-180d` last 180 days, `-12m` last 12 months, `-1y` last year, `mStart` this month start, `-1dStart` yesterday's start.",
                             "type": "string"
                         }
                     },
