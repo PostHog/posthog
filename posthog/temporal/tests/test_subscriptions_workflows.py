@@ -474,34 +474,66 @@ async def test_process_subscription_records_missing_slack_integration_failure(
 
 
 @pytest.mark.asyncio
-async def test_deliver_subscription_disables_on_missing_slack_integration(team, user):
-    """A subscription whose Slack integration was disconnected should be auto-disabled
-    cleanly — no ApplicationError, SLO outcome stays success, owner notified by email.
-
-    This is the production fix for the SLO failure observed at:
-      area=analytic-platform, operation=subscription_delivery,
-      error_type=ApplicationError, sample='No Slack integration configured for this team'
+@pytest.mark.parametrize(
+    "case_label, target_type, target_value, use_missing_asset, expected_error",
+    [
+        (
+            "missing_slack_integration",
+            "slack",
+            "C12345|#test-channel",
+            False,
+            {"message": "No Slack integration configured", "type": "missing_integration"},
+        ),
+        (
+            "unsupported_target",
+            "webhook",
+            "https://example.com/hook",
+            False,
+            {"message": "Unsupported delivery channel", "type": "unsupported_target"},
+        ),
+        (
+            "no_assets",
+            "email",
+            "owner@example.com",
+            True,
+            {
+                "message": "All insights or dashboard tiles for this subscription have been deleted",
+                "type": "no_assets",
+            },
+        ),
+    ],
+)
+async def test_deliver_subscription_auto_disables_invalid_subscriptions(
+    team, user, case_label, target_type, target_value, use_missing_asset, expected_error
+):
+    """Activity-level auto-disable: subscriptions that can never self-resolve must be
+    disabled cleanly (SLO outcome stays success, owner notified) rather than failing
+    every delivery cycle forever.
     """
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis01", name="Disable Test")
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"dis-{case_label[:5]}", name=case_label)
     asset = await sync_to_async(ExportedAsset.objects.create)(
         team=team,
         insight=insight,
         export_format="image/png",
-        content_location="s3://bucket/disable.png",
+        content_location=f"s3://bucket/{case_label}.png",
     )
     subscription = await sync_to_async(create_subscription)(
         team=team,
         insight=insight,
         created_by=user,
-        target_type="slack",
-        target_value="C12345|#test-channel",
+        target_type=target_type,
+        target_value=target_value,
         enabled=True,
     )
+
+    # When `use_missing_asset` is True, pass an unresolvable id so `assets` is empty.
+    asset_ids = [99_999_999] if use_missing_asset else [asset.id]
 
     env = ActivityEnvironment()
 
     with (
         patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        # Always patched — only consulted on the slack branch, harmless otherwise.
         patch(
             "posthog.temporal.subscriptions.activities.get_slack_integration_for_team",
             return_value=None,
@@ -512,7 +544,7 @@ async def test_deliver_subscription_disables_on_missing_slack_integration(team, 
             deliver_subscription,
             DeliverSubscriptionInputs(
                 subscription_id=subscription.id,
-                exported_asset_ids=[asset.id],
+                exported_asset_ids=asset_ids,
                 total_insight_count=1,
             ),
         )
@@ -520,108 +552,11 @@ async def test_deliver_subscription_disables_on_missing_slack_integration(team, 
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False
     send_mock.assert_called_once()
-    # `subscription delivery failed` analytics event preserved on the auto-disable path
     capture_mock.assert_called_once()
     # Must return cleanly — NOT raise
     assert result is not None
     assert result.recipient_results[0].status == "failed"
-    assert result.recipient_results[0].error == {
-        "message": "No Slack integration configured",
-        "type": "missing_integration",
-    }
-
-
-@pytest.mark.asyncio
-async def test_deliver_subscription_disables_on_unsupported_target_type(team, user):
-    """A subscription with an unsupported target_type cannot self-resolve — auto-disable
-    rather than silently skipping every delivery cycle forever.
-    """
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis03", name="Unsupported Target")
-    asset = await sync_to_async(ExportedAsset.objects.create)(
-        team=team,
-        insight=insight,
-        export_format="image/png",
-        content_location="s3://bucket/unsupported.png",
-    )
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        insight=insight,
-        created_by=user,
-        target_type="webhook",
-        target_value="https://example.com/hook",
-        enabled=True,
-    )
-
-    env = ActivityEnvironment()
-
-    with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
-        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
-    ):
-        result = await env.run(
-            deliver_subscription,
-            DeliverSubscriptionInputs(
-                subscription_id=subscription.id,
-                exported_asset_ids=[asset.id],
-                total_insight_count=1,
-            ),
-        )
-
-    await sync_to_async(subscription.refresh_from_db)()
-    assert subscription.enabled is False
-    send_mock.assert_called_once()
-    capture_mock.assert_called_once()
-    assert result is not None
-    assert result.recipient_results[0].status == "failed"
-    assert result.recipient_results[0].error == {
-        "message": "Unsupported delivery channel",
-        "type": "unsupported_target",
-    }
-
-
-@pytest.mark.asyncio
-async def test_deliver_subscription_disables_when_all_assets_deleted(team, user):
-    """When every asset linked to a subscription has been deleted, delivery can never
-    succeed — auto-disable rather than capturing the same exception every cycle.
-    """
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis04", name="No Assets")
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        insight=insight,
-        created_by=user,
-        target_type="email",
-        target_value="owner@example.com",
-        enabled=True,
-    )
-
-    env = ActivityEnvironment()
-
-    # Pass an asset id that doesn't resolve so `assets` ends up empty.
-    missing_asset_id = 99_999_999
-
-    with (
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
-        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
-    ):
-        result = await env.run(
-            deliver_subscription,
-            DeliverSubscriptionInputs(
-                subscription_id=subscription.id,
-                exported_asset_ids=[missing_asset_id],
-                total_insight_count=1,
-            ),
-        )
-
-    await sync_to_async(subscription.refresh_from_db)()
-    assert subscription.enabled is False
-    send_mock.assert_called_once()
-    capture_mock.assert_called_once()
-    assert result is not None
-    assert result.recipient_results[0].status == "failed"
-    assert result.recipient_results[0].error == {
-        "message": "All insights or dashboard tiles for this subscription have been deleted",
-        "type": "no_assets",
-    }
+    assert result.recipient_results[0].error == expected_error
 
 
 @pytest.mark.asyncio
