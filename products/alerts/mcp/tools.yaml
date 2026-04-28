@@ -27,16 +27,16 @@ tools:
             (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR
             logic. Requires an insight ID and at least one subscribed user.
 
-            subscribed_users only controls email recipients. To also deliver to a Slack channel or HTTPS webhook,
-            follow up with cdp-functions-create using type=internal_destination and template_id=template-slack (or
+            subscribed_users only controls email recipients. To also deliver to a Slack channel or HTTPS webhook, follow
+            up with cdp-functions-create using type=internal_destination and template_id=template-slack (or
             template-webhook), filters scoped to this alert's id (events=[{"id": "$insight_alert_firing", "type":
             "events"}], properties=[{"key": "alert_id", "value": "<alert.id>", "operator": "exact", "type": "event"}]),
-            and inputs={"slack_workspace": {"value": <integration_id_int>}, "channel": {"value":
-            "<channel_id_string>"}} for Slack or inputs={"url": {"value": "<https_url>"}} for webhooks. Use
-            integrations-list to look up a Slack integration's id and integrations-channels-retrieve to list its
-            channels. Before creating, call cdp-functions-list with type=internal_destination and check the existing
-            functions' filters for properties containing alert_id=<alert.id> — if one already exists for this alert and
-            destination, use cdp-functions-partial-update instead so retries don't produce duplicate notifications.
+            and inputs={"slack_workspace": {"value": <integration_id_int>}, "channel": {"value": "<channel_id_string>"}}
+            for Slack or inputs={"url": {"value": "<https_url>"}} for webhooks. Use integrations-list to look up a Slack
+            integration's id and integrations-channels-retrieve to list its channels. Before creating, call
+            cdp-functions-list with type=internal_destination and check the existing functions' filters for properties
+            containing alert_id=<alert.id> — if one already exists for this alert and destination, use
+            cdp-functions-partial-update instead so retries don't produce duplicate notifications.
         exclude_params:
             - state
             - last_notified_at
