@@ -28,7 +28,7 @@ jobs:
               uses: actions/checkout@v6
 
             - name: Install Flox
-              uses: flox/install-flox-action@5d676fd0285f8d6be465cb73a28aa3892144978b # v2.3.0
+              uses: flox/install-flox-action@c94e7e1ab56ae14fe98bae4fd84384fd135f0c2a # v2.4.0
 
             - name: Activate Flox and verify dev setup
               run: |

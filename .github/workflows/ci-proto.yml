@@ -55,7 +55,7 @@ jobs:
                   clean: false
 
             - name: Install buf
-              uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1.3.0
+              uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
               with:
                   setup_only: true
                   version: '1.50.0'
@@ -81,7 +81,7 @@ jobs:
                   clean: false
 
             - name: Install buf
-              uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1.3.0
+              uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1.4.0
               with:
                   setup_only: true
                   version: '1.50.0'

@@ -18,10 +18,9 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
+from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
-    GITHUB_BRANCH_CACHE_TTL_SECONDS,
-    GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     MISSING_CERT_PATH,
     TLS,
     Authority,
@@ -588,6 +587,37 @@ class TestOauthIntegrationModel(BaseTest):
         assert call.kwargs["auth"].username == "sk_test_secret"
         assert call.kwargs["auth"].password == ""
 
+    def test_stripe_authorize_url_uses_live_client_id_by_default(self):
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SECRET_KEY="sk_test_secret",
+            STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
+        ):
+            url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test")
+            assert "client_id=ca_live_clientid" in url
+            assert "client_id=ca_sandbox_clientid" not in url
+
+    def test_stripe_authorize_url_uses_sandbox_client_id_when_is_sandbox(self):
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="ca_sandbox_clientid",
+            STRIPE_APP_SECRET_KEY="sk_test_secret",
+            STRIPE_APP_OVERRIDE_AUTHORIZE_URL="",
+        ):
+            url = OauthIntegration.authorize_url("stripe", token="state_token", next="/projects/test", is_sandbox=True)
+            assert "client_id=ca_sandbox_clientid" in url
+            assert "client_id=ca_live_clientid" not in url
+
+    def test_stripe_authorize_url_raises_when_sandbox_requested_but_not_configured(self):
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="",
+            STRIPE_APP_SECRET_KEY="sk_test_secret",
+        ):
+            with pytest.raises(NotImplementedError, match="sandbox"):
+                OauthIntegration.authorize_url("stripe", token="state_token", is_sandbox=True)
+
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
     def test_stripe_refresh_access_token_uses_apps_endpoint_and_basic_auth(self, mock_post, mock_reload):
@@ -832,7 +862,7 @@ class TestGitHubIntegrationModel(BaseTest):
             ),
         ]
     )
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.github_integration_base.requests.get")
     def test_github_api_request_metrics_include_integration_and_rate_limit_headers(
         self,
         _name: str,
@@ -889,7 +919,7 @@ class TestGitHubIntegrationModel(BaseTest):
             == expected_reset
         )
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.github_integration_base.requests.get")
     def test_github_api_request_metrics_include_request_exceptions(self, mock_get):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
@@ -914,7 +944,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
 
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_refresh_access_token_metrics_include_request_exceptions(self, mock_client_request):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
@@ -935,7 +965,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
 
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_integration_refresh_token(self, mock_client_request):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
@@ -970,7 +1000,7 @@ class TestGitHubIntegrationModel(BaseTest):
         }
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_refresh_access_token_handles_errors(self, mock_client_request, mock_reload):
         """Test that errors field is set if refresh_access_token fails"""
         integration = self.create_integration({"expires_at": 3600}, {"token": "REFRESH"})
@@ -987,7 +1017,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert integration.errors == "TOKEN_REFRESH_FAILED"
 
     @patch("posthog.models.integration.reload_integrations_on_workers")
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_refresh_access_token_resets_errors(self, mock_client_request, mock_reload):
         """Test that errors field is reset to empty string after successful refresh_access_token"""
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
@@ -1006,7 +1036,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.github_integration_base.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1038,7 +1068,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is False
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.github_integration_base.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_raises_after_repeated_transient_non_json(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1061,7 +1091,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.models.github_integration_base.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_raises_when_follow_up_page_fails(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1607,7 +1637,7 @@ class TestGitHubIntegrationModel(BaseTest):
         github = GitHubIntegration(integration)
         assert github.get_access_token() == "valid-token"
 
-    @patch("posthog.models.integration.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     @patch("posthog.models.integration.reload_integrations_on_workers")
     def test_get_access_token_refreshes_when_expired(self, mock_reload, mock_client_request):
         integration = self.create_integration(

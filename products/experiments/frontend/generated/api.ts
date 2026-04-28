@@ -729,6 +729,27 @@ export const experimentsTimeseriesResultsRetrieve = async (
 }
 
 /**
+ * Unarchive an archived experiment.
+
+Restores the experiment to the default list view. Returns 400 if the
+experiment is not currently archived.
+ */
+export const getExperimentsUnarchiveCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/unarchive/`
+}
+
+export const experimentsUnarchiveCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsUnarchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
  * Returns a paginated list of feature flags eligible for use in experiments.
 
 Eligible flags must:
