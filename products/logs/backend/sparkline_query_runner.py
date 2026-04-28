@@ -8,13 +8,23 @@ from posthog.clickhouse.client.connection import Workload
 
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunner
 
-# Maps API breakdown type to ClickHouse field name
+# Maps API breakdown type to a ClickHouse field name or HogQL expression
 BREAKDOWN_DB_FIELD: dict[LogsSparklineBreakdownBy, str] = {
     LogsSparklineBreakdownBy.SEVERITY: "severity_text",
     LogsSparklineBreakdownBy.SERVICE: "service_name",
 }
 
 DEFAULT_BREAKDOWN = LogsSparklineBreakdownBy.SEVERITY
+
+
+def _breakdown_expr(breakdown_by: LogsSparklineBreakdownBy) -> ast.Expr:
+    if breakdown_by == LogsSparklineBreakdownBy.TRAFFIC_TYPE:
+        from posthog.hogql.database.schema.traffic_type import log_user_agent_expr
+        from posthog.hogql.functions.traffic_type import get_traffic_type
+
+        return get_traffic_type(node=ast.Call(name="__placeholder", args=[]), args=[log_user_agent_expr()])
+
+    return ast.Field(chain=[BREAKDOWN_DB_FIELD[breakdown_by]])
 
 
 class SparklineQueryRunner(LogsQueryRunner):
@@ -30,7 +40,9 @@ class SparklineQueryRunner(LogsQueryRunner):
             settings=self.settings,
         )
 
-        result_key = (self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN).value  # 'severity' or 'service'
+        result_key = (
+            self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN
+        ).value  # 'severity', 'service', or 'traffic_type'
 
         results = []
         for result in response.results:
@@ -46,6 +58,9 @@ class SparklineQueryRunner(LogsQueryRunner):
         return LogsQueryResponse(results=results)
 
     def to_query(self) -> ast.SelectQuery:
+        breakdown_by = self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN
+        breakdown = _breakdown_expr(breakdown_by)
+
         query = parse_select(
             """
                 SELECT
@@ -90,9 +105,7 @@ class SparklineQueryRunner(LogsQueryRunner):
                 if self.query_date_range.interval_name != "second"
                 else ast.Field(chain=["timestamp"]),
                 "where": self.where(),
-                "breakdown_field": ast.Field(
-                    chain=[BREAKDOWN_DB_FIELD[self.query.sparklineBreakdownBy or DEFAULT_BREAKDOWN]]
-                ),
+                "breakdown_field": breakdown,
             },
         )
         if not isinstance(query, ast.SelectQuery):

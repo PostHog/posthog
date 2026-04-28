@@ -2827,6 +2827,7 @@ class LogsOrderBy(StrEnum):
 class LogsSparklineBreakdownBy(StrEnum):
     SEVERITY = "severity"
     SERVICE = "service"
+    TRAFFIC_TYPE = "traffic_type"
 
 
 class MarkdownBlock(BaseModel):

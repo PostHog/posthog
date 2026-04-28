@@ -71,3 +71,58 @@ def create_bot_operator_field(name: str, properties_path: Optional[list[str]] = 
         expr=get_bot_operator(node=_dummy_call(name), args=[user_agent_expr(properties_path)]),
         isolate_scope=True,
     )
+
+
+def log_user_agent_expr() -> ast.Expr:
+    """Resolve user agent from log attributes, checking OTEL and PostHog conventions."""
+    return ast.Call(
+        name="coalesce",
+        args=[
+            ast.Call(name="nullIf", args=[ast.Field(chain=["attributes", "http.user_agent"]), ast.Constant(value="")]),
+            ast.Call(
+                name="nullIf", args=[ast.Field(chain=["attributes", "user_agent.original"]), ast.Constant(value="")]
+            ),
+            ast.Call(name="nullIf", args=[ast.Field(chain=["attributes", "$raw_user_agent"]), ast.Constant(value="")]),
+            ast.Field(chain=["attributes", "$user_agent"]),
+        ],
+    )
+
+
+def create_log_is_bot_field(name: str) -> ExpressionField:
+    return ExpressionField(
+        name=name,
+        expr=is_bot(node=_dummy_call(name), args=[log_user_agent_expr()]),
+        isolate_scope=True,
+    )
+
+
+def create_log_traffic_type_field(name: str) -> ExpressionField:
+    return ExpressionField(
+        name=name,
+        expr=get_traffic_type(node=_dummy_call(name), args=[log_user_agent_expr()]),
+        isolate_scope=True,
+    )
+
+
+def create_log_traffic_category_field(name: str) -> ExpressionField:
+    return ExpressionField(
+        name=name,
+        expr=get_traffic_category(node=_dummy_call(name), args=[log_user_agent_expr()]),
+        isolate_scope=True,
+    )
+
+
+def create_log_bot_name_field(name: str) -> ExpressionField:
+    return ExpressionField(
+        name=name,
+        expr=get_bot_name(node=_dummy_call(name), args=[log_user_agent_expr()]),
+        isolate_scope=True,
+    )
+
+
+def create_log_bot_operator_field(name: str) -> ExpressionField:
+    return ExpressionField(
+        name=name,
+        expr=get_bot_operator(node=_dummy_call(name), args=[log_user_agent_expr()]),
+        isolate_scope=True,
+    )
