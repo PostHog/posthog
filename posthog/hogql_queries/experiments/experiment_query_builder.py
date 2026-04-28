@@ -589,41 +589,9 @@ class ExperimentQueryBuilder:
                     {uuid_to_session_map} AS uuid_to_session,
                     {uuid_to_timestamp_map} AS uuid_to_timestamp"""
 
-        # Unordered funnels need temporal filtering: the UDF doesn't enforce that
-        # step_0 (exposure) happens before step_1..N, so we must exclude events
-        # before first exposure. Add a lightweight first_exposures sub-CTE.
-        # CUPED also needs the per-entity exposure timestamp to scope the pre-window
-        # covariate, so we materialize first_exposures whenever it's enabled. For
-        # ordered+CUPED, no WHERE filter is added: the aggregate_funnel_array UDF
-        # anchors on step_0 (date-bounded by the exposure predicate), so pre-window
-        # events with step_X=1 (X>0) are never used in the post-window result.
-        needs_first_exposures = is_unordered_funnel or self.cuped_config.enabled
-
-        if needs_first_exposures:
-            first_exposures_cte_str = """
-            first_exposures AS (
-                SELECT entity_id, min(timestamp) AS first_exposure_time
-                FROM base_events
-                WHERE step_0 = 1
-                GROUP BY entity_id
-            ),"""
-        else:
-            first_exposures_cte_str = ""
-
-        if is_unordered_funnel:
-            temporal_join = """INNER JOIN first_exposures
-                    ON base_events.entity_id = first_exposures.entity_id
-                WHERE base_events.timestamp >= first_exposures.first_exposure_time"""
-            # INNER JOIN implicitly filters to exposed entities, no HAVING needed
-            having_clause = ""
-        elif self.cuped_config.enabled:
-            temporal_join = """INNER JOIN first_exposures
-                    ON base_events.entity_id = first_exposures.entity_id"""
-            having_clause = ""
-        else:
-            temporal_join = ""
-            having_clause = """
-                HAVING countIf(step_0 = 1) > 0"""
+        first_exposures_cte_str, temporal_join, having_clause = self._build_funnel_optimized_temporal_setup(
+            is_unordered_funnel
+        )
 
         ctes_sql = f"""
             {base_events_cte_str},
@@ -1401,12 +1369,15 @@ class ExperimentQueryBuilder:
         Adds `covariate_value` to the entity_metrics CTE, plus the aggregation
         aliases (`covariate_sum`, `covariate_sum_squares`, `covariate_sum_product`)
         to the outer SELECT.
+
+        Asserts the expected `entity_metrics` CTE shape: this method is called
+        right after the funnel SELECT is parsed in this same builder, so the
+        shape is an invariant — a violation means the SQL above changed without
+        updating CUPED, and we want a loud failure rather than zeroed covariates.
         """
-        if not (query.ctes and "entity_metrics" in query.ctes):
-            return
+        assert query.ctes is not None and "entity_metrics" in query.ctes
         entity_metrics_cte = query.ctes["entity_metrics"]
-        if not (isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery)):
-            return
+        assert isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery)
         entity_metrics_cte.expr.select.append(
             ast.Alias(
                 alias="covariate_value",
@@ -1418,6 +1389,70 @@ class ExperimentQueryBuilder:
             )
         )
         query.select.extend(self._build_funnel_cuped_aggregation_aliases(last_step_index))
+
+    def _extend_date_from_for_funnel_cuped(self, date_from: ast.Expr) -> ast.Expr:
+        """
+        Roll the funnel's `date_from` back by `lookback_days` when CUPED is
+        enabled, so the same scan also feeds the CUPED pre-exposure window.
+        Returns the input unchanged when CUPED is off.
+        """
+        if not self.cuped_config.enabled:
+            return date_from
+        return parse_expr(
+            "{date_from} - toIntervalDay({lookback_days})",
+            placeholders={
+                "date_from": date_from,
+                "lookback_days": ast.Constant(value=self.cuped_config.lookback_days),
+            },
+        )
+
+    def _build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> tuple[str, str, str]:
+        """
+        Returns (first_exposures_cte_str, temporal_join, having_clause) for the
+        optimized funnel query.
+
+        Three call sites collapse into one place:
+
+        - Unordered funnels need temporal filtering because the UDF doesn't
+          enforce that step_0 (exposure) precedes step_1..N. We exclude events
+          before first exposure with an INNER JOIN + WHERE.
+        - CUPED needs the per-entity exposure timestamp to scope the pre-window
+          covariate, so we materialize first_exposures even when ordered. No
+          WHERE filter is added: the aggregate_funnel_array UDF anchors on
+          step_0 (date-bounded by the exposure predicate), so pre-window events
+          with step_X=1 (X>0) are never used in the post-window result.
+        - Otherwise, no first_exposures CTE; HAVING countIf(step_0 = 1) > 0
+          is the cheapest way to keep only exposed entities.
+        """
+        needs_first_exposures = is_unordered_funnel or self.cuped_config.enabled
+
+        first_exposures_cte_str = (
+            """
+            first_exposures AS (
+                SELECT entity_id, min(timestamp) AS first_exposure_time
+                FROM base_events
+                WHERE step_0 = 1
+                GROUP BY entity_id
+            ),"""
+            if needs_first_exposures
+            else ""
+        )
+
+        if is_unordered_funnel:
+            temporal_join = """INNER JOIN first_exposures
+                    ON base_events.entity_id = first_exposures.entity_id
+                WHERE base_events.timestamp >= first_exposures.first_exposure_time"""
+            having_clause = ""
+        elif self.cuped_config.enabled:
+            temporal_join = """INNER JOIN first_exposures
+                    ON base_events.entity_id = first_exposures.entity_id"""
+            having_clause = ""
+        else:
+            temporal_join = ""
+            having_clause = """
+                HAVING countIf(step_0 = 1) > 0"""
+
+        return first_exposures_cte_str, temporal_join, having_clause
 
     def _build_metric_predicate(
         self,
@@ -2009,15 +2044,7 @@ class ExperimentQueryBuilder:
         else:
             date_to = self.date_range_query.date_to_as_hogql()
 
-        date_from = self.date_range_query.date_from_as_hogql()
-        if self.cuped_config.enabled:
-            date_from = parse_expr(
-                "{date_from} - toIntervalDay({lookback_days})",
-                placeholders={
-                    "date_from": date_from,
-                    "lookback_days": ast.Constant(value=self.cuped_config.lookback_days),
-                },
-            )
+        date_from = self._extend_date_from_for_funnel_cuped(self.date_range_query.date_from_as_hogql())
 
         return parse_expr(
             """
