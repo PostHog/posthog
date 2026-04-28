@@ -96,19 +96,17 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             messages.error(request, f"Schema {schema_id} not found.")
             return redirect(reverse("admin:data_warehouse_externaldataschema_changelist"))
 
-        partition_mode = schema.sync_type_config.get("partition_mode")
         # Default unset partition_mode to "datetime" so legacy schemas that pre-date
         # the explicit partition_mode column still get the format dropdown they expect.
-        effective_mode = partition_mode or "datetime"
+        effective_mode = schema.partition_mode or "datetime"
 
         if effective_mode == "datetime":
             new_format = request.POST.get("partition_format")
             if new_format not in PARTITION_FORMAT_CHOICES:
                 messages.error(request, f"Invalid partition_format: {new_format!r}.")
                 return redirect(_change_url(schema_id))
-            previous = schema.sync_type_config.get("partition_format")
-            schema.sync_type_config["partition_format"] = new_format
-            schema.save(update_fields=["sync_type_config"])
+            previous = schema.partition_format
+            schema.update_partition_setting("partition_format", new_format)
             messages.success(
                 request,
                 f"partition_format updated: {previous!r} → {new_format!r}. "
@@ -129,9 +127,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                     f"partition_size out of range [{PARTITION_SIZE_MIN}, {PARTITION_SIZE_MAX}]: {new_size}.",
                 )
                 return redirect(_change_url(schema_id))
-            previous = schema.sync_type_config.get("partition_size")
-            schema.sync_type_config["partition_size"] = new_size
-            schema.save(update_fields=["sync_type_config"])
+            previous = schema.partition_size
+            schema.update_partition_setting("partition_size", new_size)
             messages.success(
                 request,
                 f"partition_size updated: {previous!r} → {new_size}. "
@@ -152,9 +149,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                     f"partition_count out of range [{PARTITION_COUNT_MIN}, {PARTITION_COUNT_MAX}]: {new_count}.",
                 )
                 return redirect(_change_url(schema_id))
-            previous = schema.sync_type_config.get("partition_count")
-            schema.sync_type_config["partition_count"] = new_count
-            schema.save(update_fields=["sync_type_config"])
+            previous = schema.partition_count
+            schema.update_partition_setting("partition_count", new_count)
             messages.success(
                 request,
                 f"partition_count updated: {previous!r} → {new_count}. "
@@ -162,7 +158,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             )
             return redirect(_change_url(schema_id))
 
-        messages.error(request, f"Unsupported partition_mode: {partition_mode!r}.")
+        messages.error(request, f"Unsupported partition_mode: {schema.partition_mode!r}.")
         return redirect(_change_url(schema_id))
 
     def trigger_sync_view(self, request, schema_id):
@@ -219,18 +215,16 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["site_url"] = settings.SITE_URL
             extra_context["team_id"] = obj.team_id
 
-            sync_type_config = obj.sync_type_config or {}
-            partition_mode = sync_type_config.get("partition_mode")
             extra_context["partition_format_choices"] = PARTITION_FORMAT_CHOICES
-            extra_context["current_partition_format"] = sync_type_config.get("partition_format")
-            extra_context["current_partition_mode"] = partition_mode
-            extra_context["current_partition_keys"] = sync_type_config.get("partitioning_keys")
-            extra_context["current_partition_size"] = sync_type_config.get("partition_size")
-            extra_context["current_partition_count"] = sync_type_config.get("partition_count")
-            extra_context["partitioning_enabled"] = sync_type_config.get("partitioning_enabled")
+            extra_context["current_partition_format"] = obj.partition_format
+            extra_context["current_partition_mode"] = obj.partition_mode
+            extra_context["current_partition_keys"] = obj.partitioning_keys
+            extra_context["current_partition_size"] = obj.partition_size
+            extra_context["current_partition_count"] = obj.partition_count
+            extra_context["partitioning_enabled"] = obj.partitioning_enabled
             # `effective_mode` mirrors repartition_view: unset modes fall back to datetime
             # so legacy schemas still get the format dropdown.
-            extra_context["effective_partition_mode"] = partition_mode or "datetime"
+            extra_context["effective_partition_mode"] = obj.partition_mode or "datetime"
             extra_context["repartition_url"] = reverse("admin:external_data_schema_repartition", args=[obj.id])
             extra_context["trigger_sync_url"] = reverse("admin:external_data_schema_trigger_sync", args=[obj.id])
         return super().change_view(request, object_id, form_url, extra_context=extra_context)

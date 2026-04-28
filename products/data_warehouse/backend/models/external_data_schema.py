@@ -200,11 +200,27 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     @property
     def partition_format(self) -> PartitionFormat | None:
-        # This key doesn't get reset on pipeline_reset and can only be set via the DB directly right now
+        # This key doesn't get reset on pipeline_reset.
         if self.sync_type_config:
             return self.sync_type_config.get("partition_format", None)
 
         return None
+
+    def update_partition_setting(
+        self,
+        field: Literal["partition_format", "partition_size", "partition_count"],
+        value: Any,
+    ) -> None:
+        """Update a single partition knob on sync_type_config.
+
+        Used by ops tooling to repartition a schema without touching the rest of
+        the partition state (which is what `set_partitioning_enabled` does).
+        Takes effect on the next sync run.
+        """
+        if self.sync_type_config is None:
+            self.sync_type_config = {}
+        self.sync_type_config[field] = value
+        self.save(update_fields=["sync_type_config"])
 
     @property
     def partitioning_keys(self) -> list[str] | None:
