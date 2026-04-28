@@ -804,10 +804,15 @@ export const sceneLogic = kea<sceneLogicType>([
                     } catch (e) {
                         // Building a keyed logic with undefined key (e.g. during a scene
                         // transition before paramsToProps has resolved) throws
-                        // "Undefined key for logic". Swallow it so the scene doesn't
-                        // hard-crash; the next render with resolved params will rebuild.
-                        posthog.captureException(e, { source: 'sceneLogic.activeSceneLogic' })
-                        return null
+                        // "Undefined key for logic". Swallow only that case so the scene
+                        // doesn't hard-crash; the next render with resolved params will
+                        // rebuild. Re-throw anything else so genuine build bugs (wrong
+                        // prop shape, missing reducer, etc.) still surface loudly.
+                        if (e instanceof Error && e.message.includes('Undefined key for logic')) {
+                            posthog.captureException(e, { source: 'sceneLogic.activeSceneLogic' })
+                            return null
+                        }
+                        throw e
                     }
                 }
 
