@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { parseMcpMode } from '@/lib/utils'
+
 function parseIdFromRequest(
     request: { headers: { get: (name: string) => string | null } },
     url: URL,
@@ -7,22 +9,6 @@ function parseIdFromRequest(
     paramName: string
 ): string | undefined {
     return request.headers.get(headerName) || url.searchParams.get(paramName) || undefined
-}
-
-// Mirrors the `mode` parsing in `src/index.ts`. Kept in sync by hand because the
-// worker entry point does not yet expose a standalone parser to import.
-function parseModeFromRequest(
-    request: { headers: { get: (name: string) => string | null } },
-    url: URL
-): 'tools' | 'exec' | undefined {
-    const raw = (request.headers.get('x-posthog-mcp-mode') || url.searchParams.get('mode'))?.trim().toLowerCase()
-    if (raw === 'tools' || raw === 'tool') {
-        return 'tools'
-    }
-    if (raw === 'exec' || raw === 'single-exec') {
-        return 'exec'
-    }
-    return undefined
 }
 
 describe('URL Routing', () => {
@@ -176,10 +162,10 @@ describe('URL Routing', () => {
                 expected: 'tools' as const,
             },
             {
-                description: 'exec from header',
-                headers: { 'x-posthog-mcp-mode': 'exec' },
+                description: 'cli from header',
+                headers: { 'x-posthog-mcp-mode': 'cli' },
                 params: '',
-                expected: 'exec' as const,
+                expected: 'cli' as const,
             },
             {
                 description: 'tools from query param',
@@ -188,28 +174,16 @@ describe('URL Routing', () => {
                 expected: 'tools' as const,
             },
             {
-                description: 'exec from query param',
+                description: 'cli from query param',
                 headers: {},
-                params: '?mode=exec',
-                expected: 'exec' as const,
+                params: '?mode=cli',
+                expected: 'cli' as const,
             },
             {
-                description: 'single-exec alias maps to exec',
-                headers: {},
-                params: '?mode=single-exec',
-                expected: 'exec' as const,
-            },
-            {
-                description: 'tool alias maps to tools',
-                headers: {},
-                params: '?mode=tool',
-                expected: 'tools' as const,
-            },
-            {
-                description: 'case-insensitive (EXEC)',
-                headers: { 'x-posthog-mcp-mode': 'EXEC' },
+                description: 'case-insensitive (CLI)',
+                headers: { 'x-posthog-mcp-mode': 'CLI' },
                 params: '',
-                expected: 'exec' as const,
+                expected: 'cli' as const,
             },
             {
                 description: 'whitespace-tolerant (" tools ")',
@@ -224,22 +198,26 @@ describe('URL Routing', () => {
                 expected: undefined,
             },
             {
-                description: 'header takes precedence over query param',
+                description: 'legacy exec value ignored (only tools or cli accepted)',
                 headers: { 'x-posthog-mcp-mode': 'exec' },
+                params: '',
+                expected: undefined,
+            },
+            {
+                description: 'header takes precedence over query param',
+                headers: { 'x-posthog-mcp-mode': 'cli' },
                 params: '?mode=tools',
-                expected: 'exec' as const,
+                expected: 'cli' as const,
             },
         ]
 
         it.each(modeTests)('parses $description', ({ headers, params, expected }) => {
             const url = new URL(`https://example.com/mcp${params}`)
-            const request = {
-                headers: {
-                    get: (name: string) => (headers as Record<string, string>)[name] ?? null,
-                },
-            }
+            const headerValue = headers['x-posthog-mcp-mode'] ?? null
+            const queryValue = url.searchParams.get('mode')
 
-            expect(parseModeFromRequest(request, url)).toBe(expected)
+            // Mirrors the merge order in `src/index.ts` — header wins over query param.
+            expect(parseMcpMode(headerValue || queryValue)).toBe(expected)
         })
     })
 })

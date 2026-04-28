@@ -29,7 +29,7 @@ import { buildInstructionsV1, buildInstructionsV2, type QueryToolInfo } from '@/
 import { initMcpCatObservability } from '@/lib/mcpcat'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
-import { formatPrompt, sanitizeHeaderValue } from '@/lib/utils'
+import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
 import { registerPrompts } from '@/prompts'
 import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
@@ -59,7 +59,7 @@ export type RequestProperties = {
     mcpClientVersion?: string
     mcpProtocolVersion?: string
     readOnly?: boolean
-    mode?: 'tools' | 'exec'
+    mode?: McpMode
     transport?: 'streamable-http' | 'sse'
     requestStartTime?: number
 }
@@ -534,7 +534,7 @@ export class MCP extends McpAgent<Env> {
         // An explicit `mode` from the caller (header `x-posthog-mcp-mode` or query
         // param `mode`) wins over the flag + client-profile heuristic.
         const useSingleExec =
-            mode === 'exec' ||
+            mode === 'cli' ||
             (mode !== 'tools' &&
                 singleExecFlagOn &&
                 (clientProfile.isCodingAgent() || clientProfile.isPostHogCodeConsumer()))
@@ -725,7 +725,7 @@ export class MCP extends McpAgent<Env> {
                 {
                     tool_count: allTools.length,
                     mcp_version: version,
-                    mcp_mode: useSingleExec ? 'exec' : 'tools',
+                    mcp_mode: useSingleExec ? 'cli' : 'tools',
                     has_organization_id: !!organizationId,
                     has_project_id: !!projectId,
                     read_only: !!readOnly,

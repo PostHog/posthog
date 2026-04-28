@@ -318,26 +318,26 @@ https://mcp.posthog.com/mcp?features=flags&tools=dashboard-get
 
 The example above exposes all flag tools plus `dashboard-get`.
 
-### Server mode (tool-based vs exec-based)
+### Server mode (tools vs cli)
 
-The MCP server can register either every PostHog tool individually (**tool-based**, the default for most clients) or wrap them all behind a single `posthog` CLI-like tool (**exec-based**, used for token-constrained coding agents). When the caller does not say which mode they want, the server picks one automatically based on the client (coding agents get the exec-based mode when the rollout flag is enabled).
+The MCP server can register either every PostHog tool individually (**tools** mode, the default for most clients) or wrap them all behind a single `posthog` CLI-like tool (**cli** mode, used for token-constrained coding agents). When the caller does not say which mode they want, the server picks one automatically based on the client (coding agents get the cli mode when the rollout flag is enabled).
 
-You can pin the choice yourself with either a query parameter or a header:
+You can pin the choice yourself with either a query parameter or a header. Only `tools` and `cli` are accepted:
 
 ```text
-https://mcp.posthog.com/mcp?mode=exec
+https://mcp.posthog.com/mcp?mode=cli
 https://mcp.posthog.com/mcp?mode=tools
 ```
 
 ```http
-x-posthog-mcp-mode: exec
+x-posthog-mcp-mode: cli
 x-posthog-mcp-mode: tools
 ```
 
-| Value                  | Behavior                                                       |
-| ---------------------- | -------------------------------------------------------------- |
-| `tools` / `tool`       | Force tool-based mode (one MCP tool per PostHog tool).         |
-| `exec` / `single-exec` | Force exec-based mode (single `posthog` tool wraps all tools). |
+| Value   | Behavior                                                |
+| ------- | ------------------------------------------------------- |
+| `tools` | Force tools mode (one MCP tool per PostHog tool).       |
+| `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
 
 The header wins when both the header and the query parameter are set. Any other value is ignored and the auto-detection takes over.
 
