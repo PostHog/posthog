@@ -1921,15 +1921,16 @@ export namespace Schemas {
 
 
     export const MultipleBreakdownType = {
-      Cohort: 'cohort',
       Person: 'person',
       Event: 'event',
       EventMetadata: 'event_metadata',
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
+      Cohort: 'cohort',
       RevenueAnalytics: 'revenue_analytics',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
     } as const;
 
     export interface Breakdown {
@@ -4440,10 +4441,16 @@ export namespace Schemas {
 
     export interface ExperimentStatsBaseValidated {
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       number_of_samples: number;
       /** @nullable */
       numerator_denominator_sum_product?: number | null;
@@ -4472,10 +4479,16 @@ export namespace Schemas {
        */
       confidence_interval?: number[] | null;
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultFrequentistMethod;
       number_of_samples: number;
       /** @nullable */
@@ -4504,6 +4517,10 @@ export namespace Schemas {
     export interface ExperimentVariantResultBayesian {
       /** @nullable */
       chance_to_win?: number | null;
+      /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
       /**
        * @minItems 2
        * @maxItems 2
@@ -4515,6 +4532,8 @@ export namespace Schemas {
       /** @nullable */
       denominator_sum_squares?: number | null;
       key: string;
+      /** @nullable */
+      main_covariate_sum_product?: number | null;
       method?: ExperimentVariantResultBayesianMethod;
       number_of_samples: number;
       /** @nullable */
@@ -5859,6 +5878,7 @@ export namespace Schemas {
       new: number;
       removed: number;
       unchanged: number;
+      unresolved?: number;
       tolerated_matched?: number;
     }
 
@@ -6938,6 +6958,8 @@ export namespace Schemas {
       event_filters?: (EventPropFilter | HogQLFilter)[] | null;
       /** @nullable */
       explicit_datetime?: string | null;
+      /** @nullable */
+      explicit_datetime_to?: string | null;
     }
 
     export interface BlastRadius {
@@ -8695,6 +8717,8 @@ export namespace Schemas {
       target_project_ids: number[];
       /** Whether to also copy scheduled changes for this flag */
       copy_schedule?: boolean;
+      /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
+      disable_copied_flag?: boolean;
     }
 
     export interface CopyFlagsSuccessItem {
@@ -16116,6 +16140,41 @@ export namespace Schemas {
       AiTrace: '$ai_trace',
     } as const;
 
+    export interface ExecuteTestClusterRequest {
+      /**
+       * ClickHouse SQL to run against the test cluster.
+       * @maxLength 65536
+       */
+      sql: string;
+    }
+
+    export interface ExecuteTestClusterResponse {
+      /** Rows returned, each as a positional list of canonicalized values. */
+      result: unknown[][];
+      /**
+       * ClickHouse query_id for this execution.
+       * @nullable
+       */
+      query_id: string | null;
+      /**
+       * Server-side elapsed time in milliseconds.
+       * @nullable
+       */
+      elapsed_ms: number | null;
+      /**
+       * Rows read from storage (scan-side).
+       * @nullable
+       */
+      rows_read: number | null;
+      /**
+       * Bytes read from storage (scan-side).
+       * @nullable
+       */
+      bytes_read: number | null;
+      /** Rows in the `result` payload. */
+      rows_returned: number;
+    }
+
     /**
      * * `exit_on_conversion` - Conversion
     * `exit_on_trigger_not_matched` - Trigger Not Matched
@@ -21388,6 +21447,8 @@ export namespace Schemas {
       /** @nullable */
       readonly template_id: string | null;
       readonly name: string;
+      /** Lowercase key from the linked template for brand icons. Empty if custom install (no template). */
+      readonly icon_key: string;
       /** @maxLength 200 */
       display_name?: string;
       /** @maxLength 2048 */
@@ -21802,6 +21863,11 @@ export namespace Schemas {
       text_content?: string;
       /** Updated notebook title. */
       title?: string;
+      /**
+       * ProseMirror cursor head position after applying steps.
+       * @nullable
+       */
+      cursor_head?: number | null;
     }
 
     export interface NotebookMinimal {
@@ -23696,6 +23762,8 @@ export namespace Schemas {
        * @nullable
        */
       end_date?: string | null;
+      /** @nullable */
+      readonly timezone: string | null;
     }
 
     export interface PaginatedScheduledChangeList {
@@ -29008,6 +29076,8 @@ export namespace Schemas {
        * @nullable
        */
       end_date?: string | null;
+      /** @nullable */
+      readonly timezone?: string | null;
     }
 
     export interface PatchedSchemaPropertyGroup {
@@ -34575,6 +34645,15 @@ export namespace Schemas {
       query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
+    export interface RecomputeResult {
+      run: Run;
+      counts_changed: boolean;
+      unresolved: number;
+      ci_rerun_triggered: boolean;
+      /** @nullable */
+      ci_rerun_error?: string | null;
+    }
+
     export interface ReorderTilesRequest {
       /**
        * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -35950,6 +36029,21 @@ export namespace Schemas {
     }
 
     export type TaskRunCreateRequestSchema = ClaudeTaskRunCreateSchema | CodexTaskRunCreateSchema | TaskRunResumeRequestSchema;
+
+    export interface TaskRunErrorResponse {
+      /** Human-readable validation error */
+      detail?: string;
+      /** Human-readable error message */
+      error?: string;
+      /** Machine-readable error type */
+      type?: string;
+      /** Machine-readable error code */
+      code?: string;
+      /** Request field associated with the error */
+      attr?: string;
+      /** Artifact ids that could not be resolved for the run */
+      missing_artifact_ids?: string[];
+    }
 
     export interface TaskRunRelayMessageRequest {
       /** @maxLength 10000 */
@@ -38100,7 +38194,47 @@ export namespace Schemas {
      * Return basic insight metadata only (no results, faster).
      */
     basic?: boolean;
+    /**
+     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
+     */
+    created_by?: string;
+    /**
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
+     */
+    created_date_from?: string;
+    /**
+     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
+     */
+    created_date_to?: string;
+    /**
+     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
+     */
+    dashboards?: string;
+    /**
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     */
+    date_from?: string;
+    /**
+     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
+     */
+    date_to?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
+     */
+    favorited?: boolean;
     format?: EnvironmentsInsightsListFormat;
+    /**
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     */
+    insight?: EnvironmentsInsightsListInsight;
+    /**
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_from?: string;
+    /**
+     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_to?: string;
     /**
      * Number of results to return per page.
      */
@@ -38121,7 +38255,23 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: EnvironmentsInsightsListRefresh;
+    /**
+     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
+     */
+    saved?: boolean;
+    /**
+     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     */
+    search?: string;
     short_id?: string;
+    /**
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     */
+    tags?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
+     */
+    user?: boolean;
     };
 
     export type EnvironmentsInsightsListFormat = typeof EnvironmentsInsightsListFormat[keyof typeof EnvironmentsInsightsListFormat];
@@ -38130,6 +38280,20 @@ export namespace Schemas {
     export const EnvironmentsInsightsListFormat = {
       Csv: 'csv',
       Json: 'json',
+    } as const;
+
+    export type EnvironmentsInsightsListInsight = typeof EnvironmentsInsightsListInsight[keyof typeof EnvironmentsInsightsListInsight];
+
+
+    export const EnvironmentsInsightsListInsight = {
+      Funnels: 'FUNNELS',
+      Json: 'JSON',
+      Lifecycle: 'LIFECYCLE',
+      Paths: 'PATHS',
+      Retention: 'RETENTION',
+      Sql: 'SQL',
+      Stickiness: 'STICKINESS',
+      Trends: 'TRENDS',
     } as const;
 
     export type EnvironmentsInsightsListRefresh = typeof EnvironmentsInsightsListRefresh[keyof typeof EnvironmentsInsightsListRefresh];
@@ -41504,6 +41668,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ExperimentsTimeseriesResultsRetrieveParams = {
+    /**
+     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     */
+    fingerprint: string;
+    /**
+     * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
+     */
+    metric_uuid: string;
+    };
+
     export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -42290,7 +42465,47 @@ export namespace Schemas {
      * Return basic insight metadata only (no results, faster).
      */
     basic?: boolean;
+    /**
+     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
+     */
+    created_by?: string;
+    /**
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
+     */
+    created_date_from?: string;
+    /**
+     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
+     */
+    created_date_to?: string;
+    /**
+     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
+     */
+    dashboards?: string;
+    /**
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     */
+    date_from?: string;
+    /**
+     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
+     */
+    date_to?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
+     */
+    favorited?: boolean;
     format?: InsightsListFormat;
+    /**
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     */
+    insight?: InsightsListInsight;
+    /**
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_from?: string;
+    /**
+     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_to?: string;
     /**
      * Number of results to return per page.
      */
@@ -42311,7 +42526,23 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: InsightsListRefresh;
+    /**
+     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
+     */
+    saved?: boolean;
+    /**
+     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     */
+    search?: string;
     short_id?: string;
+    /**
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     */
+    tags?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
+     */
+    user?: boolean;
     };
 
     export type InsightsListFormat = typeof InsightsListFormat[keyof typeof InsightsListFormat];
@@ -42320,6 +42551,20 @@ export namespace Schemas {
     export const InsightsListFormat = {
       Csv: 'csv',
       Json: 'json',
+    } as const;
+
+    export type InsightsListInsight = typeof InsightsListInsight[keyof typeof InsightsListInsight];
+
+
+    export const InsightsListInsight = {
+      Funnels: 'FUNNELS',
+      Json: 'JSON',
+      Lifecycle: 'LIFECYCLE',
+      Paths: 'PATHS',
+      Retention: 'RETENTION',
+      Sql: 'SQL',
+      Stickiness: 'STICKINESS',
+      Trends: 'TRENDS',
     } as const;
 
     export type InsightsListRefresh = typeof InsightsListRefresh[keyof typeof InsightsListRefresh];
@@ -43773,15 +44018,6 @@ export namespace Schemas {
      * Filter by run type
      */
     run_type?: string;
-    };
-
-    export type VisualReviewReposQuarantineDestroyParams = {
-    /**
-     * Snapshot identifier to unquarantine
-     * @minLength 1
-     * @maxLength 512
-     */
-    identifier: string;
     };
 
     export type VisualReviewRunsListParams = {

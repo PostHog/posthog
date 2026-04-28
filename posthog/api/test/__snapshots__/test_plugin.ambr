@@ -240,7 +240,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -310,7 +310,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -597,7 +597,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -667,7 +667,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -925,7 +925,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -995,7 +995,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"
@@ -1122,7 +1122,7 @@
   WHERE ("posthog_plugin"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          OR "posthog_plugin"."is_global"
          OR "posthog_plugin"."id" IN
-           (SELECT U0."plugin_id"
+           (SELECT U0."plugin_id" AS "plugin_id"
             FROM "posthog_pluginconfig" U0
             INNER JOIN "posthog_team" U1 ON (U0."team_id" = U1."id")
             WHERE (NOT U0."deleted"

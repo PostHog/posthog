@@ -11,15 +11,16 @@ def advance_next_check_at(
     """Schedule-relative advancement, snapped to the canonical cadence grid.
 
     The scheduler cron fires every minute. A sub-minute offset on the returned
-    NCA (e.g. 12:05:30) makes the cron skip a full tick waiting for it — the
-    alert is picked up at 12:06:00, ~30s late, every cycle. Snapping to the
-    cadence grid (every 5-min alert lands on :00/:05/:10/..., every 10-min on
-    :00/:10/:20/..., etc.) eliminates that lag AND aligns every alert sharing
-    a cadence onto the same canonical grid regardless of when it was created.
+    `next_check_at` (e.g. 12:05:30) makes the cron skip a full tick waiting for
+    it — the alert is picked up at 12:06:00, ~30s late, every cycle. Snapping
+    to the cadence grid (every 5-min alert lands on :00/:05/:10/..., every
+    10-min on :00/:10/:20/..., etc.) eliminates that lag AND aligns every alert
+    sharing a cadence onto the same canonical grid regardless of when it was
+    created.
 
-    Any drifted NCA — sub-minute drift OR minute-level offset (e.g. legacy
-    alerts on a per-creation-time grid) — self-heals to canonical on its next
-    return. Existing alerts heal lazily, one transient short-gap each (the
+    Any drifted `next_check_at` — sub-minute drift OR minute-level offset (e.g.
+    legacy alerts on a per-creation-time grid) — self-heals to canonical on its
+    next return. Existing alerts heal lazily, one transient short-gap each (the
     state machine handles the brief overlap window via N-of-M dedup).
 
     Inter-eval gaps are exactly `check_interval_minutes` in steady state. The

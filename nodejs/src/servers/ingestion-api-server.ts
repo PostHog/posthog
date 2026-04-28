@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -226,7 +225,6 @@ export class IngestionApiServer implements NodeServer {
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-        const internalCaptureService = new InternalCaptureService(this.config)
 
         // 3. Ingestion-specific services
         logger.info('🤔', 'Connecting to cookieless Redis...')
@@ -259,7 +257,6 @@ export class IngestionApiServer implements NodeServer {
             integrationManager,
             monitoringOutputs: ingestionOutputs,
             teamManager,
-            internalCaptureService,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()
