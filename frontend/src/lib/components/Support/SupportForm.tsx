@@ -108,16 +108,6 @@ export function SupportForm(): JSX.Element | null {
             enableFormOnSubmit
             className="deprecated-space-y-4"
         >
-            {sendSupportRequest.exception_event?.uuid && (
-                <LemonBanner type="info">
-                    <div className="font-semibold">Error details auto-attached</div>
-                    <div className="text-xs mt-1">
-                        Exception ID <code>{sendSupportRequest.exception_event.uuid}</code> — the stack trace, current
-                        page, and session replay link are included automatically. Just tell us what you were doing
-                        below.
-                    </div>
-                </LemonBanner>
-            )}
             {!user && (
                 <>
                     <LemonField name="name" label="Name">
