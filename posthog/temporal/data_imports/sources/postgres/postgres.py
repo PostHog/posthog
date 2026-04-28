@@ -208,9 +208,20 @@ def get_leading_index_columns(conn: psycopg.Connection, schema: str, table_names
 
     Used to surface a UI warning when a user picks an incremental field that isn't
     indexed — those would force a full scan on every sync. Includes the primary key
-    (since PKs back an implicit index in Postgres). `indkey[0] = 0` means the leading
-    index entry is an expression (e.g. a functional index), not a plain column —
-    those are excluded since we can't tell whether they accelerate `WHERE col >= …`.
+    (since PKs back an implicit index in Postgres). Excludes:
+
+    - `indkey[0] = 0`: the leading index entry is an expression (e.g. a functional
+      index on `lower(email)`), not a plain column — we can't tell whether it
+      accelerates `WHERE col >= …` so don't claim it does.
+    - `indisvalid = false`: the index isn't usable by the planner (failed
+      `CREATE INDEX CONCURRENTLY`, in-progress build) and won't accelerate any
+      query.
+    - `indpred IS NOT NULL`: partial indexes only accelerate queries whose
+      predicate the planner can prove implies the index predicate. Most partial
+      indexes in practice (`WHERE deleted_at IS NULL` and similar) don't apply
+      to the incremental sync's `WHERE col >= last_max`, so flagging the
+      leading column as indexed would suppress a warning the user genuinely
+      needs.
     """
     if not table_names:
         return {}
@@ -224,6 +235,8 @@ def get_leading_index_columns(conn: psycopg.Connection, schema: str, table_names
             JOIN pg_namespace n ON n.oid = c.relnamespace
             JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = i.indkey[0]
             WHERE i.indkey[0] <> 0
+              AND i.indisvalid
+              AND i.indpred IS NULL
               AND n.nspname = %s
               AND c.relname = ANY(%s)
             """,
