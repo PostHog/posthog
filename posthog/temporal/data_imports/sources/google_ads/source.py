@@ -134,6 +134,7 @@ class GoogleAdsSource(
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="123-456-7890",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
@@ -152,6 +153,7 @@ class GoogleAdsSource(
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="123-456-7890",
+                                    secret=False,
                                 )
                             ],
                         ),
