@@ -1,6 +1,7 @@
 // AUTO-GENERATED — do not edit
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
+import { GENERATED_TOOLS as access_control } from './access_control'
 import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as alerts } from './alerts'
 import { GENERATED_TOOLS as annotations } from './annotations'
@@ -39,6 +40,7 @@ import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
+    ...access_control,
     ...actions,
     ...alerts,
     ...annotations,

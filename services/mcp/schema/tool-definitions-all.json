@@ -4495,8 +4495,8 @@
     },
     "property-access-controls-create": {
         "description": "Create or update a property access control rule for a property definition. Provide `property_definition_id` and `access_level` (read_write, read, or none), plus optionally `organization_member` or `role` to target a specific member or role — omit both to set the default rule for the property. Send `access_level=null` to delete an existing override. Requires the calling user to be a project admin.",
-        "category": "Platform Features",
-        "feature": "platform_features",
+        "category": "Access control",
+        "feature": "access_control",
         "summary": "Create, update, or delete a property access control rule.",
         "title": "Create, update, or delete a property access control rule.",
         "required_scopes": ["property_definition:write"],
@@ -4510,8 +4510,8 @@
     },
     "property-access-controls-list": {
         "description": "List all property-level access control rules for a specific property definition. Pass the property definition's UUID as the `property_definition_id` query parameter. Returns the default access level, any member-specific or role-specific overrides, and the available access levels (read_write, read, none). Use this to understand who can read or write values for a given property.",
-        "category": "Platform Features",
-        "feature": "platform_features",
+        "category": "Access control",
+        "feature": "access_control",
         "summary": "List property access control rules for a property definition.",
         "title": "List property access control rules for a property definition.",
         "required_scopes": ["property_definition:read"],
