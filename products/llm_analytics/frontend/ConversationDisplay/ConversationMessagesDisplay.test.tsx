@@ -140,7 +140,7 @@ describe('LLMMessageDisplay', () => {
                     type: 'function',
                     function: {
                         name: 'no_id_call',
-                        arguments: {},
+                        arguments: { foo: 'bar' },
                     },
                 },
             ],
@@ -151,6 +151,97 @@ describe('LLMMessageDisplay', () => {
             </Provider>
         )
         expect(container.textContent).toContain('no_id_call')
+    })
+
+    it('renders content[].type=function with arguments: null without crashing (header only)', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'function',
+                    id: 'call_xyz',
+                    function: {
+                        name: 'no_args_tool',
+                        // OpenAI tool calls without parameters can emit null here.
+                        arguments: null as unknown as Record<string, unknown>,
+                    },
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+        expect(container.textContent).toContain('no_args_tool')
+        expect(container.textContent).toContain('call_xyz')
+        // No JSON viewer body for the empty-args case — no { or } from a viewer.
+        expect(container.textContent).not.toContain('{')
+        expect(container.textContent).not.toContain('}')
+    })
+
+    it('renders empty-args function as header only (no JSON viewer body)', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                {
+                    type: 'function',
+                    function: {
+                        name: 'empty_args_tool',
+                        arguments: {},
+                    },
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+        expect(container.textContent).toContain('empty_args_tool')
+        // Header-only: no `{` or `}` braces from the JSON viewer.
+        expect(container.textContent).not.toContain('{')
+        expect(container.textContent).not.toContain('}')
+    })
+
+    it('preserves order across mixed text and function items in a single assistant message', async () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: [
+                { type: 'text', text: 'Searching now.' },
+                {
+                    type: 'function',
+                    id: 'fs_001',
+                    function: { name: 'file_search', arguments: { query: 'refund policy' } },
+                },
+                {
+                    type: 'function',
+                    id: 'mcp_002',
+                    function: { name: 'mcp.fetch', arguments: '{"url":"https://example.com"}' },
+                },
+                { type: 'text', text: 'Done.' },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+        await waitFor(() => {
+            const text = container.textContent ?? ''
+            expect(text).toContain('Searching now.')
+            expect(text).toContain('file_search')
+            expect(text).toContain('mcp.fetch')
+            expect(text).toContain('Done.')
+            // Ordering: text -> file_search -> mcp.fetch -> text
+            const iSearching = text.indexOf('Searching now.')
+            const iFileSearch = text.indexOf('file_search')
+            const iMcpFetch = text.indexOf('mcp.fetch')
+            const iDone = text.indexOf('Done.')
+            expect(iSearching).toBeLessThan(iFileSearch)
+            expect(iFileSearch).toBeLessThan(iMcpFetch)
+            expect(iMcpFetch).toBeLessThan(iDone)
+        })
     })
 })
 
