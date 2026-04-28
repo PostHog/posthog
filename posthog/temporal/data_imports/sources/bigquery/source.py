@@ -234,6 +234,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="us-east1",
+                                    secret=False,
                                 ),
                             ],
                         ),
@@ -244,6 +245,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="temporary-dataset",
@@ -259,6 +261,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",
+                                    secret=False,
                                 )
                             ],
                         ),
@@ -277,6 +280,7 @@ class BigQuerySource(SimpleSource[BigQuerySourceConfig]):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=True,
                                     placeholder="",
+                                    secret=False,
                                 )
                             ],
                         ),

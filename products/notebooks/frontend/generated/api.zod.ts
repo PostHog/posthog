@@ -96,6 +96,7 @@ export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
         .default(notebooksCollabSaveCreateBodyTextContentDefault)
         .describe('Plain text for search indexing.'),
     title: zod.string().optional().describe('Updated notebook title.'),
+    cursor_head: zod.number().nullish().describe('ProseMirror cursor head position after applying steps.'),
 })
 
 /**
