@@ -23,9 +23,6 @@ class Migration(migrations.Migration):
                 "posthog_organizationinvite_target_email_lower_idx "
                 "ON posthog_organizationinvite (LOWER(target_email))"
             ),
-            reverse_sql=(
-                "DROP INDEX CONCURRENTLY IF EXISTS "
-                "posthog_organizationinvite_target_email_lower_idx"
-            ),
+            reverse_sql=("DROP INDEX CONCURRENTLY IF EXISTS posthog_organizationinvite_target_email_lower_idx"),
         ),
     ]
