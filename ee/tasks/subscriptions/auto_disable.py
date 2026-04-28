@@ -4,8 +4,10 @@ from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 
-# User-visible reason embedded in the disabled-subscription email body.
+# User-visible reasons embedded in the disabled-subscription email body.
 SLACK_INTEGRATION_DISCONNECTED_REASON = "Slack integration disconnected"
+UNSUPPORTED_TARGET_TYPE_REASON = "Unsupported delivery channel"
+NO_ASSETS_REASON = "All insights or dashboard tiles for this subscription have been deleted"
 
 logger = structlog.get_logger(__name__)
 

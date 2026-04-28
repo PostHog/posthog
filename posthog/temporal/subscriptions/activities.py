@@ -35,7 +35,12 @@ from posthog.temporal.subscriptions.types import (
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, SUPPORTED_TARGET_TYPES, _capture_delivery_failed_event
-from ee.tasks.subscriptions.auto_disable import SLACK_INTEGRATION_DISCONNECTED_REASON, disable_invalid_subscription
+from ee.tasks.subscriptions.auto_disable import (
+    NO_ASSETS_REASON,
+    SLACK_INTEGRATION_DISCONNECTED_REASON,
+    UNSUPPORTED_TARGET_TYPE_REASON,
+    disable_invalid_subscription,
+)
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
     get_slack_integration_for_team,
@@ -327,6 +332,20 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
             subscription_id=inputs.subscription_id,
             target_type=subscription.target_type,
         )
+        recipient_results.append(
+            RecipientResult(
+                recipient=subscription.target_value,
+                status="failed",
+                error={"message": UNSUPPORTED_TARGET_TYPE_REASON, "type": "unsupported_target"},
+            )
+        )
+        _capture_delivery_failed_event(
+            subscription,
+            ApplicationError(UNSUPPORTED_TARGET_TYPE_REASON, non_retryable=True),
+        )
+        await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
+            subscription, UNSUPPORTED_TARGET_TYPE_REASON
+        )
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     assets_by_id = await database_sync_to_async(
@@ -343,7 +362,20 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
 
     if not assets:
         LOGGER.warning("deliver_subscription.no_assets", subscription_id=inputs.subscription_id)
-        capture_exception(Exception("No assets are in this subscription"), {"subscription_id": inputs.subscription_id})
+        recipient_results.append(
+            RecipientResult(
+                recipient=subscription.target_value,
+                status="failed",
+                error={"message": NO_ASSETS_REASON, "type": "no_assets"},
+            )
+        )
+        _capture_delivery_failed_event(
+            subscription,
+            ApplicationError(NO_ASSETS_REASON, non_retryable=True),
+        )
+        await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
+            subscription, NO_ASSETS_REASON
+        )
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
     if subscription.target_type == "email":
