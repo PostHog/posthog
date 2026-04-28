@@ -44,6 +44,7 @@ from posthog.temporal.subscriptions.types import (
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliveryStatus,
+    FetchDueSubscriptionsActivityInputs,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionTriggerType,
@@ -1524,3 +1525,48 @@ async def test_workflow_survives_large_insight_snapshot(
     assert "insights" in content
     assert len(content["insights"]) == 1
     assert len(content["insights"][0]["query_results"]["results"]) == 50_000
+
+
+async def test_fetch_due_subscriptions_excludes_disabled(team, user):
+    from posthog.models.subscription import Subscription
+
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="dashboard", created_by=user)
+
+    now = datetime.now(tz=ZoneInfo("UTC"))
+
+    enabled_sub = await sync_to_async(Subscription.objects.create)(
+        team=team,
+        dashboard=dashboard,
+        title="enabled sub",
+        target_type="email",
+        target_value="vasco@posthog.com",
+        frequency="daily",
+        start_date=now,
+        enabled=True,
+    )
+    disabled_sub = await sync_to_async(Subscription.objects.create)(
+        team=team,
+        dashboard=dashboard,
+        title="disabled sub",
+        target_type="email",
+        target_value="vasco@posthog.com",
+        frequency="daily",
+        start_date=now,
+        enabled=False,
+    )
+
+    # The model's save() advances next_delivery_date to the future via rrule.
+    # Force both subs into the "due" window so the buffer alone doesn't filter them out.
+    await sync_to_async(Subscription.objects.filter(id__in=[enabled_sub.id, disabled_sub.id]).update)(
+        next_delivery_date=now,
+    )
+
+    env = ActivityEnvironment()
+    result = await env.run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(buffer_minutes=15),
+    )
+    fetched_ids = {sub.subscription_id for sub in result}
+
+    assert enabled_sub.id in fetched_ids
+    assert disabled_sub.id not in fetched_ids

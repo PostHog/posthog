@@ -143,7 +143,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
                 else str(sub["team_id"]),
                 next_delivery_date=sub["next_delivery_date"].isoformat() if sub["next_delivery_date"] else None,
             )
-            for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False)
+            for sub in Subscription.objects.filter(next_delivery_date__lte=now_with_buffer, deleted=False, enabled=True)
             .exclude(dashboard__deleted=True)
             .exclude(insight__deleted=True)
             .values("id", "team_id", "created_by__distinct_id", "next_delivery_date")
