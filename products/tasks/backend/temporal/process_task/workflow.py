@@ -3,7 +3,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from django.conf import settings
 
@@ -71,6 +71,12 @@ class TaskEvent(StrEnum):
     SIGNAL_RECEIVED = "signal_received"
     TIMEOUT_REACHED = "timeout_reached"
     CI_FOLLOW_UP = "ci_follow_up"
+
+
+class CIFollowUpDecision(StrEnum):
+    FIRE = "fire"
+    SKIP = "skip"
+    NO_PR = "no_pr"
 
 
 INACTIVITY_TIMEOUT = timedelta(minutes=5)
@@ -239,7 +245,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 return task_result
         raise RuntimeError("No event was completed successfully")
 
-    async def _should_run_ci_follow_up(self) -> Literal["fire", "skip", "no_pr"]:
+    async def _should_run_ci_follow_up(self) -> CIFollowUpDecision:
         """Check whether a CI follow-up message should be sent to the agent.
 
         Returns "fire" when the PR has changed and the agent should act,
@@ -264,7 +270,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "PR context is missing, stopping CI follow-up loop",
                 run_id=self.context.run_id,
             )
-            return "no_pr"
+            return CIFollowUpDecision.NO_PR
         if pr_context.pr_state == "closed":
             workflow.logger.info(
                 "PR is closed, skipping CI follow-up",
@@ -272,7 +278,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_url=pr_context.pr_url,
                 pr_state=pr_context.pr_state,
             )
-            return "skip"
+            return CIFollowUpDecision.SKIP
         if self._pr_fingerprint != pr_context.fingerprint:
             workflow.logger.info(
                 "PR context has changed, running CI follow-up",
@@ -281,7 +287,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_state=pr_context.pr_state,
             )
             self._pr_fingerprint = pr_context.fingerprint
-            return "fire"
+            return CIFollowUpDecision.FIRE
         else:
             workflow.logger.info(
                 "PR context has not changed, skipping CI follow-up",
@@ -289,7 +295,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_url=pr_context.pr_url,
                 pr_state=pr_context.pr_state,
             )
-            return "skip"
+            return CIFollowUpDecision.SKIP
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
@@ -372,17 +378,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         )
                         _deprecate_ci_follow_up_pr_context_patch()
                         follow_up_result = await self._should_run_ci_follow_up()
-                        if follow_up_result == "fire":
-                            await self._dispatch_ci_follow_up()
-                        elif follow_up_result == "no_pr":
-                            # No PR will ever appear — stop the CI loop entirely.
-                            self._ci_repetitions = MAX_CI_REPETITIONS
-                        elif follow_up_result == "skip":
-                            # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
-                            # Without this, _wait_for_ci_follow_up returns immediately
-                            # whenever last_active_time is older than the delay, and the
-                            # workflow tight-loops calling GET /repos/.../pulls/{n}.
-                            self._last_active_time = workflow.now()
+                        match follow_up_result:
+                            case CIFollowUpDecision.FIRE:
+                                await self._dispatch_ci_follow_up()
+                            case CIFollowUpDecision.NO_PR:
+                                # No PR will ever appear — stop the CI loop entirely.
+                                self._ci_repetitions = MAX_CI_REPETITIONS
+                            case CIFollowUpDecision.SKIP:
+                                # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
+                                # Without this, _wait_for_ci_follow_up returns immediately
+                                # whenever last_active_time is older than the delay, and the
+                                # workflow tight-loops calling GET /repos/.../pulls/{n}.
+                                self._last_active_time = workflow.now()
+                            case _:
+                                raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
                     case TaskEvent.SIGNAL_RECEIVED:
                         if self._pending_followup is not None:
                             workflow.logger.info(
