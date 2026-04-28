@@ -74,10 +74,14 @@ def check_concurrency() -> tuple[list[str], list[str]]:
             continue
 
         concurrency = data.get("concurrency")
+        # Concurrency can be either a string (group only) or a mapping (group + cancel-in-progress).
+        group_expr = ""
         if isinstance(concurrency, dict):
-            group = concurrency.get("group", "")
-            if isinstance(group, str) and "github.run_id" in group and "head_ref" in group:
-                bad_group.append(workflow_file.name)
+            group_expr = concurrency.get("group") or ""
+        elif isinstance(concurrency, str):
+            group_expr = concurrency
+        if isinstance(group_expr, str) and "github.run_id" in group_expr and "head_ref" in group_expr:
+            bad_group.append(workflow_file.name)
 
         # PyYAML parses the top-level `on:` key as boolean True.
         triggers = data.get(True, data.get("on"))
