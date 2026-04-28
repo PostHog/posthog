@@ -6,6 +6,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import jwt
+import requests
 from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
@@ -14,7 +15,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
 
 from ee.billing.billing_manager import BillingManager, _get_user_organization_role, build_billing_token
-from ee.billing.billing_types import BillingProvider, Product
+from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
 
 
@@ -45,7 +46,7 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
 
 class TestBillingManager(BaseTest):
     @patch(
-        "ee.billing.billing_manager.external_requests.get",
+        "ee.billing.billing_manager.requests.get",
         return_value=MagicMock(
             status_code=200, json=MagicMock(return_value={"products": create_default_products_response()})
         ),
@@ -61,7 +62,7 @@ class TestBillingManager(BaseTest):
         )
 
     @patch(
-        "ee.billing.billing_manager.external_requests.patch",
+        "ee.billing.billing_manager.requests.patch",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
     )
     def test_update_billing_organization_users(self, billing_patch_request_mock: MagicMock):
@@ -89,7 +90,7 @@ class TestBillingManager(BaseTest):
         ]
 
     @patch(
-        "ee.billing.billing_manager.external_requests.patch",
+        "ee.billing.billing_manager.requests.patch",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
     )
     def test_update_billing_organization_users_with_multiple_members(self, billing_patch_request_mock: MagicMock):
@@ -205,7 +206,7 @@ class TestBillingManager(BaseTest):
             }
         }
 
-        BillingManager(license).update_org_details(organization, billing_status)
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
 
         assert organization.usage == {
@@ -247,7 +248,7 @@ class TestBillingManager(BaseTest):
         }
 
     @patch(
-        "ee.billing.billing_manager.external_requests.post",
+        "ee.billing.billing_manager.requests.post",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"success": True})),
     )
     def test_deauthorize_calls_billing_service(self, billing_post_request_mock: MagicMock):
@@ -269,7 +270,7 @@ class TestBillingManager(BaseTest):
         assert "Authorization" in call_args[1]["headers"]
 
     @patch(
-        "ee.billing.billing_manager.external_requests.post",
+        "ee.billing.billing_manager.requests.post",
         return_value=MagicMock(
             status_code=400,
             json=MagicMock(return_value={"error": "Customer billing provider mismatch"}),
@@ -290,7 +291,7 @@ class TestBillingManager(BaseTest):
         assert "400" in str(context.exception)
 
     @patch(
-        "ee.billing.billing_manager.external_requests.post",
+        "ee.billing.billing_manager.requests.post",
         return_value=MagicMock(
             status_code=404,
             json=MagicMock(return_value={"detail": "Not found."}),
@@ -308,6 +309,104 @@ class TestBillingManager(BaseTest):
             BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
 
         assert "404" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(
+                return_value={
+                    "success": False,
+                    "error_message": "Cannot uninstall billing provider: 1 unpaid invoice must be resolved first.",
+                    "code": "open_invoices_error",
+                }
+            ),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_raises_open_invoices_error_on_409(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(BillingServiceOpenInvoicesError) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "unpaid invoice" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(side_effect=requests.JSONDecodeError("", "", 0)),
+            text="Not JSON",
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_no_json_falls_through_to_generic_error(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert not isinstance(context.exception, BillingServiceOpenInvoicesError)
+        assert "409" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(return_value={"code": "some_other_error", "error_message": "Something else"}),
+            text='{"code": "some_other_error"}',
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_different_code_falls_through_to_generic_error(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert not isinstance(context.exception, BillingServiceOpenInvoicesError)
+        assert "409" in str(context.exception)
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=409,
+            json=MagicMock(return_value={"code": "open_invoices_error"}),
+            ok=False,
+        ),
+    )
+    def test_deauthorize_409_open_invoices_missing_message_uses_default(self, billing_post_request_mock: MagicMock):
+        from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with self.assertRaises(BillingServiceOpenInvoicesError) as context:
+            BillingManager(license).deauthorize(self.organization, BillingProvider.VERCEL)
+
+        assert "Open invoices must be resolved first" in str(context.exception)
 
 
 class TestBuildBillingToken(BaseTest):
@@ -562,7 +661,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-    @patch("ee.billing.billing_manager.external_requests.patch")
+    @patch("ee.billing.billing_manager.requests.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_uses_owner_as_authorizer_actor(self, mock_capture, mock_patch):
         """
@@ -617,7 +716,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         assert capture_kwargs["properties"]["target_email"] == member.email
         assert capture_kwargs["properties"]["action"] == "update_billing"
 
-    @patch("ee.billing.billing_manager.external_requests.patch")
+    @patch("ee.billing.billing_manager.requests.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_no_escalation_when_user_is_owner(self, mock_capture, mock_patch):
         """
@@ -655,7 +754,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         # No privilege escalation capture should occur
         mock_capture.assert_not_called()
 
-    @patch("ee.billing.billing_manager.external_requests.patch")
+    @patch("ee.billing.billing_manager.requests.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_uses_most_recent_owner(self, mock_capture, mock_patch):
         """
@@ -702,7 +801,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         assert capture_kwargs["properties"]["target_distinct_id"] == str(member.distinct_id)
         assert capture_kwargs["properties"]["target_email"] == member.email
 
-    @patch("ee.billing.billing_manager.external_requests.patch")
+    @patch("ee.billing.billing_manager.requests.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_admin_gets_escalated_to_owner(self, mock_capture, mock_patch):
         """
@@ -746,7 +845,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         assert capture_kwargs["properties"]["target_email"] == admin.email
 
     @patch("ee.billing.billing_manager.capture_exception")
-    @patch("ee.billing.billing_manager.external_requests.patch")
+    @patch("ee.billing.billing_manager.requests.patch")
     def test_update_billing_org_users_no_owner_captures_exception(self, mock_patch, mock_capture_exception):
         """
         When organization has no owner, should capture exception and return early.
@@ -767,7 +866,7 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         exception_call = mock_capture_exception.call_args
         assert "No owner membership found" in str(exception_call[0][0])
 
-    @patch("ee.billing.billing_manager.external_requests.patch")
+    @patch("ee.billing.billing_manager.requests.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_update_billing_org_users_without_billing_manager_user(self, mock_capture, mock_patch):
         """
@@ -817,7 +916,7 @@ class TestUserUpdateBillingOrganizationUsers(BaseTest):
 
     @patch("posthog.models.user.is_cloud", return_value=True)
     @patch("posthog.models.user.get_cached_instance_license")
-    @patch("ee.billing.billing_manager.external_requests.patch")
+    @patch("ee.billing.billing_manager.requests.patch")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_user_update_billing_organization_users_passes_self_to_billing_manager(
         self, mock_capture, mock_patch, mock_get_license, mock_is_cloud
@@ -951,8 +1050,8 @@ class TestRequestWithPostFallback(BaseTest):
             ("get_spend_data", 431),
         ]
     )
-    @patch("ee.billing.billing_manager.external_requests.post")
-    @patch("ee.billing.billing_manager.external_requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
     def test_falls_back_to_post_on_uri_too_large(self, method_name, status_code, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=status_code)
         mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
@@ -976,8 +1075,8 @@ class TestRequestWithPostFallback(BaseTest):
         assert post_json["start_date"] == "2025-01-01"
 
     @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
-    @patch("ee.billing.billing_manager.external_requests.post")
-    @patch("ee.billing.billing_manager.external_requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
     def test_post_fallback_parses_json_encoded_strings(self, method_name, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=414)
         mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
@@ -997,8 +1096,8 @@ class TestRequestWithPostFallback(BaseTest):
         assert post_json["start_date"] == "2025-01-01"
 
     @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
-    @patch("ee.billing.billing_manager.external_requests.post")
-    @patch("ee.billing.billing_manager.external_requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
     def test_does_not_fall_back_on_success(self, method_name, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
 
@@ -1016,8 +1115,8 @@ class TestRequestWithPostFallback(BaseTest):
             ("get_spend_data", 500),
         ]
     )
-    @patch("ee.billing.billing_manager.external_requests.post")
-    @patch("ee.billing.billing_manager.external_requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
     def test_does_not_fall_back_on_non_uri_errors(self, method_name, status_code, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=status_code, text="error")
 
@@ -1028,8 +1127,8 @@ class TestRequestWithPostFallback(BaseTest):
         mock_post.assert_not_called()
 
     @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
-    @patch("ee.billing.billing_manager.external_requests.post")
-    @patch("ee.billing.billing_manager.external_requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
     def test_post_fallback_error_propagates(self, method_name, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=414)
         mock_post.return_value = MagicMock(status_code=500, text="internal error")
@@ -1041,8 +1140,8 @@ class TestRequestWithPostFallback(BaseTest):
         mock_post.assert_called_once()
 
     @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
-    @patch("ee.billing.billing_manager.external_requests.post")
-    @patch("ee.billing.billing_manager.external_requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    @patch("ee.billing.billing_manager.requests.get")
     def test_with_empty_params(self, method_name, mock_get, mock_post):
         mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"results": []}))
 

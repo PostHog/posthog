@@ -805,8 +805,8 @@ describe('Recording API encryption integration', () => {
                     .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
                     .query({
                         key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                        start: '0',
-                        end: String(encrypted.length - 1),
+                        start_byte: '0',
+                        end_byte: String(encrypted.length - 1),
                     })
 
                 expect(res.status).toBe(200)
@@ -833,8 +833,8 @@ describe('Recording API encryption integration', () => {
                     .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
                     .query({
                         key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                        start: '0',
-                        end: String(encrypted.length - 1),
+                        start_byte: '0',
+                        end_byte: String(encrypted.length - 1),
                     })
 
                 expect(res.status).toBe(410)
@@ -848,12 +848,73 @@ describe('Recording API encryption integration', () => {
 
                 const res = await supertest(app).get('/api/projects/1/recordings/session-1/block').query({
                     key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                    start: '0',
-                    end: '100',
+                    start_byte: '0',
+                    end_byte: '100',
                 })
 
                 expect(res.status).toBe(404)
                 expect(res.body.error).toBe('Block not found')
+            })
+
+            it('should return decompressed JSONL when decompress=true', async () => {
+                const sessionId = 'http-decompress-1'
+                const teamId = 1
+                const originalEvents = [
+                    { type: 2, data: { content: 'hello' } },
+                    { type: 3, data: { content: 'world' } },
+                ]
+
+                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const blockData = await createBlockData(originalEvents)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+
+                mockS3Send.mockResolvedValue({
+                    Body: { transformToByteArray: () => Promise.resolve(encrypted) },
+                })
+
+                const res = await supertest(app)
+                    .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
+                    .query({
+                        key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                        start_byte: '0',
+                        end_byte: String(encrypted.length - 1),
+                        decompress: 'true',
+                    })
+
+                expect(res.status).toBe(200)
+                expect(res.headers['content-type']).toContain('application/jsonl')
+                expect(res.headers['cache-control']).toBe('public, max-age=2592000, immutable')
+
+                const lines = res.text.trim().split('\n')
+                expect(lines).toHaveLength(2)
+                expect(parseJSON(lines[0])[1]).toEqual(originalEvents[0])
+                expect(parseJSON(lines[1])[1]).toEqual(originalEvents[1])
+            })
+
+            it('should return compressed data when decompress is not set', async () => {
+                const sessionId = 'http-no-decompress-1'
+                const teamId = 1
+                const originalEvents = [{ type: 2, data: { content: 'compressed' } }]
+
+                const sessionKey = await keyStore.generateKey(sessionId, teamId)
+                const blockData = await createBlockData(originalEvents)
+                const { data: encrypted } = encryptor.encryptBlockWithKey(sessionId, teamId, blockData, sessionKey)
+
+                mockS3Send.mockResolvedValue({
+                    Body: { transformToByteArray: () => Promise.resolve(encrypted) },
+                })
+
+                const res = await supertest(app)
+                    .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
+                    .query({
+                        key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
+                        start_byte: '0',
+                        end_byte: String(encrypted.length - 1),
+                    })
+
+                expect(res.status).toBe(200)
+                expect(res.headers['content-type']).toContain('application/octet-stream')
+                expect(Buffer.from(res.body).equals(blockData)).toBe(true)
             })
         })
     })

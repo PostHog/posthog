@@ -1,11 +1,11 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
-from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -19,6 +19,8 @@ from posthog.rbac.user_access_control import (
     get_effective_access_level_for_role,
     get_field_access_control_map,
 )
+
+from products.dashboards.backend.models.dashboard import Dashboard
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -531,7 +533,7 @@ class TestUserAccessControlSerializer(BaseUserAccessControlTest):
     def setUp(self):
         super().setUp()
         # We'll use Dashboard as a sample resource object
-        from posthog.models.dashboard import Dashboard
+        from products.dashboards.backend.models.dashboard import Dashboard
 
         self.dashboard = Dashboard.objects.create(team=self.team)
 
@@ -1204,6 +1206,45 @@ class TestSpecificObjectAccessControl(BaseUserAccessControlTest):
         assert self.notebook_3.id in notebook_ids
         assert self.notebook_2.id not in notebook_ids  # Explicitly blocked
 
+    @parameterized.expand(
+        [
+            (
+                "include_all_if_admin lists default-none dashboard for org admin (issue #44364)",
+                True,
+                True,
+            ),
+            (
+                "include_all_if_admin false keeps blocked default-none dashboards out of list for org admin",
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_organization_admin_dashboard_list_respects_include_all_if_admin_flag(
+        self, _name: str, include_all_if_admin: bool, expect_dashboard_in_results: bool
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+        self._create_access_control(
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            access_level="none",
+        )
+
+        self._clear_uac_caches()
+        uac = UserAccessControl(self.user, self.team)
+        filtered = uac.filter_queryset_by_access_level(
+            Dashboard.objects.filter(team=self.team),
+            include_all_if_admin=include_all_if_admin,
+        )
+        ids = list(filtered.values_list("id", flat=True))
+        if expect_dashboard_in_results:
+            assert dashboard.id in ids
+        else:
+            assert dashboard.id not in ids
+
     def test_get_user_access_level_with_specific_access_priority(self):
         """Test that get_user_access_level prioritizes specific access over resource access"""
         # Set resource-level access to "none"
@@ -1791,3 +1832,31 @@ class TestGetEffectiveAccessLevelForMember:
         assert result.effective_access_level == expected_effective
         assert result.inherited_access_level == expected_inherited
         assert result.inherited_access_level_reason == expected_inherited_reason
+
+
+class TestAccessControlMissingEE(BaseTest):
+    """Verify that UserAccessControl methods don't crash when the ee module is not installed."""
+
+    def setUp(self):
+        super().setUp()
+        self.uac = UserAccessControl(self.user, self.team, self.organization.id)
+
+    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    def test_get_access_controls_returns_empty(self):
+        filters = {"team_id": self.team.id, "resource": "dashboard", "resource_id": None}
+        assert self.uac._get_access_controls(filters) == []
+
+    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    def test_preload_access_levels_does_not_crash(self):
+        self.uac.preload_access_levels(team=self.team, resource="dashboard")
+
+    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    def test_preload_object_access_controls_does_not_crash(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="test")
+        self.uac.preload_object_access_controls([dashboard])
+
+    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    def test_filter_and_annotate_file_system_queryset_returns_unfiltered(self):
+        qs = FileSystem.objects.filter(team=self.team)
+        result = self.uac.filter_and_annotate_file_system_queryset(qs)
+        assert list(result) == list(qs)

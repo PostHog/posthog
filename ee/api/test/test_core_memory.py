@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.models.team.team import Team
 
-from ee.models.assistant import CoreMemory
+from ee.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
 
 
 class TestCoreMemoryAPI(APIBaseTest):
@@ -107,6 +107,31 @@ class TestCoreMemoryAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.other_core_memory.refresh_from_db()
         self.assertEqual(self.other_core_memory.text, "Other team memory")
+
+    def test_cannot_create_memory_exceeding_limit(self):
+        self.core_memory.delete()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/core_memory",
+            {"text": "x" * (CORE_MEMORY_MAX_CHARACTERS + 1)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_patch_memory_exceeding_limit(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/core_memory/{self.core_memory.pk}",
+            {"text": "x" * (CORE_MEMORY_MAX_CHARACTERS + 1)},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.core_memory.refresh_from_db()
+        self.assertEqual(self.core_memory.text, "Initial memory")
+
+    def test_create_memory_at_exact_limit(self):
+        self.core_memory.delete()
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/core_memory",
+            {"text": "x" * CORE_MEMORY_MAX_CHARACTERS},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_cannot_edit_fields_except_text(self):
         response = self.client.patch(

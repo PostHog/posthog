@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Any, Optional
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
@@ -130,6 +131,13 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
         return json.dumps(obj)
 
 
+@extend_schema_field({"oneOf": [{"type": "boolean"}, {"type": "string", "enum": ["hog", "liquid"]}]})
+class _TemplatingChoiceField(serializers.ChoiceField):
+    """drf-spectacular 0.29 crashes on sorted() with mixed bool/str choice keys."""
+
+    pass
+
+
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=[
@@ -145,6 +153,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "native_email",
             "posthog_assignee",
             "posthog_ticket_tags",
+            "posthog_business_hours",
         ]
     )
     key = serializers.CharField()
@@ -161,11 +170,12 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     integration_field = serializers.CharField(required=False)
     requiredScopes = serializers.CharField(required=False)
     # Indicates if hog templating should be used for this input
-    templating = serializers.ChoiceField(choices=[True, False, "hog", "liquid"], required=False)
+    templating = _TemplatingChoiceField(choices=[True, False, "hog", "liquid"], required=False)
 
     # TODO Validate choices if type=choice
 
 
+@extend_schema_field({})
 class AnyInputField(serializers.Field):
     def to_internal_value(self, data):
         return data
@@ -205,8 +215,19 @@ class InputsItemSerializer(serializers.Serializer):
             if not isinstance(value, int | float):
                 raise serializers.ValidationError({"input": f"Value must be a number."})
         elif item_type == "boolean":
-            if not isinstance(value, bool):
-                raise serializers.ValidationError({"input": f"Value must be a boolean."})
+            templating_enabled = schema.get("templating", True)
+            if templating_enabled:
+                if not isinstance(value, bool) and not isinstance(value, str):
+                    raise serializers.ValidationError({"input": f"Value must be a boolean or a template string."})
+                # Liquid templating always renders to strings, which bypasses boolean type guarantees.
+                # Only Hog templating is allowed for boolean fields as it preserves the actual boolean type.
+                if isinstance(value, str) and attrs.get("templating") == "liquid":
+                    raise serializers.ValidationError(
+                        {"input": "Liquid templating is not supported for boolean fields. Use Hog templating instead."}
+                    )
+            else:
+                if not isinstance(value, bool):
+                    raise serializers.ValidationError({"input": f"Value must be a boolean."})
         elif item_type == "dictionary":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be a dictionary."})
@@ -231,7 +252,15 @@ class InputsItemSerializer(serializers.Serializer):
                     pass
                 else:
                     # If we have a value and hog templating is enabled, we need to transpile the value
-                    if item_type in ["string", "dictionary", "json", "email", "native_email"]:
+                    value_is_transpiled = item_type in [
+                        "string",
+                        "boolean",
+                        "dictionary",
+                        "json",
+                        "email",
+                        "native_email",
+                    ] or (item_type == "boolean" and isinstance(value, str))
+                    if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
                             # We want to exclude the "design" property
                             value = {key: value[key] for key in value if key != "design"}

@@ -1,0 +1,210 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use assignment_coordination::store::{EtcdStore, StoreConfig};
+use axum::{routing::get, Router};
+use common_kafka::kafka_producer::create_kafka_producer;
+use common_metrics::setup_metrics_routes;
+use dashmap::DashMap;
+use envconfig::Envconfig;
+use lifecycle::{ComponentOptions, Manager};
+use personhog_coordination::pod::{PodConfig, PodHandle};
+use personhog_coordination::store::PersonhogStore;
+use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tonic::codec::CompressionEncoding;
+use tonic::transport::Server;
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::fmt;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+
+use personhog_leader::cache::PartitionedCache;
+use personhog_leader::config::Config;
+use personhog_leader::coordination::LeaderHandoffHandler;
+use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService};
+
+common_alloc::used!();
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::init_from_env().expect("Invalid configuration");
+
+    // Initialize tracing
+    let log_layer = fmt::layer()
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_level(true);
+
+    tracing_subscriber::registry()
+        .with(log_layer)
+        .with(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .init();
+
+    tracing::info!("Starting personhog-leader service");
+    tracing::info!("gRPC address: {}", config.grpc_address);
+    tracing::info!(
+        "Cache memory capacity: {} entries",
+        config.cache_memory_capacity
+    );
+    tracing::info!("Metrics port: {}", config.metrics_port);
+    tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
+    tracing::info!("etcd prefix: {}", config.etcd_prefix);
+    tracing::info!("Pod name: {}", config.pod_name);
+    tracing::info!("Kafka changelog topic: {}", config.kafka_person_state_topic);
+
+    let mut manager = Manager::builder("personhog-leader")
+        .with_global_shutdown_timeout(Duration::from_secs(30))
+        .build();
+
+    let grpc_handle = manager.register(
+        "grpc-server",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+    );
+    let metrics_handle = manager.register(
+        "metrics-server",
+        ComponentOptions::new().is_observability(true),
+    );
+    let coordination_handle = manager.register(
+        "coordination",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    let kafka_handle = manager.register("kafka-producer", ComponentOptions::new());
+
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+
+    let monitor_guard = manager.monitor_background();
+
+    // Metrics/health HTTP server
+    let metrics_port = config.metrics_port;
+    tokio::spawn(async move {
+        let _guard = metrics_handle.process_scope();
+
+        let health_router = Router::new()
+            .route(
+                "/_readiness",
+                get(move || {
+                    let r = readiness.clone();
+                    async move { r.check().await }
+                }),
+            )
+            .route("/_liveness", get(move || async move { liveness.check() }));
+        let metrics_router = setup_metrics_routes(health_router);
+
+        let bind = format!("0.0.0.0:{metrics_port}");
+        let listener = tokio::net::TcpListener::bind(&bind)
+            .await
+            .expect("Failed to bind metrics port");
+        tracing::info!("Metrics server listening on {}", bind);
+        axum::serve(listener, metrics_router)
+            .with_graceful_shutdown(metrics_handle.shutdown_signal())
+            .await
+            .expect("Metrics server error");
+    });
+
+    // Initialize partitioned cache and Kafka producer
+    let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity));
+
+    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle).await {
+        Ok(producer) => producer,
+        Err(e) => {
+            tracing::error!(error = %e, "failed to create Kafka producer");
+            return Err(e.into());
+        }
+    };
+
+    // PG fallback pool for cache misses (optional, disabled if URL is empty)
+    let fallback_pool = if config.fallback_database_url.is_empty() {
+        tracing::info!("PG fallback disabled (no FALLBACK_DATABASE_URL)");
+        None
+    } else {
+        tracing::info!("PG fallback enabled");
+        let pool_config = common_database::PoolConfig {
+            max_connections: config.fallback_pg_max_connections,
+            min_connections: config.fallback_pg_min_connections,
+            pool_name: Some("personhog-leader-fallback".to_string()),
+            statement_timeout_ms: Some(5_000),
+            ..Default::default()
+        };
+        Some(common_database::get_pool_with_config(
+            &config.fallback_database_url,
+            pool_config,
+        )?)
+    };
+
+    let locks = Arc::new(DashMap::new());
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer,
+        config.kafka_person_state_topic.clone(),
+        fallback_pool,
+        Arc::clone(&locks),
+    );
+
+    // Connect to etcd and start coordination
+    let etcd_config = StoreConfig {
+        endpoints: config.etcd_endpoint_list(),
+        prefix: config.etcd_prefix.clone(),
+    };
+    let etcd_store = EtcdStore::connect(etcd_config)
+        .await
+        .expect("Failed to connect to etcd");
+    let store = Arc::new(PersonhogStore::new(etcd_store));
+
+    let handler = LeaderHandoffHandler::new(Arc::clone(&cache));
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: config.pod_name.clone(),
+            lease_ttl: config.lease_ttl,
+            heartbeat_interval: config.heartbeat_interval(),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+
+    tokio::spawn(async move {
+        let _guard = coordination_handle.process_scope();
+        if let Err(e) = pod.run(coordination_handle.shutdown_token()).await {
+            coordination_handle.signal_failure(format!("Coordination error: {e}"));
+        }
+    });
+
+    // Periodic sweep of idle per-key locks
+    let sweep_locks = Arc::clone(&locks);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            sweep_idle_locks(&sweep_locks);
+        }
+    });
+
+    // gRPC server
+    let grpc_addr = config.grpc_address;
+    tracing::info!("Starting gRPC server on {}", grpc_addr);
+
+    tokio::spawn(async move {
+        let _guard = grpc_handle.process_scope();
+        if let Err(e) = Server::builder()
+            .add_service(
+                PersonHogLeaderServer::new(service)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
+            )
+            .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
+            .await
+        {
+            grpc_handle.signal_failure(format!("gRPC server error: {e}"));
+        }
+    });
+
+    monitor_guard.wait().await?;
+    Ok(())
+}

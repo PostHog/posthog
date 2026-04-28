@@ -4,13 +4,11 @@ from typing import Any, Optional
 
 import requests
 from dateutil import parser
-from dlt.sources.helpers.requests import Request, Response
-from dlt.sources.helpers.rest_client.paginators import BasePaginator
-from requests import JSONDecodeError
+from requests import JSONDecodeError, Request, Response
 from structlog.types import FilteringBoundLogger
 
-from posthog.security.outbound_proxy import external_requests, external_requests_session
-from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
+from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 
 
@@ -19,7 +17,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Organizations": {
             "name": "Organizations",
             "table_name": "organizations",
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -47,7 +44,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Accounts": {
             "name": "Accounts",
             "table_name": "accounts",
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -76,7 +72,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Users": {
             "name": "Users",
             "table_name": "users",
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -104,7 +99,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Conversations": {
             "name": "Conversations",
             "table_name": "conversations",
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -132,7 +126,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Notes": {
             "name": "Notes",
             "table_name": "notes",
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -160,7 +153,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Projects": {
             "name": "Projects",
             "table_name": "projects",
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -188,7 +180,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Tasks": {
             "name": "Tasks",
             "table_name": "tasks",
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -216,7 +207,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "NPS_Responses": {
             "name": "NPS_Responses",
             "table_name": "nps_responses",
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -244,7 +234,6 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "Custom_Objects": {
             "name": "Custom_Objects",
             "table_name": "custom_objects",
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -295,7 +284,12 @@ class VitallyPaginator(BasePaginator):
             return
 
         if self._should_use_incremental_field and self._incremental_start_value is not None:
-            updated_at_str = res["results"][0]["updatedAt"]
+            results = res.get("results")
+            if not results:
+                self._has_next_page = False
+                return
+
+            updated_at_str = results[0]["updatedAt"]
             updated_at = parser.parse(updated_at_str).timestamp()
             if isinstance(self._incremental_start_value, str):
                 start_value = parser.parse(self._incremental_start_value).timestamp()
@@ -364,7 +358,7 @@ def get_messages(
 
     logger.debug("Requesting first page")
 
-    with external_requests_session() as session:
+    with requests.Session() as session:
         while paginator.has_next_page:
             paginator.update_request(request)
             prepared_request = session.prepare_request(request)
@@ -379,7 +373,7 @@ def get_messages(
                 conversation_updated_at = conversation.get("updatedAt")
                 logger.debug(f"Requesting messages for conversation {id}")
 
-                conversation_response = external_requests.get(
+                conversation_response = requests.get(
                     f"{get_base_url(region, subdomain)}resources/conversations/{id}",
                     headers={"Authorization": f"Basic {basic_token}:"},
                 )
@@ -442,7 +436,6 @@ def vitally_source(
             ),
         },
         "resource_defaults": {
-            **({"primary_key": "id"} if should_use_incremental_field else {}),
             "write_disposition": {
                 "disposition": "merge",
                 "strategy": "upsert",
@@ -453,13 +446,13 @@ def vitally_source(
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 
-    dlt_resources = rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
-    yield from dlt_resources[0]
+    resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
+    yield from resource
 
 
 def validate_credentials(secret_token: str, region: str, subdomain: Optional[str]) -> bool:
     basic_token = base64.b64encode(f"{secret_token}:".encode("ascii")).decode("ascii")
-    res = external_requests.get(
+    res = requests.get(
         f"{get_base_url(region, subdomain)}resources/users?limit=1",
         headers={"Authorization": f"Basic {basic_token}"},
     )

@@ -1,14 +1,16 @@
 import type { z } from 'zod'
 
+import { withUiApp } from '@/resources/ui-apps'
 import type { ExperimentResultsSummary } from '@/schema/experiments'
 import { transformExperimentResults } from '@/schema/experiments'
 import { ExperimentResultsGetSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = ExperimentResultsGetSchema
 
 type Params = z.infer<typeof schema>
-type Result = ExperimentResultsSummary
+type Result = WithPostHogUrl<ExperimentResultsSummary>
 
 /**
  * Get experiment results including metrics and exposures data
@@ -22,7 +24,7 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
     const projectId = await context.stateManager.getProjectId()
 
     const result = await context.api.experiments({ projectId }).getMetricResults({
-        experimentId: params.experimentId,
+        experimentId: params.id,
         refresh: params.refresh,
     })
 
@@ -32,18 +34,21 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
 
     const { experiment, primaryMetricsResults, secondaryMetricsResults, exposures } = result.data
 
-    return transformExperimentResults({
-        experiment,
-        primaryMetricsResults,
-        secondaryMetricsResults,
-        exposures,
-    })
+    return withPostHogUrl(
+        context,
+        transformExperimentResults({
+            experiment,
+            primaryMetricsResults,
+            secondaryMetricsResults,
+            exposures,
+        }),
+        `/experiments/${params.id}`
+    )
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
-    name: 'experiment-results-get',
-    schema,
-    handler: getResultsHandler,
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('experiment-results', {
+        name: 'experiment-results-get',
+        schema,
+        handler: getResultsHandler,
+    })

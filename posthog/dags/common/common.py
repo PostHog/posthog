@@ -1,26 +1,13 @@
+from collections.abc import Callable
 from contextlib import suppress
-from enum import Enum
+from functools import wraps
 from typing import Optional
 
 import dagster
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import DagsterTags
-
-
-class JobOwners(str, Enum):
-    TEAM_ANALYTICS_PLATFORM = "team-analytics-platform"
-    TEAM_BILLING = "team-billing"
-    TEAM_CLICKHOUSE = "team-clickhouse"
-    TEAM_DATA_STACK = "team-data-stack"
-    TEAM_ERROR_TRACKING = "team-error-tracking"
-    TEAM_EXPERIMENTS = "team-experiments"
-    TEAM_GROWTH = "team-growth"
-    TEAM_INGESTION = "team-ingestion"
-    TEAM_LLM_ANALYTICS = "team-llm-analytics"
-    TEAM_POSTHOG_AI = "team-posthog-ai"
-    TEAM_REVENUE_ANALYTICS = "team-revenue-analytics"
-    TEAM_WEB_ANALYTICS = "team-web-analytics"
+from posthog.dags.common.owners import JobOwners  # noqa: F401
 
 
 def dagster_tags(
@@ -93,3 +80,24 @@ def check_for_concurrent_runs(
         return dagster.SkipReason(f"Skipping {job_name} run because another run of the same job is already active")
 
     return None
+
+
+def skip_if_already_running(fn: Callable) -> Callable:
+    """
+    Decorator that skips schedule execution if a previous run is still active.
+
+    Usage:
+        @dagster.schedule(cron_schedule="0 0 * * *", job=my_job, execution_timezone="UTC")
+        @skip_if_already_running
+        def my_schedule(context: dagster.ScheduleEvaluationContext):
+            return dagster.RunRequest()
+    """
+
+    @wraps(fn)
+    def wrapper(context: dagster.ScheduleEvaluationContext):
+        skip_reason = check_for_concurrent_runs(context, tags={})
+        if skip_reason:
+            return skip_reason
+        return fn(context)
+
+    return wrapper

@@ -98,6 +98,7 @@ impl From<&CustomFrame> for Frame {
             lang: value.lang.clone(),
             resolved: value.resolved,
             resolve_failure: None,
+
             junk_drawer: None,
             context: value.get_context(),
             release: None,

@@ -2,7 +2,6 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
-use health::HealthStrategy;
 use tracing::Level;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -101,7 +100,7 @@ pub struct Config {
     #[envconfig(default = "5000000")]
     pub global_rate_limit_token_distinctid_local_cache_max_entries: u64,
 
-    // --- Token-only limiter config ---
+    // --- Token-only limiter config (not currently used in production, retained for new_token()) ---
     /// Per-token rate limit threshold per window interval
     /// Note: default is too high to trigger limiting in production
     #[envconfig(default = "5000000")]
@@ -196,9 +195,6 @@ pub struct Config {
     #[envconfig(default = "")]
     pub s3_fallback_prefix: String,
 
-    #[envconfig(default = "ALL")]
-    pub healthcheck_strategy: HealthStrategy,
-
     #[envconfig(default = "false")]
     pub is_mirror_deploy: bool,
 
@@ -242,17 +238,14 @@ pub struct Config {
     #[envconfig(default = "256")]
     pub body_read_chunk_size_kb: usize,
 
-    /// Enable dual-write of exception events to the error tracking pipeline.
-    #[envconfig(default = "false")]
-    pub error_tracking_dual_write_enabled: bool,
-
-    /// Sample rate for error tracking dual-write (0.0 to 100.0).
-    /// Only applies when dual-write is enabled.
-    #[envconfig(default = "0.0")]
-    pub error_tracking_dual_write_sample_rate: f64,
-
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
+
+    /// Comma-separated list of active v1 sinks (e.g. "msk" or "msk,ws").
+    /// Parsed by `v1::sinks::load_sinks()` after `Config::init_from_env()`.
+    /// Empty string means the v1 sink layer is disabled.
+    #[envconfig(default = "")]
+    pub capture_v1_sinks: String,
 }
 
 #[derive(Envconfig, Clone)]
@@ -270,14 +263,14 @@ pub struct KafkaConfig {
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,
+    #[envconfig(default = "ingestion-traces")]
+    pub kafka_traces_topic: String,
     #[envconfig(default = "events_plugin_ingestion_overflow")]
     pub kafka_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_historical")]
     pub kafka_historical_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_client_ingestion_warning_topic: String,
-    #[envconfig(default = "exceptions_ingestion")]
-    pub kafka_exceptions_topic: String,
     #[envconfig(default = "error_tracking_events")]
     pub kafka_error_tracking_topic: String,
     #[envconfig(default = "heatmaps_ingestion")]
@@ -312,4 +305,18 @@ pub struct KafkaConfig {
     pub kafka_producer_sticky_partitioning_linger_ms: u32, // sticky.partitioning.linger.ms
     #[envconfig(default = "false")] // librdkafka default
     pub kafka_producer_enable_idempotence: bool, // enable.idempotence
+    #[envconfig(default = "murmur2_random")]
+    pub kafka_producer_partitioner: String, // partitioner
+    #[envconfig(default = "")]
+    pub kafka_broker_address_family: String, // broker.address.family - v4, v6, any; empty = don't set
+    #[envconfig(default = "true")] // librdkafka default
+    pub kafka_log_connection_close: bool, // log.connection.close
+    #[envconfig(default = "100000")] // librdkafka default
+    pub kafka_producer_queue_buffering_max_messages: u32, // queue.buffering.max.messages
+    #[envconfig(default = "1000")] // librdkafka default
+    pub kafka_retry_backoff_max_ms: u32, // retry.backoff.max.ms
+    #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
+    pub kafka_socket_send_buffer_bytes: u32, // socket.send.buffer.bytes
+    #[envconfig(default = "0")] // librdkafka default (OS auto-tune)
+    pub kafka_socket_receive_buffer_bytes: u32, // socket.receive.buffer.bytes
 }

@@ -4,7 +4,7 @@
  * A Cloudflare Worker that sits in front of both US and EU PostHog instances,
  * providing a single OAuth endpoint that handles region routing transparently.
  *
- * Used by the PostHog MCP server, Twig, and any future OAuth integration
+ * Used by the PostHog MCP server, PostHog Code, and any future OAuth integration
  * so they don't need separate US/EU URLs.
  */
 import { handleAuthorize } from '@/handlers/authorize'
@@ -33,43 +33,43 @@ function normalizePath(path: string): string {
 const routes: Route[] = [
     {
         paths: ['/.well-known/oauth-authorization-server'],
-        handler: (req) => handleMetadata(req),
+        handler: handleMetadata,
     },
     {
         paths: ['/.well-known/jwks.json'],
-        handler: (req) => handleJwks(req),
+        handler: handleJwks,
     },
     {
         paths: ['/oauth/register', '/register'],
         method: 'POST',
-        handler: (req, kv) => handleRegister(req, kv),
+        handler: handleRegister,
     },
     {
         paths: ['/oauth/authorize', '/authorize'],
-        handler: (req, kv) => handleAuthorize(req, kv),
+        handler: handleAuthorize,
     },
     {
         paths: ['/oauth/callback'],
-        handler: (req, kv) => handleCallback(req, kv),
+        handler: handleCallback,
     },
     {
         paths: ['/oauth/token', '/token'],
         method: 'POST',
-        handler: (req, kv) => handleToken(req, kv),
+        handler: handleToken,
     },
     {
         paths: ['/oauth/revoke'],
         method: 'POST',
-        handler: (req, kv) => handleRevoke(req, kv),
+        handler: handleRevoke,
     },
     {
         paths: ['/oauth/introspect'],
         method: 'POST',
-        handler: (req) => handleIntrospect(req),
+        handler: handleIntrospect,
     },
     {
         paths: ['/oauth/userinfo'],
-        handler: (req) => handleUserInfo(req),
+        handler: handleUserInfo,
     },
 ]
 
@@ -84,7 +84,7 @@ export default {
                     continue
                 }
                 if (route.paths.some((p) => normalizePath(p) === normalized)) {
-                    return route.handler(request, env.AUTH_KV)
+                    return await route.handler(request, env.AUTH_KV)
                 }
             }
 

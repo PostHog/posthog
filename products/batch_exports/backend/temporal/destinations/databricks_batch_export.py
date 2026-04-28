@@ -29,18 +29,18 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.models.integration import DatabricksIntegration, Integration
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     DatabricksBatchExportInputs,
 )
-from posthog.models.integration import DatabricksIntegration, Integration
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     events_model_default_fields,
@@ -514,10 +514,15 @@ class DatabricksClient:
 
     async def aput_file_stream_to_volume(self, file: io.BytesIO, volume_path: str, file_name: str):
         """Asynchronously put a local file stream to a Databricks volume."""
-        await self.execute_query(
-            f"PUT '__input_stream__' INTO '{volume_path}/{file_name}' OVERWRITE",
-            query_kwargs={"input_stream": file},
-        )
+        try:
+            await self.execute_query(
+                f"PUT '__input_stream__' INTO '{volume_path}/{file_name}' OVERWRITE",
+                query_kwargs={"input_stream": file},
+            )
+        except OperationalError as err:
+            if _is_insufficient_permissions_error(err):
+                raise DatabricksInsufficientPermissionsError(f"PUT INTO '{volume_path}/{file_name}'", err.message)
+            raise
 
     async def acopy_into_table_from_volume(
         self,
@@ -925,11 +930,15 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
     return DatabricksIntegration(integration)
 
 
-def _is_insufficient_permissions_error(err: ServerOperationError) -> bool:
+def _is_insufficient_permissions_error(err: DatabaseError) -> bool:
     """Check if the error is an insufficient permissions error."""
     if err.message is None:
         return False
-    return "INSUFFICIENT_PERMISSIONS" in err.message or "PERMISSION_DENIED" in err.message
+    return (
+        "INSUFFICIENT_PERMISSIONS" in err.message
+        or "PERMISSION_DENIED" in err.message
+        or "AuthorizationFailure" in err.message
+    )
 
 
 def _is_warehouse_stopped_error(err: ServerOperationError) -> bool:
@@ -1197,7 +1206,9 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to Databricks table."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

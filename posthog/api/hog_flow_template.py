@@ -4,6 +4,7 @@ from django.db.models import Q
 
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -153,6 +154,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at", "created_by"]
 
+    @extend_schema_field({"type": "object", "nullable": True})
     def get_created_by(self, obj):
         if obj.created_by:
             from posthog.api.shared import UserBasicSerializer
@@ -213,6 +215,7 @@ class HogFlowTemplateSerializer(serializers.ModelSerializer):
         return super().create(validated_data=validated_data)
 
 
+@extend_schema(tags=["workflows"])
 class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = HogFlowTemplate.objects.all()

@@ -196,7 +196,7 @@ describe('cohortEditLogic', () => {
 
             useMocks({
                 get: {
-                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
                         id: cohortId,
                         name: 'Test Cohort',
                         is_static: false,
@@ -224,7 +224,7 @@ describe('cohortEditLogic', () => {
 
             useMocks({
                 get: {
-                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
                         id: cohortId,
                         name: 'Test Cohort',
                         is_static: false,
@@ -252,7 +252,7 @@ describe('cohortEditLogic', () => {
 
             useMocks({
                 get: {
-                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
                         id: cohortId,
                         name: 'Test Cohort',
                         is_static: false,
@@ -279,7 +279,7 @@ describe('cohortEditLogic', () => {
 
             useMocks({
                 get: {
-                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
                         id: cohortId,
                         name: 'Test Cohort',
                         is_static: false,
@@ -305,7 +305,7 @@ describe('cohortEditLogic', () => {
 
             useMocks({
                 get: {
-                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
                         id: cohortId,
                         name: 'Test Cohort',
                         is_static: false,
@@ -319,7 +319,7 @@ describe('cohortEditLogic', () => {
                     },
                 },
                 patch: {
-                    [`/api/projects/:team/cohorts/${cohortId}`]: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
                         id: cohortId,
                         name: 'Test Cohort',
                         is_static: false,

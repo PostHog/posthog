@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
@@ -22,22 +22,22 @@ from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
-from posthog.models.dashboard import Dashboard
 from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 
 from ee.models.rbac.access_control import AccessControl
@@ -53,12 +53,18 @@ def team_api_test_factory():
 
             starting_log_response = self.client.get(f"/api/environments/{team_id}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_organization_activity_log(self, expected: list[dict]) -> None:
             starting_log_response = self.client.get(f"/api/organizations/{self.organization.pk}/activity")
             assert starting_log_response.status_code == 200, starting_log_response.json()
-            assert starting_log_response.json()["results"] == expected
+            results = starting_log_response.json()["results"]
+            for item in results:
+                item.pop("id", None)
+            assert results == expected
 
         def _assert_activity_log_is_empty(self) -> None:
             self._assert_activity_log([])
@@ -87,7 +93,6 @@ def team_api_test_factory():
             self.assertEqual(response_data["name"], self.team.name)
             self.assertEqual(response_data["timezone"], "UTC")
             self.assertEqual(response_data["is_demo"], False)
-            self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
             self.assertEqual(response_data["has_group_types"], False)
             self.assertEqual(
                 response_data["person_on_events_querying_enabled"],
@@ -352,38 +357,6 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertNotEqual(self.team.timezone, "America/I_Dont_Exist")
 
-        @parameterized.expand(
-            [
-                ("null_value", None, True),
-                ("empty_string", "", True),
-                ("valid_slack_url", "https://hooks.slack.com/services/T00/B00/XXX", True),
-                ("valid_external_url", "https://example.com/webhook", True),
-                ("localhost", "http://localhost/webhook", False),
-                ("localhost_with_port", "http://localhost:8080/webhook", False),
-                ("loopback_ip", "http://127.0.0.1/webhook", False),
-                ("internal_ip_192", "http://192.168.1.1/webhook", False),
-                ("internal_ip_10", "http://10.0.0.1/webhook", False),
-                ("internal_ip_172", "http://172.16.0.1/webhook", False),
-            ]
-        )
-        @override_settings(DEBUG=False)
-        def test_slack_incoming_webhook_ssrf_validation(
-            self, _name: str, webhook_url: str | None, should_succeed: bool
-        ):
-            """Test that slack_incoming_webhook rejects internal/private IPs (CVE-2025-1521)."""
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/",
-                {"slack_incoming_webhook": webhook_url},
-            )
-            if should_succeed:
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
-                self.team.refresh_from_db()
-                self.assertEqual(self.team.slack_incoming_webhook, webhook_url if webhook_url else None)
-            else:
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                response_data = response.json()
-                self.assertIn("Invalid webhook URL", response_data.get("detail", "") or str(response_data))
-
         def test_cant_update_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
             team = Team.objects.create(organization=org, name="Default project")
@@ -448,6 +421,7 @@ def team_api_test_factory():
                         "short_id": None,
                         "trigger": None,
                     },
+                    "client": None,
                     "created_at": ANY,
                 },
                 {
@@ -470,6 +444,7 @@ def team_api_test_factory():
                     "scope": "Team",
                     "user_id": self.user.pk,
                     "was_impersonated": False,
+                    "client": None,
                 },
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -495,6 +470,7 @@ def team_api_test_factory():
                         "scope": "Project",
                         "user_id": self.user.pk,
                         "was_impersonated": False,
+                        "client": None,
                     },
                 )
             assert activity == expected_activity
@@ -533,6 +509,7 @@ def team_api_test_factory():
                     event="team deleted",
                     properties=mock.ANY,
                     groups=mock.ANY,
+                    send_feature_flags=False,
                 ),
             ]
             if self.client_class is EnvironmentToProjectRewriteClient:
@@ -542,6 +519,7 @@ def team_api_test_factory():
                         event="project deleted",
                         properties=mock.ANY,
                         groups=mock.ANY,
+                        send_feature_flags=False,
                     )
                 )
                 mock_delete_task_project.delay.assert_called_once_with(
@@ -701,6 +679,59 @@ def team_api_test_factory():
                 # Now delete the team - this should succeed
                 response = self.client.delete(f"/api/environments/{team.id}")
                 assert response.status_code == 204
+
+        @patch("posthog.temporal.common.schedule.delete_schedule")
+        @patch("posthog.models.team.util.sync_connect")
+        def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
+            from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="test_scheduled_query",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                sync_frequency_interval=timedelta(hours=1),
+            )
+
+            mock_temporal = MagicMock()
+            mock_sync_connect.return_value = mock_temporal
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+            assert response.status_code == 204
+
+            mock_delete_schedule.assert_called_once_with(mock_temporal, schedule_id=str(saved_query.id))
+
+        @patch("posthog.temporal.common.schedule.delete_schedule")
+        @patch("posthog.models.team.util.sync_connect")
+        def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
+            import temporalio.service
+
+            from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+
+            DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="test_missing_schedule",
+                query={"kind": "HogQLQuery", "query": "SELECT 1"},
+                sync_frequency_interval=timedelta(hours=1),
+            )
+
+            mock_temporal = MagicMock()
+            mock_sync_connect.return_value = mock_temporal
+
+            rpc_error = temporalio.service.RPCError("not found", temporalio.service.RPCStatusCode.NOT_FOUND, b"")
+            mock_delete_schedule.side_effect = rpc_error
+
+            response = self.client.delete(f"/api/environments/{team.id}")
+            assert response.status_code == 204
 
         @freeze_time("2022-02-08")
         def test_reset_token(self):
@@ -1277,7 +1308,7 @@ def team_api_test_factory():
         ) -> None:
             response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
 
-            assert response.json() == {
+            assert cast(Any, response).json() == {
                 "attr": "session_recording_linked_flag",
                 "code": expected_code,
                 "detail": expected_error,
@@ -1409,7 +1440,7 @@ def team_api_test_factory():
             response = self._patch_session_replay_config(
                 {"ai_config": provided_value}, expected_status=status.HTTP_400_BAD_REQUEST
             )
-            assert response.json() == {
+            assert cast(Any, response).json() == {
                 "attr": "session_replay_config",
                 "code": expected_code,
                 "detail": expected_error,
@@ -2051,7 +2082,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 16}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
                 assert not hasattr(response.json()["logs_settings"], "retention_last_updated")
@@ -2060,7 +2091,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 15}},
+                    {"logs_settings": {"retention_days": 14}},
                 )
                 assert response.status_code == status.HTTP_200_OK
                 assert response.json()["logs_settings"]["retention_last_updated"] is not None
@@ -2069,7 +2100,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T12:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 20}},
+                    {"logs_settings": {"retention_days": 90}},
                 )
                 assert response.status_code == status.HTTP_400_BAD_REQUEST
                 assert "24 hours" in response.json()["detail"]
@@ -2078,23 +2109,34 @@ def team_api_test_factory():
             with freeze_time("2025-01-02T00:00:01Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 20}},
+                    {"logs_settings": {"retention_days": 90}},
                 )
                 assert response.status_code == status.HTTP_200_OK
+
+        def test_logs_settings_retention_invalid_values_rejected(self):
+            for invalid_days in [7, 15, 20, 45, 100]:
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": invalid_days}},
+                )
+                assert response.status_code == status.HTTP_400_BAD_REQUEST, (
+                    f"Expected 400 for retention_days={invalid_days}"
+                )
+                assert "retention_days must be one of" in response.json()["detail"]
 
         def test_logs_settings_non_retention_changes_not_restricted(self):
             # Set initial retention
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 16}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 15}},
+                    {"logs_settings": {"retention_days": 14}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
@@ -2104,7 +2146,7 @@ def team_api_test_factory():
                     "/api/environments/@current/",
                     {
                         "logs_settings": {
-                            "retention_days": 15,  # Same retention
+                            "retention_days": 14,  # Same retention
                             "json_parse_logs": True,
                         }
                     },
@@ -2117,7 +2159,7 @@ def team_api_test_factory():
                     "/api/environments/@current/",
                     {
                         "logs_settings": {
-                            "retention_days": 16,
+                            "retention_days": 30,
                         }
                     },
                 )
@@ -2285,6 +2327,457 @@ def team_api_test_factory():
                 1,
             )
 
+        def test_can_set_session_recording_trigger_groups(self):
+            """Test that we can create and update session_recording_trigger_groups field"""
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "test-group-1",
+                        "name": "Test Group",
+                        "sampleRate": 0.5,
+                        "minDurationMs": 5000,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": ["pageview"],
+                            "flag": "test-flag-key",
+                        },
+                    }
+                ],
+            }
+
+            # Test creating with trigger groups
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+            # Test that it persisted
+            self.team.refresh_from_db()
+            assert self.team.session_recording_trigger_groups == trigger_groups
+
+            # Test updating
+            trigger_groups["groups"][0]["sampleRate"] = 1.0  # type: ignore
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"]["groups"][0]["sampleRate"] == 1.0
+
+            # Test clearing (set to null)
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": None},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] is None
+
+        @parameterized.expand(
+            [
+                (
+                    "missing_version",
+                    {"groups": []},
+                    "version",
+                ),
+                (
+                    "invalid_version",
+                    {"version": 1, "groups": []},
+                    "version",
+                ),
+                (
+                    "missing_groups",
+                    {"version": 2},
+                    "groups",
+                ),
+                (
+                    "invalid_sample_rate_above_one",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 1.5,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "samplerate",
+                ),
+                (
+                    "negative_sample_rate",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": -0.1,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "samplerate",
+                ),
+                (
+                    "invalid_match_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {"matchType": "invalid"},
+                            }
+                        ],
+                    },
+                    "matchtype",
+                ),
+                (
+                    "invalid_regex",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "urls": [{"url": "[invalid(regex", "matching": "regex"}],
+                                },
+                            }
+                        ],
+                    },
+                    "regex",
+                ),
+                (
+                    "invalid_min_duration_negative",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": -100,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "invalid_min_duration_too_large",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": 40000,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "invalid_min_duration_boolean",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "minDurationMs": True,
+                                "conditions": {"matchType": "any"},
+                            }
+                        ],
+                    },
+                    "mindurationms",
+                ),
+                (
+                    "event_object_missing_name",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [{"properties": []}],
+                                },
+                            }
+                        ],
+                    },
+                    "name",
+                ),
+                (
+                    "event_invalid_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [123],
+                                },
+                            }
+                        ],
+                    },
+                    "string or object",
+                ),
+                (
+                    "event_property_missing_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [{"key": "amount", "operator": "gt", "value": 100}],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "type",
+                ),
+                (
+                    "event_property_invalid_type",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [
+                                                {"key": "amount", "type": "hogql", "operator": "gt", "value": 100}
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "type",
+                ),
+                (
+                    "event_property_missing_key",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [{"type": "event", "operator": "exact", "value": "foo"}],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "key",
+                ),
+                (
+                    "event_property_invalid_operator",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [
+                                        {
+                                            "name": "purchase",
+                                            "properties": [
+                                                {"key": "amount", "type": "event", "operator": "banana", "value": 100}
+                                            ],
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "invalid operator",
+                ),
+                (
+                    "group_level_property_invalid_operator",
+                    {
+                        "version": 2,
+                        "groups": [
+                            {
+                                "id": "test",
+                                "sampleRate": 0.5,
+                                "conditions": {
+                                    "matchType": "any",
+                                    "events": [{"name": "error"}],
+                                    "properties": [
+                                        {"key": "country", "type": "person", "operator": "banana", "value": "US"}
+                                    ],
+                                },
+                            }
+                        ],
+                    },
+                    "invalid operator",
+                ),
+            ]
+        )
+        def test_session_recording_trigger_groups_validation_errors(
+            self, name: str, trigger_groups: dict, expected_error_fragment: str
+        ):
+            """Test various validation failures for trigger groups"""
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert expected_error_fragment in str(response.json()).lower()
+
+        def test_session_recording_trigger_groups_complex_valid_config(self):
+            """Test that complex valid configurations pass validation"""
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "errors",
+                        "name": "Error Tracking",
+                        "sampleRate": 1.0,
+                        "minDurationMs": 0,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": ["error", "crash"],
+                            "urls": [{"url": "/checkout.*", "matching": "regex"}],
+                        },
+                    },
+                    {
+                        "id": "feature-flag",
+                        "name": "Feature Flag Testing",
+                        "sampleRate": 0.5,
+                        "minDurationMs": 10000,
+                        "conditions": {
+                            "matchType": "all",
+                            "flag": {"key": "variant-test", "variant": "control"},
+                        },
+                    },
+                    {
+                        "id": "simple-flag",
+                        "name": "Simple Flag",
+                        "sampleRate": 0.3,
+                        "conditions": {
+                            "matchType": "any",
+                            "flag": "simple-feature-flag",
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+        def test_session_recording_trigger_groups_with_event_objects_and_properties(self):
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "rich-events",
+                        "name": "Events with WHERE clauses",
+                        "sampleRate": 1.0,
+                        "conditions": {
+                            "matchType": "all",
+                            "events": [
+                                "simple_event",
+                                {
+                                    "name": "purchase",
+                                    "properties": [
+                                        {"key": "amount", "type": "event", "operator": "gt", "value": 100},
+                                        {"key": "currency", "type": "event", "operator": "exact", "value": "USD"},
+                                    ],
+                                },
+                                {"name": "$exception"},
+                            ],
+                            "urls": [
+                                {
+                                    "url": "/checkout.*",
+                                    "matching": "regex",
+                                }
+                            ],
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
+        def test_session_recording_trigger_groups_with_group_level_properties(self):
+            trigger_groups = {
+                "version": 2,
+                "groups": [
+                    {
+                        "id": "us-errors",
+                        "name": "US errors on checkout",
+                        "sampleRate": 1.0,
+                        "conditions": {
+                            "matchType": "any",
+                            "events": [{"name": "$exception"}, {"name": "purchase_error"}],
+                            "properties": [
+                                {
+                                    "key": "$current_url",
+                                    "type": "event",
+                                    "operator": "icontains",
+                                    "value": ["checkout.acme.com", "payments.acme.com"],
+                                },
+                                {"key": "country", "type": "person", "operator": "exact", "value": "US"},
+                            ],
+                        },
+                    },
+                ],
+            }
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/",
+                {"session_recording_trigger_groups": trigger_groups},
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["session_recording_trigger_groups"] == trigger_groups
+
     return TestTeamAPI
 
 
@@ -2342,16 +2835,20 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
             scoped_teams=[other_team_in_project.id],
+            scopes=["*"],
         )
 
+        # Team-scoped keys cannot list all environments — they can only access specific teams directly
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            {team["id"] for team in response.json()["results"]},
-            {other_team_in_project.id},
-            "Only the scoped team listed here, the other two should be excluded",
+        # But they can access the scoped team directly
+        response = self.client.get(
+            f"/api/environments/{other_team_in_project.id}/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
         )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], other_team_in_project.id)
 
     def test_teams_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, __, team_in_other_org = Organization.objects.bootstrap(self.user)
@@ -2362,6 +2859,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
             scoped_organizations=[other_org.id],
+            scopes=["*"],
         )
 
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})

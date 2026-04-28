@@ -87,6 +87,11 @@ impl DatabasePoolMonitor {
                 .await?;
         }
 
+        if let Some(ref pool) = self.database_pools.behavioral_cohorts_reader {
+            self.collect_single_pool_metrics(pool, "behavioral_cohorts_reader")
+                .await?;
+        }
+
         Ok(())
     }
 

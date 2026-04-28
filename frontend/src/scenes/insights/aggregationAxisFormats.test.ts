@@ -1,5 +1,6 @@
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
 describe('formatAggregationAxisValue', () => {
@@ -34,6 +35,17 @@ describe('formatAggregationAxisValue', () => {
             },
             expected: '£3,940💖',
         },
+        {
+            candidate: 3940,
+            filters: { aggregation_axis_format: 'currency' },
+            expected: '$3,940.00',
+        },
+        {
+            candidate: 3940,
+            filters: { aggregation_axis_format: 'currency' },
+            currency: 'EUR' as CurrencyCode,
+            expected: '€3,940.00',
+        },
         { candidate: 0.8709423, filters: {}, expected: '0.87' },
         { candidate: 0.8709423, filters: { decimal_places: 2 }, expected: '0.87' },
         { candidate: 0.8709423, filters: { decimal_places: 3 }, expected: '0.871' },
@@ -41,13 +53,18 @@ describe('formatAggregationAxisValue', () => {
         { candidate: 0.8709423, filters: { decimal_places: 9 }, expected: '0.8709423' },
         { candidate: 0.8709423, filters: { decimal_places: -1 }, expected: '0.87' }, // Fall back to default for unsupported values
     ]
+
     formatTestcases.forEach((testcase) => {
         it(`correctly formats "${testcase.candidate}" as ${testcase.expected} when filters are ${JSON.stringify(
             testcase.filters
         )}`, () => {
-            expect(formatAggregationAxisValue(testcase.filters as Partial<FilterType>, testcase.candidate)).toEqual(
-                testcase.expected
-            )
+            expect(
+                formatAggregationAxisValue(
+                    testcase.filters as Partial<FilterType>,
+                    testcase.candidate,
+                    testcase.currency
+                )
+            ).toEqual(testcase.expected)
         })
     })
 })

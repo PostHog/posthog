@@ -66,9 +66,14 @@ class TestFakePersonHogClientPersons:
                 team_id=1, distinct_ids=["user@example.com", "anon-1", "user2@example.com"]
             )
         )
-        assert len(resp.results) == 2
-        person_ids = {r.person.id for r in resp.results}
-        assert person_ids == {10, 20}
+        # The real service returns one result per requested distinct_id (no dedup by person).
+        # "user@example.com" and "anon-1" both map to person 10, so we get 3 results.
+        assert len(resp.results) == 3
+        assert [(r.distinct_id, r.person.id) for r in resp.results] == [
+            ("user@example.com", 10),
+            ("anon-1", 10),
+            ("user2@example.com", 20),
+        ]
 
 
 class TestFakePersonHogClientGroups:

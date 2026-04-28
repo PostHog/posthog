@@ -55,6 +55,9 @@ export const dataWarehouseManagedViewsetsLogic = kea<dataWarehouseManagedViewset
                     // If enabling, proceed directly
                     try {
                         await api.dataWarehouseManagedViewsets.toggle(kind, true)
+                        if (kind === 'revenue_analytics') {
+                            await api.revenueAnalyticsJoins.sync(true)
+                        }
                         lemonToast.success(`Viewset enabled successfully`)
                         actions.loadCurrentTeam()
                     } catch (error: any) {

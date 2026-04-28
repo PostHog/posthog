@@ -2,11 +2,12 @@ use crate::api::{errors::FlagError, rate_parser::parse_rate_string};
 use common_metrics::inc;
 use common_types::TeamId;
 use governor::{clock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::hash::Hash;
 use std::num::NonZeroU32;
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 use tracing::{info, warn};
 
 /// Type alias for a keyed rate limiter
@@ -42,11 +43,22 @@ where
     /// Wrapped in RwLock for thread-safe access
     custom_limiters: CustomLimitersMap<K>,
 
+    /// Keys that bypass rate limiting entirely.
+    /// Wrapped in Arc<RwLock<>> so the request handler can update it from the database.
+    allowlist: Arc<RwLock<HashSet<K>>>,
+
+    /// Timestamp of the last allowlist refresh from the database.
+    /// Used to implement a TTL cache — only re-query when stale.
+    allowlist_last_refreshed: Arc<RwLock<Instant>>,
+
     /// Prometheus metric name for total requests
     request_counter: &'static str,
 
     /// Prometheus metric name for rate limited requests
     limited_counter: &'static str,
+
+    /// Prometheus metric name for rate limit bypassed requests
+    bypassed_counter: &'static str,
 }
 
 /// Type alias for flag definitions rate limiting (per-team)
@@ -61,16 +73,20 @@ where
     /// # Arguments
     /// * `default_rate_per_minute` - Default rate limit for keys without custom rates (requests per minute)
     /// * `custom_rates` - HashMap of key → rate string (e.g., "1200/minute")
+    /// * `allowlist` - Set of keys that bypass rate limiting entirely
     /// * `request_counter` - Prometheus metric name for total requests
     /// * `limited_counter` - Prometheus metric name for rate limited requests
+    /// * `bypassed_counter` - Prometheus metric name for rate limit bypassed requests
     ///
     /// # Returns
     /// A new limiter instance, or an error if any custom rate string is invalid
     pub fn new(
         default_rate_per_minute: u32,
         custom_rates: HashMap<K, String>,
+        allowlist: HashSet<K>,
         request_counter: &'static str,
         limited_counter: &'static str,
+        bypassed_counter: &'static str,
     ) -> Result<Self, String> {
         // Create default limiter using configured rate
         let default_quota = Quota::per_minute(
@@ -107,11 +123,21 @@ where
 
         let custom_limiters = Arc::new(RwLock::new(custom_limiters_map));
 
+        if !allowlist.is_empty() {
+            info!(count = allowlist.len(), "Configured rate limit allowlist");
+        }
+
         Ok(KeyedRateLimiter {
             default_limiter,
             custom_limiters,
+            allowlist: Arc::new(RwLock::new(allowlist)),
+            // Start stale so the first request triggers a DB refresh
+            allowlist_last_refreshed: Arc::new(RwLock::new(
+                Instant::now() - std::time::Duration::from_secs(3600),
+            )),
             request_counter,
             limited_counter,
+            bypassed_counter,
         })
     }
 
@@ -141,6 +167,19 @@ where
         );
 
         if is_rate_limited {
+            // Allowlisted keys bypass rate limiting when they would be limited.
+            // Matches Django's behavior: the bypassed counter only fires for
+            // requests that exceed the limit but are allowed through.
+            let allowlist = self.allowlist.read().unwrap();
+            if allowlist.contains(&key) {
+                inc(
+                    self.bypassed_counter,
+                    &[("key".to_string(), key.to_string())],
+                    1,
+                );
+                return Ok(());
+            }
+
             // Track rate-limited requests
             inc(
                 self.limited_counter,
@@ -162,6 +201,61 @@ where
     /// Get the number of keys with custom rate limits configured
     pub fn custom_rate_count(&self) -> usize {
         self.custom_limiters.read().unwrap().len()
+    }
+
+    /// Get the number of keys in the rate limit allowlist
+    pub fn allowlist_count(&self) -> usize {
+        self.allowlist.read().unwrap().len()
+    }
+
+    /// Replace the allowlist with a new set of keys and mark it as freshly refreshed.
+    /// Called by the request handler when the cached DB value is stale.
+    pub fn update_allowlist(&self, new_allowlist: HashSet<K>) {
+        let (old_count, new_count) = {
+            let mut allowlist = self.allowlist.write().unwrap();
+            let old_count = allowlist.len();
+            *allowlist = new_allowlist;
+            (old_count, allowlist.len())
+        }; // allowlist lock dropped here
+        if old_count != new_count {
+            info!(old_count, new_count, "Rate limit allowlist updated");
+        }
+        *self.allowlist_last_refreshed.write().unwrap() = Instant::now();
+    }
+
+    /// Returns true if the allowlist cache is stale and should be refreshed from the database.
+    pub fn is_allowlist_stale(&self, ttl_secs: u64) -> bool {
+        self.allowlist_last_refreshed
+            .read()
+            .unwrap()
+            .elapsed()
+            .as_secs()
+            >= ttl_secs
+    }
+
+    /// Atomically checks if the allowlist is stale and marks it as refreshed if so.
+    /// Returns true if this caller should perform the refresh (won the race).
+    /// Prevents stampeding: only the first caller at the TTL boundary proceeds.
+    pub fn claim_allowlist_refresh(&self, ttl_secs: u64) -> bool {
+        let mut last_refreshed = self.allowlist_last_refreshed.write().unwrap();
+        if last_refreshed.elapsed().as_secs() >= ttl_secs {
+            *last_refreshed = Instant::now();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Mark the allowlist refresh timestamp without changing the allowlist contents.
+    /// Used when the DB query fails — avoids retrying on every request.
+    pub fn mark_allowlist_refreshed(&self) {
+        *self.allowlist_last_refreshed.write().unwrap() = Instant::now();
+    }
+
+    /// Force the allowlist to be considered stale, triggering a DB refresh on the next request.
+    pub fn invalidate_allowlist(&self) {
+        *self.allowlist_last_refreshed.write().unwrap() =
+            Instant::now() - std::time::Duration::from_secs(3600);
     }
 
     /// Removes stale entries and reclaims memory across all limiters.
@@ -203,20 +297,31 @@ where
 mod tests {
     use super::*;
     use crate::metrics::consts::{
-        FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+        FLAG_DEFINITIONS_REQUESTS_COUNTER,
     };
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use tokio::time::{sleep, Duration};
+
+    fn make_limiter(
+        default_rate: u32,
+        custom_rates: HashMap<TeamId, String>,
+        allowlist: HashSet<TeamId>,
+    ) -> FlagDefinitionsRateLimiter {
+        FlagDefinitionsRateLimiter::new(
+            default_rate,
+            custom_rates,
+            allowlist,
+            FLAG_DEFINITIONS_REQUESTS_COUNTER,
+            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+            FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+        )
+        .unwrap()
+    }
 
     #[test]
     fn test_new_limiter_with_no_custom_rates() {
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            HashMap::new(),
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
         assert_eq!(limiter.custom_rate_count(), 0);
     }
 
@@ -226,13 +331,7 @@ mod tests {
         custom_rates.insert(123, "1200/minute".to_string());
         custom_rates.insert(456, "2400/hour".to_string());
 
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
         assert_eq!(limiter.custom_rate_count(), 2);
     }
 
@@ -243,25 +342,13 @@ mod tests {
         custom_rates.insert(456, "1200/minute".to_string());
 
         // Should succeed but only configure the valid rate
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
         assert_eq!(limiter.custom_rate_count(), 1);
     }
 
     #[tokio::test]
     async fn test_default_rate_limit_allows_requests() {
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            HashMap::new(),
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
 
         // First request should succeed
         assert!(limiter.check_rate_limit(999).is_ok());
@@ -273,13 +360,7 @@ mod tests {
         // Very low limit for testing: 1 per second
         custom_rates.insert(123, "1/second".to_string());
 
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
 
         // First request should succeed
         assert!(limiter.check_rate_limit(123).is_ok());
@@ -293,13 +374,7 @@ mod tests {
         let mut custom_rates = HashMap::new();
         custom_rates.insert(123, "1/second".to_string());
 
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
 
         // Team 123 first request succeeds
         assert!(limiter.check_rate_limit(123).is_ok());
@@ -317,13 +392,7 @@ mod tests {
         // 1 per second - should reset after 1 second
         custom_rates.insert(123, "1/second".to_string());
 
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
 
         // First request succeeds
         assert!(limiter.check_rate_limit(123).is_ok());
@@ -340,13 +409,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_access() {
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            HashMap::new(),
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
         let limiter_clone = limiter.clone();
 
         // Spawn multiple tasks checking rate limits concurrently
@@ -373,13 +436,7 @@ mod tests {
         let mut custom_rates = HashMap::new();
         custom_rates.insert(123, "1/second".to_string());
 
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            custom_rates,
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
+        let limiter = make_limiter(600, custom_rates, HashSet::new());
 
         // Use up the rate limit
         drop(limiter.check_rate_limit(123));
@@ -398,14 +455,85 @@ mod tests {
 
     #[test]
     fn test_len_returns_zero_for_new_limiter() {
-        let limiter = FlagDefinitionsRateLimiter::new(
-            600,
-            HashMap::new(),
-            FLAG_DEFINITIONS_REQUESTS_COUNTER,
-            FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
-        )
-        .unwrap();
-
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
         assert_eq!(limiter.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_allowlisted_team_bypasses_rate_limit() {
+        let mut custom_rates = HashMap::new();
+        custom_rates.insert(123, "1/second".to_string());
+
+        let limiter = make_limiter(600, custom_rates, HashSet::from([123]));
+
+        // Even with 1/second rate, allowlisted team is never rate limited
+        for _ in 0..100 {
+            assert!(limiter.check_rate_limit(123).is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_non_allowlisted_team_still_rate_limited() {
+        let mut custom_rates = HashMap::new();
+        custom_rates.insert(456, "1/second".to_string());
+
+        let limiter = make_limiter(600, custom_rates, HashSet::from([123]));
+
+        // Non-allowlisted team 456 is still rate limited
+        assert!(limiter.check_rate_limit(456).is_ok());
+        assert!(limiter.check_rate_limit(456).is_err());
+    }
+
+    #[test]
+    fn test_allowlist_count() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::from([123, 456]));
+        assert_eq!(limiter.allowlist_count(), 2);
+    }
+
+    #[test]
+    fn test_empty_allowlist() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        assert_eq!(limiter.allowlist_count(), 0);
+    }
+
+    #[test]
+    fn test_allowlist_starts_stale() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        assert!(limiter.is_allowlist_stale(60));
+    }
+
+    #[test]
+    fn test_update_allowlist_marks_as_fresh() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        limiter.update_allowlist(HashSet::from([123]));
+        assert!(!limiter.is_allowlist_stale(60));
+        assert_eq!(limiter.allowlist_count(), 1);
+    }
+
+    #[test]
+    fn test_mark_allowlist_refreshed_without_changing_data() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        assert!(limiter.is_allowlist_stale(60));
+        limiter.mark_allowlist_refreshed();
+        assert!(!limiter.is_allowlist_stale(60));
+        assert_eq!(limiter.allowlist_count(), 0);
+    }
+
+    #[test]
+    fn test_claim_allowlist_refresh_only_first_caller_wins() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        // First claim should succeed (starts stale)
+        assert!(limiter.claim_allowlist_refresh(60));
+        // Second claim should fail (just marked as fresh)
+        assert!(!limiter.claim_allowlist_refresh(60));
+    }
+
+    #[test]
+    fn test_invalidate_allowlist_makes_stale() {
+        let limiter = make_limiter(600, HashMap::new(), HashSet::new());
+        limiter.mark_allowlist_refreshed();
+        assert!(!limiter.is_allowlist_stale(60));
+        limiter.invalidate_allowlist();
+        assert!(limiter.is_allowlist_stale(60));
     }
 }

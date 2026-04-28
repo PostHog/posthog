@@ -15,9 +15,10 @@ import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { parseJSON } from '../../utils/json-parse'
 import { promisifyCallback } from '../../utils/utils'
+import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, cdpTrackedFetch, isConnectionLevelError, shadowFetchContext } from './hog-executor.service'
+import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -99,6 +100,7 @@ describe('Hog Executor', () => {
             const result = await executor.execute(invocation)
             expect(result).toEqual({
                 capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,
@@ -729,6 +731,30 @@ describe('Hog Executor', () => {
             `)
         })
 
+        it('falls back to person.id for distinct_id when event.distinct_id is empty (batch invocations)', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.posthog_capture,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const globals = createHogExecutionGlobals({
+                groups: {},
+                event: {
+                    distinct_id: '',
+                } as any,
+                person: {
+                    id: 'person-uuid-123',
+                    name: 'Batch Person',
+                    url: 'http://localhost:8000/persons/1',
+                    properties: { email: 'batch@posthog.com' },
+                },
+            } as any)
+            const result = await executor.execute(createExampleInvocation(fn, globals))
+            expect(result?.capturedPostHogEvents).toHaveLength(1)
+            expect(result?.capturedPostHogEvents[0].distinct_id).toBe('person-uuid-123')
+        })
+
         it('allows events that have already used their postHogCapture a maximum of 10 times', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
@@ -816,7 +842,7 @@ describe('Hog Executor', () => {
         it('postHogGetTicket queues internal fetch with correct params', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
@@ -827,14 +853,14 @@ describe('Hog Executor', () => {
                 type: 'fetch',
                 url: `${hub.SITE_URL}/api/conversations/external/ticket/test-ticket-123`,
                 method: 'GET',
-                headers: { Authorization: 'Bearer test-api-token' },
+                headers: { Authorization: 'Bearer test-secret-token' },
             })
         })
 
         it('postHogUpdateTicket queues internal fetch with correct params', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogUpdateTicket', [
@@ -850,7 +876,7 @@ describe('Hog Executor', () => {
                 body: JSON.stringify({ status: 'resolved', priority: 'high' }),
                 headers: {
                     'Content-Type': 'application/json',
-                    Authorization: 'Bearer test-api-token',
+                    Authorization: 'Bearer test-secret-token',
                 },
             })
         })
@@ -858,7 +884,7 @@ describe('Hog Executor', () => {
         it('postHogGetTicket errors when ticket_id is missing', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogGetTicket', [{}])
@@ -870,7 +896,7 @@ describe('Hog Executor', () => {
         it('postHogUpdateTicket errors when ticket_id is missing', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogUpdateTicket', [{ updates: { status: 'resolved' } }])
@@ -886,6 +912,47 @@ describe('Hog Executor', () => {
 
             const result = await executor.execute(createTicketInvocation())
             expect(result.error).toContain('Team 1 not found')
+        })
+    })
+
+    describe('produceToWarehouseWebhooks', () => {
+        const buildInvocation = async (code: string): Promise<CyclotronJobInvocationHogFunction> => {
+            const bytecode = await compileHog(code)
+            return createExampleInvocation(createHogFunction({ bytecode }), { inputs: {} })
+        }
+
+        // Regression test for a stack-empty crash when an async function with no
+        // meaningful return value is called as an expression statement.
+        // The bytecode compiler emits a trailing POP after every expression
+        // statement, but the generic async function path in execute() never pushed
+        // a return value onto the resumed VM stack — so when the cyclotron worker
+        // resumed the invocation, the POP fired against an empty stack and raised
+        // "Invalid HogQL bytecode, stack is empty, can not pop".
+        it('finishes cleanly when called as an expression statement', async () => {
+            const invocation = await buildInvocation(`produceToWarehouseWebhooks({'foo': 'bar'}, 'test-schema-id')`)
+
+            const result = await executor.executeWithAsyncFunctions(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.finished).toBe(true)
+            expect(result.warehouseWebhookPayloads).toHaveLength(1)
+            expect(result.warehouseWebhookPayloads[0]).toMatchObject({
+                schema_id: 'test-schema-id',
+                payload: { foo: 'bar' },
+            })
+        })
+
+        it('finishes cleanly when followed by another statement', async () => {
+            const invocation = await buildInvocation(
+                `produceToWarehouseWebhooks({'foo': 'bar'}, 'test-schema-id')
+                 print('after produce')`
+            )
+
+            const result = await executor.executeWithAsyncFunctions(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.finished).toBe(true)
+            expect(result.warehouseWebhookPayloads).toHaveLength(1)
         })
     })
 
@@ -1102,6 +1169,25 @@ describe('Hog Executor', () => {
             expect(result.error).toBeInstanceOf(Error)
             expect(result.error.message).toContain(`HTTP fetch failed on attempt ${maxRetries}`)
             expect(result.error.message).toContain('with status code 500')
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+        })
+
+        it('respects maxFetchRetries option to disable retries', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                res.writeHead(500, { 'Content-Type': 'text/plain' })
+                res.end('server error')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+            })
+
+            const result = await executor.executeWithAsyncFunctions(invocation, { maxFetchRetries: 0 })
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toBeInstanceOf(Error)
+            expect(result.error!.message).toContain('HTTP fetch failed on attempt 1')
             expect(result.invocation.queueScheduledAt).toBeUndefined()
         })
 
@@ -1365,117 +1451,6 @@ describe('Hog Executor', () => {
                   },
                 ]
             `)
-        })
-    })
-
-    describe('shadowFetchContext', () => {
-        beforeEach(() => {
-            jest.mocked(fetch).mockClear()
-        })
-
-        it('returns no-op response when inside shadow context', async () => {
-            const result = await shadowFetchContext.run(true, () =>
-                cdpTrackedFetch({
-                    url: 'http://should-not-be-called.example.com/test',
-                    fetchParams: { method: 'GET' },
-                    templateId: 'test-template',
-                })
-            )
-
-            expect(result.fetchError).toBeNull()
-            expect(result.fetchResponse?.status).toBe(200)
-            expect(result.fetchDuration).toBe(0)
-            expect(fetch).not.toHaveBeenCalled()
-        })
-
-        it('makes real HTTP request when outside shadow context', async () => {
-            jest.mocked(fetch).mockResolvedValueOnce({
-                status: 200,
-                headers: {},
-            } as any)
-
-            const result = await cdpTrackedFetch({
-                url: 'http://example.com/test',
-                fetchParams: { method: 'GET' },
-                templateId: 'test-template',
-            })
-
-            expect(fetch).toHaveBeenCalledWith('http://example.com/test', { method: 'GET' })
-            expect(result.fetchResponse?.status).toBe(200)
-        })
-
-        it('retries immediately on connection-level errors and returns success', async () => {
-            const connectionError = Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })
-            jest.mocked(fetch)
-                .mockRejectedValueOnce(connectionError)
-                .mockResolvedValueOnce({ status: 200, headers: {} } as any)
-
-            const result = await cdpTrackedFetch({
-                url: 'http://example.com/test',
-                fetchParams: { method: 'POST' },
-                templateId: 'test-template',
-            })
-
-            expect(fetch).toHaveBeenCalledTimes(2)
-            expect(result.fetchError).toBeNull()
-            expect(result.fetchResponse?.status).toBe(200)
-        })
-
-        it('exhausts connection retries and surfaces the error', async () => {
-            const connectionError = Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })
-            jest.mocked(fetch).mockRejectedValue(connectionError)
-
-            const result = await cdpTrackedFetch({
-                url: 'http://example.com/test',
-                fetchParams: { method: 'POST' },
-                templateId: 'test-template',
-            })
-
-            expect(fetch).toHaveBeenCalledTimes(2)
-            expect(result.fetchError?.message).toBe('other side closed')
-            expect(result.fetchResponse).toBeNull()
-        })
-
-        it('does not retry at client-level on non-connection errors', async () => {
-            jest.mocked(fetch).mockRejectedValueOnce(new Error('some other error'))
-
-            const result = await cdpTrackedFetch({
-                url: 'http://example.com/test',
-                fetchParams: { method: 'POST' },
-                templateId: 'test-template',
-            })
-
-            expect(fetch).toHaveBeenCalledTimes(1)
-            expect(result.fetchError?.message).toBe('some other error')
-        })
-
-        it('isolates shadow context from concurrent non-shadow fetches', async () => {
-            jest.mocked(fetch).mockResolvedValue({
-                status: 200,
-                headers: {},
-            } as any)
-
-            const [shadowResult, normalResult] = await Promise.all([
-                shadowFetchContext.run(true, () =>
-                    cdpTrackedFetch({
-                        url: 'http://shadow.example.com/test',
-                        fetchParams: { method: 'GET' },
-                        templateId: 'shadow-template',
-                    })
-                ),
-                cdpTrackedFetch({
-                    url: 'http://normal.example.com/test',
-                    fetchParams: { method: 'GET' },
-                    templateId: 'normal-template',
-                }),
-            ])
-
-            expect(shadowResult.fetchDuration).toBe(0)
-            expect(shadowResult.fetchResponse?.status).toBe(200)
-
-            expect(fetch).toHaveBeenCalledTimes(1)
-            expect(fetch).toHaveBeenCalledWith('http://normal.example.com/test', { method: 'GET' })
-            expect(normalResult.fetchResponse?.status).toBe(200)
         })
     })
 

@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
@@ -72,8 +71,6 @@ const cdpHttpRequestTimingRetried = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
-export const shadowFetchContext = new AsyncLocalStorage<boolean>()
-
 // Stale keep-alive connections produce these errors when the server has closed its end before
 // we reuse the socket. A single in-process retry on a fresh connection may resolve them immediately.
 export function isConnectionLevelError(error: any): boolean {
@@ -95,20 +92,6 @@ export async function cdpTrackedFetch({
     fetchParams: FetchOptions
     templateId: string
 }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
-    if (shadowFetchContext.getStore()) {
-        return {
-            fetchError: null,
-            fetchResponse: {
-                status: 200,
-                headers: {},
-                text: () => Promise.resolve(''),
-                json: () => Promise.resolve(null),
-                dump: () => Promise.resolve(),
-            },
-            fetchDuration: 0,
-        }
-    }
-
     const start = performance.now()
 
     let [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
@@ -192,6 +175,7 @@ export type HogExecutorExecuteOptions = {
 
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     maxAsyncFunctions?: number
+    maxFetchRetries?: number
 }
 
 export class HogExecutorService {
@@ -355,7 +339,7 @@ export class HogExecutorService {
                 }
 
                 if (queueParamsType === 'fetch') {
-                    result = await this.executeFetch(nextInvocation)
+                    result = await this.executeFetch(nextInvocation, options)
                 } else if (queueParamsType === 'email') {
                     result = await this.emailService.executeSendEmail(nextInvocation)
                 } else {
@@ -397,7 +381,13 @@ export class HogExecutorService {
         options: HogExecutorExecuteOptions = {},
         previousResult: Pick<
             Partial<CyclotronJobInvocationResult>,
-            'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error' | 'execResult'
+            | 'finished'
+            | 'capturedPostHogEvents'
+            | 'warehouseWebhookPayloads'
+            | 'logs'
+            | 'metrics'
+            | 'error'
+            | 'execResult'
         > = {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const loggingContext = {
@@ -483,7 +473,7 @@ export class HogExecutorService {
                                 : null
                         },
                         postHogCapture: (event) => {
-                            const distinctId = event.distinct_id || globals.event?.distinct_id
+                            const distinctId = event.distinct_id || globals.event?.distinct_id || globals.person?.id
                             const eventName = event.event
                             const eventProperties = event.properties || {}
 
@@ -569,6 +559,11 @@ export class HogExecutorService {
                     if (!handler) {
                         throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }
+                    // Async handlers are responsible for ensuring the resumed VM stack contains
+                    // their return value before it next runs - either by pushing directly onto
+                    // result.invocation.state.vmState.stack (synchronous handlers) or by deferring
+                    // the push to executeFetch / executeSendEmail (queueing handlers). See the
+                    // RETURN-VALUE CONTRACT comment in cdp/async-functions/example.ts.
                     await handler.execute(
                         args,
                         { invocation: result.invocation, globals, ...this.asyncContext },
@@ -614,7 +609,8 @@ export class HogExecutorService {
 
     @instrumented('hog-executor.executeFetch')
     async executeFetch(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        options?: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const templateId = invocation.hogFunction.template_id ?? 'unknown'
         if (invocation.queueParameters?.type !== 'fetch') {
@@ -655,10 +651,7 @@ export class HogExecutorService {
 
                     params.body = params.body ? replace(params.body) : params.body
                     headers = Object.fromEntries(
-                        Object.entries(params.headers ?? {}).map(([key, value]) => [
-                            key,
-                            typeof value === 'string' ? replace(value) : value,
-                        ])
+                        Object.entries(params.headers ?? {}).map(([key, value]) => [key, replace(value)])
                     )
                     params.url = replace(params.url)
                 }
@@ -707,7 +700,8 @@ export class HogExecutorService {
 
             addLog('error', message)
 
-            if (canRetry && result.invocation.state.attempts < this.config.fetchRetries) {
+            const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
+            if (canRetry && result.invocation.state.attempts < maxRetries) {
                 await fetchResponse?.dump()
                 result.invocation.queue = 'hog'
                 result.invocation.queueParameters = params
@@ -730,7 +724,7 @@ export class HogExecutorService {
             if (typeof body === 'string') {
                 try {
                     body = parseJSON(body)
-                } catch (e) {
+                } catch {
                     // Pass through the error
                 }
             }

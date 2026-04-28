@@ -125,7 +125,9 @@ class TestGetGroupTypesForProjectRouting(SimpleTestCase):
         else:
             assert result == ORM_DATA
 
-        mock_routing_counter.labels.assert_called_with(operation="get_group_types_for_project", source=expected_source)
+        mock_routing_counter.labels.assert_called_with(
+            operation="get_group_types_for_project", source=expected_source, client_name="posthog-django"
+        )
 
         if grpc_exception is not None and gate_on:
             mock_errors_counter.labels.assert_called_once()

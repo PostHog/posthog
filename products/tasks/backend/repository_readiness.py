@@ -12,9 +12,8 @@ from django.utils import timezone
 import requests
 
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.security.outbound_proxy import external_requests
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.facade import api as error_tracking_api
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.tasks.backend.models import Task
 
@@ -126,10 +125,18 @@ def _refresh_installation_token(integration: Integration) -> None:
         return
 
 
-def _github_get(access_token: str, path: str, params: dict[str, Any] | None = None) -> requests.Response:
+def _github_get(
+    github: GitHubIntegration,
+    access_token: str,
+    path: str,
+    *,
+    endpoint: str,
+    params: dict[str, str | int] | None = None,
+) -> requests.Response:
     url = f"https://api.github.com{path}"
-    return external_requests.get(
+    return github._github_api_get(
         url,
+        endpoint=endpoint,
         params=params,
         timeout=GITHUB_REQUEST_TIMEOUT_SECONDS,
         headers={
@@ -140,8 +147,15 @@ def _github_get(access_token: str, path: str, params: dict[str, Any] | None = No
     )
 
 
-def _fetch_repository_tree(access_token: str, repository: str) -> tuple[list[str], str | None]:
-    repo_response = _github_get(access_token, f"/repos/{repository}")
+def _fetch_repository_tree(
+    github: GitHubIntegration, access_token: str, repository: str
+) -> tuple[list[str], str | None]:
+    repo_response = _github_get(
+        github,
+        access_token,
+        f"/repos/{repository}",
+        endpoint="/repos/{owner}/{repo}",
+    )
     if repo_response.status_code != 200:
         return [], None
 
@@ -151,8 +165,10 @@ def _fetch_repository_tree(access_token: str, repository: str) -> tuple[list[str
         return [], None
 
     tree_response = _github_get(
+        github,
         access_token,
         f"/repos/{repository}/git/trees/{default_branch}",
+        endpoint="/repos/{owner}/{repo}/git/trees/{tree_sha}",
         params={"recursive": 1},
     )
     if tree_response.status_code != 200:
@@ -200,8 +216,16 @@ def _select_candidate_paths(paths: list[str]) -> list[str]:
     return candidates[:MAX_CANDIDATE_PATHS]
 
 
-def _fetch_file_content(access_token: str, repository: str, path: str, ref: str | None) -> str | None:
-    response = _github_get(access_token, f"/repos/{repository}/contents/{path}", params={"ref": ref} if ref else None)
+def _fetch_file_content(
+    github: GitHubIntegration, access_token: str, repository: str, path: str, ref: str | None
+) -> str | None:
+    response = _github_get(
+        github,
+        access_token,
+        f"/repos/{repository}/contents/{path}",
+        endpoint="/repos/{owner}/{repo}/contents/{path}",
+        params={"ref": ref} if ref else None,
+    )
     if response.status_code != 200:
         return None
 
@@ -220,8 +244,11 @@ def _fetch_file_content(access_token: str, repository: str, path: str, ref: str 
         return None
 
 
-def _scan_repository(access_token: str, repository: str) -> tuple[RepositoryScanEvidence, list[str]]:
-    tree_paths, default_branch = _fetch_repository_tree(access_token, repository)
+def _scan_repository(
+    integration: Integration, access_token: str, repository: str
+) -> tuple[RepositoryScanEvidence, list[str]]:
+    github = GitHubIntegration(integration)
+    tree_paths, default_branch = _fetch_repository_tree(github, access_token, repository)
 
     found_posthog_init = False
     found_posthog_capture = False
@@ -238,7 +265,7 @@ def _scan_repository(access_token: str, repository: str) -> tuple[RepositoryScan
                 extra={"repository": repository, "scanned": scanned},
             )
             break
-        content = _fetch_file_content(access_token, repository, path, default_branch)
+        content = _fetch_file_content(github, access_token, repository, path, default_branch)
         if content is None:
             continue
 
@@ -416,7 +443,7 @@ def compute_repository_readiness(
         return response
 
     try:
-        scan_evidence, tree_paths = _scan_repository(access_token, repository)
+        scan_evidence, tree_paths = _scan_repository(integration, access_token, repository)
     except Exception:
         logger.exception("repository_readiness.scan_failed", extra={"repository": repository})
         scan_evidence = RepositoryScanEvidence(
@@ -451,8 +478,8 @@ def compute_repository_readiness(
         deleted=False,
     ).count()
 
-    # Team-scoped intentionally: ErrorTrackingIssue has no repository field
-    error_issue_count = ErrorTrackingIssue.objects.filter(team=team, created_at__gte=since).count()
+    # Team-scoped intentionally: Error tracking issues do not currently have a repository field
+    error_issue_count = error_tracking_api.count_issues_created_since(team_id=team.id, since=since)
 
     # Tracking
     if not applicability["tracking"]:

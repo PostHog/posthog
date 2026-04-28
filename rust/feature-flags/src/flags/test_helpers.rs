@@ -1,14 +1,10 @@
 /* Test Helpers specifically for the flags module */
 
-use serde_json::Value;
 use std::sync::Arc;
 
 use crate::{
     api::errors::{simplify_serde_error, FlagError},
-    flags::flag_models::{
-        FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup, HypercacheFlagsWrapper,
-    },
-    properties::property_models::{OperatorType, PropertyFilter, PropertyType},
+    flags::flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
 };
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
@@ -18,63 +14,6 @@ use common_types::TeamId;
 /// The "posthog:1:" prefix matches Django's cache versioning
 pub fn hypercache_test_key(team_id: TeamId) -> String {
     format!("posthog:1:cache/teams/{team_id}/feature_flags/flags.json")
-}
-
-pub fn create_simple_property_filter(
-    key: &str,
-    prop_type: PropertyType,
-    operator: OperatorType,
-) -> PropertyFilter {
-    PropertyFilter {
-        key: key.to_string(),
-        value: Some(Value::String("value".to_string())),
-        operator: Some(operator),
-        group_type_index: None,
-        negation: None,
-        prop_type,
-    }
-}
-
-pub fn create_simple_flag_filters(groups: Vec<FlagPropertyGroup>) -> FlagFilters {
-    FlagFilters {
-        groups,
-        multivariate: None,
-        aggregation_group_type_index: None,
-        payloads: None,
-        super_groups: None,
-        holdout_groups: None,
-    }
-}
-
-pub fn create_simple_flag_property_group(
-    properties: Vec<PropertyFilter>,
-    rollout_percentage: f64,
-) -> FlagPropertyGroup {
-    FlagPropertyGroup {
-        properties: Some(properties),
-        rollout_percentage: Some(rollout_percentage),
-        variant: None,
-    }
-}
-
-pub fn create_simple_flag(properties: Vec<PropertyFilter>, rollout_percentage: f64) -> FeatureFlag {
-    FeatureFlag {
-        filters: create_simple_flag_filters(vec![create_simple_flag_property_group(
-            properties,
-            rollout_percentage,
-        )]),
-        id: 1,
-        team_id: 1,
-        name: Some("Flag 1".to_string()),
-        key: "flag_1".to_string(),
-        deleted: false,
-        active: true,
-        ensure_experience_continuity: Some(false),
-        version: Some(1),
-        evaluation_runtime: Some("all".to_string()),
-        evaluation_tags: None,
-        bucketing_identifier: None,
-    }
 }
 
 /// Test-only helper to read feature flags directly from Redis (hypercache format)
@@ -131,6 +70,9 @@ pub async fn get_flags_from_redis(
 
     Ok(FeatureFlagList {
         flags: wrapper.flags,
+        evaluation_metadata: wrapper.evaluation_metadata,
+        cohorts: wrapper.cohorts,
+        ..Default::default()
     })
 }
 
@@ -150,6 +92,8 @@ pub async fn update_flags_in_hypercache(
 ) -> Result<(), FlagError> {
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.flags.clone(),
+        evaluation_metadata: flags.evaluation_metadata.clone(),
+        cohorts: flags.cohorts.clone(),
     };
 
     // Match Django's format: JSON string -> Pickle

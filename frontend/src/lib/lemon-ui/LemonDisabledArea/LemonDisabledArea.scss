@@ -1,0 +1,10 @@
+.LemonDisabledArea {
+    &.LemonDisabledArea--disabled {
+        cursor: not-allowed;
+        opacity: var(--opacity-disabled);
+    }
+
+    &.LemonDisabledArea--disabled > * {
+        pointer-events: none;
+    }
+}

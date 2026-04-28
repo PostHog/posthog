@@ -40,7 +40,7 @@ export function Spinner({
     textColored = false,
     className,
     speed = '1s',
-    captureTime = true,
+    captureTime = false,
     size = 'small',
 }: SpinnerProps): JSX.Element {
     useTimingCapture(captureTime)

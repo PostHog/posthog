@@ -76,7 +76,7 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
                 code=499,
             ),
             "CHQueryErrorS3Error",
-            "Code: 499.\nS3 error occurred. Try again later.",
+            "Code: 499.\nS3 error occurred. (Code: 499. DB::Exception: Failed to get object info: No response body.. HTTP response code: 404: while reading file.parquet)",
             499,
             "CHQueryErrorS3Error",
         ),
@@ -139,6 +139,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             "Aggregate function sum(count()) is found inside another aggregate function.",
             184,
             "CHQueryErrorIllegalAggregation",
+        ),
+        (
+            ServerException(
+                "Code: 60. DB::Exception: Unknown table expression identifier 'nonexistent'.",
+                code=60,
+            ),
+            "CHQueryErrorUnknownTable",
+            "Unknown table expression identifier 'nonexistent'.",
+            60,
+            "CHQueryErrorUnknownTable",
         ),
     ],
 )

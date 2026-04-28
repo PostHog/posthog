@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail, isURL } from 'lib/utils'
@@ -15,6 +15,17 @@ import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
 import { SubscriptionBaseProps, urlForSubscription } from './utils'
 
+function subscriptionSaveErrorMessage(error: unknown): string {
+    if (error instanceof ApiError) {
+        const msg = (error.detail || error.message || '').trim()
+        return msg || 'Could not save subscription. Please try again.'
+    }
+    if (error instanceof Error && error.message) {
+        return error.message
+    }
+    return 'Could not save subscription. Please try again.'
+}
+
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',
     interval: 1,
@@ -22,14 +33,18 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     target_type: 'email',
     byweekday: ['monday'],
     bysetpos: 1,
+    dashboard_export_insights: [],
+    integration_id: null,
+    summary_enabled: false,
+    summary_prompt_guide: '',
 }
 
-export interface SubscriptionsLogicProps extends SubscriptionBaseProps {
+export interface SubscriptionLogicProps extends SubscriptionBaseProps {
     id: number | 'new'
 }
 export const subscriptionLogic = kea<subscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
-    props({} as SubscriptionsLogicProps),
+    props({} as SubscriptionLogicProps),
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
 
     actions({
@@ -82,7 +97,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     forms(({ props, actions }) => ({
         subscription: {
             defaults: {} as unknown as SubscriptionType,
-            errors: ({ frequency, interval, target_value, target_type, title, start_date }) => ({
+            errors: ({
+                frequency,
+                interval,
+                target_value,
+                target_type,
+                title,
+                start_date,
+                dashboard_export_insights,
+            }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 title: !title ? 'You need to give your subscription a name' : undefined,
                 interval: !interval ? 'You need to set an interval' : undefined,
@@ -107,6 +130,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                               ? 'Must be a valid URL'
                               : undefined
                           : undefined,
+                dashboard_export_insights:
+                    props.dashboardId && (!dashboard_export_insights || dashboard_export_insights.length === 0)
+                        ? ('Select at least one insight' as any)
+                        : undefined,
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
@@ -142,6 +169,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
+        submitSubscriptionFailure: ({ error }) => {
+            // Kea-forms emits this when client validation fails; fields already show errors.
+            if (error instanceof Error && error.message === 'Validation Failed') {
+                return
+            }
+            const message = subscriptionSaveErrorMessage(error)
+            if (error instanceof ApiError && error.attr) {
+                actions.setSubscriptionManualErrors({ [error.attr]: message })
+            }
+            lemonToast.error(message)
+        },
+
         setSubscriptionValue: ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
             if (key === 'frequency') {
@@ -161,6 +200,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (key === 'target_type') {
                 actions.setSubscriptionValues({
                     target_value: '',
+                    integration_id: null,
                 })
             }
         },

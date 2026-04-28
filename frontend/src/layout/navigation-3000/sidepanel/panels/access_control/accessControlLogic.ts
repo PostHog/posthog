@@ -44,7 +44,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             membersLogic,
             ['sortedMembers'],
             teamLogic,
-            ['currentTeam'],
+            ['currentProjectId'],
             roleAccessControlLogic,
             ['roles'],
             upgradeModalLogic,
@@ -164,13 +164,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
         resource: [(_, p) => [p.resource], (resource) => resource],
 
         endpoint: [
-            (_, p) => [p.resource, p.resource_id],
-            (resource, resource_id): string => {
+            (s, p) => [s.currentProjectId, p.resource, p.resource_id],
+            (currentProjectId, resource, resource_id): string => {
                 // TODO: This is far from perfect... but it's a start
                 if (resource === 'project') {
-                    return `api/projects/@current/access_controls`
+                    return `api/projects/${currentProjectId}/access_controls`
                 }
-                return `api/projects/@current/${resource}s/${resource_id}/access_controls`
+                return `api/projects/${currentProjectId}/${resource}s/${resource_id}/access_controls`
             },
         ],
 

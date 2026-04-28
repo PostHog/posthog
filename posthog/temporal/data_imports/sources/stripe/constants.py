@@ -13,3 +13,40 @@ SUBSCRIPTION_RESOURCE_NAME = "Subscription"
 CREDIT_NOTE_RESOURCE_NAME = "CreditNote"
 CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME = "CustomerBalanceTransaction"
 CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME = "CustomerPaymentMethod"
+
+# Maps PostHog resource name -> Stripe API object type (as it appears in webhook data.object.object)
+RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
+    ACCOUNT_RESOURCE_NAME: "account",
+    BALANCE_TRANSACTION_RESOURCE_NAME: "balance_transaction",
+    CHARGE_RESOURCE_NAME: "charge",
+    CUSTOMER_RESOURCE_NAME: "customer",
+    DISPUTE_RESOURCE_NAME: "dispute",
+    INVOICE_ITEM_RESOURCE_NAME: "invoiceitem",
+    INVOICE_RESOURCE_NAME: "invoice",
+    PAYOUT_RESOURCE_NAME: "payout",
+    PRICE_RESOURCE_NAME: "price",
+    PRODUCT_RESOURCE_NAME: "product",
+    REFUND_RESOURCE_NAME: "refund",
+    SUBSCRIPTION_RESOURCE_NAME: "subscription",
+    CREDIT_NOTE_RESOURCE_NAME: "credit_note",
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: "customer_balance_transaction",
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: "payment_method",
+}
+
+RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
+    ACCOUNT_RESOURCE_NAME: "account",
+    BALANCE_TRANSACTION_RESOURCE_NAME: "transfer",
+    CHARGE_RESOURCE_NAME: "charge",
+    CUSTOMER_RESOURCE_NAME: "customer",
+    DISPUTE_RESOURCE_NAME: "dispute",
+    INVOICE_ITEM_RESOURCE_NAME: "invoiceitem",
+    INVOICE_RESOURCE_NAME: "invoice",
+    PAYOUT_RESOURCE_NAME: "payout",
+    PRICE_RESOURCE_NAME: "price",
+    PRODUCT_RESOURCE_NAME: "product",
+    REFUND_RESOURCE_NAME: "refund",
+    SUBSCRIPTION_RESOURCE_NAME: "customer.subscription",
+    CREDIT_NOTE_RESOURCE_NAME: "credit_note",
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: "billing",
+    CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: "payment_method",
+}

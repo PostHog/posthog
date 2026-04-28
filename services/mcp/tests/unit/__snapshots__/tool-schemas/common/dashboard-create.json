@@ -1,0 +1,89 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Serializer mixin that handles tags for objects.",
+    "properties": {
+        "breakdown_colors": {
+            "description": "Custom color mapping for breakdown values."
+        },
+        "data_color_theme_id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of the color theme used for chart visualizations."
+        },
+        "delete_insights": {
+            "default": false,
+            "description": "When deleting, also delete insights that are only on this dashboard.",
+            "type": "boolean"
+        },
+        "description": {
+            "type": "string"
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "pinned": {
+            "type": "boolean"
+        },
+        "quick_filter_ids": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "List of quick filter IDs associated with this dashboard"
+        },
+        "restriction_level": {
+            "anyOf": [
+                {
+                    "const": 21,
+                    "type": "number"
+                },
+                {
+                    "const": 37,
+                    "type": "number"
+                }
+            ],
+            "description": "* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit"
+        },
+        "tags": {
+            "items": {},
+            "type": "array"
+        },
+        "use_dashboard": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of an existing dashboard to duplicate."
+        },
+        "use_template": {
+            "description": "Template key to create the dashboard from a predefined template.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

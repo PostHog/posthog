@@ -98,6 +98,31 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestBlastRadius.test_user_blast_radius_with_group_key_property.3
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
+  FROM
+    (SELECT tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            groups.group_type_index AS index,
+            groups.group_key AS key
+     FROM groups
+     WHERE equals(groups.team_id, 99999)
+     GROUP BY groups.group_type_index,
+              groups.group_key) AS groups
+  WHERE and(ifNull(equals(groups.team_id, 99999), 0), ifNull(equals(groups.index, 0), 0), ifNull(ilike(groups.key, '%org:%'), 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups
   '''
   /* user_id:0 request:_snapshot_ */
@@ -133,6 +158,18 @@
     AND group_type_index = 0
   '''
 # ---
+# name: TestBlastRadius.test_user_blast_radius_with_groups.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 99999
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
+  '''
+# ---
 # name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries
   '''
   /* user_id:0 request:_snapshot_ */
@@ -166,6 +203,18 @@
   FROM groups
   WHERE team_id = 99999
     AND group_type_index = 0
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.2
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 99999
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '''
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts
@@ -477,7 +526,10 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -518,6 +570,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -732,7 +785,10 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -761,7 +817,10 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -801,6 +860,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1015,7 +1075,10 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -1056,6 +1119,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1229,7 +1293,10 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -1270,6 +1337,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1402,7 +1470,10 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -1443,6 +1514,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1616,6 +1688,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -1685,6 +1758,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -1880,7 +1954,10 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -1921,6 +1998,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -2046,6 +2124,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -2105,8 +2184,40 @@
          "posthog_team"."experiment_recalculation_time",
          "posthog_team"."default_experiment_confidence_level",
          "posthog_team"."default_experiment_stats_method",
-         "posthog_team"."business_model"
+         "posthog_team"."business_model",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
   FROM "posthog_team"
+  INNER JOIN "posthog_organization" ON ("posthog_team"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_team"."id" = 99999
   LIMIT 21
   '''
@@ -2149,7 +2260,10 @@
          "posthog_cohort"."last_calculation_duration_ms",
          "posthog_cohort"."errors_calculating",
          "posthog_cohort"."last_error_at",
+         "posthog_cohort"."last_backfill_person_properties_at",
+         "posthog_cohort"."last_realtime_cohort_calculation_at",
          "posthog_cohort"."is_static",
+         "posthog_cohort"."kind",
          "posthog_cohort"."cohort_type",
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
@@ -2188,6 +2302,7 @@
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
          "posthog_team"."session_recording_trigger_match_type_config",
+         "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
          "posthog_team"."conversations_enabled",
@@ -2347,7 +2462,7 @@
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
-         "posthog_experiment"."exposure_preaggregation_enabled",
+         "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
@@ -2395,6 +2510,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -2416,6 +2532,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2486,6 +2603,7 @@
          "posthog_organizationmembership"."level",
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -2507,6 +2625,7 @@
          "posthog_organization"."default_experiment_stats_method",
          "posthog_organization"."default_anonymize_ips",
          "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_product_features",
          "posthog_organization"."usage",
@@ -2650,7 +2769,7 @@
          "posthog_experiment"."secondary_metrics_ordered_uuids",
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
-         "posthog_experiment"."exposure_preaggregation_enabled",
+         "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment"
@@ -2665,19 +2784,20 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.9
   '''
-  SELECT "posthog_featureflagevaluationtag"."id",
-         "posthog_featureflagevaluationtag"."feature_flag_id",
-         "posthog_featureflagevaluationtag"."tag_id",
-         "posthog_featureflagevaluationtag"."created_at",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_featureflagevaluationtag"
-  INNER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_featureflagevaluationtag"."feature_flag_id" IN (1,
-                                                                 2,
-                                                                 3,
-                                                                 4,
-                                                                 5 /* ... */)
+  SELECT "posthog_featureflagevaluationcontext"."id",
+         "posthog_featureflagevaluationcontext"."feature_flag_id",
+         "posthog_featureflagevaluationcontext"."evaluation_context_id",
+         "posthog_featureflagevaluationcontext"."created_at",
+         "posthog_evaluationcontext"."id",
+         "posthog_evaluationcontext"."name",
+         "posthog_evaluationcontext"."team_id",
+         "posthog_evaluationcontext"."created_at"
+  FROM "posthog_featureflagevaluationcontext"
+  INNER JOIN "posthog_evaluationcontext" ON ("posthog_featureflagevaluationcontext"."evaluation_context_id" = "posthog_evaluationcontext"."id")
+  WHERE "posthog_featureflagevaluationcontext"."feature_flag_id" IN (1,
+                                                                     2,
+                                                                     3,
+                                                                     4,
+                                                                     5 /* ... */)
   '''
 # ---

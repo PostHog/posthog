@@ -3,6 +3,8 @@ from posthog.test.base import BaseTest
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 
+from products.notebooks.backend.models import Notebook
+
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.tools.create_notebook.tool import CreateNotebookTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
@@ -85,7 +87,7 @@ class TestCreateNotebookTool(BaseTest):
             title="Original Notebook",
             content="# Original",
         )
-        original_artifact_id = create_artifact.messages[1].content.split("artifact_id: ")[1]
+        original_artifact_id = create_artifact.messages[1].content.split("artifact_id: ")[1].split(".")[0]
 
         update_result, update_artifact = async_to_sync(self.tool._arun_impl)(
             title="Updated Notebook",
@@ -98,3 +100,72 @@ class TestCreateNotebookTool(BaseTest):
         tool_call_message = update_artifact.messages[1]
         assert "has been updated" in tool_call_message.content
         assert "Failed" not in tool_call_message.content
+
+    def test_transient_notebook_message_mentions_transient(self):
+        result, artifact = async_to_sync(self.tool._arun_impl)(
+            title="Test Notebook",
+            content="# Hello World",
+        )
+
+        assert artifact is not None
+        tool_call_message = artifact.messages[1]
+        assert "transient" in tool_call_message.content
+        assert Notebook.objects.filter(team=self.team).count() == 0
+
+    def test_save_to_notebook_creates_real_notebook(self):
+        result, artifact = async_to_sync(self.tool._arun_impl)(
+            title="Saved Notebook",
+            content="# Hello World",
+            save_to_notebook=True,
+        )
+
+        assert artifact is not None
+        tool_call_message = artifact.messages[1]
+        assert "saved" in tool_call_message.content.lower()
+        assert "/notebooks/" in tool_call_message.content
+
+        notebooks = Notebook.objects.filter(team=self.team)
+        assert notebooks.count() == 1
+        notebook = notebooks.first()
+        assert notebook.title == "Saved Notebook"
+        assert notebook.content is not None
+        assert notebook.content["type"] == "doc"
+
+    def test_save_to_notebook_uses_artifact_short_id(self):
+        result, artifact = async_to_sync(self.tool._arun_impl)(
+            title="Linked Notebook",
+            content="# Hello",
+            save_to_notebook=True,
+        )
+
+        assert artifact is not None
+        from ee.models.assistant import AgentArtifact
+
+        agent_artifact = AgentArtifact.objects.filter(team=self.team).last()
+        notebook = Notebook.objects.filter(team=self.team).first()
+        assert notebook is not None
+        assert agent_artifact is not None
+        assert notebook.short_id == agent_artifact.short_id
+
+    def test_update_already_saved_notebook_auto_updates_db(self):
+        # First create and save
+        _, create_artifact = async_to_sync(self.tool._arun_impl)(
+            title="Original",
+            content="# Original",
+            save_to_notebook=True,
+        )
+        short_id = create_artifact.messages[1].content.split("short_id: ")[1].split(".")[0]
+
+        # Now update without save_to_notebook -- should auto-update because already saved
+        _, update_artifact = async_to_sync(self.tool._arun_impl)(
+            title="Updated",
+            content="# Updated Content",
+            artifact_id=short_id,
+        )
+
+        assert update_artifact is not None
+        tool_call_message = update_artifact.messages[1]
+        assert "updated" in tool_call_message.content.lower()
+
+        notebook = Notebook.objects.get(team=self.team, short_id=short_id)
+        assert notebook.title == "Updated"

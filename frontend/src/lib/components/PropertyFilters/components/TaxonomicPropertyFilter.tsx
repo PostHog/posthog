@@ -24,7 +24,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
-import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -36,6 +35,8 @@ import {
     PropertyDefinitionType,
     PropertyFilterType,
 } from '~/types'
+
+import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
@@ -90,7 +91,8 @@ export function TaxonomicPropertyFilter({
         selectItem(taxonomicGroup, value, item?.propertyFilterType, item)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
-            taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters
+            taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters ||
+            (taxonomicGroup.type === TaxonomicFilterGroupType.RecentFilters && item?._recentContext?.propertyFilter)
         ) {
             onComplete?.()
         }
@@ -127,7 +129,7 @@ export function TaxonomicPropertyFilter({
 
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
     const { cohortsById } = useValues(cohortsModel)
-    const { columnsJoinedToPersons } = useValues(dataWarehouseJoinsLogic)
+    const { columnsJoinedToPersons } = useValues(joinsLogic)
     const { currentTeamId } = useValues(teamLogic)
 
     // We don't support array filter values here. Multiple-cohort only supported in TaxonomicBreakdownFilter.
@@ -174,6 +176,7 @@ export function TaxonomicPropertyFilter({
             selectFirstItem={!cohortOrOtherValue}
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
+            enableKeywordShortcuts
         />
     )
 
@@ -219,6 +222,11 @@ export function TaxonomicPropertyFilter({
             groupTypeIndex={
                 isGroupPropertyFilter(filter) && typeof filter?.group_type_index === 'number'
                     ? (filter?.group_type_index as GroupTypeIndex)
+                    : undefined
+            }
+            groupKeyNames={
+                isGroupPropertyFilter(filter) && 'group_key_names' in filter
+                    ? (filter as any).group_key_names
                     : undefined
             }
             operatorAllowlist={operatorAllowlist}

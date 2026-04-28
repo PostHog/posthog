@@ -88,12 +88,12 @@ services:
             - '1025:1025'
 
     webhook-tester:
-        image: tarampampam/webhook-tester:1.1.0
+        image: tarampampam/webhook-tester:2.2.6
         restart: on-failure
         ports:
-            - '2080:2080'
+            - '2080:8080'
         environment:
-            - PORT=2080
+            - AUTO_CREATE_SESSIONS=true
             - OTEL_SDK_DISABLED=true
 
     worker:

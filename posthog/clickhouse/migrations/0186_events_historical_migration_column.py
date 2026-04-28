@@ -26,7 +26,7 @@ operations = [
     ),
     run_sql_with_exceptions(
         ADD_HISTORICAL_MIGRATION_COLUMN_EVENTS.format(table="events"),
-        node_roles=[NodeRole.COORDINATOR, NodeRole.DATA],
+        node_roles=[NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),

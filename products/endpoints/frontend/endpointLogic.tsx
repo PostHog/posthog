@@ -116,6 +116,13 @@ export const endpointLogic = kea<endpointLogicType>([
                 createEndpointSuccess: () => null,
             },
         ],
+        // Clear stale endpoint data immediately when loading a new endpoint
+        endpoint: [
+            null as EndpointVersionType | null,
+            {
+                loadEndpoint: () => null,
+            },
+        ],
         // Extend the loader reducer to clear on action
         materializationStatus: [
             null as EndpointType['materialization'] | null,
@@ -132,19 +139,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return null
                     }
-                    const endpoint = await api.endpoint.get(name)
-
-                    // Fetch last execution time
-                    try {
-                        const executionTimes = await api.endpoint.getLastExecutionTimes({ names: [name] })
-                        if (executionTimes[name]) {
-                            endpoint.last_executed_at = executionTimes[name]
-                        }
-                    } catch (error) {
-                        console.error('Failed to fetch last execution time:', error)
-                    }
-
-                    return endpoint
+                    return await api.endpoint.get(name)
                 },
             },
         ],
@@ -180,7 +175,8 @@ export const endpointLogic = kea<endpointLogicType>([
                     if (!name) {
                         return []
                     }
-                    return await api.endpoint.listVersions(name)
+                    const response = await api.endpoint.listVersions(name)
+                    return response.results
                 },
             },
         ],
@@ -206,8 +202,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     actions.createEndpointSuccess(response)
                 } catch (error: any) {
                     console.error('Failed to create endpoint:', error)
-                    const queryError = error.attr === 'query' ? error.detail : null
-                    actions.createEndpointFailure(queryError)
+                    actions.createEndpointFailure(error.detail || null)
                 }
             },
             createEndpointSuccess: ({ response }) => {

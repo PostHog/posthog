@@ -9,7 +9,6 @@ See https://www.domainconnect.org/ for the protocol specification.
 
 import base64
 import logging
-from typing import cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -24,8 +23,6 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from posthog.schema import DomainConnectProviderName
 
-from posthog.security.outbound_proxy import external_requests
-
 logger = logging.getLogger(__name__)
 
 # Maps _domainconnect TXT record values (provider endpoints) to display names.
@@ -36,7 +33,8 @@ logger = logging.getLogger(__name__)
 # contact the provider, and add their endpoint here once confirmed.
 #
 DOMAIN_CONNECT_PROVIDERS: dict[str, DomainConnectProviderName] = {
-    "api.cloudflare.com/client/v4/dns/domainconnect": cast(DomainConnectProviderName, "Cloudflare"),
+    "api.cloudflare.com/client/v4/dns/domainconnect": DomainConnectProviderName.CLOUDFLARE,
+    "domainconnect.vercel.com": DomainConnectProviderName.VERCEL,
 }
 
 # Providers that reject unsigned apply requests.  When a provider is in this
@@ -45,6 +43,7 @@ DOMAIN_CONNECT_PROVIDERS: dict[str, DomainConnectProviderName] = {
 # of silently redirecting the user to a page that will fail at the provider.
 PROVIDERS_REQUIRING_SIGNING: set[str] = {
     "api.cloudflare.com/client/v4/dns/domainconnect",
+    "domainconnect.vercel.com",
 }
 
 
@@ -318,7 +317,6 @@ def generate_apply_url(
     )
 
 
-# --- Internal helpers ---
 def _lookup_domain_connect_endpoint(domain: str) -> str | None:
     """DNS TXT lookup for _domainconnect.{domain}.
 
@@ -351,7 +349,7 @@ def _fetch_provider_settings(endpoint: str, domain: str) -> dict | None:
 
     url = f"https://{endpoint}/v2/{domain}/settings"
     try:
-        resp = external_requests.get(url, timeout=10)
+        resp = requests.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         if "urlSyncUX" not in data:

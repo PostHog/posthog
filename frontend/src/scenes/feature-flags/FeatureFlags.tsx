@@ -9,6 +9,8 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { BulkActionToolbar } from 'lib/components/BulkActions/BulkActionToolbar'
+import { SelectionCheckbox } from 'lib/components/BulkActions/SelectionCheckbox'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -28,12 +30,15 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { PendingApprovalsBanner } from 'scenes/approvals/PendingApprovalsBanner'
+import { NotificationsPane } from 'scenes/hog-functions/list/NotificationsPane'
 import { projectLogic } from 'scenes/projectLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -44,6 +49,7 @@ import {
     AccessControlResourceType,
     ActivityScope,
     AnyPropertyFilter,
+    AvailableFeature,
     BaseMathType,
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
@@ -52,40 +58,11 @@ import {
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
-
-// Component for selection checkbox that uses hooks directly to avoid stale closure issues
-function FeatureFlagSelectionCheckbox({
-    featureFlag,
-    index,
-    displayedFlags,
-}: {
-    featureFlag: FeatureFlagType
-    index: number
-    displayedFlags: FeatureFlagType[]
-}): JSX.Element | null {
-    const { selectedFlagIds } = useValues(flagSelectionLogic)
-    const { toggleFlagSelection } = useActions(flagSelectionLogic)
-
-    const flagId = featureFlag.id
-    if (flagId === null) {
-        return null
-    }
-
-    return (
-        <LemonCheckbox
-            checked={selectedFlagIds.includes(flagId)}
-            onChange={() => toggleFlagSelection(flagId, index, displayedFlags)}
-            disabled={!featureFlag.can_edit}
-            disabledReason={!featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined}
-            aria-label={`Select feature flag ${featureFlag.key}`}
-        />
-    )
-}
+import ProjectsGrid from './projects-grid/ProjectsGrid'
 
 // Component for rendering status cell with loading state
 function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
@@ -346,6 +323,7 @@ export function OverViewTab({
     nouns?: [string, string]
 }): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
+    const { user } = useValues(userLogic)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
     const { featureFlagsLoading, displayedFlags, pagination, filters, shouldShowEmptyState, filtersChanged } =
@@ -354,6 +332,7 @@ export function OverViewTab({
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
     const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
     const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
+    const isProductIntroVisible = shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.FEATURE_FLAGS]
 
     const {
         selectedCount,
@@ -365,7 +344,11 @@ export function OverViewTab({
         allMatchingSelected,
         matchingFlagIdsLoading,
     } = useValues(flagSelectionLogic)
-    const { selectAllOnPage, selectAllMatching, clearSelection, bulkDeleteFlags } = useActions(flagSelectionLogic)
+    const { selectAllOnPage, selectAllMatching, bulkDeleteFlags } = useActions(flagSelectionLogic)
+
+    const allPageItems = displayedFlags
+        .filter((f: FeatureFlagType) => f.id !== null)
+        .map((f: FeatureFlagType) => ({ id: f.id as number, isEditable: f.can_edit }))
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
@@ -380,16 +363,24 @@ export function OverViewTab({
             title: (
                 <LemonCheckbox
                     checked={isSomeSelected ? 'indeterminate' : isAllSelected}
-                    onChange={() => selectAllOnPage(displayedFlags)}
+                    onChange={() => selectAllOnPage(allPageItems)}
                     aria-label="Select all feature flags on this page"
                 />
             ),
             render: function Render(_: unknown, featureFlag: FeatureFlagType, index: number) {
+                if (featureFlag.id === null) {
+                    return null
+                }
                 return (
-                    <FeatureFlagSelectionCheckbox
-                        featureFlag={featureFlag}
+                    <SelectionCheckbox
+                        resource="feature_flags"
+                        id={featureFlag.id}
                         index={index}
-                        displayedFlags={displayedFlags}
+                        allPageItems={allPageItems}
+                        disabledReason={
+                            !featureFlag.can_edit ? "You don't have permission to edit this feature flag." : undefined
+                        }
+                        ariaLabel={`Select feature flag ${featureFlag.key}`}
                     />
                 )
             },
@@ -434,16 +425,7 @@ export function OverViewTab({
                 if (!tags || tags.length === 0) {
                     return null
                 }
-                return enabledFeatureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] ? (
-                    <FeatureFlagEvaluationTags
-                        tags={tags}
-                        evaluationTags={featureFlag.evaluation_tags || []}
-                        flagId={featureFlag.id}
-                        context="static"
-                    />
-                ) : (
-                    <ObjectTags tags={tags} staticOnly />
-                )
+                return <ObjectTags tags={tags} staticOnly />
             },
         } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
@@ -521,6 +503,23 @@ export function OverViewTab({
         },
     ]
 
+    const countTextNode = (
+        <span
+            className={cn(
+                'text-secondary text-sm transition-opacity whitespace-nowrap',
+                filtersChanged && 'opacity-50'
+            )}
+            aria-busy={filtersChanged}
+            aria-live="polite"
+        >
+            {filtersChanged ? (
+                <WrappingLoadingSkeleton>{flagCountText}</WrappingLoadingSkeleton>
+            ) : effectiveCount > 0 ? (
+                flagCountText
+            ) : null}
+        </span>
+    )
+
     const filtersSection = (
         <FeatureFlagFiltersSection
             filters={filters}
@@ -534,6 +533,7 @@ export function OverViewTab({
                 tags: true,
                 runtime: true,
             }}
+            countText={countTextNode}
         />
     )
 
@@ -550,28 +550,15 @@ export function OverViewTab({
                 customHog={FeatureFlagHog}
                 className={cn('my-0')}
             />
-            <ApprovalsPromoBanner />
+            {!isProductIntroVisible && <ApprovalsPromoBanner />}
+            <PendingApprovalsBanner />
             <div>{filtersSection}</div>
-            <LemonDivider className="my-0" />
-            <div className="flex items-center justify-between min-h-9">
-                <span
-                    className={cn('text-secondary transition-opacity', filtersChanged && 'opacity-50')}
-                    aria-busy={filtersChanged}
-                    aria-live="polite"
-                >
-                    {filtersChanged ? (
-                        <WrappingLoadingSkeleton>{flagCountText}</WrappingLoadingSkeleton>
-                    ) : effectiveCount > 0 ? (
-                        flagCountText
-                    ) : null}
-                </span>
-                {selectedCount > 0 && (
-                    <div className="flex items-center gap-2">
-                        <span className="text-muted text-sm">
-                            {allMatchingSelected
-                                ? `All ${selectedCount} matching flags selected`
-                                : `${selectedCount} flag${selectedCount !== 1 ? 's' : ''} selected`}
-                        </span>
+            {selectedCount > 0 && (
+                <div className="flex items-center justify-end gap-2 min-h-9">
+                    <BulkActionToolbar resource="feature_flags">
+                        {allMatchingSelected && (
+                            <span className="text-muted text-sm">All {selectedCount} matching flags selected</span>
+                        )}
                         {showSelectAllMatchingBanner && (
                             <LemonButton
                                 type="secondary"
@@ -582,9 +569,6 @@ export function OverViewTab({
                                 Select all {totalMatchingCount} matching flags
                             </LemonButton>
                         )}
-                        <LemonButton type="secondary" size="small" onClick={clearSelection}>
-                            Clear
-                        </LemonButton>
                         <LemonButton
                             type="primary"
                             status="danger"
@@ -612,9 +596,9 @@ export function OverViewTab({
                         >
                             {bulkDeleteResponseLoading ? 'Deleting…' : 'Delete selected'}
                         </LemonButton>
-                    </div>
-                )}
-            </div>
+                    </BulkActionToolbar>
+                </div>
+            )}
             <BulkDeleteResultsModal />
 
             <LemonTable
@@ -644,12 +628,27 @@ export function OverViewTab({
     )
 }
 
+function FeatureFlagNotificationsTab(): JSX.Element {
+    return (
+        <NotificationsPane
+            subTemplateId="feature-flag-change"
+            description="Get notified when feature flags are created, updated, or deleted."
+            dialogTitle="New feature flag notification"
+        />
+    )
+}
+
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const featureFlagsV2Enabled = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
     const newFeatureFlagUrl = featureFlagsV2Enabled ? urls.featureFlagTemplates() : urls.featureFlag('new')
+    const showNotificationsTab =
+        !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS] &&
+        hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
+    const showProjectsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAGS_ACROSS_PROJECTS_INDEX]
 
     return (
         <SceneContent className="feature_flags">
@@ -682,6 +681,7 @@ export function FeatureFlags(): JSX.Element {
                                         placement: 'bottom-end',
                                         className: 'new-feature-flag-overlay',
                                         actionable: true,
+                                        closeOnClickInside: false,
                                         overlay: <OverlayForNewFeatureFlagMenu />,
                                     },
                                     'data-attr': 'new-feature-flag-dropdown',
@@ -704,11 +704,29 @@ export function FeatureFlags(): JSX.Element {
                         label: 'Overview',
                         content: <OverViewTab />,
                     },
+                    ...(showProjectsTab
+                        ? [
+                              {
+                                  key: FeatureFlagsTab.PROJECTS,
+                                  label: 'Projects',
+                                  content: <ProjectsGrid />,
+                              },
+                          ]
+                        : []),
                     {
                         key: FeatureFlagsTab.HISTORY,
                         label: 'History',
                         content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} />,
                     },
+                    ...(showNotificationsTab
+                        ? [
+                              {
+                                  key: FeatureFlagsTab.NOTIFICATIONS,
+                                  label: 'Notifications',
+                                  content: <FeatureFlagNotificationsTab />,
+                              },
+                          ]
+                        : []),
                 ]}
                 data-attr="feature-flags-tab-navigation"
             />

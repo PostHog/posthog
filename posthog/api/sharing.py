@@ -10,7 +10,8 @@ from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -20,7 +21,6 @@ from rest_framework.request import Request
 
 from posthog.schema import SharingConfigurationSettings
 
-from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
@@ -32,11 +32,11 @@ from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
+from posthog.models import Cohort, InsightViewed, SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
+from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 from posthog.security.url_validation import is_url_allowed
@@ -44,6 +44,9 @@ from posthog.session_recordings.session_recording_api import SessionRecordingSer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
+
+from products.dashboards.backend.api.dashboard import DashboardSerializer
+from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
@@ -209,6 +212,7 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
 class SharePasswordSerializer(serializers.ModelSerializer):
     created_by_email = serializers.SerializerMethodField()
 
+    @extend_schema_field(serializers.CharField())
     def get_created_by_email(self, obj):
         return obj.created_by.email if obj.created_by else "deleted user"
 
@@ -254,6 +258,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
             capture_exception(e)
             raise serializers.ValidationError("Invalid settings format")
 
+    @extend_schema_field(SharePasswordSerializer(many=True))
     def get_share_passwords(self, obj):
         # Return empty list for unsaved instances to avoid database relationship access
         if not obj.pk:
@@ -477,6 +482,7 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             status=status.HTTP_201_CREATED,
         )
 
+    @extend_schema(parameters=[OpenApiParameter("password_id", OpenApiTypes.STR, OpenApiParameter.PATH)])
     @action(detail=False, methods=["delete"], url_path="passwords/(?P<password_id>[^/.]+)")
     def delete_password(self, request: Request, password_id: str, *args: Any, **kwargs: Any) -> response.Response:
         """Delete a password from the sharing configuration."""
@@ -503,6 +509,20 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 def custom_404_response(request):
     """Returns a custom 404 page."""
     return render(request, "shared_resource_404.html", status=404)
+
+
+def _collect_cohorts_for_sharing(insights: list[Insight], team: Team) -> list[dict[str, Any]]:
+    # Shared viewers can't hit /api/cohorts/, so inline id+name for any referenced cohort.
+    cohort_ids: set[int] = set()
+    for insight in insights:
+        cohort_ids.update(InsightVisitor._extract_cohort_ids(insight.filters, insight.query))
+
+    if not cohort_ids:
+        return []
+
+    return list(
+        Cohort.objects.filter(id__in=cohort_ids, team__project_id=team.project_id, deleted=False).values("id", "name")
+    )
 
 
 class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -646,6 +666,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     AvailableFeature.WHITE_LABELLING
                 ):
                     exported_data["whitelabel"] = True
+                if settings_data.get("theme") in {"light", "dark", "system"}:
+                    exported_data["theme"] = settings_data["theme"]
 
                 # Don't include app_context in the initial unlock page for security
                 # It will be provided after authentication
@@ -727,6 +749,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             insight_data = InsightSerializer(resource.insight, many=False, context=insight_context).data
             exported_data.update({"insight": insight_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
+            exported_data.update({"cohorts": _collect_cohorts_for_sharing([resource.insight], resource.team)})
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
@@ -738,6 +761,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # We don't want the dashboard to be accidentally loaded via the shared endpoint
                 exported_data.update({"dashboard": dashboard_data})
             exported_data.update({"themes": get_themes_for_team(resource.team)})
+            dashboard_insights = [
+                tile.insight
+                for tile in resource.dashboard.tiles.select_related("insight").filter(insight__deleted=False)
+                if tile.insight is not None
+            ]
+            exported_data.update({"cohorts": _collect_cohorts_for_sharing(dashboard_insights, resource.team)})
         elif (
             isinstance(resource, ExportedAsset)
             and resource.export_context
@@ -770,13 +799,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     session_id=session_recording_id, team=resource.team
                 )
 
-                # Create a JWT for the recording
+                # Create a scoped JWT for the recording
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
                     export_access_token = encode_jwt(
                         {"id": resource.created_by.id},
                         timedelta(minutes=5),  # 5 mins should be enough for the export to complete
-                        PosthogJwtAudience.IMPERSONATED_USER,
+                        PosthogJwtAudience.EXPORT_RENDERER,
                     )
 
                 asset_title = "Session Recording"
@@ -816,7 +845,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             ok, err = is_url_allowed(heatmap_url)
             if not ok:
-                raise ValidationError("heatmap_url not allowed")
+                raise ValidationError(f"heatmap_url not allowed: {err}")
 
             heatmap_data_url = resource.export_context.get("heatmap_data_url")
             if not heatmap_data_url:
@@ -827,13 +856,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 raise NotFound("Invalid heatmap export - missing heatmap_type")
 
             try:
-                # Create a JWT to access the heatmap data
+                # Create a scoped JWT to access the heatmap data
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
                     export_access_token = encode_jwt(
                         {"id": resource.created_by.id},
                         timedelta(minutes=5),
-                        PosthogJwtAudience.IMPERSONATED_USER,
+                        PosthogJwtAudience.EXPORT_RENDERER,
                     )
 
                 asset_title = "Heatmap"
@@ -879,7 +908,25 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             merged_data = base_settings.model_dump()
             for field_name in base_settings.model_fields.keys():
                 if field_name in request.GET:
-                    merged_data[field_name] = bool(request.GET[field_name])
+                    raw_value = request.GET.get(field_name)
+                    if field_name == "theme":
+                        if raw_value in {"light", "dark", "system"}:
+                            merged_data[field_name] = raw_value
+                        continue
+
+                    # For legacy boolean settings we support either presence-only params
+                    # (`?legend`) or explicit values (`?legend=false`).
+                    if raw_value in (None, ""):
+                        merged_data[field_name] = True
+                        continue
+
+                    lowered = str(raw_value).strip().lower()
+                    if lowered in {"1", "true", "yes", "on"}:
+                        merged_data[field_name] = True
+                    elif lowered in {"0", "false", "no", "off"}:
+                        merged_data[field_name] = False
+                    else:
+                        merged_data[field_name] = True
             final_settings = SharingConfigurationSettings.model_validate(merged_data, strict=False)
         else:
             final_settings = base_settings
@@ -900,6 +947,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"detailed": True})
         if final_settings.hideExtraDetails:
             exported_data.update({"hideExtraDetails": True})
+        if final_settings.theme in {"light", "dark", "system"}:
+            exported_data.update({"theme": final_settings.theme})
 
         if request.path.endswith(f".json"):
             # For password-protected POST requests, only return basic metadata and JWT token
@@ -913,6 +962,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "showInspector": exported_data.get("showInspector", False),
                     "legend": exported_data.get("legend", False),
                     "detailed": exported_data.get("detailed", False),
+                    "theme": exported_data.get("theme"),
                 }
                 return response.Response(minimal_data)
             return response.Response(exported_data)

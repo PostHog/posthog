@@ -124,6 +124,7 @@ export function SurveyDefaultAppearance(): JSX.Element {
                             })
                         }}
                         validationErrors={validationErrors}
+                        disabledReason={restrictedReason ?? undefined}
                     />
                 </div>
                 {globalSurveyAppearanceConfigAvailable && (

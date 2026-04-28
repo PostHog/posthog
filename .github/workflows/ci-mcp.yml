@@ -23,22 +23,59 @@ jobs:
         steps:
             - uses: actions/checkout@v6
 
-            # Not only the MCP folder but any file that generates schema for the mcp folder
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            # MCP integration tests boot the full PostHog backend (Django web server,
+            # Celery worker, migrations, demo data), so the filter mirrors the Dagster
+            # approach: trigger on any Python change across the app.
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       mcp:
+                        # MCP service and per-product tool/UI-app configs
                         - 'services/mcp/**'
-                        - 'products/**'
-                        - 'ee/**/*'
-                        - 'posthog/**/*'
-                        - '.github/workflows/mcp-ci.yml'
+                        - 'products/*/mcp/**'
+                        # MCP integration tests exercise the full PostHog backend
+                        - 'posthog/**/*.py'
+                        - 'ee/**/*.py'
+                        - 'common/**/*.py'
+                        - 'products/*/backend/**/*.py'
+                        # Query schemas used by MCP analytics tools
+                        - 'frontend/src/queries/schema.json'
+                        # Shared UI component library (used by MCP UI apps)
+                        - 'common/mosaic/**'
+                        # Code generation tooling
+                        - 'tools/openapi-codegen/**'
+                        # Django entry point (manage.py migrate / generate_demo_data)
+                        - manage.py
+                        # Python dependencies (build + integration-tests run `uv sync --frozen`)
+                        - pyproject.toml
+                        - uv.lock
+                        # Node runtime + workspace dependencies
+                        - .nvmrc
+                        - pnpm-lock.yaml
+                        # Docker compose stack (dev.yml extends base.yml)
+                        - docker-compose.base.yml
+                        - docker-compose.dev.yml
+                        - docker-compose.profiles.yml
+                        # Docker helper scripts invoked in CI setup
+                        - bin/ci-wait-for-docker
+                        - bin/wait-for-docker
+                        # Database init scripts used by docker compose
+                        - 'docker/postgres-init-scripts/**'
+                        # Persons DB migrations (sqlx migrate run in integration tests)
+                        - 'rust/persons_migrations/**'
+                        # ClickHouse UDF copied in integration test setup
+                        - 'posthog/user_scripts/latest_user_defined_function.xml'
+                        # Composite actions used by the workflow
+                        - '.github/actions/commit-snapshots/**'
+                        # CI config
+                        - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
     build:
         name: Build Package
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
 
@@ -56,13 +93,14 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -70,11 +108,11 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Build package
               run: cd services/mcp && pnpm build
@@ -91,9 +129,25 @@ jobs:
                     exit 1
                   fi
 
+            - name: Check generated UI apps are up to date
+              run: |
+                  cd services/mcp && pnpm run generate:ui-apps
+                  if ! git diff --exit-code -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts; then
+                    echo ""
+                    echo "::warning::The following generated files are out of date:"
+                    git diff --name-only -- src/ui-apps/apps/generated/ src/resources/ui-apps.generated.ts
+                    echo ""
+                    echo "::error::Generated UI app files are out of date. Run 'pnpm --filter=@posthog/mcp run generate:ui-apps' and commit the result."
+                    exit 1
+                  fi
+
+            - name: Lint tool names
+              run: cd services/mcp && pnpm lint-tool-names
+
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
+        timeout-minutes: 10
         needs: changes
         if: needs.changes.outputs.mcp == 'true'
         steps:
@@ -101,7 +155,7 @@ jobs:
               uses: actions/checkout@v6
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -109,18 +163,70 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+
+            # The workers-pool project in vitest.config.mts parses wrangler.jsonc
+            # up front and needs `assets.directory` (./public/) populated and
+            # `shared/guidelines.md` (imported by src/mcp.ts) on disk. Both are
+            # gitignored: public/ is produced by `pnpm build` (UI apps) and
+            # guidelines.md by the wrangler build command.
+            - name: Run wrangler pre-build steps
+              working-directory: services/mcp
+              run: |
+                  pnpm build
+                  pnpm exec tsx scripts/copy-instructions.ts
 
             - name: Run unit tests
-              run: cd services/mcp && pnpm run test
+              run: |
+                  pnpm --filter=@posthog/mcp run test -u
+
+                  if [ -n "$(git status --porcelain -- services/mcp/tests/unit)" ]; then
+                    echo ""
+                    git status --short -- services/mcp/tests/unit
+                    echo "::error::MCP unit test artifacts are out of date. Run 'pnpm --filter=@posthog/mcp run test -u' and commit the result."
+                    exit 1
+                  fi
+
+            - name: Create snapshot patch
+              id: create-snapshot-patch
+              if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
+              run: |
+                  SNAPSHOT_PATH="services/mcp/tests/unit"
+
+                  if [ -z "$(git status --porcelain -- "$SNAPSHOT_PATH")" ]; then
+                    echo "No MCP unit test changes"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "MCP unit test changes detected:"
+                    git status --short -- "$SNAPSHOT_PATH"
+
+                    git add -N "$SNAPSHOT_PATH"
+                    mkdir -p /tmp/patches
+                    git diff --binary --full-index "$SNAPSHOT_PATH" > /tmp/patches/mcp-unit-tests.patch
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Upload snapshot patch
+              if: ${{ steps.create-snapshot-patch.outputs.has-changes == 'true' && always() }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: mcp-snapshot-patch
+                  path: /tmp/patches/mcp-unit-tests.patch
+                  retention-days: 1
+                  if-no-files-found: ignore
 
     integration-tests:
-        name: Integration Tests
-        runs-on: depot-ubuntu-latest-4
+        name: Integration Tests (${{ matrix.runner }})
+        strategy:
+            fail-fast: false
+            matrix:
+                include: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('[{"runner":"depot-ubuntu-latest-4","is_shadow":false},{"runner":"blacksmith-4vcpu-ubuntu-2404","is_shadow":true}]') || fromJson('[{"runner":"depot-ubuntu-latest-4","is_shadow":false}]') }}
+        runs-on: ${{ matrix.runner }}
+        continue-on-error: ${{ matrix.is_shadow }}
         needs: changes
         timeout-minutes: 30
         if: needs.changes.outputs.mcp == 'true'
@@ -142,6 +248,7 @@ jobs:
             DISABLE_SECURE_SSL_REDIRECT: 'True'
             CLICKHOUSE_LOGS_CLUSTER_SECURE: 'False'
             CELERY_METRICS_PORT: 8999
+            POSTHOG_FEATURE_FLAGS_FORCE_ENABLED: 'logs-alerting'
 
         steps:
             - uses: actions/checkout@v6
@@ -156,7 +263,6 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   (
                       max_attempts=3
@@ -187,9 +293,9 @@ jobs:
                       exit 1
                   ) &
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
+            - name: Add service hostnames to /etc/hosts
               shell: bash
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -201,6 +307,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
@@ -209,7 +316,7 @@ jobs:
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Setup pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
 
             - name: Fix node-gyp permissions
               run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
@@ -217,7 +324,7 @@ jobs:
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
-                  node-version: 22
+                  node-version-file: .nvmrc
                   cache: 'pnpm'
 
             - name: Install Python dependencies
@@ -226,7 +333,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Node dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Set up needed files
               shell: bash
@@ -243,7 +350,7 @@ jobs:
                   components: cargo
 
             - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
               with:
                   shared-key: 'v2-rust-mcp'
                   workspaces: rust
@@ -255,11 +362,15 @@ jobs:
 
             - name: Start Docker services
               shell: bash
-              run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
               shell: bash
-              run: bin/wait-for-docker
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
 
             - name: Run migrations
               run: |
@@ -272,24 +383,6 @@ jobs:
                   python manage.py migrate --noinput
                   python manage.py migrate_clickhouse
 
-            - name: Create logs tables in ClickHouse
-              run: |
-                  python -c "
-                  import django, os
-                  os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
-                  django.setup()
-                  from posthog.clickhouse.client import sync_execute
-                  with open('products/logs/backend/test/test_logs_schema.sql') as f:
-                      schema_sql = f.read()
-                  schema_sql = schema_sql.replace('use database posthog_test;', '')
-                  for sql in schema_sql.split(';'):
-                      sql = sql.strip()
-                      if not sql:
-                          continue
-                      sync_execute(sql)
-                  print('Logs tables created successfully')
-                  "
-
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
 
@@ -300,7 +393,8 @@ jobs:
                   os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
                   django.setup()
                   from posthog.models import Organization, Team, User, EventDefinition
-                  from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+                  from posthog.models.personal_api_key import PersonalAPIKey
+                  from posthog.models.utils import hash_key_value
                   org = Organization.objects.first()
                   team = Team.objects.first()
                   user = User.objects.first()
@@ -308,6 +402,7 @@ jobs:
                       user=user,
                       label='mcp_ci_api_key',
                       secure_value=hash_key_value('e2e_demo_api_key'),
+                      scopes=['*'],
                   )
                   # Ensure common event definitions exist for MCP integration tests
                   for event_name in ['\$pageview', '\$pageleave', '\$autocapture', '\$screen']:
@@ -355,11 +450,78 @@ jobs:
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
 
+    handle-snapshots:
+        name: Commit snapshot changes
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        needs: [changes, unit-tests]
+        if: ${{ always() && needs.changes.outputs.mcp == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.actor, '[bot]') && github.actor != 'posthog-bot' && !contains(github.actor, 'github-actions') }}
+        permissions:
+            contents: write
+            pull-requests: write
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - name: Checkout
+              uses: actions/checkout@v6
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  token: ${{ steps.app-token.outputs.token }}
+                  fetch-depth: 1
+
+            - name: Download snapshot patches
+              id: download-patches
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: mcp-snapshot-patch
+                  path: /tmp/snapshot-patches
+                  merge-multiple: true
+
+            - name: Check for patches
+              id: check-patches
+              run: |
+                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/snapshot-patches ]; then
+                    echo "has-patches=false" >> $GITHUB_OUTPUT
+                    echo "No snapshot patches found"
+                    exit 0
+                  fi
+
+                  if [ -n "$(find /tmp/snapshot-patches -name '*.patch' -type f -size +0c 2>/dev/null)" ]; then
+                    echo "has-patches=true" >> $GITHUB_OUTPUT
+                    echo "Found patches:"
+                    ls -la /tmp/snapshot-patches/
+                  else
+                    echo "has-patches=false" >> $GITHUB_OUTPUT
+                    echo "Patch files empty or missing - no snapshot changes"
+                  fi
+
+            - name: Commit snapshots
+              if: steps.check-patches.outputs.has-patches == 'true'
+              uses: ./.github/actions/commit-snapshots
+              with:
+                  workflow-type: backend
+                  patch-path: /tmp/snapshot-patches
+                  snapshot-path: 'services/mcp/tests/unit/'
+                  commit-message: 'test(mcp): update unit test snapshots'
+                  pr-number: ${{ github.event.pull_request.number }}
+                  repository: ${{ github.repository }}
+                  commit-sha: ${{ github.event.pull_request.head.sha }}
+                  branch-name: ${{ github.event.pull_request.head.ref }}
+                  github-token: ${{ steps.app-token.outputs.token }}
+
     # Collation job for required status check
     mcp_tests:
-        needs: [changes, build, unit-tests, integration-tests]
+        needs: [changes, build, unit-tests, integration-tests, handle-snapshots]
         name: MCP Tests Pass
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         if: always()
         steps:
             - name: Check all MCP jobs
@@ -388,6 +550,11 @@ jobs:
 
                   if [[ "${{ needs.integration-tests.result }}" != "success" && "${{ needs.integration-tests.result }}" != "skipped" ]]; then
                     echo "MCP integration tests failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
+                    echo "MCP snapshot commit job failed."
                     exit 1
                   fi
 

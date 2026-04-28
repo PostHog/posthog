@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactElement } from 'react'
 
+import { EmptyState } from '@posthog/mosaic'
+
 import { FunnelVisualizer } from './FunnelVisualizer'
 import { TableVisualizer } from './TableVisualizer'
 import { TrendsVisualizer } from './TrendsVisualizer'
@@ -136,15 +138,7 @@ export function Component({ data }: ComponentProps): ReactElement {
         return (
             <div style={containerStyle}>
                 <div style={titleStyle}>Results</div>
-                <div
-                    style={{
-                        padding: '1.5rem',
-                        textAlign: 'center',
-                        color: 'var(--color-text-secondary, #6b7280)',
-                    }}
-                >
-                    <div>This visualization type isn't supported in this view yet.</div>
-                </div>
+                <EmptyState icon="generic" description="This visualization type isn't supported in this view yet." />
             </div>
         )
     }

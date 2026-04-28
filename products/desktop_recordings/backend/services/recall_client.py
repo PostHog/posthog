@@ -1,12 +1,12 @@
 from typing import Any
 
-from posthog.security.outbound_proxy import external_requests
+import requests
 
 
 class RecallAIClient:
     """Client for Recall.ai API - only used to create SDK upload tokens"""
 
-    def __init__(self, api_key: str, api_url: str = "https://us-west-2.recall.ai"):
+    def __init__(self, api_key: str, api_url: str = "https://us-west-2.recall.ai") -> None:
         self.api_key = api_key
         self.base_url = api_url.rstrip("/")
 
@@ -16,7 +16,7 @@ class RecallAIClient:
         if recording_config:
             payload["recording_config"] = recording_config
 
-        response = external_requests.post(
+        response = requests.post(
             f"{self.base_url}/api/v1/sdk-upload/",
             json=payload,
             headers={"Authorization": f"Token {self.api_key}"},

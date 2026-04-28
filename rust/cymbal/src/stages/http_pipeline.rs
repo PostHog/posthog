@@ -54,7 +54,7 @@ fn handle_result(
             Some(original)
         }
         Err(err) => match err {
-            EventError::Suppressed(_) => None,
+            EventError::Suppressed(_) | EventError::SuppressedByRule(_) => None,
             err => {
                 original.attach_error(err.to_string())?;
                 Some(original)

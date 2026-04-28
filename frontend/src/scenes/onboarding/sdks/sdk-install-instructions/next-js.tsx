@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
 
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { JSInstallSnippet } from './js-web'
+import { ReactInstallSnippet } from './js-web'
 import { type NextJSRouter, nextJsInstructionsLogic } from './nextJsInstructionsLogic'
 
 function NextEnvVarsSnippet(): JSX.Element {
@@ -20,9 +20,10 @@ function NextEnvVarsSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[`NEXT_PUBLIC_POSTHOG_KEY=${currentTeam?.api_token}`, `NEXT_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`].join(
-                '\n'
-            )}
+            {[
+                `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`,
+                `NEXT_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`,
+            ].join('\n')}
         </CodeSnippet>
     )
 }
@@ -36,13 +37,13 @@ function NextPagesRouterPageViewSnippet(): JSX.Element {
 import { useEffect } from 'react'
 import { Router } from 'next/router'
 import posthog from 'posthog-js'
-import { PostHogProvider } from 'posthog-js/react'
+import { PostHogProvider } from '@posthog/react'
 import type { AppProps } from 'next/app'
 
 export default function App({ Component, pageProps }: AppProps) {
 
   useEffect(() => {
-    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN as string, {
       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
       ${
           isPersonProfilesDisabled
@@ -100,14 +101,14 @@ function NextAppRouterPageViewProviderSnippet(): JSX.Element {
 
 import { usePathname, useSearchParams } from "next/navigation"
 import { useEffect } from "react"
-import { usePostHog } from 'posthog-js/react'
+import { usePostHog } from '@posthog/react'
 
 import posthog from 'posthog-js'
-import { PostHogProvider as PHProvider } from 'posthog-js/react'
+import { PostHogProvider as PHProvider } from '@posthog/react'
 
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY as string, {
+    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN as string, {
       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '${apiHostOrigin()}',
       ${
           isPersonProfilesDisabled
@@ -135,7 +136,7 @@ function NextInstrumentationClientSnippet(): JSX.Element {
             {`// instrumentation-client.js
 import posthog from 'posthog-js'
 
-posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY, {
+posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN, {
     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
     defaults: '${SDK_DEFAULTS_DATE}'
 });
@@ -151,8 +152,8 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
     return (
         <>
             <SetupWizardBanner integrationName="Next.js" hide={hideWizard} />
-            <h3>Install posthog-js using your package manager</h3>
-            <JSInstallSnippet />
+            <h3>Install posthog-js and @posthog/react using your package manager</h3>
+            <ReactInstallSnippet />
             <h3>Add environment variables</h3>
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,

@@ -1,11 +1,6 @@
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -19,10 +14,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DashboardTab } from './scene/DashboardTab'
 import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
-import { SourcesTab } from './scene/SourcesTab'
-import { ViewsTab } from './scene/ViewsTab'
+import { SettingsTab } from './scene/SettingsTab'
 
 export const scene: SceneExport = {
     component: DataWarehouseScene,
@@ -42,33 +37,11 @@ export function DataWarehouseScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name={sceneConfigurations[Scene.DataWarehouse].name}
-                description={sceneConfigurations[Scene.DataWarehouse].description}
+                name={sceneConfigurations[Scene.DataOps].name}
+                description={sceneConfigurations[Scene.DataOps].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.DataWarehouse].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.DataOps].iconType || 'default_icon_type',
                 }}
-                actions={
-                    <div className="flex gap-2">
-                        <AppShortcut
-                            name="NewDataWarehouseSource"
-                            keybind={[keyBinds.new]}
-                            intent="New source"
-                            interaction="click"
-                            scope={Scene.DataWarehouse}
-                        >
-                            <LemonButton
-                                type="primary"
-                                to={urls.dataWarehouseSourceNew()}
-                                icon={<IconPlusSmall />}
-                                size="small"
-                                tooltip="New source"
-                                data-attr="new-source-button"
-                            >
-                                New source
-                            </LemonButton>
-                        </AppShortcut>
-                    </div>
-                }
             />
             <LemonTabs
                 activeKey={activeTab}
@@ -78,19 +51,16 @@ export function DataWarehouseScene(): JSX.Element {
                         key: DataWarehouseTab.OVERVIEW,
                         label: 'Overview',
                         content: <OverviewTab />,
-                        link: urls.dataWarehouse(),
+                        link: urls.dataOps(),
                     },
                     {
-                        key: DataWarehouseTab.SOURCES,
-                        label: 'Sources',
-                        content: <SourcesTab />,
-                        link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.SOURCES }).url,
-                    },
-                    {
-                        key: DataWarehouseTab.VIEWS,
-                        label: 'Views',
-                        content: <ViewsTab />,
-                        link: combineUrl(urls.dataWarehouse(), { ...searchParams, tab: DataWarehouseTab.VIEWS }).url,
+                        key: DataWarehouseTab.DASHBOARD,
+                        label: 'Dashboard',
+                        content: <DashboardTab />,
+                        link: combineUrl(urls.dataOps(), {
+                            ...searchParams,
+                            tab: DataWarehouseTab.DASHBOARD,
+                        }).url,
                     },
                     ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]
                         ? [
@@ -98,9 +68,22 @@ export function DataWarehouseScene(): JSX.Element {
                                   key: DataWarehouseTab.MODELING,
                                   label: 'Modeling',
                                   content: <DataModelingTab />,
-                                  link: combineUrl(urls.dataWarehouse(), {
+                                  link: combineUrl(urls.dataOps(), {
                                       ...searchParams,
                                       tab: DataWarehouseTab.MODELING,
+                                  }).url,
+                              },
+                          ]
+                        : []),
+                    ...(featureFlags[FEATURE_FLAGS.PROVISION_MANAGED_WAREHOUSE_BETA]
+                        ? [
+                              {
+                                  key: DataWarehouseTab.SETTINGS,
+                                  label: 'Settings',
+                                  content: <SettingsTab />,
+                                  link: combineUrl(urls.dataOps(), {
+                                      ...searchParams,
+                                      tab: DataWarehouseTab.SETTINGS,
                                   }).url,
                               },
                           ]

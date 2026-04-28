@@ -215,22 +215,30 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
 
 
 @pytest.mark.parametrize(
-    "ai_consent,proactive_tasks,expected",
+    "ai_consent,source_config_enabled,expected",
     [
         (True, True, True),
         (True, False, False),
+        (True, None, False),
         (False, True, False),
         (None, True, False),
     ],
 )
 @pytest.mark.django_db(transaction=True)
 def test_create_external_job_activity_emit_signals_respects_ai_consent(
-    activity_environment, team, organization, ai_consent, proactive_tasks, expected
+    activity_environment, team, organization, ai_consent, source_config_enabled, expected
 ):
+    from products.signals.backend.models import SignalSourceConfig
+
     organization.is_ai_data_processing_approved = ai_consent
     organization.save()
-    team.proactive_tasks_enabled = proactive_tasks
-    team.save()
+    if source_config_enabled is not None:
+        SignalSourceConfig.objects.create(
+            team=team,
+            source_product="zendesk",
+            source_type="ticket",
+            enabled=source_config_enabled,
+        )
     new_source = ExternalDataSource.objects.create(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
@@ -256,7 +264,10 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
     )
 
     ExternalDataSchema.objects.create(
@@ -518,7 +529,10 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
@@ -551,7 +565,10 @@ async def test_run_stripe_job(activity_environment, team, minio_client, mock_str
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         charge_schema = _create_schema(STRIPE_CHARGE_RESOURCE_NAME, new_source, team)
@@ -636,7 +653,10 @@ async def test_run_stripe_job_row_count_update(activity_environment, team, minio
             team=team,
             status="running",
             source_type="Stripe",
-            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+            job_inputs={
+                "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                "stripe_account_id": "acct_id",
+            },
         )
 
         customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
@@ -705,7 +725,10 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         team=team,
         status="running",
         source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        job_inputs={
+            "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+            "stripe_account_id": "acct_id",
+        },
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(

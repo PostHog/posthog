@@ -1,14 +1,14 @@
 {
     "name": "@posthog/products-actions",
-    "scripts": {
-        "backend:contract-check": "echo 'Contract files unchanged'"
-    },
     "dependencies": {
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "*",

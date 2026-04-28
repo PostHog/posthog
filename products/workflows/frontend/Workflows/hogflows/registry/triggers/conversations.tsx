@@ -97,6 +97,7 @@ registerTriggerType({
     label: 'New ticket created',
     icon: <IconBolt />,
     description: 'Trigger when a new support ticket is created',
+    group: 'Support',
     featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_ticket_created',
     buildConfig: () => ({
@@ -112,6 +113,7 @@ registerTriggerType({
     label: 'Ticket status changed',
     icon: <IconBolt />,
     description: 'Trigger when a ticket status changes to a selected status',
+    group: 'Support',
     featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_ticket_status_changed',
     buildConfig: () => ({
@@ -126,6 +128,7 @@ registerTriggerType({
     label: 'Ticket message sent',
     icon: <IconBolt />,
     description: 'Trigger when a teammate replies on a ticket',
+    group: 'Support',
     featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_message_sent',
     buildConfig: () => ({
@@ -142,6 +145,7 @@ registerTriggerType({
     label: 'Ticket message received',
     icon: <IconBolt />,
     description: 'Trigger when a customer sends a message on a ticket',
+    group: 'Support',
     featureFlag: FEATURE_FLAGS.PRODUCT_SUPPORT,
     matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_message_received',
     buildConfig: () => ({

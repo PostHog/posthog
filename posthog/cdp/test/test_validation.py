@@ -497,6 +497,47 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         else:
             validate_inputs(inputs_schema, inputs)
 
+    def test_validate_boolean_input_with_bool_value(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": True}}
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["opt_out"]["value"] is True
+
+    def test_validate_boolean_input_with_false_value(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": False}}
+        validated = validate_inputs(inputs_schema, inputs)
+        # False is falsy so it skips transpilation, value should still be preserved
+        assert validated["opt_out"]["value"] is False
+
+    def test_validate_boolean_input_with_template_string(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": "{event.properties.opt_out}"}}
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["opt_out"]["value"] == "{event.properties.opt_out}"
+        assert "bytecode" in validated["opt_out"]
+
+    def test_validate_boolean_input_rejects_invalid_type(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": True}]
+        inputs = {"opt_out": {"value": 42}}
+        with self.assertRaises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert "boolean or a template string" in str(ctx.exception)
+
+    def test_validate_boolean_input_rejects_liquid_templating(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": "{{ event.properties.opt_out }}", "templating": "liquid"}}
+        with self.assertRaises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        assert "Liquid templating is not supported for boolean fields" in str(ctx.exception)
+
+    def test_validate_boolean_input_allows_hog_templating(self):
+        inputs_schema = [{"key": "opt_out", "type": "boolean", "required": False}]
+        inputs = {"opt_out": {"value": "{event.properties.opt_out}", "templating": "hog"}}
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["opt_out"]["value"] == "{event.properties.opt_out}"
+        assert "bytecode" in validated["opt_out"]
+
     @parameterized.expand(
         [
             ("valid_code", "let x := person.properties.email", False),

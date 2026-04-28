@@ -33,6 +33,16 @@ export interface ClientConfig {
     sessionCookie?: string
 }
 
+export class VisualReviewApiError extends Error {
+    constructor(
+        public status: number,
+        responseText: string
+    ) {
+        super(`API error ${status}: ${responseText}`)
+        this.name = 'VisualReviewApiError'
+    }
+}
+
 export class VisualReviewClient {
     private apiUrl: string
     private teamId: string
@@ -45,7 +55,7 @@ export class VisualReviewClient {
             'Content-Type': 'application/json',
         }
         if (config.token) {
-            this.headers['Authorization'] = `Bearer ${config.token}`
+            this.headers['Authorization'] = `Bearer ${config.token.trim()}`
         } else if (config.sessionCookie) {
             this.headers['Cookie'] = config.sessionCookie
         }
@@ -66,7 +76,7 @@ export class VisualReviewClient {
 
         if (!response.ok) {
             const text = await response.text()
-            throw new Error(`API error ${response.status}: ${text}`)
+            throw new VisualReviewApiError(response.status, text)
         }
 
         return response.json() as Promise<T>
@@ -82,7 +92,8 @@ export class VisualReviewClient {
         branch: string
         snapshots: SnapshotManifestItemApi[]
         prNumber?: number
-        baselineHashes?: Record<string, string>
+        purpose?: string
+        metadata?: Record<string, string>
     }): Promise<CreateRunResultApi> {
         const body: CreateRunInputApi = {
             repo_id: input.repoId,
@@ -91,7 +102,8 @@ export class VisualReviewClient {
             branch: input.branch,
             snapshots: input.snapshots,
             pr_number: input.prNumber,
-            baseline_hashes: input.baselineHashes,
+            purpose: input.purpose,
+            metadata: input.metadata,
         }
 
         return this.request<CreateRunResultApi>('/visual_review/runs/', {
@@ -128,7 +140,24 @@ export class VisualReviewClient {
     }
 
     /**
-     * Signal that all artifacts are uploaded, trigger diff processing.
+     * Add a batch of snapshots to an existing run (shard-based flow).
+     */
+    async addSnapshots(
+        runId: string,
+        input: {
+            snapshots: SnapshotManifestItemApi[]
+        }
+    ): Promise<{ added: number; uploads: UploadTargetApi[] }> {
+        return this.request(`/visual_review/runs/${runId}/add-snapshots/`, {
+            method: 'POST',
+            body: JSON.stringify({
+                snapshots: input.snapshots,
+            }),
+        })
+    }
+
+    /**
+     * Complete a run: detect removals, verify uploads, trigger diff processing.
      */
     async completeRun(runId: string): Promise<RunApi> {
         return this.request<RunApi>(`/visual_review/runs/${runId}/complete/`, {

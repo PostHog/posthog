@@ -1,5 +1,8 @@
 import { get } from 'lodash'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
+
+import { RedisV2 } from '~/common/redis/redis-v2'
 
 import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
 import { logger } from '../../../utils/logger'
@@ -14,6 +17,7 @@ import {
     LogEntryLevel,
     MinimalAppMetric,
     MinimalLogEntry,
+    WarehouseWebhookPayload,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
@@ -37,6 +41,14 @@ import {
 } from './hogflow-utils'
 
 export const MAX_ACTION_STEPS_HARD_LIMIT = 1000
+
+const DUPLICATE_OBSERVATION_TTL_SECONDS = 15 * 60
+
+const hogflowDuplicateInvocationDetectedTotal = new Counter({
+    name: 'hogflow_duplicate_invocation_detected_total',
+    help: 'Fired once per action reached by a duplicate invocation of the same (workflow, event). Inflated by N actions per duplicate pair - treat as trend signal, not exact count.',
+    labelNames: ['workflow_id'],
+})
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -77,11 +89,14 @@ export function createHogFlowInvocation(
 
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
+    private readonly redis: RedisV2 | null
 
     constructor(
         hogFlowFunctionsService: HogFlowFunctionsService,
-        recipientPreferencesService: RecipientPreferencesService
+        recipientPreferencesService: RecipientPreferencesService,
+        redis?: RedisV2
     ) {
+        this.redis = redis ?? null
         const hogFunctionHandler = new HogFunctionHandler(hogFlowFunctionsService, recipientPreferencesService, 'fetch')
         const hogFunctionEmailHandler = new HogFunctionHandler(
             hogFlowFunctionsService,
@@ -147,6 +162,31 @@ export class HogFlowExecutorService {
         }
     }
 
+    private async observeDuplicateInvocation(
+        invocation: CyclotronJobInvocationHogFlow,
+        currentAction: HogFlowAction
+    ): Promise<void> {
+        const eventUuid = invocation.state?.event?.uuid
+        if (!this.redis || !eventUuid) {
+            return
+        }
+        const key = `hogflow:observe:${invocation.functionId}:${eventUuid}:${currentAction.id}`
+        try {
+            await this.redis.useClient({ name: 'hogflow-observe', failOpen: true }, async (client) => {
+                const wasSet = await client.set(key, invocation.id, 'EX', DUPLICATE_OBSERVATION_TTL_SECONDS, 'NX')
+                if (wasSet) {
+                    return
+                }
+                const existingId = await client.get(key)
+                if (existingId && existingId !== invocation.id) {
+                    hogflowDuplicateInvocationDetectedTotal.inc({ workflow_id: invocation.functionId })
+                }
+            })
+        } catch (error) {
+            logger.debug('🦔', '[HogFlowExecutor] Duplicate observer failed', { error: String(error) })
+        }
+    }
+
     async execute(
         invocation: CyclotronJobInvocationHogFlow
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
@@ -154,6 +194,7 @@ export class HogFlowExecutorService {
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
+        const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
@@ -170,7 +211,7 @@ export class HogFlowExecutorService {
 
             if (result.finished) {
                 if (result.error) {
-                    this.log(result, 'error', `Workflow encountered an error: ${result.error}`)
+                    this.log(result, 'error', this.logExecutionErrorInfo(result, result.error))
                 } else {
                     this.log(result, 'info', `Workflow completed`)
                 }
@@ -181,6 +222,7 @@ export class HogFlowExecutorService {
             logs.push(...result.logs)
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
+            warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -190,6 +232,7 @@ export class HogFlowExecutorService {
         result.logs = logs
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
+        result.warehouseWebhookPayloads = warehouseWebhookPayloads
 
         return result
     }
@@ -333,6 +376,8 @@ export class HogFlowExecutorService {
 
                 return result
             }
+
+            await this.observeDuplicateInvocation(invocation, currentAction)
 
             result.logs.push({
                 level: 'debug',
@@ -621,9 +666,25 @@ export class HogFlowExecutorService {
             : ''
 
         return {
-            level: 'debug',
+            level: 'info',
             message: `${hasCurrentAction ? 'Resuming' : 'Starting'} ${isBatchWorkflow ? 'batch ' : ''}workflow execution at ${currentAction}${triggeredForActor}${triggeredByEvent}`,
             timestamp: DateTime.now(),
         }
+    }
+
+    private logExecutionErrorInfo(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        error: Error
+    ): string {
+        const invocation = result.invocation
+        const currentActionId = invocation.state.currentAction?.id
+        const currentAction = currentActionId ? invocation.hogFlow.actions.find((a) => a.id === currentActionId) : null
+
+        const hasAssociatedEvent = Boolean(invocation.state.event)
+        const triggeredByEvent = hasAssociatedEvent
+            ? `. This workflow was triggered by [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
+            : ''
+
+        return `Workflow encountered an error: ${error.message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
     }
 }

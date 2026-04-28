@@ -15,6 +15,8 @@
             "@common/*": ["../common/*"],
             "@posthog/mosaic": ["../common/mosaic/src/index.ts"],
             "@posthog/mosaic/*": ["../common/mosaic/src/*"],
+            "@posthog/replay-shared": ["../common/replay-shared/src/index.ts"],
+            "@posthog/replay-shared/*": ["../common/replay-shared/src/*"],
             // Needed to access the subpath since torph didn't set up types properly
             "torph/react": ["node_modules/torph/dist/react/index"]
         },
@@ -37,6 +39,9 @@
         "declaration": true, // Generate corresponding .d.ts file
         "noUnusedLocals": true, // Report errors on unused locals
         "noUnusedParameters": true, // Report errors on unused parameters
+        "noImplicitOverride": true, // Require the `override` modifier when overriding a base class member
+        "allowUnreachableCode": false, // Raise errors on unreachable code
+        "allowUnusedLabels": false, // Raise errors on unused labels
         "experimentalDecorators": true, // Enables experimental support for ES decorators
         "noFallthroughCasesInSwitch": true, // Report errors for fallthrough cases in switch statement
         "lib": ["dom", "es2023"]
@@ -48,6 +53,7 @@
         "products/**/frontend/**/*",
         "products/**/manifest.tsx",
         "common/esbuilder/*",
+        "common/replay-shared/src/**/*",
         "common/storybook/*",
         "docs/onboarding/**/*"
     ],

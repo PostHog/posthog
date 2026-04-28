@@ -25,7 +25,6 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { Scene } from '~/scenes/sceneTypes'
 
-import { sidePanelOfframpLogic } from '../navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
 
@@ -37,9 +36,6 @@ export function SceneTabs(): JSX.Element {
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-    const { showOfframpModal } = useActions(sidePanelOfframpLogic)
-    const { isSceneTabsOfframpDismissed } = useValues(sidePanelOfframpLogic)
-
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
             return
@@ -79,7 +75,7 @@ export function SceneTabs(): JSX.Element {
             )}
 
             {/* Line below tabs to to complete border on <main> element */}
-            <div className="absolute bottom-0 w-full lg:px-[5px] lg:pr-3">
+            <div className="absolute bottom-0 w-full px-[5px] lg:pr-2">
                 <div className="w-full bottom-0 h-px border-b border-primary z-10" />
             </div>
 
@@ -137,17 +133,6 @@ export function SceneTabs(): JSX.Element {
                                 <IconPlus className="!ml-0 size-3" />
                             </Link>
                         </AppShortcut>
-
-                        {!isSceneTabsOfframpDismissed && (
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    showOfframpModal()
-                                }}
-                                className="ml-auto text-tertiary hover:text-primary"
-                            >
-                                Where's the panel? 🤔
-                            </ButtonPrimitive>
-                        )}
                     </div>
                 </SortableContext>
             </DndContext>
@@ -326,13 +311,18 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                     tooltipPlacement="bottom"
                     aria-label={isPinned ? tab.customTitle || tab.title : undefined}
                 >
-                    {tab.iconType === 'blank' ? (
-                        <></>
-                    ) : tab.iconType === 'loading' ? (
-                        <Spinner />
-                    ) : (
-                        iconForType(tab.iconType as FileSystemIconType)
-                    )}
+                    <span className="relative">
+                        {tab.iconType === 'blank' ? (
+                            <></>
+                        ) : tab.iconType === 'loading' ? (
+                            <Spinner className="-mt-[2px]" />
+                        ) : (
+                            iconForType(tab.iconType as FileSystemIconType)
+                        )}
+                        {tab.badge && tab.iconType !== 'loading' && (
+                            <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-accent" />
+                        )}
+                    </span>
 
                     {isPinned ? (
                         <span className="sr-only">{tab.customTitle || tab.title}</span>

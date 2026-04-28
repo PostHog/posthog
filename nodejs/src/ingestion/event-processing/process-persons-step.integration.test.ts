@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { ASYNC_OUTPUT } from '~/ingestion/analytics/outputs'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
@@ -12,11 +13,17 @@ import {
     getTeam,
     resetTestDatabase,
 } from '../../../tests/helpers/sql'
+import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../config/kafka-topics'
 import { Hub, Person, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
 import { UUIDT } from '../../utils/utils'
+import { PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../analytics/outputs'
+import { INGESTION_WARNINGS_OUTPUT } from '../common/outputs'
+import { IngestionOutputs } from '../outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../outputs/single-ingestion-output'
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
 import { ProcessPersonsInput, createProcessPersonsStep } from './process-persons-step'
 
@@ -28,12 +35,12 @@ describe('createProcessPersonsStep', () => {
     let timestamp: DateTime
     let personRepository: PostgresPersonRepository
     let personsStore: BatchWritingPersonsStore
+    let personOutputs: PersonOutputs
 
     const options: EventPipelineRunnerOptions = {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 100,
         PERSON_MERGE_ASYNC_ENABLED: false,
-        PERSON_MERGE_ASYNC_TOPIC: '',
         PERSON_MERGE_SYNC_BATCH_SIZE: 1,
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
         PERSON_PROPERTIES_UPDATE_ALL: false,
@@ -44,10 +51,33 @@ describe('createProcessPersonsStep', () => {
         hub = await createHub()
         const organizationId = await createOrganization(hub.postgres)
         teamId = await createTeam(hub.postgres, organizationId)
-        team = (await getTeam(hub, teamId))!
+        team = (await getTeam(hub.postgres, teamId))!
 
         personRepository = new PostgresPersonRepository(hub.postgres)
-        personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
+        personOutputs = new IngestionOutputs({
+            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+            [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                KAFKA_PERSON_DISTINCT_ID,
+                hub.kafkaProducer,
+                'test'
+            ),
+            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                KAFKA_INGESTION_WARNINGS,
+                hub.kafkaProducer,
+                'test'
+            ),
+        })
+        const ingestionWarningsOutputs = new IngestionOutputs({
+            [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
+                INGESTION_WARNINGS_OUTPUT,
+                KAFKA_INGESTION_WARNINGS,
+                hub.kafkaProducer,
+                'test'
+            ),
+        })
+        personsStore = new BatchWritingPersonsStore(personRepository, ingestionWarningsOutputs)
 
         pluginEvent = {
             distinct_id: 'my_id',
@@ -100,7 +130,7 @@ describe('createProcessPersonsStep', () => {
     }
 
     it('creates person with $set properties', async () => {
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const result = await step(createInput())
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -137,7 +167,7 @@ describe('createProcessPersonsStep', () => {
         const normalizedEvent = normalizeProcessPerson(normalizeEvent(event), processPerson)
         const normalizedTimestamp = parseEventTimestamp(normalizedEvent)
 
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const result = await step(createInput({ normalizedEvent, timestamp: normalizedTimestamp }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -184,7 +214,7 @@ describe('createProcessPersonsStep', () => {
             created_at: DateTime.fromISO('1970-01-01T00:00:05.000Z'),
         }
 
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const result = await step(createInput({ personlessPerson }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -206,7 +236,7 @@ describe('createProcessPersonsStep', () => {
             force_upgrade: true,
         }
 
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const result = await step(createInput({ personlessPerson }))
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -221,7 +251,7 @@ describe('createProcessPersonsStep', () => {
     })
 
     it('preserves additional input fields in the output', async () => {
-        const step = createProcessPersonsStep(options, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
         const input = { ...createInput(), extraField: 'preserved' }
 
         const result = await step(input)
@@ -252,7 +282,7 @@ describe('createProcessPersonsStep', () => {
             PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
         }
 
-        const step = createProcessPersonsStep(limitOptions, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(limitOptions, personOutputs, personsStore)
         const result = await step(
             createInput({
                 normalizedEvent: identifyEvent,
@@ -264,6 +294,79 @@ describe('createProcessPersonsStep', () => {
         if (isDlqResult(result)) {
             expect(result.reason).toBe('Merge limit exceeded')
         }
+    })
+
+    it('does not update last_seen_at when person_last_seen_at_enabled is not set', async () => {
+        await createPersonWithDistinctIds('my_id')
+
+        const personsBefore = await fetchPostgresPersons(hub.postgres, teamId)
+        const initialLastSeenAt = personsBefore[0].last_seen_at
+
+        const futureTimestamp = DateTime.utc().plus({ hours: 2 }).toISO()!
+        const laterEvent: PluginEvent = {
+            ...pluginEvent,
+            timestamp: futureTimestamp,
+            now: futureTimestamp,
+            uuid: new UUIDT().toString(),
+        }
+
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
+        const result = await step(
+            createInput({
+                normalizedEvent: laterEvent,
+                timestamp: DateTime.fromISO(laterEvent.timestamp!),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        await personsStore.flush()
+        const persons = await fetchPostgresPersons(hub.postgres, teamId)
+        expect(persons).toHaveLength(1)
+        expect(persons[0].last_seen_at).toEqual(initialLastSeenAt)
+    })
+
+    it('updates last_seen_at when person_last_seen_at_enabled is true', async () => {
+        const organizationId = await createOrganization(hub.postgres)
+        const enabledTeamId = await createTeam(hub.postgres, organizationId, undefined, {
+            extra_settings: JSON.stringify({ person_last_seen_at_enabled: true }),
+        })
+        const enabledTeam = (await getTeam(hub.postgres, enabledTeamId))!
+
+        await personRepository.createPerson(
+            DateTime.utc(),
+            {},
+            {},
+            {},
+            enabledTeamId,
+            null,
+            false,
+            new UUIDT().toString(),
+            { distinctId: 'my_id' }
+        )
+
+        const futureTimestamp = DateTime.utc().plus({ hours: 2 })
+        const laterEvent: PluginEvent = {
+            ...pluginEvent,
+            team_id: enabledTeamId,
+            timestamp: futureTimestamp.toISO()!,
+            now: futureTimestamp.toISO()!,
+            uuid: new UUIDT().toString(),
+        }
+
+        const step = createProcessPersonsStep(options, personOutputs, personsStore)
+        const result = await step(
+            createInput({
+                normalizedEvent: laterEvent,
+                team: enabledTeam,
+                timestamp: DateTime.fromISO(laterEvent.timestamp!),
+            })
+        )
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        await personsStore.flush()
+        const persons = await fetchPostgresPersons(hub.postgres, enabledTeamId)
+        expect(persons).toHaveLength(1)
+        expect(persons[0].last_seen_at).toEqual(futureTimestamp.startOf('hour'))
     })
 
     it('returns redirect result when merge limit is exceeded in ASYNC mode', async () => {
@@ -283,10 +386,9 @@ describe('createProcessPersonsStep', () => {
             ...options,
             PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 2,
             PERSON_MERGE_ASYNC_ENABLED: true,
-            PERSON_MERGE_ASYNC_TOPIC: 'async-merge-topic',
         }
 
-        const step = createProcessPersonsStep(asyncOptions, hub.kafkaProducer, personsStore)
+        const step = createProcessPersonsStep(asyncOptions, personOutputs, personsStore)
         const result = await step(
             createInput({
                 normalizedEvent: identifyEvent,
@@ -297,7 +399,7 @@ describe('createProcessPersonsStep', () => {
         expect(result.type).toBe(PipelineResultType.REDIRECT)
         if (isRedirectResult(result)) {
             expect(result.reason).toBe('Event redirected to async merge topic')
-            expect(result.topic).toBe('async-merge-topic')
+            expect(result.output).toBe(ASYNC_OUTPUT)
         }
     })
 })

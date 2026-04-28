@@ -10,7 +10,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { DataModelingJobStatus, DataModelingNodeType, DataWarehouseSyncInterval } from '~/types'
+import { DataModelingJobStatus, DataModelingNodeType, DataModelingSyncInterval } from '~/types'
+
+import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { dataModelingLogic } from '../dataModelingLogic'
 import type { ElkDirection, NodeData, NodeHandle } from './types'
@@ -84,7 +86,7 @@ function DownstreamArrow({
     )
 }
 
-interface NodeInnerProps extends NodeData {
+export interface NodeInnerProps extends NodeData {
     layoutDirection: ElkDirection
     onRunUpstream: (e: React.MouseEvent) => void
     onRunDownstream: (e: React.MouseEvent) => void
@@ -148,29 +150,6 @@ function NodeLabelAndAction({
     )
 }
 
-function syncIntervalToShorthand(syncInterval: DataWarehouseSyncInterval | undefined): string {
-    switch (syncInterval) {
-        case '5min':
-            return '5m'
-        case '30min':
-            return '30m'
-        case '1hour':
-            return '1h'
-        case '6hour':
-            return '6h'
-        case '12hour':
-            return '12h'
-        case '24hour':
-            return '1d'
-        case '7day':
-            return '1w'
-        case '30day':
-            return '30d'
-        default:
-            return 'Never'
-    }
-}
-
 function NodeMetadata({
     type,
     syncInterval,
@@ -178,7 +157,7 @@ function NodeMetadata({
     lastJobStatus,
 }: {
     type: DataModelingNodeType
-    syncInterval?: DataWarehouseSyncInterval
+    syncInterval?: DataModelingSyncInterval
     lastRunAt?: string
     lastJobStatus?: DataModelingJobStatus | null
 }): JSX.Element | null {
@@ -202,7 +181,7 @@ function NodeMetadata({
                             <TZLabel
                                 className="text-[10px]"
                                 time={lastRunAt}
-                                formatDate="MMM DD, YYYY"
+                                formatDate="MMM D"
                                 formatTime="HH:mm"
                                 showPopover={false}
                             />
@@ -228,10 +207,9 @@ function NodeMetadata({
     }
 }
 
-const NodeInner = React.memo(function NodeInner({
+export const NodeInner = React.memo(function NodeInner({
     name,
     type,
-    savedQueryId,
     handles,
     layoutDirection,
     isRunning,
@@ -255,7 +233,6 @@ const NodeInner = React.memo(function NodeInner({
     const nodeTypeSettings = NODE_TYPE_SETTINGS[type]
 
     const canRun = type === 'matview' || type === 'view' || type === 'endpoint'
-    const canOpenInEditor = type !== 'table' && savedQueryId
     const shouldRenderArrows = canRun && isHovered && !isRunning
 
     const handleMouseEnter = useCallback(() => {
@@ -274,7 +251,7 @@ const NodeInner = React.memo(function NodeInner({
                 isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
                 !isRunning && (isSearchMatch || isTypeHighlighted) && 'border-link ring-2 ring-link/30',
                 !isRunning && !isSearchMatch && !isTypeHighlighted && 'border-border',
-                canOpenInEditor && 'cursor-pointer'
+                'cursor-pointer'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -367,7 +344,6 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
         [id, materializeNode]
     )
 
-    const canOpenInEditor = type !== 'table' && type !== 'endpoint' && savedQueryId
     const handleNodeClick = useCallback((): void => {
         if (type === 'endpoint') {
             const versionMatch = name.match(/^(.+)_v(\d+)$/)
@@ -376,10 +352,10 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
             } else {
                 newTab(urls.endpoint(name))
             }
-        } else if (canOpenInEditor) {
-            newTab(urls.sqlEditor({ view_id: savedQueryId }))
+        } else {
+            newTab(urls.nodeDetail(id))
         }
-    }, [type, canOpenInEditor, savedQueryId, newTab, name])
+    }, [type, id, newTab, props.data.name, name])
 
     const handleMouseEnter = useCallback(() => setHoveredNodeId(id), [id, setHoveredNodeId])
     const handleMouseLeave = useCallback(() => setHoveredNodeId(null), [setHoveredNodeId])

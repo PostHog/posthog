@@ -12,7 +12,7 @@ use common::{
     create_grpc_client, create_kafka_topic, start_assigner, start_grpc_server, test_store,
     wait_for_condition, NUM_PARTITIONS, POLL_INTERVAL, WAIT_TIMEOUT,
 };
-use kafka_assigner::types::HandoffPhase;
+use kafka_assigner::types::{ConsumerStatus, HandoffPhase};
 use kafka_assigner_proto::kafka_assigner::v1 as proto;
 use kafka_assigner_proto::kafka_assigner::v1::kafka_assigner_client::KafkaAssignerClient;
 use proto::assignment_command::Command;
@@ -395,12 +395,12 @@ async fn grpc_crash_during_warming() {
     .await;
 
     // Crash c-1 — drops the gRPC stream. The server detects the closed
-    // channel, revokes the etcd lease, and the consumer disappears.
+    // channel and the etcd lease expires via TTL, removing the consumer.
     c1.crash();
 
-    // Stale handoffs targeting dead c-1 should be cleaned up.
+    // Stale handoffs targeting dead c-1 should be cleaned up after lease expiry.
     let check_store = Arc::clone(&store);
-    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move { store.list_handoffs().await.unwrap_or_default().is_empty() }
     })
@@ -456,8 +456,9 @@ async fn grpc_consumer_crashes_mid_operation() {
     // Wait for c-1 to disappear and all partitions to converge to c-0.
     // The c-0 driver handles WarmPartition commands for incoming partitions.
     // Complete-phase handoffs with dead old_owner (c-1) are auto-cleaned.
+    // The lease expires via TTL (not eagerly revoked), so we need extra time.
     let check_store = Arc::clone(&store);
-    wait_for_condition(Duration::from_secs(15), POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();
@@ -505,9 +506,10 @@ async fn grpc_rapid_reconnect() {
     let _c0_new_driver = spawn_consumer_driver(c0_new, Duration::ZERO);
 
     // Wait for the consumer to be registered and all partitions assigned.
-    // There may be a brief window where the old lease is revoked and the
-    // new one isn't yet seen by the assigner, so partitions may briefly
-    // be unassigned. The system should converge.
+    // The old lease is NOT eagerly revoked — it expires naturally via TTL.
+    // If the reconnect happens before the TTL elapses, the new registration
+    // overwrites the key without a Delete event, avoiding unnecessary
+    // rebalancing. The system should converge.
     let check_store = Arc::clone(&store);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
@@ -563,9 +565,9 @@ async fn grpc_sequential_crashes_converge() {
     // Crash c-2.
     c2_driver.abort();
 
-    // Wait for convergence to c-0 + c-1.
+    // Wait for convergence to c-0 + c-1 (lease expires via TTL).
     let check_store = Arc::clone(&store);
-    wait_for_condition(Duration::from_secs(20), POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();
@@ -582,9 +584,9 @@ async fn grpc_sequential_crashes_converge() {
     // Crash c-1.
     c1_driver.abort();
 
-    // Wait for convergence to c-0 only.
+    // Wait for convergence to c-0 only (lease expires via TTL).
     let check_store = Arc::clone(&store);
-    wait_for_condition(Duration::from_secs(20), POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(30), POLL_INTERVAL, || {
         let store = Arc::clone(&check_store);
         async move {
             let handoffs = store.list_handoffs().await.unwrap_or_default();
@@ -595,6 +597,99 @@ async fn grpc_sequential_crashes_converge() {
         }
     })
     .await;
+
+    cancel.cancel();
+}
+
+// ── Deregister / Draining scenarios ─────────────────────────────
+
+#[tokio::test]
+async fn grpc_deregister_transitions_to_draining_and_drains() {
+    let store = test_store("grpc-deregister").await;
+    let cancel = CancellationToken::new();
+    let topic = test_topic("grpc-deregister");
+
+    create_kafka_topic(&topic, NUM_PARTITIONS as i32).await;
+    let _assigner = start_assigner(Arc::clone(&store), cancel.clone());
+    let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
+
+    let c0 = SimulatedConsumer::connect(server.addr, "c-0", &topic).await;
+    let _c0_driver = spawn_consumer_driver(c0, Duration::ZERO);
+    let c1 = SimulatedConsumer::connect(server.addr, "c-1", &topic).await;
+    let _c1_driver = spawn_consumer_driver(c1, Duration::ZERO);
+
+    // Wait for balanced 2-way assignment.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(15), POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            handoffs.is_empty()
+                && assignments.len() == NUM_PARTITIONS as usize
+                && assignments.iter().any(|a| a.owner == "c-0")
+                && assignments.iter().any(|a| a.owner == "c-1")
+        }
+    })
+    .await;
+
+    // Call the Deregister RPC for c-0.
+    let mut client = create_grpc_client(server.addr).await;
+    let response = client
+        .deregister(proto::DeregisterRequest {
+            consumer_name: "c-0".to_string(),
+        })
+        .await
+        .expect("deregister RPC failed");
+    let action = response.into_inner().action();
+    assert_eq!(action, proto::DeregisterAction::ShutdownNow);
+
+    // Verify c-0 is now Draining in the store.
+    let consumers = store.list_consumers().await.unwrap();
+    let c0_consumer = consumers
+        .iter()
+        .find(|c| c.consumer_name == "c-0")
+        .expect("c-0 should still be registered");
+    assert_eq!(c0_consumer.status, ConsumerStatus::Draining);
+
+    // The assigner should move all c-0 partitions to c-1 via handoffs.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(15), POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            let handoffs = store.list_handoffs().await.unwrap_or_default();
+            let assignments = store.list_assignments().await.unwrap_or_default();
+            handoffs.is_empty()
+                && assignments.len() == NUM_PARTITIONS as usize
+                && assignments.iter().all(|a| a.owner == "c-1")
+        }
+    })
+    .await;
+
+    let assignments = store.list_assignments().await.unwrap();
+    assert_eq!(assignments.len(), NUM_PARTITIONS as usize);
+    assert!(assignments.iter().all(|a| a.owner == "c-1"));
+
+    cancel.cancel();
+}
+
+#[tokio::test]
+async fn grpc_deregister_unknown_consumer_returns_not_found() {
+    let store = test_store("grpc-dereg-404").await;
+    let cancel = CancellationToken::new();
+
+    let server = start_grpc_server(Arc::clone(&store), cancel.clone()).await;
+
+    let mut client = create_grpc_client(server.addr).await;
+    let result = client
+        .deregister(proto::DeregisterRequest {
+            consumer_name: "nonexistent".to_string(),
+        })
+        .await;
+
+    assert!(result.is_err());
+    let status = result.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::NotFound);
 
     cancel.cancel();
 }

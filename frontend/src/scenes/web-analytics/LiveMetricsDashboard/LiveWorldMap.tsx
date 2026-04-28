@@ -1,7 +1,7 @@
 import '~/scenes/insights/views/WorldMap/WorldMap.scss'
 
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import React, { useCallback, useEffect } from 'react'
 
 import { gradateColor } from 'lib/utils'
 import { countryVectors } from 'scenes/insights/views/WorldMap/countryVectors'
@@ -13,6 +13,48 @@ const SATURATION_FLOOR = 0.3
 const HEAT_BRIGHTNESS_FACTOR = 0.8
 const HEAT_HUE_ROTATION_DEG = 180
 const HEAT_TRANSITION_DURATION = '0.15s'
+
+interface CountryPathProps {
+    countryCode: string
+    countryElement: JSX.Element
+    fill: string | undefined
+    heat: number
+    mapColor: string
+    onMouseEnter: (countryCode: string, e: React.MouseEvent) => void
+    onMouseMove: (e: React.MouseEvent) => void
+    onMouseLeave: () => void
+}
+
+const CountryPath = React.memo(
+    ({
+        countryCode,
+        countryElement,
+        fill,
+        heat,
+        mapColor,
+        onMouseEnter,
+        onMouseMove,
+        onMouseLeave,
+    }: CountryPathProps): JSX.Element => {
+        return React.cloneElement(countryElement, {
+            key: countryCode,
+            style: {
+                color: fill,
+                '--world-map-hover': mapColor,
+                cursor: fill ? 'pointer' : undefined,
+                filter:
+                    heat > 0
+                        ? `brightness(${1 + heat * HEAT_BRIGHTNESS_FACTOR}) saturate(${1 + heat}) hue-rotate(${heat * HEAT_HUE_ROTATION_DEG}deg)`
+                        : undefined,
+                transition: `filter ${HEAT_TRANSITION_DURATION} ease-out`,
+            },
+            onMouseEnter: (e: React.MouseEvent) => onMouseEnter(countryCode, e),
+            onMouseMove,
+            onMouseLeave,
+        })
+    }
+)
+CountryPath.displayName = 'CountryPath'
 
 interface LiveWorldMapProps {
     data: CountryBreakdownItem[]
@@ -28,18 +70,20 @@ export const LiveWorldMap = ({ data, totalEvents }: LiveWorldMapProps): JSX.Elem
         updateCountryData(data, totalEvents)
     }, [data, totalEvents, updateCountryData])
 
-    const handleMouseEnter = (countryCode: string, e: React.MouseEvent): void => {
-        showTooltip(countryCode)
-        updateTooltipCoordinates(e.clientX, e.clientY)
-    }
+    const handleMouseEnter = useCallback(
+        (countryCode: string, e: React.MouseEvent): void => {
+            showTooltip(countryCode)
+            updateTooltipCoordinates(e.clientX, e.clientY)
+        },
+        [showTooltip, updateTooltipCoordinates]
+    )
 
-    const handleMouseMove = (e: React.MouseEvent): void => {
-        updateTooltipCoordinates(e.clientX, e.clientY)
-    }
-
-    const handleMouseLeave = (): void => {
-        hideTooltip()
-    }
+    const handleMouseMove = useCallback(
+        (e: React.MouseEvent): void => {
+            updateTooltipCoordinates(e.clientX, e.clientY)
+        },
+        [updateTooltipCoordinates]
+    )
 
     return (
         <div className="relative">
@@ -56,24 +100,20 @@ export const LiveWorldMap = ({ data, totalEvents }: LiveWorldMapProps): JSX.Elem
                     }
                     const count = countryCodeToCount[countryCode] || 0
                     const fill = count > 0 ? gradateColor(mapColor, count / maxCount, SATURATION_FLOOR) : undefined
-                    const heat = countryHeat[countryCode] || 0
 
-                    return React.cloneElement(countryElement, {
-                        key: countryCode,
-                        style: {
-                            color: fill,
-                            '--world-map-hover': mapColor,
-                            cursor: count > 0 ? 'pointer' : undefined,
-                            filter:
-                                heat > 0
-                                    ? `brightness(${1 + heat * HEAT_BRIGHTNESS_FACTOR}) saturate(${1 + heat}) hue-rotate(${heat * HEAT_HUE_ROTATION_DEG}deg)`
-                                    : undefined,
-                            transition: `filter ${HEAT_TRANSITION_DURATION} ease-out`,
-                        },
-                        onMouseEnter: (e: React.MouseEvent) => handleMouseEnter(countryCode, e),
-                        onMouseMove: handleMouseMove,
-                        onMouseLeave: handleMouseLeave,
-                    })
+                    return (
+                        <CountryPath
+                            key={countryCode}
+                            countryCode={countryCode}
+                            countryElement={countryElement}
+                            fill={fill}
+                            heat={countryHeat[countryCode] || 0}
+                            mapColor={mapColor}
+                            onMouseEnter={handleMouseEnter}
+                            onMouseMove={handleMouseMove}
+                            onMouseLeave={hideTooltip}
+                        />
+                    )
                 })}
             </svg>
             {tooltipData && tooltipPosition && (

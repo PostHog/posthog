@@ -1,6 +1,16 @@
 import React from 'react'
 
-import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark, IconPlay } from '@posthog/icons'
+import {
+    IconBadge,
+    IconBolt,
+    IconCursor,
+    IconEye,
+    IconLeave,
+    IconList,
+    IconLogomark,
+    IconPlay,
+    IconServer,
+} from '@posthog/icons'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -66,7 +76,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
 
 export function getEventDefinitionIcon(definition: EventDefinition & { value?: string | null }): JSX.Element {
     // Rest are events
-    if (definition.id === '$pageview' || definition.id === '$screen') {
+    if (definition.name === '$pageview' || definition.name === '$screen') {
         return (
             <IconWithBadge
                 icon={<IconEye />}
@@ -77,7 +87,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             />
         )
     }
-    if (definition.id === '$pageleave') {
+    if (definition.name === '$pageleave') {
         return (
             <IconWithBadge
                 icon={<IconLeave />}
@@ -88,7 +98,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             />
         )
     }
-    if (definition.id === '$autocapture') {
+    if (definition.name === '$autocapture') {
         return (
             <IconWithBadge
                 icon={<IconBolt />}
@@ -99,7 +109,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             />
         )
     }
-    if (definition.id && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.id]) {
+    if (definition.name && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name]) {
         return (
             <IconWithBadge
                 icon={<IconLogomark />}
@@ -132,6 +142,17 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             />
         )
     }
+    if (definition.is_data_warehouse) {
+        return (
+            <IconWithBadge
+                icon={<IconServer />}
+                verified={definition.verified}
+                hidden={definition.hidden}
+                tooltipTitle="Data warehouse event"
+                className="taxonomy-icon taxonomy-icon-muted"
+            />
+        )
+    }
     return (
         <IconWithBadge
             icon={<IconCursor />}
@@ -144,14 +165,14 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
 }
 
 export function getEventMetadataDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_metadata[definition.id]) {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_metadata[definition.name]) {
         return <IconLogomark />
     }
     return <IconList />
 }
 
 export function getRevenueAnalyticsDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (CORE_FILTER_DEFINITIONS_BY_GROUP.revenue_analytics_properties[definition.id]) {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.revenue_analytics_properties[definition.name]) {
         return <IconLogomark />
     }
 

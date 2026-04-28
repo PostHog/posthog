@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -840,7 +841,9 @@ describe('llmPlaygroundLogic', () => {
 
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('"text"')
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).toContain('"Complex content"')
-            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('["array","content"]')
+            // Pretty-printed JSON array
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('"array"')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('"content"')
         })
 
         it('should extract plain text from trace-style content arrays', () => {
@@ -855,6 +858,394 @@ describe('llmPlaygroundLogic', () => {
                 { role: 'user', content: 'hi' },
                 { role: 'assistant', content: 'PART 1/2: Let me check that.' },
             ])
+        })
+
+        it('should handle OpenAI-style messages with tool_calls and null content', () => {
+            const input = [
+                { role: 'user', content: 'What is the weather in Paris?' },
+                {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_123',
+                            function: { name: 'get_weather', arguments: '{"city": "Paris"}' },
+                        },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
+            expect(llmPlaygroundPromptsLogic.values.messages[0]).toEqual({
+                role: 'user',
+                content: 'What is the weather in Paris?',
+            })
+            expect(llmPlaygroundPromptsLogic.values.messages[1].role).toBe('assistant')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: get_weather]')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Paris')
+        })
+
+        it.each([
+            {
+                name: 'Anthropic mixed text + tool_use',
+                content: [
+                    { type: 'text', text: 'Let me search for that.' },
+                    { type: 'tool_use', id: 'tu_1', name: 'search', input: { query: 'cats' } },
+                ],
+                expectedSubstrings: ['Let me search for that.', '[Tool call: search]', 'cats'],
+            },
+            {
+                name: 'Anthropic tool_use only',
+                content: [{ type: 'tool_use', id: 'tu_1', name: 'do_thing', input: { param: 'value' } }],
+                expectedSubstrings: ['[Tool call: do_thing]'],
+            },
+            {
+                name: 'Anthropic tool_result',
+                content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'Result data here' }],
+                expectedSubstrings: ['[Tool result for tu_1]', 'Result data here'],
+            },
+            {
+                name: 'OpenAI Responses API function_call',
+                content: [{ type: 'function_call', name: 'my_func', call_id: 'fc_1', arguments: '{"x": 1}' }],
+                expectedSubstrings: ['[Function call: my_func]', '{"x": 1}'],
+            },
+            {
+                name: 'OpenAI Responses API function_call_output',
+                content: [{ type: 'function_call_output', call_id: 'fc_1', output: 'result: 42' }],
+                expectedSubstrings: ['[Function output for fc_1]', 'result: 42'],
+            },
+        ])('should format $name content blocks', ({ content, expectedSubstrings }) => {
+            const input = [{ role: 'assistant', content }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            const result = llmPlaygroundPromptsLogic.values.messages[0].content
+            expect(result).not.toBe('')
+            for (const substring of expectedSubstrings) {
+                expect(result).toContain(substring)
+            }
+        })
+
+        it('should merge tool-role messages into the preceding assistant turn', () => {
+            const input = [
+                { role: 'user', content: 'What year was Python created?' },
+                {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_abc',
+                            function: { name: 'research', arguments: '{"question":"..."}' },
+                        },
+                    ],
+                },
+                { role: 'tool', tool_call_id: 'call_abc', content: 'Python was created in 1991.' },
+                { role: 'assistant', content: 'Python was created in 1991.' },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            const messages = llmPlaygroundPromptsLogic.values.messages
+            expect(messages).toHaveLength(3)
+            expect(messages[0]).toEqual({ role: 'user', content: 'What year was Python created?' })
+            expect(messages[1].role).toBe('assistant')
+            expect(messages[1].content).toContain('[Tool call: research]')
+            expect(messages[1].content).toContain('[Tool result for call_abc]')
+            expect(messages[1].content).toContain('Python was created in 1991.')
+            expect(messages[2]).toEqual({ role: 'assistant', content: 'Python was created in 1991.' })
+        })
+
+        it('should merge Anthropic-style tool_result user messages into the preceding assistant turn', () => {
+            const input = [
+                { role: 'user', content: 'Search cats' },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'tool_use', id: 'tu_1', name: 'search', input: { query: 'cats' } }],
+                },
+                {
+                    role: 'user',
+                    content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'Found 42 cats' }],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            const messages = llmPlaygroundPromptsLogic.values.messages
+            expect(messages).toHaveLength(2)
+            expect(messages[0]).toEqual({ role: 'user', content: 'Search cats' })
+            expect(messages[1].role).toBe('assistant')
+            expect(messages[1].content).toContain('[Tool call: search]')
+            expect(messages[1].content).toContain('[Tool result for tu_1]')
+            expect(messages[1].content).toContain('Found 42 cats')
+        })
+
+        it('should fall back to a user turn for a tool message without a preceding assistant', () => {
+            const input = [{ role: 'tool', tool_call_id: 'call_123', content: 'Weather in Paris: 22°C' }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe(
+                '[Tool result for call_123]\nWeather in Paris: 22°C'
+            )
+        })
+
+        it('should drop the "for …" suffix when a tool message has no tool_call_id', () => {
+            const input = [{ role: 'tool', content: 'Some result' }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages[0].role).toBe('user')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('[Tool result]\nSome result')
+        })
+
+        it('should handle OpenAI Responses API top-level function_call and function_call_output items in input', () => {
+            // The Responses API sends function_call and function_call_output items at the top level
+            // of the conversation array alongside regular role-bearing messages, but with no `role`.
+            const input = [
+                { role: 'system', content: 'You are a helpful assistant.' },
+                { role: 'user', content: 'What is the weather?' },
+                {
+                    type: 'function_call',
+                    name: 'ask_clarification',
+                    call_id: 'call_abc123',
+                    arguments: '{"question":"Which city?","options":["London","Paris"]}',
+                },
+                {
+                    type: 'function_call_output',
+                    call_id: 'call_abc123',
+                    output: 'London',
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            const messages = llmPlaygroundPromptsLogic.values.messages
+            // system is extracted, function_call_output merges into the assistant turn
+            expect(messages).toHaveLength(2)
+            expect(messages[0]).toEqual({ role: 'user', content: 'What is the weather?' })
+            expect(messages[1].role).toBe('assistant')
+            expect(messages[1].content).toContain('[Function call: ask_clarification]')
+            expect(messages[1].content).toContain('[Function output for call_abc123]')
+            expect(messages[1].content).toContain('London')
+        })
+
+        it('should handle OpenAI Responses API function_call item in output', () => {
+            // Matches $ai_output_choices shape when the model responds with a tool call
+            const input = [{ role: 'user', content: 'Find me some products' }]
+            const output = [
+                {
+                    type: 'function_call',
+                    name: 'search_products',
+                    call_id: 'call_def456',
+                    arguments: '{"queries":["blue widgets"]}',
+                    id: 'fc_001',
+                    status: 'completed',
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            const messages = llmPlaygroundPromptsLogic.values.messages
+            expect(messages).toHaveLength(2)
+            expect(messages[1].role).toBe('assistant')
+            expect(messages[1].content).toContain('[Function call: search_products]')
+            expect(messages[1].content).toContain('blue widgets')
+        })
+
+        it('should merge function_call_output in output into preceding assistant turn', () => {
+            // A function_call followed immediately by function_call_output in $ai_output_choices —
+            // the output item should be folded into the assistant turn, not emitted as a user bubble.
+            const input = [{ role: 'user', content: 'What is the weather in Paris?' }]
+            const output = [
+                {
+                    type: 'function_call',
+                    name: 'get_weather',
+                    call_id: 'call_ghi789',
+                    arguments: '{"city":"Paris"}',
+                    status: 'completed',
+                },
+                {
+                    type: 'function_call_output',
+                    call_id: 'call_ghi789',
+                    output: '22°C, sunny',
+                    status: 'completed',
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            const messages = llmPlaygroundPromptsLogic.values.messages
+            // function_call_output should merge into the function_call's assistant turn
+            expect(messages).toHaveLength(2)
+            expect(messages[1].role).toBe('assistant')
+            expect(messages[1].content).toContain('[Function call: get_weather]')
+            expect(messages[1].content).toContain('[Function output for call_ghi789]')
+            expect(messages[1].content).toContain('22°C, sunny')
+        })
+
+        it('should not produce "null" string for messages with null content', () => {
+            const input = [{ role: 'user', content: null, tool_calls: [] }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).not.toBe('null')
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('')
+        })
+
+        it('should not crash when content contains circular references or BigInt values', () => {
+            const circular: Record<string, unknown> = { foo: 'bar' }
+            circular.self = circular
+            const input = [
+                { role: 'user', content: circular },
+                { role: 'assistant', content: [{ type: 'tool_use', name: 'x', input: { big: 1n } }] },
+            ]
+
+            expect(() => llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input })).not.toThrow()
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
+            // Fallbacks are stringified via String(), not empty — we just verify content exists.
+            expect(llmPlaygroundPromptsLogic.values.messages[0].content).not.toBe('')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: x]')
+        })
+
+        it('should append output as assistant messages alongside input', () => {
+            const input = [{ role: 'user', content: 'Hello' }]
+            const output = [{ role: 'assistant', content: 'Hi there!' }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi there!' },
+            ])
+        })
+
+        it('should append output with structured content blocks', () => {
+            const input = [{ role: 'user', content: 'Search for cats' }]
+            const output = [
+                {
+                    role: 'assistant',
+                    content: [
+                        { type: 'text', text: 'Let me search.' },
+                        { type: 'tool_use', id: 'tu_1', name: 'search', input: { query: 'cats' } },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
+            expect(llmPlaygroundPromptsLogic.values.messages[1].role).toBe('assistant')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Let me search.')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: search]')
+        })
+
+        it('should handle OpenAI Responses API output (type: "message" with output_text content blocks)', () => {
+            const input = [{ role: 'user', content: 'hello' }]
+            // Shape matches $ai_output_choices from a real gpt-5 Responses API trace: the outer array
+            // elements carry `type: "message"` and `role: "assistant"` at the top level, and the text
+            // lives in `output_text` content blocks (not `text`). This exercises the generic object
+            // branch of flattenOutputMessages (no `choices`/`message` wrapper) plus formatContentBlock's
+            // output_text case.
+            const output = [
+                {
+                    type: 'message',
+                    role: 'assistant',
+                    status: 'completed',
+                    content: [
+                        {
+                            type: 'output_text',
+                            text: 'Hi! What are you shopping for today?',
+                            annotations: [],
+                            logprobs: [],
+                        },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'hello' },
+                { role: 'assistant', content: 'Hi! What are you shopping for today?' },
+            ])
+        })
+
+        it('should unwrap OpenAI choices-shaped output', () => {
+            const input = [{ role: 'user', content: 'Hi' }]
+            const output = {
+                choices: [
+                    {
+                        finish_reason: 'stop',
+                        index: 0,
+                        message: { role: 'assistant', content: 'Hello!' },
+                    },
+                ],
+            }
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Hi' },
+                { role: 'assistant', content: 'Hello!' },
+            ])
+        })
+
+        it('should not stack-overflow on deeply nested message wrappers in output', () => {
+            // Simulate a pathological `{ message: { message: … } }` chain deeper than the cap.
+            let output: unknown = { role: 'assistant', content: 'buried' }
+            for (let i = 0; i < 500; i++) {
+                output = { message: output }
+            }
+            const input = [{ role: 'user', content: 'hi' }]
+
+            expect(() => llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })).not.toThrow()
+            // The wrapper chain is longer than MAX_OUTPUT_FLATTEN_DEPTH (100), so the output is
+            // dropped entirely and only the input message remains.
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0]).toEqual({ role: 'user', content: 'hi' })
+        })
+
+        it('should default output messages without a role to assistant', () => {
+            const output = [{ content: 'Standalone reply' }]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
+            expect(llmPlaygroundPromptsLogic.values.messages[0]).toEqual({
+                role: 'assistant',
+                content: 'Standalone reply',
+            })
+        })
+
+        it('should format OpenAI-style top-level tool_calls in output', () => {
+            const input = [{ role: 'user', content: 'What is the weather in Paris?' }]
+            const output = [
+                {
+                    role: 'assistant',
+                    content: null,
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_abc',
+                            function: { name: 'get_weather', arguments: '{"city": "Paris"}' },
+                        },
+                    ],
+                },
+            ]
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({ input, output })
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(2)
+            expect(llmPlaygroundPromptsLogic.values.messages[1].role).toBe('assistant')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('[Tool call: get_weather]')
+            expect(llmPlaygroundPromptsLogic.values.messages[1].content).toContain('Paris')
         })
 
         it('should reset to default system prompt when none provided', () => {
@@ -1048,6 +1439,279 @@ describe('llmPlaygroundLogic', () => {
 
             expect(llmPlaygroundPromptsLogic.values.messages).toHaveLength(1)
             expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Only message')
+        })
+    })
+
+    describe('linkedSource', () => {
+        it('should return null source when no source is set', () => {
+            expect(llmPlaygroundPromptsLogic.values.linkedSource).toEqual({
+                type: null,
+                promptName: null,
+                promptVersion: null,
+                evaluationId: null,
+                evaluationName: null,
+            })
+        })
+
+        it('should reflect source after setupPlaygroundFromEvent with sourcePromptName', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                        id: 'prompt-123',
+                        name: 'my-prompt',
+                        prompt: 'You are helpful.',
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptName: 'my-prompt',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            const linked = llmPlaygroundPromptsLogic.values.linkedSource
+            expect(linked.type).toBe('prompt')
+            expect(linked.promptName).toBe('my-prompt')
+        })
+
+        it('should reflect source after setupPlaygroundFromEvent with sourceEvaluationId', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-456',
+                        name: 'my-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Judge this.' },
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'evaluation',
+                sourceEvaluationId: 'eval-456',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            const linked = llmPlaygroundPromptsLogic.values.linkedSource
+            expect(linked.type).toBe('evaluation')
+            expect(linked.evaluationId).toBe('eval-456')
+            expect(linked.evaluationName).toBe('my-eval')
+        })
+
+        it('should clear linked source', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                        id: 'prompt-123',
+                        name: 'my-prompt',
+                        prompt: 'You are helpful.',
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptName: 'my-prompt',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            llmPlaygroundPromptsLogic.actions.clearLinkedSource()
+
+            const linked = llmPlaygroundPromptsLogic.values.linkedSource
+            expect(linked.type).toBeNull()
+            expect(linked.promptName).toBeNull()
+        })
+    })
+
+    describe('setupPlaygroundFromEvent with source', () => {
+        it('should set system prompt from fetched prompt', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                        id: 'prompt-1',
+                        name: 'test-prompt',
+                        prompt: 'Be concise.',
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptName: 'test-prompt',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('Be concise.')
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([])
+        })
+
+        it('should set system prompt and model from fetched evaluation', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-1',
+                        name: 'judge-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Rate the response.' },
+                        model_configuration: { model: 'gpt-5', provider_key_id: null },
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'evaluation',
+                sourceEvaluationId: 'eval-1',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('Rate the response.')
+        })
+
+        it('should show error toast when prompt fetch fails', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': () => [404, { detail: 'Not found' }],
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptName: 'nonexistent-prompt',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(llmPlaygroundPromptsLogic.values.sourceSetupLoading).toBe(false)
+        })
+    })
+
+    describe('save actions', () => {
+        it('saveAsNewPrompt should call create API', async () => {
+            let createCalled = false
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/llm_prompts/': () => {
+                        createCalled = true
+                        return [201, { id: 'new-1', name: 'saved-prompt', prompt: 'test' }]
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('My system prompt')
+            const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.saveAsNewPrompt(promptId, 'saved-prompt')
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(createCalled).toBe(true)
+            expect(router.values.searchParams).toHaveProperty('source_prompt_name', 'saved-prompt')
+            expect(router.values.searchParams).not.toHaveProperty('source_evaluation_id')
+        })
+
+        it('saveAsNewEvaluation should call create API', async () => {
+            let createCalled = false
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/evaluations/': () => {
+                        createCalled = true
+                        return [201, { id: 'eval-new', name: 'saved-eval' }]
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('Judge prompt')
+            const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.saveAsNewEvaluation(promptId, 'saved-eval', {
+                model: 'gpt-5',
+                provider: 'openai',
+                provider_key_id: null,
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(createCalled).toBe(true)
+            expect(router.values.searchParams).toHaveProperty('source_evaluation_id', 'eval-new')
+            expect(router.values.searchParams).not.toHaveProperty('source_prompt_name')
+        })
+
+        it('saveToLinkedPrompt should call update API with current system prompt', async () => {
+            let updatedPrompt: string | undefined
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                        id: 'prompt-linked',
+                        name: 'linked',
+                        prompt: 'Old prompt.',
+                        latest_version: 3,
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': (req: any) => {
+                        updatedPrompt = req.body.prompt
+                        return [200, { id: 'prompt-linked', name: 'linked', prompt: req.body.prompt }]
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'prompt',
+                sourcePromptName: 'linked',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('Updated prompt.')
+            const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.saveToLinkedPrompt(promptId)
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(updatedPrompt).toBe('Updated prompt.')
+        })
+
+        it('saveToLinkedEvaluation should call update API', async () => {
+            let updateCalled = false
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/evaluations/:id/': {
+                        id: 'eval-linked',
+                        name: 'linked-eval',
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: 'Old eval prompt.' },
+                    },
+                },
+                patch: {
+                    '/api/environments/:team_id/evaluations/:id/': () => {
+                        updateCalled = true
+                        return [200, { id: 'eval-linked', name: 'linked-eval' }]
+                    },
+                },
+            })
+
+            llmPlaygroundPromptsLogic.actions.setupPlaygroundFromEvent({
+                sourceType: 'evaluation',
+                sourceEvaluationId: 'eval-linked',
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            llmPlaygroundPromptsLogic.actions.setSystemPrompt('New eval prompt.')
+            const promptId = llmPlaygroundPromptsLogic.values.promptConfigs[0].id
+            llmPlaygroundPromptsLogic.actions.saveToLinkedEvaluation(promptId, {
+                model: 'gpt-5',
+                provider: 'openai',
+                provider_key_id: null,
+            })
+
+            await expectLogic(llmPlaygroundPromptsLogic).toFinishAllListeners()
+
+            expect(updateCalled).toBe(true)
         })
     })
 })

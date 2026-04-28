@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "condition": {
+            "additionalProperties": {},
+            "description": "The release condition to evaluate",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "group_type_index": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Group type index for group-based flags (null for person-based flags)"
+        }
+    },
+    "required": ["condition"],
+    "type": "object"
+}

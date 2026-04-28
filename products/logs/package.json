@@ -1,11 +1,11 @@
 {
     "name": "@posthog/products-logs",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short",
-        "backend:contract-check": "echo 'Contract files unchanged'"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
         "kea": "catalog:",
+        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
@@ -23,14 +23,15 @@
         "@testing-library/user-event": "*",
         "@types/papaparse": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "ansi-colors": "*",
-        "classnames": "*",
         "clsx": "*",
         "eslint": "*",
         "fast-deep-equal": "*",
         "jest": "*",
         "papaparse": "*",
         "react": "*",
+        "react-dom": "*",
         "react-window": "*",
         "stylelint": "*",
         "typescript": "*",

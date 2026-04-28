@@ -28,14 +28,6 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
 
-    /**
-     * exposureCriteria is null only when the modal is not open.
-     * Otherwise, it's always a valid object.
-     */
-    if (!exposureCriteria) {
-        return null
-    }
-
     return (
         <LemonModal
             isOpen={isExposureCriteriaModalOpen}

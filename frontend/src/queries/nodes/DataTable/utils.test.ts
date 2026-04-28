@@ -5,9 +5,10 @@ import {
     extractDisplayLabel,
     extractExpressionComment,
     getColumnsForQuery,
+    getDefaultDataTablePersonColumns,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 describe('DataTable utils', () => {
     it('extractExpressionComment', () => {
@@ -65,6 +66,18 @@ describe('DataTable utils', () => {
         expect(removeExpressionComment(' hoho trim  -- trim')).toBe('hoho trim')
     })
 
+    it('defaultDataTablePersonColumns does not include last_seen_at', () => {
+        expect(defaultDataTablePersonColumns).not.toContain('last_seen_at')
+    })
+
+    it('getDefaultDataTablePersonColumns includes last_seen_at when enabled', () => {
+        expect(getDefaultDataTablePersonColumns(true)).toContain('last_seen_at')
+    })
+
+    it('getDefaultDataTablePersonColumns excludes last_seen_at when disabled', () => {
+        expect(getDefaultDataTablePersonColumns(false)).not.toContain('last_seen_at')
+    })
+
     it('getColumnsForQuery', () => {
         // default columns if none given
         expect(
@@ -98,5 +111,54 @@ describe('DataTable utils', () => {
                 source: { kind: NodeKind.PersonsNode },
             })
         ).toEqual(defaultDataTablePersonColumns)
+
+        // "columns" takes precedence over "source.select"
+        expect(
+            getColumnsForQuery({
+                kind: NodeKind.DataTableNode,
+                columns: ['*', 'event', 'timestamp'],
+                source: { kind: NodeKind.EventsQuery, select: ['*', 'event'] },
+            })
+        ).toEqual(['*', 'event', 'timestamp'])
+
+        // without "columns", falls through to "source.select"
+        expect(
+            getColumnsForQuery({
+                kind: NodeKind.DataTableNode,
+                source: { kind: NodeKind.EventsQuery, select: ['*', 'event'] },
+            })
+        ).toEqual(['*', 'event'])
+    })
+
+    describe('ColumnConfigurator setColumns should not leak stale columns', () => {
+        it.each([
+            ['EventsQuery', NodeKind.EventsQuery],
+            ['SessionsQuery', NodeKind.SessionsQuery],
+        ])('strips stale columns for %s so getColumnsForQuery reads source.select', (_, sourceKind) => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                columns: defaultDataTableEventColumns,
+                source: { kind: sourceKind, select: defaultDataTableEventColumns } as any,
+            }
+
+            const { columns: _discard, ...queryWithoutColumns } = query
+            const result = {
+                ...queryWithoutColumns,
+                source: { ...query.source, select: ['*', 'event'] },
+            } as DataTableNode
+
+            expect(result).not.toHaveProperty('columns')
+            expect(getColumnsForQuery(result)).toEqual(['*', 'event'])
+        })
+
+        it('preserves columns for HogQL queries', () => {
+            const result: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                columns: ['*', 'event', 'timestamp'],
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT *' },
+            }
+
+            expect(getColumnsForQuery(result)).toEqual(['*', 'event', 'timestamp'])
+        })
     })
 })

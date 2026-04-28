@@ -469,6 +469,24 @@ function JSONExtractStringFn(args: any[]): string | null {
     return val != null ? String(val) : null
 }
 
+function JSONExtractFn(args: any[]): any {
+    if (args.length < 2) {
+        return null
+    }
+    let obj = args[0]
+    try {
+        if (typeof obj === 'string') {
+            obj = JSON.parse(obj)
+        }
+    } catch {
+        return null
+    }
+    // Last argument is the return type (ClickHouse convention), which we ignore.
+    // Arguments between first and last are path components.
+    const path = args.length > 2 ? args.slice(1, -1) : []
+    return getNestedValue(obj, path, true) ?? null
+}
+
 export const STL: Record<string, STLFunction> = {
     concat: {
         fn: (args) => {
@@ -1427,6 +1445,12 @@ export const STL: Record<string, STLFunction> = {
         example: 'typeof($1)',
         minArgs: 1,
         maxArgs: 1,
+    },
+    JSONExtract: {
+        fn: JSONExtractFn,
+        description: 'Extracts a value from JSON by path with a return type hint',
+        example: 'JSONExtract($1, $2, $3)',
+        minArgs: 2,
     },
     JSONExtractArrayRaw: {
         fn: JSONExtractArrayRawFn,

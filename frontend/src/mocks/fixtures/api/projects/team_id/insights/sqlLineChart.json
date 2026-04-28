@@ -1,0 +1,422 @@
+{
+  "id": 21,
+  "short_id": "qJ3UMu6g",
+  "name": "SQL with nulls",
+  "derived_name": null,
+  "filters": {},
+  "query": {
+    "kind": "DataVisualizationNode",
+    "source": {
+      "kind": "HogQLQuery",
+      "query": "SELECT\n    toStartOfMonth(timestamp) AS month,\n\n    nullIf(count(), 0) AS s0,\n    nullIf(1* countIf(addMonths(timestamp, 1) <= now()), 0)  AS s1,\n    nullIf(2*countIf(addMonths(timestamp, 2) <= now()), 0)  AS s2,\n    nullIf(3*countIf(addMonths(timestamp, 3) <= now()), 0)  AS s3,\n    nullIf(4*countIf(addMonths(timestamp, 4) <= now()), 0)  AS s4,\n    nullIf(5*countIf(addMonths(timestamp, 5) <= now()), 0)  AS s5,\n    nullIf(6*countIf(addMonths(timestamp, 6) <= now()), 0)  AS s6,\n    nullIf(7*countIf(addMonths(timestamp, 7) <= now()), 0)  AS s7,\n    nullIf(8*countIf(addMonths(timestamp, 8) <= now()), 0)  AS s8,\n    nullIf(9*countIf(addMonths(timestamp, 9) <= now()), 0)  AS s9,\n    nullIf(10*countIf(addMonths(timestamp,10) <= now()), 0)  AS s10,\n    nullIf(11*countIf(addMonths(timestamp,11) <= now()), 0)  AS s11\n\nFROM events\nGROUP BY month\nORDER BY month"
+    },
+    "display": "ActionsLineGraph",
+    "chartSettings": {
+      "xAxis": {
+        "column": "month"
+      },
+      "yAxis": [
+        {
+          "column": "s0",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s1",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s2",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s3",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s4",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s5",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s6",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s7",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s8",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s9",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s10",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s11",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        }
+      ]
+    },
+    "tableSettings": {
+      "columns": [
+        {
+          "column": "month",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s0",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s1",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s2",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s3",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s4",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s5",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s6",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s7",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s8",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s9",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s10",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        },
+        {
+          "column": "s11",
+          "settings": {
+            "formatting": {
+              "prefix": "",
+              "suffix": ""
+            }
+          }
+        }
+      ]
+    }
+  },
+  "order": null,
+  "deleted": false,
+  "dashboards": [],
+  "dashboard_tiles": [],
+  "last_refresh": "2026-03-04T16:10:59.052768Z",
+  "cache_target_age": "2026-03-04T22:10:59.052768Z",
+  "next_allowed_client_refresh": "2026-03-04T16:11:59.052768Z",
+  "result": [
+    [
+      "2025-10-01",
+      152,
+      152,
+      304,
+      456,
+      608,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "2025-11-01",
+      6775,
+      6775,
+      13550,
+      20325,
+      992,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "2025-12-01",
+      21162,
+      21162,
+      42324,
+      5382,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "2026-01-01",
+      29520,
+      29520,
+      4426,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "2026-02-01",
+      29192,
+      4906,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ],
+    [
+      "2026-03-01",
+      2208,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  ],
+  "hasMore": false,
+  "columns": [
+    "month",
+    "s0",
+    "s1",
+    "s2",
+    "s3",
+    "s4",
+    "s5",
+    "s6",
+    "s7",
+    "s8",
+    "s9",
+    "s10",
+    "s11"
+  ],
+  "created_at": "2026-03-04T16:11:08.460573Z",
+  "created_by": {
+    "id": 1,
+    "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+    "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+    "first_name": "Employee 427",
+    "last_name": "",
+    "email": "test@posthog.com",
+    "is_email_verified": null,
+    "hedgehog_config": null,
+    "role_at_organization": "engineering"
+  },
+  "description": null,
+  "updated_at": "2026-03-04T16:11:08.460609Z",
+  "favorited": false,
+  "saved": true,
+  "last_modified_at": "2026-03-04T16:11:08.456506Z",
+  "last_modified_by": {
+    "id": 1,
+    "uuid": "019c66e6-fd77-0000-a6bb-509ac38f988e",
+    "distinct_id": "otSl3FZiAxw3Vv8GUTeWtZcV3mdpR0lH9pprZmBRKXd",
+    "first_name": "Employee 427",
+    "last_name": "",
+    "email": "test@posthog.com",
+    "is_email_verified": null,
+    "hedgehog_config": null,
+    "role_at_organization": "engineering"
+  },
+  "is_sample": false,
+  "effective_restriction_level": 21,
+  "effective_privilege_level": 37,
+  "user_access_level": "manager",
+  "timezone": "UTC",
+  "is_cached": true,
+  "query_status": null,
+  "hogql": "SELECT\n    toStartOfMonth(timestamp) AS month,\n    nullIf(count(), 0) AS s0,\n    nullIf(multiply(1, countIf(lessOrEquals(addMonths(timestamp, 1), now()))), 0) AS s1,\n    nullIf(multiply(2, countIf(lessOrEquals(addMonths(timestamp, 2), now()))), 0) AS s2,\n    nullIf(multiply(3, countIf(lessOrEquals(addMonths(timestamp, 3), now()))), 0) AS s3,\n    nullIf(multiply(4, countIf(lessOrEquals(addMonths(timestamp, 4), now()))), 0) AS s4,\n    nullIf(multiply(5, countIf(lessOrEquals(addMonths(timestamp, 5), now()))), 0) AS s5,\n    nullIf(multiply(6, countIf(lessOrEquals(addMonths(timestamp, 6), now()))), 0) AS s6,\n    nullIf(multiply(7, countIf(lessOrEquals(addMonths(timestamp, 7), now()))), 0) AS s7,\n    nullIf(multiply(8, countIf(lessOrEquals(addMonths(timestamp, 8), now()))), 0) AS s8,\n    nullIf(multiply(9, countIf(lessOrEquals(addMonths(timestamp, 9), now()))), 0) AS s9,\n    nullIf(multiply(10, countIf(lessOrEquals(addMonths(timestamp, 10), now()))), 0) AS s10,\n    nullIf(multiply(11, countIf(lessOrEquals(addMonths(timestamp, 11), now()))), 0) AS s11\nFROM\n    events\nGROUP BY\n    month\nORDER BY\n    month ASC\nLIMIT 101\nOFFSET 0",
+  "types": [
+    ["month", "Date"],
+    ["s0", "Nullable(UInt64)"],
+    ["s1", "Nullable(UInt64)"],
+    ["s2", "Nullable(UInt64)"],
+    ["s3", "Nullable(UInt64)"],
+    ["s4", "Nullable(UInt64)"],
+    ["s5", "Nullable(UInt64)"],
+    ["s6", "Nullable(UInt64)"],
+    ["s7", "Nullable(UInt64)"],
+    ["s8", "Nullable(UInt64)"],
+    ["s9", "Nullable(UInt64)"],
+    ["s10", "Nullable(UInt64)"],
+    ["s11", "Nullable(UInt64)"]
+  ],
+  "resolved_date_range": null,
+  "alerts": [],
+  "last_viewed_at": "2026-03-04T16:11:30.018817Z",
+  "tags": [],
+  "filters_hash": "cache_1_eb04b61fff884f29a4c74600aea3684fb7769ff1fa6e0d4e59865ee187c3b58b"
+}

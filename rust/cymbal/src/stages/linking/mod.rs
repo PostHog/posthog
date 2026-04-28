@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 pub mod issue;
+pub mod rule_suppression;
 pub mod suppression;
 
 use moka::future::{Cache, CacheBuilder};
@@ -10,7 +11,9 @@ use crate::{
     issue_resolution::Issue,
     metric_consts::LINKING_STAGE,
     stages::{
-        linking::{issue::IssueLinker, suppression::IssueSuppression},
+        linking::{
+            issue::IssueLinker, rule_suppression::RuleSuppression, suppression::IssueSuppression,
+        },
         pipeline::ExceptionEventPipelineItem,
     },
     types::{
@@ -36,6 +39,8 @@ impl Stage for LinkingStage {
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         batch
+            .apply_operator(RuleSuppression, self.clone())
+            .await?
             .apply_operator(IssueLinker, self.clone())
             .await?
             .apply_operator(IssueSuppression, self.clone())

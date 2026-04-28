@@ -4,9 +4,6 @@ import { expectLogic } from 'kea-test-utils'
 
 import { EventType } from '@posthog/rrweb-types'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
@@ -51,11 +48,7 @@ function makeFullSnapshot(timestamp: number, windowId: number = 1): RecordingSna
 describe('snapshotDataLogic (store-based loading)', () => {
     let logic: ReturnType<typeof snapshotDataLogic.build>
 
-    function mountWithStoreFlag(): void {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE]: 'test',
-        })
+    function mountLogic(): void {
         logic = snapshotDataLogic({
             sessionRecordingId: 'store-test',
             blobV2PollingDisabled: true,
@@ -72,45 +65,21 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
     afterEach(() => {
         logic?.unmount()
-        featureFlagLogic?.unmount()
     })
 
     describe('initialization', () => {
         it('creates store and scheduler when feature flag is set', () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             expect(logic.values.snapshotStore).not.toBeNull()
             expect(logic.values.storeVersion).toBe(0)
             expect(logic.values.sourceLoadingStates).toEqual([])
         })
-
-        it('does not create store when feature flag is not set', () => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.REPLAY_SNAPSHOT_STORE]: 'control',
-            })
-            logic = snapshotDataLogic({
-                sessionRecordingId: 'no-store-test',
-                blobV2PollingDisabled: true,
-            })
-            logic.mount()
-
-            expect(logic.values.snapshotStore).toBeNull()
-        })
-
-        it('returns stable empty object for snapshotsBySources', () => {
-            mountWithStoreFlag()
-
-            const first = logic.values.snapshotsBySources
-            const second = logic.values.snapshotsBySources
-            expect(first).toBe(second)
-            expect(first).toEqual({})
-        })
     })
 
     describe('loadSnapshotSourcesSuccess', () => {
         it('populates store with sources and triggers loading', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
@@ -121,7 +90,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
         })
 
         it('doubles polling interval when sources are unchanged on second fetch', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
@@ -145,7 +114,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
     describe('loadSnapshotsForSourceSuccess (snapshot bucketing)', () => {
         it('buckets snapshots into store by source timestamp range', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
@@ -159,7 +128,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
         })
 
         it('marks sources as loaded after bucketing', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
@@ -174,7 +143,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
     describe('setTargetTimestamp', () => {
         it('triggers seek mode for unloaded data', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             // Load sources but don't wait for full data load
             logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B, SOURCE_C])
@@ -189,7 +158,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
         })
 
         it('skips seek when can already play at target', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             logic.actions.loadSnapshotSourcesSuccess([SOURCE_A])
             await expectLogic(logic).toFinishAllListeners()
@@ -207,7 +176,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
         })
 
         it('does not override load_all mode', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B, SOURCE_C])
             await expectLogic(logic).toFinishAllListeners()
@@ -226,7 +195,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
         })
 
         it('does not enter seek for source 0 when already in buffer_ahead', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B])
             await expectLogic(logic).toFinishAllListeners()
@@ -239,11 +208,114 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
             expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
         })
+
+        it('re-evaluates isWaitingForPlayableFullSnapshot after silent seek clear (#53893 Bug B)', async () => {
+            // Regression test for the stale-selector half of #53893.
+            //
+            // When LoadingScheduler.getSeekBatch silently clears seek mode
+            // (step 5: backward search exhausted, no full snapshot found),
+            // it mutates cache.scheduler.currentMode directly. The store's
+            // version doesn't bump because no data is added. Without the
+            // storeUpdated dispatch on that transition and a selector
+            // dependency that tracks it, isWaitingForPlayableFullSnapshot
+            // stays cached at `true` — poisoning the next seekToTimestamp.
+            //
+            // This exercise uses the step-5 path specifically because it's
+            // the case where mode changes WITHOUT any store mutation, so
+            // we can isolate the selector-reactivity half of the fix from
+            // the step-2 path (where markLoaded would also bump the
+            // selector's storeVersion dependency and mask a regression).
+            mountLogic()
+
+            // Pre-load sources as loaded-but-empty. state='loaded' means
+            // no seek batch will try to load them, and empty snapshots mean
+            // no full snapshot exists anywhere → canPlayAt is always false
+            // and the backward search in getSeekBatch step 4/5 will exhaust.
+            const store = logic.values.snapshotStore!
+            store.setSources([SOURCE_A, SOURCE_B])
+            store.markLoaded(0, [])
+            store.markLoaded(1, [])
+
+            // Tell Kea about the sources. setSources preserves loaded
+            // entries by blob_key, and loadNextSnapshotSource sees
+            // everything as loaded → no loader dispatches.
+            logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B])
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Directly put the scheduler in seek mode. setTargetTimestamp
+            // would work too, but it's fiddly to arrange the early-return
+            // checks in this state — direct seekTo is cleaner.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const scheduler = (logic as any).cache.scheduler as {
+                seekTo: (ts: number) => void
+                currentMode: { kind: string }
+            }
+            scheduler.seekTo(tsMs(0, 30))
+
+            // Pre-read: seek mode + no full snapshot → true, CACHED.
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(true)
+
+            // Trigger getSeekBatch. Step 1 finds nothing unloaded (all
+            // loaded), step 2 canPlayAt=false (no full snapshot), step 3
+            // findNearestFullSnapshot=null, step 4 backward search has
+            // nothing unloaded, step 5 exhausted → clearSeek. Mode flips
+            // to buffer_ahead WITHOUT any store mutation — this is the
+            // isolation point that catches Bug B.
+            logic.actions.loadNextSnapshotSource()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Sanity: scheduler actually exited seek mode.
+            expect(scheduler.currentMode.kind).toBe('buffer_ahead')
+
+            // Without the fix (no storeUpdated dispatch on silent clearSeek,
+            // or selector depending on storeVersion instead of storeUpdateCount),
+            // this returns a stale `true` because nothing in Kea's
+            // reactivity graph changed while the mode flipped.
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
+        })
+
+        it('enters seek mode when called before sources load (past-end URL regression #53893)', async () => {
+            // Regression test for the stuck-buffer follow-up to #53686, fixed in #53893.
+            //
+            // Scenario: a user opens a replay with a ?t=<past-end> URL.
+            // The player dispatches setTargetTimestamp before the async
+            // snapshot source list has resolved, so the store is still
+            // empty at the point setTargetTimestamp runs.
+            //
+            // Before the fix, getSourceIndexForTimestamp returned 0 for
+            // any timestamp on an empty store, tripping the "source 0 in
+            // buffer_ahead" optimization and skipping scheduler.seekTo.
+            // The scheduler then stayed in buffer_ahead, and once sources
+            // arrived it anchored on the trailing blob (a heartbeat with
+            // no full snapshot) — leaving the player stuck in BUFFER.
+            mountLogic()
+
+            // Pre-condition: store is mounted but has no sources yet.
+            expect(logic.values.snapshotStore!.sourceCount).toBe(0)
+
+            // Force memoization at false so the test catches a missing storeUpdated
+            // after scheduler.seekTo (per review feedback on #53893).
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
+
+            logic.actions.setTargetTimestamp(tsMs(5, 0))
+            await expectLogic(logic).toFinishAllListeners()
+
+            // With the fix: getSourceIndexForTimestamp returns null for
+            // the empty store, so targetIndex === 0 is false and the
+            // optimization doesn't fire. scheduler.seekTo runs and the
+            // storeUpdated dispatch on the wasSeeking transition ensures
+            // the selector re-evaluates. canPlayAt is false (no data),
+            // so isWaitingForPlayableFullSnapshot is true.
+            //
+            // Without the fix: scheduler stays in buffer_ahead, selector
+            // returns false, player has no signal to keep buffering.
+            expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(true)
+        })
     })
 
     describe('updatePlaybackPosition', () => {
         it('triggers buffer-ahead loading', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B])
             await expectLogic(logic).toFinishAllListeners()
@@ -254,30 +326,11 @@ describe('snapshotDataLogic (store-based loading)', () => {
                 logic.actions.updatePlaybackPosition(tsMs(0))
             }).toDispatchActions(['loadNextSnapshotSource'])
         })
-
-        it('is a no-op when store is not enabled', async () => {
-            // Mount without store flag
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            logic = snapshotDataLogic({
-                sessionRecordingId: 'no-store-update-test',
-                blobV2PollingDisabled: true,
-            })
-            logic.mount()
-
-            expect(logic.values.snapshotStore).toBeNull()
-
-            logic.actions.updatePlaybackPosition(tsMs(0))
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.snapshotStore).toBeNull()
-            expect(logic.values.snapshotsForSourceLoading).toBe(false)
-        })
     })
 
     describe('loadAllSources', () => {
         it('switches scheduler to load_all mode and kicks off loading', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B, SOURCE_C])
             await expectLogic(logic).toFinishAllListeners()
@@ -288,29 +341,11 @@ describe('snapshotDataLogic (store-based loading)', () => {
                 logic.actions.loadAllSources()
             }).toDispatchActions(['loadNextSnapshotSource'])
         })
-
-        it('is a no-op when store is not enabled', async () => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            logic = snapshotDataLogic({
-                sessionRecordingId: 'no-store-loadall-test',
-                blobV2PollingDisabled: true,
-            })
-            logic.mount()
-
-            expect(logic.values.snapshotStore).toBeNull()
-
-            logic.actions.loadAllSources()
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.snapshotStore).toBeNull()
-            expect(logic.values.snapshotsForSourceLoading).toBe(false)
-        })
     })
 
     describe('setPlayerActive', () => {
         it('triggers loading when activated with store', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             logic.actions.loadSnapshotSourcesSuccess([SOURCE_A])
             await expectLogic(logic).toFinishAllListeners()
@@ -326,7 +361,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
     describe('loadNextSnapshotSource (store path)', () => {
         it('uses scheduler to determine next batch', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B, SOURCE_C])
             await expectLogic(logic).toFinishAllListeners()
@@ -344,7 +379,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
         })
 
         it('starts polling when all sources are loaded', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             logic.actions.loadSnapshotSourcesSuccess([SOURCE_A])
             await expectLogic(logic).toFinishAllListeners()
@@ -362,7 +397,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
     describe('selectors', () => {
         describe('snapshotsLoading', () => {
             it('is false when store has snapshots loaded', async () => {
-                mountWithStoreFlag()
+                mountLogic()
 
                 const store = logic.values.snapshotStore!
                 store.setSources([SOURCE_A])
@@ -374,12 +409,12 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
         describe('allSourcesLoaded', () => {
             it('is false before sources are set', () => {
-                mountWithStoreFlag()
+                mountLogic()
                 expect(logic.values.allSourcesLoaded).toBe(false)
             })
 
             it('becomes true once all sources have been marked loaded', () => {
-                mountWithStoreFlag()
+                mountLogic()
 
                 const store = logic.values.snapshotStore!
                 store.setSources([SOURCE_A, SOURCE_B])
@@ -400,26 +435,15 @@ describe('snapshotDataLogic (store-based loading)', () => {
         })
 
         describe('isWaitingForPlayableFullSnapshot', () => {
-            it('is false when not in store mode', () => {
-                featureFlagLogic.mount()
-                logic = snapshotDataLogic({
-                    sessionRecordingId: 'no-store-wait-test',
-                    blobV2PollingDisabled: true,
-                })
-                logic.mount()
-
-                expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
-            })
-
             it('is false when not seeking', () => {
-                mountWithStoreFlag()
+                mountLogic()
                 expect(logic.values.isWaitingForPlayableFullSnapshot).toBe(false)
             })
         })
 
         describe('storeVersion', () => {
             it('increments when store mutates', () => {
-                mountWithStoreFlag()
+                mountLogic()
 
                 const initialVersion = logic.values.storeVersion
                 const store = logic.values.snapshotStore!
@@ -432,7 +456,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
         describe('sourceLoadingStates', () => {
             it('returns source states from store', () => {
-                mountWithStoreFlag()
+                mountLogic()
 
                 const store = logic.values.snapshotStore!
                 store.setSources([SOURCE_A, SOURCE_B])
@@ -450,7 +474,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
     describe('full loading pipeline', () => {
         it('loads sources, fetches snapshots, and buckets them into the store', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
@@ -474,7 +498,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
     describe('setSnapshots (file playback)', () => {
         it('populates store with file snapshots', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             const fileSnapshots = [makeFullSnapshot(tsMs(0, 0)), makeSnapshot(tsMs(0, 15)), makeSnapshot(tsMs(0, 30))]
 
@@ -491,7 +515,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
         })
 
         it('makes snapshots available via coordinator selector', async () => {
-            mountWithStoreFlag()
+            mountLogic()
 
             const fileSnapshots = [makeFullSnapshot(tsMs(0, 0)), makeSnapshot(tsMs(0, 30))]
 

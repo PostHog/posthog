@@ -1,4 +1,4 @@
-from django.conf import settings
+import os
 
 import structlog
 import posthoganalytics
@@ -257,9 +257,8 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
             "--no-sandbox",
             "--disable-gpu",
         ]
-        proxy_config: ProxySettings | None = None
-        if settings.OUTBOUND_PROXY_ENABLED and settings.OUTBOUND_PROXY_URL:
-            proxy_config = ProxySettings(server=settings.OUTBOUND_PROXY_URL)
+        proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        proxy_config = ProxySettings(server=proxy_url) if proxy_url else None
 
         browser = p.chromium.launch(
             headless=True,  # TIP: for debugging, set to False
@@ -301,6 +300,14 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
 
                 # Scroll to bottom and back to top to trigger lazy-loaded content
                 _scroll_page(page)
+
+                # Hide scrollbars so they don't appear in the exported image
+                try:
+                    page.add_style_tag(
+                        content="*::-webkit-scrollbar { display: none !important; } html, body { scrollbar-width: none !important; }"
+                    )
+                except Exception:
+                    pass
 
                 # Take full-page screenshot without resizing viewport
                 # (resizing viewport causes elements with vh units to expand)

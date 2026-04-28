@@ -13,9 +13,9 @@ import temporalio.client
 from structlog.testing import capture_logs
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
+from products.batch_exports.backend.service import BatchExportModel
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import PostgresBatchExportInputs
 from products.batch_exports.backend.temporal.metrics import SLAWaiter
 
@@ -112,11 +112,7 @@ async def test_interceptor_calls_histogram_metrics(
         )
 
         mocked_meter.assert_any_call(
-            {
-                "interval": "hour",
-                "status": "COMPLETED",
-                "exception": "",
-            }
+            {"interval": "hour", "status": "COMPLETED", "exception": "", "workflow_type": "postgres-export"}
         )
         mocked_meter.return_value.create_histogram_timedelta.assert_any_call(
             name="batch_exports_workflow_interval_execution_latency",

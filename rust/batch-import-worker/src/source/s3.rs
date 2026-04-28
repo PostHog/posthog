@@ -1,7 +1,7 @@
 use crate::error::ToUserError;
 use anyhow::{Context, Error};
+use async_trait::async_trait;
 use aws_sdk_s3::Client as S3Client;
-use axum::async_trait;
 use tracing::debug;
 
 use super::DataSource;

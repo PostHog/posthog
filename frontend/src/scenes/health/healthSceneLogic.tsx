@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb } from '~/types'
 
@@ -28,7 +29,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
     path(['scenes', 'health', 'healthSceneLogic']),
     tabAwareScene(),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeamIdStrict']],
     }),
     actions({
         setShowDismissed: (show: boolean) => ({ show }),
@@ -66,7 +67,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                     }
 
                     const queryString = new URLSearchParams(params).toString()
-                    const url = `api/environments/@current/health_issues/?${queryString}`
+                    const url = `api/environments/${values.currentTeamIdStrict}/health_issues/?${queryString}`
 
                     return await api.get(url)
                 },
@@ -146,7 +147,9 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         },
         dismissIssue: async ({ id }) => {
             try {
-                await api.update(`api/environments/@current/health_issues/${id}/`, { dismissed: true })
+                await api.update(`api/environments/${values.currentTeamIdStrict}/health_issues/${id}/`, {
+                    dismissed: true,
+                })
                 actions.loadHealthIssues()
                 unifiedHealthMenuLogic.actions.loadHealthSummary()
             } catch {
@@ -155,7 +158,9 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         },
         undismissIssue: async ({ id }) => {
             try {
-                await api.update(`api/environments/@current/health_issues/${id}/`, { dismissed: false })
+                await api.update(`api/environments/${values.currentTeamIdStrict}/health_issues/${id}/`, {
+                    dismissed: false,
+                })
                 actions.loadHealthIssues()
                 unifiedHealthMenuLogic.actions.loadHealthSummary()
             } catch {

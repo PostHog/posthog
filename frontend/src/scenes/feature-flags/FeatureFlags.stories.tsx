@@ -42,25 +42,23 @@ const meta: Meta = {
                         reason: 'Feature flag is active',
                     },
                 ],
-                '/api/environments/:team_id/default_evaluation_tags/': {
-                    default_evaluation_tags: [],
+                '/api/environments/:team_id/default_evaluation_contexts/': {
+                    default_evaluation_contexts: [],
+                    available_contexts: [],
                     enabled: false,
                 },
             },
             post: {
-                '/api/environments/:team_id/query': {},
+                '/api/environments/:team_id/query/:kind': {},
                 // flag targeting has loaders, make sure they don't keep loading
-                '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [
-                    200,
-                    { users_affected: 120, total_users: 2000 },
-                ],
+                '/api/projects/:team_id/feature_flags/user_blast_radius/': () => [200, { affected: 120, total: 2000 }],
             },
         }),
     ],
 }
 export default meta
 
-type Story = StoryObj<typeof meta>
+type Story = StoryObj<{}>
 export const FeatureFlagsList: Story = {}
 
 export const NewFeatureFlag: Story = {

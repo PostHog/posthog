@@ -1,4 +1,4 @@
-import { Meta, StoryFn } from '@storybook/react'
+import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useRef } from 'react'
 
@@ -84,24 +84,6 @@ const mockActionDefinition: ActionType = {
     user_access_level: AccessControlLevel.Editor,
 }
 
-const meta: Meta = {
-    title: 'Components/Definition popover',
-    component: ControlledDefinitionPopover,
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/event_definitions/:id': () => [200, mockEventDefinition],
-                '/api/projects/:team_id/property_definitions/:id': () => [200, mockPropertyDefinition],
-                '/api/projects/:team_id/actions/:id': () => [200, mockActionDefinition],
-            },
-        }),
-    ],
-    parameters: {
-        mockDate: '2024-05-01 12:00:00',
-    },
-}
-export default meta
-
 interface StoryWrapperProps {
     logicProps: DefinitionPopoverLogicProps
     item: EventDefinition | PropertyDefinition | ActionType
@@ -150,55 +132,78 @@ const StoryWrapper: React.FC<StoryWrapperProps> = ({ logicProps, item, groupType
     )
 }
 
-const Template: StoryFn<StoryWrapperProps> = (args) => <StoryWrapper {...args} />
-
-export const Event = Template.bind({})
-Event.args = {
-    logicProps: {
-        type: TaxonomicFilterGroupType.Events,
+type Story = StoryObj<StoryWrapperProps>
+const meta: Meta<StoryWrapperProps> = {
+    title: 'Components/Definition popover',
+    component: ControlledDefinitionPopover as any,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions/:id': () => [200, mockEventDefinition],
+                '/api/projects/:team_id/property_definitions/:id': () => [200, mockPropertyDefinition],
+                '/api/projects/:team_id/actions/:id': () => [200, mockActionDefinition],
+            },
+        }),
+    ],
+    parameters: {
+        mockDate: '2024-05-01 12:00:00',
     },
-    item: mockEventDefinition,
-    groupType: TaxonomicFilterGroupType.Events,
+    render: (args) => <StoryWrapper {...args} />,
+}
+export default meta
+
+export const Event: Story = {
+    args: {
+        logicProps: {
+            type: TaxonomicFilterGroupType.Events,
+        },
+        item: mockEventDefinition,
+        groupType: TaxonomicFilterGroupType.Events,
+    },
 }
 
-export const Property = Template.bind({})
-Property.args = {
-    logicProps: {
-        type: TaxonomicFilterGroupType.EventProperties,
+export const Property: Story = {
+    args: {
+        logicProps: {
+            type: TaxonomicFilterGroupType.EventProperties,
+        },
+        item: mockPropertyDefinition,
+        groupType: TaxonomicFilterGroupType.EventProperties,
     },
-    item: mockPropertyDefinition,
-    groupType: TaxonomicFilterGroupType.EventProperties,
 }
 
-export const Action = Template.bind({})
-Action.args = {
-    logicProps: {
-        type: TaxonomicFilterGroupType.Actions,
+export const Action: Story = {
+    args: {
+        logicProps: {
+            type: TaxonomicFilterGroupType.Actions,
+        },
+        item: mockActionDefinition,
+        groupType: TaxonomicFilterGroupType.Actions,
     },
-    item: mockActionDefinition,
-    groupType: TaxonomicFilterGroupType.Actions,
 }
 
-export const WithoutDescription = Template.bind({})
-WithoutDescription.args = {
-    logicProps: {
-        type: TaxonomicFilterGroupType.Events,
+export const WithoutDescription: Story = {
+    args: {
+        logicProps: {
+            type: TaxonomicFilterGroupType.Events,
+        },
+        item: {
+            ...mockEventDefinition,
+            description: '',
+        },
+        groupType: TaxonomicFilterGroupType.Events,
     },
-    item: {
-        ...mockEventDefinition,
-        description: '',
-    },
-    groupType: TaxonomicFilterGroupType.Events,
 }
 
-export const WithMarkdownDescription: StoryFn<StoryWrapperProps> = () => {
-    const logicProps: DefinitionPopoverLogicProps = {
-        type: TaxonomicFilterGroupType.Events,
-    }
+export const WithMarkdownDescription: Story = {
+    render: () => {
+        const logicProps: DefinitionPopoverLogicProps = {
+            type: TaxonomicFilterGroupType.Events,
+        }
 
-    const definitionWithMarkdown: EventDefinition = {
-        ...mockEventDefinition,
-        description: `## Overview
+        const definitionWithMarkdown: EventDefinition = {
+            ...mockEventDefinition,
+            description: `## Overview
 This event tracks page views across the application.
 
 **Key features:**
@@ -209,27 +214,29 @@ This event tracks page views across the application.
 \`\`\`javascript
 posthog.capture('$pageview', { url: window.location.href })
 \`\`\``,
-    }
+        }
 
-    return (
-        <StoryWrapper
-            logicProps={logicProps}
-            item={definitionWithMarkdown}
-            groupType={TaxonomicFilterGroupType.Events}
-        />
-    )
+        return (
+            <StoryWrapper
+                logicProps={logicProps}
+                item={definitionWithMarkdown}
+                groupType={TaxonomicFilterGroupType.Events}
+            />
+        )
+    },
 }
 
-export const WithoutTimestamps = Template.bind({})
-WithoutTimestamps.args = {
-    logicProps: {
-        type: TaxonomicFilterGroupType.Events,
+export const WithoutTimestamps: Story = {
+    args: {
+        logicProps: {
+            type: TaxonomicFilterGroupType.Events,
+        },
+        item: {
+            id: 'event-new',
+            name: 'new_event',
+            description: 'A newly created event with no timestamps',
+            tags: [],
+        } as EventDefinition,
+        groupType: TaxonomicFilterGroupType.Events,
     },
-    item: {
-        id: 'event-new',
-        name: 'new_event',
-        description: 'A newly created event with no timestamps',
-        tags: [],
-    } as EventDefinition,
-    groupType: TaxonomicFilterGroupType.Events,
 }

@@ -23,6 +23,7 @@ import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { LineGraphProps, onChartClick } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+import { teamLogic } from 'scenes/teamLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -38,6 +39,7 @@ export interface PieChartProps extends LineGraphProps {
     breakdownFilter?: BreakdownFilter | null | undefined
     showLabelOnSeries?: boolean | null
     disableHoverOffset?: boolean | null
+    valueFormatter?: ((value: number) => string) | null
 }
 
 export function PieChart({
@@ -57,6 +59,7 @@ export function PieChart({
     showPersonsModal = true,
     labelGroupType,
     disableHoverOffset,
+    valueFormatter,
 }: PieChartProps): JSX.Element {
     const isPie = type === GraphType.Pie
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
@@ -70,6 +73,7 @@ export function PieChart({
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
     const { getTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
+    const { baseCurrency } = useValues(teamLogic)
 
     const { canvasRef } = useChart<'pie'>({
         getConfig: () => {
@@ -154,7 +158,11 @@ export function PieChart({
                                     return `${percentage.toFixed(1)}%`
                                 }
 
-                                return formatAggregationAxisValue(trendsFilter, value)
+                                if (valueFormatter) {
+                                    return valueFormatter(value)
+                                }
+
+                                return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
                             },
                             font: {
                                 weight: 500,
@@ -229,6 +237,10 @@ export function PieChart({
                                             renderCount={
                                                 tooltipConfig?.renderCount ||
                                                 ((value: number): string => {
+                                                    if (valueFormatter) {
+                                                        return valueFormatter(value)
+                                                    }
+
                                                     const total = dataset.data.reduce(
                                                         (a: number, b: number) => a + b,
                                                         0
@@ -238,7 +250,8 @@ export function PieChart({
                                                     )
                                                     return `${formatAggregationAxisValue(
                                                         trendsFilter,
-                                                        value
+                                                        value,
+                                                        baseCurrency
                                                     )} (${percentageLabel}%)`
                                                 })
                                             }

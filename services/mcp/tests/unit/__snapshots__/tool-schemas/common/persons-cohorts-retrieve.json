@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "person_id": {
+            "description": "The person ID or UUID to get cohorts for.",
+            "type": "string"
+        }
+    },
+    "required": ["person_id"],
+    "type": "object"
+}

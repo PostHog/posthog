@@ -9,11 +9,12 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SdkSection } from '~/layout/navigation-3000/sidepanel/panels/SidePanelSdkDoctor'
-import { SdkType, sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SDK_TYPE_READABLE_NAME } from './sdkConstants'
+import { SdkSection } from './SdkDoctorComponents'
+import { type OutdatedTrafficAlert, SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
 import { sdkDoctorSceneLogic } from './sdkDoctorSceneLogic'
 
 export const scene: SceneExport = {
@@ -28,10 +29,10 @@ export function SdkDoctorScene(): JSX.Element {
         needsUpdatingCount,
         hasErrors,
         snoozedUntil,
-    } = useValues(sidePanelSdkDoctorLogic)
+    } = useValues(sdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
 
-    const { loadRawData, snoozeSdkDoctor } = useActions(sidePanelSdkDoctorLogic)
+    const { loadRawData, snoozeSdkDoctor } = useActions(sdkDoctorLogic)
 
     useOnMountEffect(() => {
         posthog.capture('sdk doctor loaded', { needsUpdatingCount })
@@ -75,8 +76,8 @@ export function SdkDoctorScene(): JSX.Element {
                 <div>
                     <LemonBanner type="info">
                         <strong>DEVELOPMENT WARNING!</strong> When running in development, make sure you've run the
-                        appropriate Dagster jobs: <LemonTag>cache_all_team_sdk_versions_job</LemonTag> and{' '}
-                        <LemonTag>cache_github_sdk_versions_job</LemonTag>. Data won't be available otherwise.
+                        Dagster job <LemonTag>cache_github_sdk_versions_job</LemonTag>. Team SDK version data is cached
+                        by the Temporal <LemonTag>sdk_outdated</LemonTag> health check.
                     </LemonBanner>
                 </div>
             )}
@@ -117,6 +118,15 @@ export function SdkDoctorScene(): JSX.Element {
                                 onClick: snoozeWarning,
                             }}
                         >
+                            {Object.entries(augmentedData).flatMap(([sdkType, sdk]) =>
+                                sdk.outdatedTrafficAlerts.map((alert: OutdatedTrafficAlert) => (
+                                    <p key={`${sdkType}-${alert.version}`} className="text-sm mb-1">
+                                        Version <code className="text-xs font-mono">{alert.version}</code> of the{' '}
+                                        {SDK_TYPE_READABLE_NAME[sdkType as SdkType]} SDK has captured more than{' '}
+                                        {alert.thresholdPercent}% of events in the last 7 days.
+                                    </p>
+                                ))
+                            )}
                             <p className="font-semibold">
                                 An outdated SDK means you're missing out on bug fixes and enhancements.
                             </p>

@@ -8,9 +8,9 @@ import pytest
 
 import pyarrow as pa
 
-from posthog.batch_exports.service import BackfillDetails
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
+from products.batch_exports.backend.service import BackfillDetails
 from products.batch_exports.backend.temporal.spmc import (
     InvalidFilterError,
     Producer,

@@ -1,31 +1,30 @@
 import './CodeSnippet.scss'
 
 import clsx from 'clsx'
+import { toHtml } from 'hast-util-to-html'
+import bash from 'highlight.js/lib/languages/bash'
+import csharp from 'highlight.js/lib/languages/csharp'
+import dart from 'highlight.js/lib/languages/dart'
+import elixir from 'highlight.js/lib/languages/elixir'
+import go from 'highlight.js/lib/languages/go'
+import groovy from 'highlight.js/lib/languages/groovy'
+import http from 'highlight.js/lib/languages/http'
+import java from 'highlight.js/lib/languages/java'
+import javascript from 'highlight.js/lib/languages/javascript'
+import json from 'highlight.js/lib/languages/json'
+import kotlin from 'highlight.js/lib/languages/kotlin'
+import objectivec from 'highlight.js/lib/languages/objectivec'
+import php from 'highlight.js/lib/languages/php'
+import python from 'highlight.js/lib/languages/python'
+import ruby from 'highlight.js/lib/languages/ruby'
+import sql from 'highlight.js/lib/languages/sql'
+import swift from 'highlight.js/lib/languages/swift'
+import typescript from 'highlight.js/lib/languages/typescript'
+import xml from 'highlight.js/lib/languages/xml'
+import yaml from 'highlight.js/lib/languages/yaml'
 import { useValues } from 'kea'
-import React, { type HTMLProps, useEffect, useState } from 'react'
-import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
-import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
-import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp'
-import dart from 'react-syntax-highlighter/dist/esm/languages/prism/dart'
-import elixir from 'react-syntax-highlighter/dist/esm/languages/prism/elixir'
-import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
-import groovy from 'react-syntax-highlighter/dist/esm/languages/prism/groovy'
-import hcl from 'react-syntax-highlighter/dist/esm/languages/prism/hcl'
-import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
-import java from 'react-syntax-highlighter/dist/esm/languages/prism/java'
-import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
-import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
-import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
-import kotlin from 'react-syntax-highlighter/dist/esm/languages/prism/kotlin'
-import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
-import objectiveC from 'react-syntax-highlighter/dist/esm/languages/prism/objectivec'
-import php from 'react-syntax-highlighter/dist/esm/languages/prism/php'
-import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
-import ruby from 'react-syntax-highlighter/dist/esm/languages/prism/ruby'
-import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
-import swift from 'react-syntax-highlighter/dist/esm/languages/prism/swift'
-import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
-import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
+import { common, createLowlight } from 'lowlight'
+import React, { useEffect, useMemo, useState } from 'react'
 
 import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 
@@ -34,7 +33,32 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { darkTheme, lightTheme } from './theme'
+import terraform from './terraformLanguage'
+
+const lowlight = createLowlight(common)
+lowlight.register({
+    bash,
+    csharp,
+    dart,
+    elixir,
+    go,
+    groovy,
+    http,
+    java,
+    javascript,
+    json,
+    kotlin,
+    xml,
+    objectivec,
+    php,
+    python,
+    ruby,
+    sql,
+    swift,
+    terraform,
+    typescript,
+    yaml,
+})
 
 export enum Language {
     Text = 'text',
@@ -52,16 +76,16 @@ export enum Language {
     Go = 'go',
     JSON = 'json',
     YAML = 'yaml',
-    HTML = 'html',
+    HTML = 'xml',
     XML = 'xml',
     HTTP = 'http',
-    Markup = 'markup',
+    Markup = 'xml',
     SQL = 'sql',
     Kotlin = 'kotlin',
     Groovy = 'groovy',
     CSharp = 'csharp',
     TypeScript = 'typescript',
-    HCL = 'hcl',
+    HCL = 'terraform',
 }
 
 export const getLanguage = (lang: string): Language => {
@@ -70,12 +94,11 @@ export const getLanguage = (lang: string): Language => {
             return Language.Bash
         case 'csharp':
             return Language.CSharp
-        case 'jsx':
-        case 'tsx':
-            return Language.JSX
         case 'javascript':
+        case 'jsx':
             return Language.JavaScript
         case 'typescript':
+        case 'tsx':
             return Language.TypeScript
         case 'java':
             return Language.Java
@@ -119,31 +142,6 @@ export const getLanguage = (lang: string): Language => {
             return Language.Text
     }
 }
-
-SyntaxHighlighter.registerLanguage(Language.Bash, bash)
-SyntaxHighlighter.registerLanguage(Language.JSX, jsx)
-SyntaxHighlighter.registerLanguage(Language.JavaScript, javascript)
-SyntaxHighlighter.registerLanguage(Language.Java, java)
-SyntaxHighlighter.registerLanguage(Language.Ruby, ruby)
-SyntaxHighlighter.registerLanguage(Language.ObjectiveC, objectiveC)
-SyntaxHighlighter.registerLanguage(Language.Swift, swift)
-SyntaxHighlighter.registerLanguage(Language.Elixir, elixir)
-SyntaxHighlighter.registerLanguage(Language.PHP, php)
-SyntaxHighlighter.registerLanguage(Language.Python, python)
-SyntaxHighlighter.registerLanguage(Language.Dart, dart)
-SyntaxHighlighter.registerLanguage(Language.Go, go)
-SyntaxHighlighter.registerLanguage(Language.CSharp, csharp)
-SyntaxHighlighter.registerLanguage(Language.JSON, json)
-SyntaxHighlighter.registerLanguage(Language.YAML, yaml)
-SyntaxHighlighter.registerLanguage(Language.HTML, markup)
-SyntaxHighlighter.registerLanguage(Language.XML, markup)
-SyntaxHighlighter.registerLanguage(Language.Markup, markup)
-SyntaxHighlighter.registerLanguage(Language.HTTP, http)
-SyntaxHighlighter.registerLanguage(Language.SQL, sql)
-SyntaxHighlighter.registerLanguage(Language.Kotlin, kotlin)
-SyntaxHighlighter.registerLanguage(Language.TypeScript, typescript)
-SyntaxHighlighter.registerLanguage(Language.Groovy, groovy)
-SyntaxHighlighter.registerLanguage(Language.HCL, hcl)
 
 export interface CodeSnippetProps {
     children: string | undefined | null
@@ -227,14 +225,6 @@ export const CodeSnippet = React.memo(function CodeSnippet({
     )
 })
 
-const syntaxHighlighterLineProps: HTMLProps<HTMLElement> = {
-    style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
-}
-
-function PreTag({ children }: { children: JSX.Element }): JSX.Element {
-    return <pre className="m-0">{children}</pre>
-}
-
 export function CodeLine({
     text,
     wrapLines,
@@ -246,16 +236,20 @@ export function CodeLine({
 }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
+    const highlighted = useMemo(
+        () => (lowlight.registered(language) ? lowlight.highlight(language, text) : lowlight.highlightAuto(text)),
+        [language, text]
+    )
+    const style = wrapLines ? ({ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } as const) : {}
+
     return (
-        <SyntaxHighlighter
-            style={isDarkModeOn ? darkTheme : lightTheme}
-            language={language}
-            wrapLines={wrapLines}
-            lineProps={syntaxHighlighterLineProps}
-            PreTag={PreTag}
-        >
-            {text}
-        </SyntaxHighlighter>
+        <pre className="m-0">
+            <code
+                className={clsx('hljs', isDarkModeOn && 'hljs-dark')}
+                style={style}
+                dangerouslySetInnerHTML={{ __html: toHtml(highlighted) }}
+            />
+        </pre>
     )
 }
 

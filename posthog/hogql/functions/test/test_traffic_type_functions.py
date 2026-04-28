@@ -2,13 +2,14 @@ import pytest
 
 from posthog.hogql import ast
 from posthog.hogql.functions.traffic_type import (
-    BOT_DEFINITIONS,
     get_bot_name,
     get_bot_type,
     get_traffic_category,
     get_traffic_type,
     is_bot,
 )
+
+from posthog.hogql_queries.web_analytics.bot_definitions import BOT_DEFINITIONS
 
 
 class TestTrafficTypeFunctions:
@@ -102,33 +103,41 @@ class TestTrafficTypeFunctions:
 
         label_values = [expr.value for expr in labels_array.exprs if isinstance(expr, ast.Constant)]
 
-        assert "llm_crawler" in label_values
+        assert "ai_crawler" in label_values
+        assert "ai_search" in label_values
+        assert "ai_assistant" in label_values
         assert "search_crawler" in label_values
         assert "http_client" in label_values
         assert "no_user_agent" in label_values  # For empty UA
 
 
 class TestIsBotFunction:
-    def test_is_bot_returns_or_expression(self):
+    def test_is_bot_returns_compare_operation(self):
         node = ast.Call(name="__preview_isBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
 
-        assert isinstance(result, ast.Or)
-        # Should have len(BOT_DEFINITIONS) + 1 (empty UA) match conditions
-        assert len(result.exprs) == len(BOT_DEFINITIONS) + 1
+        assert isinstance(result, ast.CompareOperation)
+        assert result.op == ast.CompareOperationOp.NotEq
 
-    def test_is_bot_uses_match_calls(self):
+    def test_is_bot_uses_multiMatchAnyIndex(self):
         node = ast.Call(name="__preview_isBot", args=[])
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
+        assert isinstance(result, ast.CompareOperation)
+        assert isinstance(result.left, ast.Call)
+        assert result.left.name == "multiMatchAnyIndex"
 
-        for expr in result.exprs:
-            assert isinstance(expr, ast.Call)
-            assert expr.name == "match"
+    def test_is_bot_compares_against_zero(self):
+        node = ast.Call(name="__preview_isBot", args=[])
+        user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
+
+        result = is_bot(node=node, args=[user_agent_arg])
+        assert isinstance(result, ast.CompareOperation)
+        assert isinstance(result.right, ast.Constant)
+        assert result.right.value == 0
 
 
 class TestGetBotTypeFunction:
@@ -161,7 +170,9 @@ class TestGetBotTypeFunction:
 
         label_values = [expr.value for expr in labels_array.exprs if isinstance(expr, ast.Constant)]
 
-        assert "llm_crawler" in label_values
+        assert "ai_crawler" in label_values
+        assert "ai_search" in label_values
+        assert "ai_assistant" in label_values
         assert "search_crawler" in label_values
         assert "seo_crawler" in label_values
         assert "social_crawler" in label_values
@@ -268,15 +279,14 @@ class TestTrafficTypeFunctionPatterns:
         user_agent_arg = ast.Field(chain=["custom", "user_agent_field"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
-
-        for expr in result.exprs:
-            assert isinstance(expr, ast.Call)
-            # User agent is wrapped in ifNull(user_agent, '')
-            safe_user_agent = expr.args[0]
-            assert isinstance(safe_user_agent, ast.Call)
-            assert safe_user_agent.name == "ifNull"
-            assert safe_user_agent.args[0] == user_agent_arg
+        assert isinstance(result, ast.CompareOperation)
+        index_call = result.left
+        assert isinstance(index_call, ast.Call)
+        assert index_call.name == "multiMatchAnyIndex"
+        safe_user_agent = index_call.args[0]
+        assert isinstance(safe_user_agent, ast.Call)
+        assert safe_user_agent.name == "ifNull"
+        assert safe_user_agent.args[0] == user_agent_arg
 
 
 class TestNullHandling:
@@ -307,18 +317,17 @@ class TestNullHandling:
         user_agent_arg = ast.Field(chain=["properties", "$user_agent"])
 
         result = is_bot(node=node, args=[user_agent_arg])
-        assert isinstance(result, ast.Or)
+        assert isinstance(result, ast.CompareOperation)
 
-        # All match calls should use ifNull(user_agent, '')
-        for match_call in result.exprs:
-            assert isinstance(match_call, ast.Call)
-            safe_user_agent = match_call.args[0]
-            assert isinstance(safe_user_agent, ast.Call)
-            assert safe_user_agent.name == "ifNull"
-            assert safe_user_agent.args[0] == user_agent_arg
-            empty_string_arg = safe_user_agent.args[1]
-            assert isinstance(empty_string_arg, ast.Constant)
-            assert empty_string_arg.value == ""
+        index_call = result.left
+        assert isinstance(index_call, ast.Call)
+        safe_user_agent = index_call.args[0]
+        assert isinstance(safe_user_agent, ast.Call)
+        assert safe_user_agent.name == "ifNull"
+        assert safe_user_agent.args[0] == user_agent_arg
+        empty_string_arg = safe_user_agent.args[1]
+        assert isinstance(empty_string_arg, ast.Constant)
+        assert empty_string_arg.value == ""
 
 
 class TestBotDefinitionsDataStructure:
@@ -327,6 +336,7 @@ class TestBotDefinitionsDataStructure:
             assert bot_def.name, f"Bot definition for {pattern} missing name"
             assert bot_def.category, f"Bot definition for {pattern} missing category"
             assert bot_def.traffic_type, f"Bot definition for {pattern} missing traffic_type"
+            assert bot_def.operator, f"Bot definition for {pattern} missing operator"
 
     def test_traffic_types_are_valid(self):
         valid_types = {"AI Agent", "Bot", "Automation"}
@@ -335,7 +345,9 @@ class TestBotDefinitionsDataStructure:
 
     def test_categories_are_valid(self):
         valid_categories = {
-            "llm_crawler",
+            "ai_crawler",
+            "ai_search",
+            "ai_assistant",
             "search_crawler",
             "seo_crawler",
             "social_crawler",
@@ -345,3 +357,65 @@ class TestBotDefinitionsDataStructure:
         }
         for pattern, bot_def in BOT_DEFINITIONS.items():
             assert bot_def.category in valid_categories, f"Invalid category for {pattern}: {bot_def.category}"
+
+    @pytest.mark.parametrize(
+        "pattern,expected_name,expected_category,expected_type",
+        [
+            # AI Crawlers
+            ("GPTBot", "GPTBot", "ai_crawler", "AI Agent"),
+            ("Google-CloudVertexBot", "Google Cloud Vertex", "ai_crawler", "AI Agent"),
+            ("GoogleOther", "GoogleOther", "ai_crawler", "AI Agent"),
+            ("ClaudeBot", "Claude", "ai_crawler", "AI Agent"),
+            ("Claude-Web", "Claude Web", "ai_crawler", "AI Agent"),
+            ("TikTokSpider", "TikTok AI", "ai_crawler", "AI Agent"),
+            ("PetalBot", "Petal", "ai_crawler", "AI Agent"),
+            ("Brightbot", "Brightbot", "ai_crawler", "AI Agent"),
+            ("Diffbot", "Diffbot", "ai_crawler", "AI Agent"),
+            ("Timpibot", "Timpi", "ai_crawler", "AI Agent"),
+            ("omgili", "Webz.io", "ai_crawler", "AI Agent"),
+            ("Webzio-Extended", "Webz.io Extended", "ai_crawler", "AI Agent"),
+            ("Amazonbot", "Amazon", "ai_crawler", "AI Agent"),
+            # AI Search
+            ("OAI-SearchBot", "OpenAI Search", "ai_search", "AI Agent"),
+            ("Claude-SearchBot", "Claude Search", "ai_search", "AI Agent"),
+            ("PerplexityBot", "Perplexity", "ai_search", "AI Agent"),
+            ("Applebot-Extended", "Apple AI", "ai_search", "AI Agent"),
+            ("Applebot/", "Applebot", "ai_search", "AI Agent"),
+            # AI Assistants
+            ("ChatGPT-User", "ChatGPT", "ai_assistant", "AI Agent"),
+            ("Claude-User", "Claude User", "ai_assistant", "AI Agent"),
+            ("Perplexity-User", "Perplexity User", "ai_assistant", "AI Agent"),
+            ("Meta-ExternalFetcher", "Meta Fetcher", "ai_assistant", "AI Agent"),
+            ("DuckAssistBot", "DuckDuckGo AI", "ai_assistant", "AI Agent"),
+            ("MistralAI-User", "Mistral AI", "ai_assistant", "AI Agent"),
+            # Search Crawlers
+            ("Googlebot", "Googlebot", "search_crawler", "Bot"),
+            ("bingbot", "Bingbot", "search_crawler", "Bot"),
+            # SEO Tools
+            ("AhrefsBot", "Ahrefs", "seo_crawler", "Bot"),
+            # Social Crawlers
+            ("FacebookBot", "Facebook Bot", "social_crawler", "Bot"),
+            ("facebookexternalhit", "Facebook", "social_crawler", "Bot"),
+            # Monitoring
+            ("Datadog", "Datadog", "monitoring", "Bot"),
+            # HTTP Clients
+            ("curl/", "curl", "http_client", "Automation"),
+            # Headless Browsers
+            ("HeadlessChrome", "Headless Chrome", "headless_browser", "Automation"),
+        ],
+    )
+    def test_specific_bot_definitions(self, pattern, expected_name, expected_category, expected_type):
+        assert pattern in BOT_DEFINITIONS, f"Missing bot definition for {pattern}"
+        bot_def = BOT_DEFINITIONS[pattern]
+        assert bot_def.name == expected_name
+        assert bot_def.category == expected_category
+        assert bot_def.traffic_type == expected_type
+
+    def test_longer_patterns_come_before_shorter_substrings(self):
+        patterns = list(BOT_DEFINITIONS.keys())
+        for i, p1 in enumerate(patterns):
+            for j, p2 in enumerate(patterns):
+                if i != j and p1 in p2 and len(p1) < len(p2):
+                    assert patterns.index(p2) < patterns.index(p1), (
+                        f"{p2} must come before {p1} for correct multiMatchAnyIndex matching"
+                    )

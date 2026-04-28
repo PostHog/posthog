@@ -2,11 +2,11 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { processAllSnapshots, SourceKey, ViewportResolution } from '@posthog/replay-shared'
+
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
-import { ViewportResolution } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
-import { processAllSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { SourceKey } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import { sessionRecordingMetaLogic } from 'scenes/session-recordings/player/sessionRecordingMetaLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -92,13 +92,17 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             })
         })
 
-        it('fetch metadata error', async () => {
+        it('fetch metadata error with 500 sets loadMetaError but not isNotFound', async () => {
             silenceKeaLoadersErrors()
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
                     '/api/environments/:team_id/session_recordings/:id': () => [500, { status: 0 }],
                 },
+            })
+            const metaLogic = sessionRecordingMetaLogic({
+                sessionRecordingId: '2',
+                blobV2PollingDisabled: true,
             })
             logic.mount()
             logic.actions.loadRecordingMeta()
@@ -120,6 +124,31 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                         fullyLoaded: false,
                     },
                 })
+
+            expect(metaLogic.values.isNotFound).toBe(false)
+            expect(metaLogic.values.loadMetaError).toBe(true)
+            resumeKeaLoadersErrors()
+        })
+
+        it('fetch metadata error with 404 sets isNotFound but not loadMetaError', async () => {
+            silenceKeaLoadersErrors()
+            logic.unmount()
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id': () => [404, { detail: 'Not found.' }],
+                },
+            })
+            const metaLogic = sessionRecordingMetaLogic({
+                sessionRecordingId: '2',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+            logic.actions.loadRecordingMeta()
+
+            await expectLogic(logic).toDispatchActionsInAnyOrder(['loadRecordingMetaFailure']).toFinishAllListeners()
+
+            expect(metaLogic.values.isNotFound).toBe(true)
+            expect(metaLogic.values.loadMetaError).toBe(false)
             resumeKeaLoadersErrors()
         })
 
@@ -177,7 +206,10 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 .toDispatchActions(['loadRecordingMetaSuccess', 'loadEvents'])
                 .toFinishAllListeners()
 
-            expect(api.create).toHaveBeenCalledTimes(2)
+            // Two HogQL session/related-events queries plus a third query that fetches full
+            // properties for events with a promoted property (e.g. $pageview's $pathname)
+            // — see preloadableEvents in sessionEventsDataLogic.
+            expect(api.create).toHaveBeenCalledTimes(3)
 
             const queries = (api.create as jest.MockedFunction<typeof api.create>).mock.calls.map(
                 (call) => (call[1] as { query: HogQLQueryResponse })?.query?.query

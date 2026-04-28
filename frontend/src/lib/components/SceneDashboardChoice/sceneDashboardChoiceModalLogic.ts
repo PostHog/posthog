@@ -1,8 +1,8 @@
-import Fuse from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -66,9 +66,8 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
                 if (!searchTerm) {
                     return dashboards
                 }
-                return new Fuse(dashboards, {
+                return createFuse(dashboards, {
                     keys: ['key', 'name', 'description', 'tags'],
-                    threshold: 0.3,
                 })
                     .search(searchTerm)
                     .map((result) => result.item)

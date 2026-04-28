@@ -4,6 +4,7 @@
 //! that enables testing with mocks and consistent error handling across services.
 
 use async_trait::async_trait;
+use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::Client as AwsS3SdkClient;
 use thiserror::Error;
 
@@ -38,6 +39,12 @@ impl From<std::string::FromUtf8Error> for S3Error {
 pub trait S3Client: Send + Sync {
     /// Get an object from S3 as a UTF-8 string
     async fn get_string(&self, bucket: &str, key: &str) -> Result<String, S3Error>;
+
+    /// Put a UTF-8 string as an object in S3
+    async fn put_string(&self, bucket: &str, key: &str, value: &str) -> Result<(), S3Error>;
+
+    /// Delete an object from S3 (idempotent — does not error if key is missing)
+    async fn delete(&self, bucket: &str, key: &str) -> Result<(), S3Error>;
 }
 
 /// Real S3 client implementation
@@ -78,10 +85,34 @@ impl S3Client for S3Impl {
                 S3Error::OperationFailed(format!("Failed to read S3 object body: {e}"))
             })?;
 
-        // Convert directly from AggregatedBytes to String without intermediate Vec<u8>
         let body_str = String::from_utf8(body_bytes.to_vec())
             .map_err(|e| S3Error::ParseError(format!("S3 object body is not valid UTF-8: {e}")))?;
         Ok(body_str)
+    }
+
+    async fn put_string(&self, bucket: &str, key: &str, value: &str) -> Result<(), S3Error> {
+        self.client
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(ByteStream::from(value.to_owned().into_bytes()))
+            .send()
+            .await
+            .map_err(|e| S3Error::OperationFailed(format!("Failed to put object to S3: {e}")))?;
+        Ok(())
+    }
+
+    async fn delete(&self, bucket: &str, key: &str) -> Result<(), S3Error> {
+        self.client
+            .delete_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| {
+                S3Error::OperationFailed(format!("Failed to delete object from S3: {e}"))
+            })?;
+        Ok(())
     }
 }
 

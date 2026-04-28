@@ -23,8 +23,8 @@ dist/
 .venv/
 .husy/
 
-# MCP UI Apps build files
-ui-apps-dist/
+# MCP UI Apps build output (Workers Static Assets)
+public/ui-apps/
 
 # Copied instruction references (from products/posthog_ai)
 shared/

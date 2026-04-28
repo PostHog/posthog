@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT p.id, p.uuid as \"uuid!\", p.team_id::bigint as \"team_id!\",\n                   p.properties as \"properties!\",\n                   p.properties_last_updated_at, p.properties_last_operation,\n                   p.created_at as \"created_at!\", p.version, p.is_identified as \"is_identified!\",\n                   CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,\n                   p.last_seen_at,\n                   d.distinct_id as \"distinct_id!\"\n            FROM posthog_person p\n            INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id\n            WHERE p.team_id = $1 AND d.distinct_id = ANY($2)\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "properties!",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "properties_last_updated_at",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "properties_last_operation",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_identified!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_user_id",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_seen_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      null,
+      true,
+      false
+    ]
+  },
+  "hash": "acee6e2d265a6e5a5a62d2ff49070c596e3d4a7c70e1a348984dde03379c0b72"
+}

@@ -193,16 +193,6 @@ class TestGetLowercaseIndexHintClickhouse(ClickhouseTestMixin, APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        schema_path = os.path.join(
-            os.path.dirname(__file__), "../../../products/logs/backend/test/test_logs_schema.sql"
-        )
-        with open(schema_path) as f:
-            schema_sql = f.read()
-        for sql in schema_sql.split(";"):
-            if not sql.strip():
-                continue
-            sync_execute(sql)
-        # Insert a single row so EXPLAIN has data to plan against
         logs_path = os.path.join(os.path.dirname(__file__), "../../../products/logs/backend/test/test_logs.jsonnd")
         with open(logs_path) as f:
             log_item = json.loads(f.readline())
@@ -246,7 +236,15 @@ class TestGetLowercaseIndexHintClickhouse(ClickhouseTestMixin, APIBaseTest):
             settings=runner.settings,
         )
         clickhouse_sql, _ = executor.generate_clickhouse_sql()
-        index_info = get_index_from_explain(clickhouse_sql, "idx_body_ngram3")
+        context = executor.clickhouse_context
+        values = None
+        if context is not None:
+            values = cast(HogQLContext, executor.clickhouse_context).values
+        index_info = get_index_from_explain(
+            clickhouse_sql,
+            "idx_body_ngram3",
+            placeholder_values=values,
+        )
         assert index_info is not None, (
             f"Expected idx_body_ngram3 to be used in EXPLAIN output for query:\n{clickhouse_sql}"
         )

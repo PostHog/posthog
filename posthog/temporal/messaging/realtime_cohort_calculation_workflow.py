@@ -1,8 +1,11 @@
+import os
 import time
 import asyncio
 import datetime as dt
 import dataclasses
 from typing import TYPE_CHECKING, Any, Optional
+
+from django.utils import timezone
 
 import temporalio.activity
 import temporalio.workflow
@@ -15,7 +18,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.hogql_cohort_query import HogQLRealtimeCohortQuery
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
 from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
@@ -23,9 +26,14 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.messaging.constants import get_percentile_bucket_label
 
 if TYPE_CHECKING:
     from posthog.kafka_client.client import _KafkaProducer
+
+# Configuration
+FLUSH_BATCH_SIZE = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
+DURATION_UPDATE_RELATIVE_THRESHOLD = 0.25  # Only update duration when change exceeds 25%
 
 # Cohort calculation timing histograms
 COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM = Histogram(
@@ -80,6 +88,14 @@ ROW_PROCESSING_RATE_HISTOGRAM = Histogram(
     buckets=(1, 10, 50, 100, 500, 1000, 5000, 10000, 50000, float("inf")),
 )
 
+# Child workflow total duration metrics
+CHILD_WORKFLOW_TOTAL_DURATION_HISTOGRAM = Histogram(
+    "realtime_cohort_child_total_duration_seconds",
+    "Total duration of child workflow activity execution in seconds",
+    ["percentile_bucket"],
+    buckets=(1, 10, 30, 60, 120, 300, 600, 1800, 3600, float("inf")),
+)
+
 LOGGER = get_logger(__name__)
 
 # Sampling rate for Kafka produce duration metrics to reduce overhead
@@ -100,11 +116,11 @@ def get_cohort_calculation_failure_metric():
     )
 
 
-def get_membership_changed_metric(status: str):
-    """Counter for cohort membership changes by status (entered/left)."""
+def get_membership_changed_metric(status: str, percentile_bucket: str):
+    """Counter for cohort membership changes by status (entered/left) and percentile bucket."""
     return (
         temporalio.activity.metric_meter()
-        .with_additional_attributes({"status": status})
+        .with_additional_attributes({"status": status, "percentile_bucket": percentile_bucket})
         .create_counter(
             "realtime_cohort_membership_changed",
             "Number of cohort membership changes (people entering or leaving cohorts)",
@@ -208,33 +224,53 @@ async def flush_kafka_batch(
     return batch_size
 
 
-def _get_percentile_bucket_label(inputs: RealtimeCohortCalculationWorkflowInputs) -> str:
-    """Generate percentile bucket label for metrics."""
-    min_p = inputs.duration_percentile_min
-    max_p = inputs.duration_percentile_max
-
-    if min_p is None and max_p is None:
-        return "manual"
-    elif min_p is None:
-        return f"p0-p{int(max_p)}" if max_p is not None else "p0-p100"
-    elif max_p is None:
-        return f"p{int(min_p)}-p100" if min_p is not None else "p0-p100"
-    else:
-        return f"p{int(min_p)}-p{int(max_p)}"
-
-
 @database_sync_to_async
-def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> None:
-    """Batch update cohort durations and last calculation timestamps."""
-    if not cohort_durations:
-        return
+def _batch_update_cohort_metrics(cohort_durations: dict[int, int]) -> int:
+    """Batch update cohort durations and last backfill timestamp.
 
-    now = dt.datetime.now(dt.UTC)
-    cohorts_to_update = list(Cohort.objects.filter(id__in=cohort_durations.keys()))
-    for cohort in cohorts_to_update:
-        cohort.last_calculation_duration_ms = cohort_durations[cohort.pk]
-        cohort.last_calculation = now
-    Cohort.objects.bulk_update(cohorts_to_update, ["last_calculation_duration_ms", "last_calculation"])
+    Only updates duration_ms when it changed by more than DURATION_UPDATE_RELATIVE_THRESHOLD from the previous value.
+    Always updates last_backfill_person_properties_at and last_realtime_cohort_calculation_at for all processed cohorts.
+
+    Returns count of cohorts that had their duration updated.
+    """
+    if not cohort_durations:
+        return 0
+
+    all_cohorts = list(Cohort.objects.filter(id__in=cohort_durations.keys()))
+    now = timezone.now()
+    duration_updates_count = 0
+
+    for cohort in all_cohorts:
+        cohort.last_backfill_person_properties_at = now
+        cohort.last_realtime_cohort_calculation_at = now
+
+        new_duration = cohort_durations[cohort.pk]
+        previous_duration = cohort.last_calculation_duration_ms or 0
+
+        # Only update duration_ms if it changed significantly
+        if previous_duration > 0:
+            percentage_change = abs(new_duration - previous_duration) / previous_duration
+            should_update_duration = percentage_change > DURATION_UPDATE_RELATIVE_THRESHOLD
+        else:
+            # First calculation or previous was 0, always update duration
+            should_update_duration = True
+
+        if should_update_duration:
+            cohort.last_calculation_duration_ms = new_duration
+            duration_updates_count += 1
+
+    # Single bulk_update for all cohorts — updates last_backfill_person_properties_at, last_realtime_cohort_calculation_at, and last_calculation_duration_ms
+    if all_cohorts:
+        Cohort.objects.bulk_update(
+            all_cohorts,
+            [
+                "last_backfill_person_properties_at",
+                "last_realtime_cohort_calculation_at",
+                "last_calculation_duration_ms",
+            ],
+        )
+
+    return duration_updates_count
 
 
 @temporalio.activity.defn
@@ -255,7 +291,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
     async with Heartbeater(details=(f"Starting to process {num_cohorts_desc}",)) as heartbeater:
         start_time = time.monotonic()
         cohort_durations = {}
-        percentile_bucket = _get_percentile_bucket_label(inputs)
+        percentile_bucket = get_percentile_bucket_label(inputs.duration_percentile_min, inputs.duration_percentile_max)
 
         @database_sync_to_async
         def get_cohorts():
@@ -286,7 +322,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         cohorts: list[Cohort] = await get_cohorts()
 
         cohorts_count = 0
-        kafka_producer = KafkaProducer()
+        kafka_producer = get_producer(topic=KAFKA_COHORT_MEMBERSHIP_CHANGED)
 
         @database_sync_to_async
         def build_query(cohort_obj):
@@ -358,7 +394,6 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                 ):
                     status_counts = {"entered": 0, "left": 0}
                     pending_kafka_messages = []
-                    FLUSH_BATCH_SIZE = 10_000  # Flush every 10k messages to allow heartbeats
                     # Count of messages successfully produced to Kafka (pending flush), excluding failed produce attempts
                     total_messages = 0
                     total_flushed = 0
@@ -482,14 +517,27 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     )
 
                     if status_counts["entered"] > 0:
-                        get_membership_changed_metric("entered").add(status_counts["entered"])
+                        get_membership_changed_metric("entered", percentile_bucket).add(status_counts["entered"])
                     if status_counts["left"] > 0:
-                        get_membership_changed_metric("left").add(status_counts["left"])
+                        get_membership_changed_metric("left", percentile_bucket).add(status_counts["left"])
 
                 # Calculate full cohort processing duration (not just query time)
                 # Includes: query execution + Kafka message production + message flushing
                 cohort_end_time = time.monotonic()
                 duration_ms = int((cohort_end_time - cohort_start_time) * 1000)
+                duration_seconds = duration_ms / 1000
+
+                # Log slow cohorts for investigation
+                if duration_seconds > 10:
+                    logger.warning(
+                        f"Slow cohort detected: cohort {cohort.pk} took {duration_seconds:.1f}s to process",
+                        cohort_id=cohort.pk,
+                        duration_seconds=duration_seconds,
+                        duration_ms=duration_ms,
+                        team_id=cohort.team_id,
+                        cohort_name=cohort.name,
+                        is_slow_cohort=True,
+                    )
 
                 # Record total cohort calculation duration
                 COHORT_CALCULATION_TOTAL_DURATION_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(
@@ -503,6 +551,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
                     f"Cohort {cohort.pk} processing completed",
                     cohort_id=cohort.pk,
                     duration_ms=duration_ms,
+                    duration_seconds=duration_seconds,
                 )
 
                 get_cohort_calculation_success_metric().add(1)
@@ -519,15 +568,16 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         # Batch update all cohort durations at once
         if cohort_durations:
             batch_update_start = time.monotonic()
-            await _batch_update_cohort_durations(cohort_durations)
+            duration_updates_count = await _batch_update_cohort_metrics(cohort_durations)
             batch_update_duration = time.monotonic() - batch_update_start
 
             # Record batch update timing
             COHORT_DURATION_UPDATE_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(batch_update_duration)
 
             logger.info(
-                f"Batch updated {len(cohort_durations)} cohort durations",
-                count=len(cohort_durations),
+                f"Batch duration update completed: {duration_updates_count}/{len(cohort_durations)} cohorts had duration updated",
+                cohorts_processed=len(cohort_durations),
+                duration_updates=duration_updates_count,
                 batch_update_duration_ms=int(batch_update_duration * 1000),
             )
 
@@ -536,6 +586,9 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         duration_minutes = duration_seconds / 60
 
         heartbeater.details = (f"Completed: processed {cohorts_count} cohorts in {duration_minutes:.1f} minutes",)
+
+        # Record total child workflow duration
+        CHILD_WORKFLOW_TOTAL_DURATION_HISTOGRAM.labels(percentile_bucket=percentile_bucket).observe(duration_seconds)
 
         logger.info(
             f"Completed processing: processed {cohorts_count} cohorts in {duration_minutes:.1f} minutes ({duration_seconds:.1f} seconds)",
@@ -574,7 +627,7 @@ class RealtimeCohortCalculationWorkflow(PostHogWorkflow):
         await temporalio.workflow.execute_activity(
             process_realtime_cohort_calculation_activity,
             inputs,
-            start_to_close_timeout=dt.timedelta(minutes=30),
+            start_to_close_timeout=dt.timedelta(minutes=60),
             heartbeat_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=3,

@@ -81,7 +81,8 @@ pub fn captured_parse_fn(
             None, // No sent_at for historical data
             true, // Ignore sent_at
             now,
-        );
+        )
+        .timestamp;
 
         // Only return the event if import_events is enabled
         if context.import_events {

@@ -4,14 +4,13 @@ from typing import Optional
 
 from django.utils.timezone import now
 
-import httpx
-import requests
 import structlog
-from kafka.producer.kafka import FutureRecordMetadata
 
-from posthog.kafka_client.client import KafkaProducer
+from posthog.kafka_client.client import ProduceResult
+from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC
 from posthog.models.team.team import Team
+from posthog.security.outbound_proxy import internal_httpx_async_client, internal_requests
 from posthog.settings.data_stores import EMBEDDING_API_URL
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
@@ -63,7 +62,7 @@ def generate_embedding(
 ) -> EmbeddingResponse:
     logger.info(f"Generating ad-hoc embedding for team {team.pk}")
     payload = _build_embedding_payload(team, content, model, no_truncate)
-    response = requests.post(_EMBEDDING_URL, json=payload)
+    response = internal_requests.post(_EMBEDDING_URL, json=payload)
     response.raise_for_status()
     return _parse_embedding_response(response.json())
 
@@ -74,7 +73,7 @@ async def async_generate_embedding(
     """Async equivalent of generate_embedding — uses httpx instead of requests to avoid blocking a thread."""
     logger.info(f"Generating ad-hoc embedding (async) for team {team.pk}")
     payload = _build_embedding_payload(team, content, model, no_truncate)
-    async with httpx.AsyncClient() as client:
+    async with internal_httpx_async_client(timeout=30.0) as client:
         response = await client.post(_EMBEDDING_URL, json=payload)
         response.raise_for_status()
         return _parse_embedding_response(response.json())
@@ -91,7 +90,7 @@ def emit_embedding_request(
     models: list[str],
     timestamp: Optional[datetime] = None,
     metadata: Optional[dict] = None,
-) -> FutureRecordMetadata:
+) -> ProduceResult:
     """
     Emit an embedding request to Kafka for processing by the embedding worker.
     The worker will generate embeddings and emit them to clickhouse_document_embeddings.
@@ -118,7 +117,15 @@ def emit_embedding_request(
             f"Valid models are: {', '.join(sorted(valid_models))}"
         )
 
-    if timestamp is None:
+    if timestamp is not None:
+        if not isinstance(timestamp, datetime):
+            raise ValueError(f"timestamp must be a datetime instance, got {type(timestamp).__name__}")
+        if timestamp.tzinfo is None or timestamp.tzinfo.utcoffset(timestamp) is None:
+            raise ValueError(
+                "timestamp must be timezone-aware (e.g. '2026-03-10T12:17:44.394000Z'). "
+                "Got a naive datetime without timezone info."
+            )
+    else:
         timestamp = now()
 
     payload = {
@@ -133,5 +140,5 @@ def emit_embedding_request(
         "models": models,
     }
 
-    producer = KafkaProducer()
+    producer = get_producer(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC)
     return producer.produce(topic=KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC, data=payload)

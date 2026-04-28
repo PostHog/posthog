@@ -37,5 +37,6 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             query=validated_query,
             name="",
             description="",
+            user=self._user,
         )
         return await insight_context.execute_and_format(prompt_template="{{{results}}}", truncate_results=args.truncate)

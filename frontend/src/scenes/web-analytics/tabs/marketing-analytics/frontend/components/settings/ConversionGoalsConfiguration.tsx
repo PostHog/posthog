@@ -146,7 +146,12 @@ export function ConversionGoalsConfiguration({
                             Add conversion goal
                         </LemonButton>
 
-                        <LemonButton onClick={() => setFormState(createEmptyFormState())}>Clear</LemonButton>
+                        <LemonButton
+                            onClick={() => setFormState(createEmptyFormState())}
+                            disabledReason={restrictedReason}
+                        >
+                            Clear
+                        </LemonButton>
                     </div>
                 </div>
             </div>

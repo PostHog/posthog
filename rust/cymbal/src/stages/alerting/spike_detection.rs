@@ -17,6 +17,7 @@ use crate::metric_consts::{
     SPIKE_ISSUES_BLOCKED_BY_COOLDOWN, SPIKE_ISSUES_CHECKED, SPIKE_ISSUES_SPIKING,
 };
 use crate::spike_config::SpikeDetectionConfig;
+use crate::types::OutputErrProps;
 
 const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
@@ -44,6 +45,7 @@ fn cooldown_key(issue_id: &Uuid) -> String {
 #[derive(Debug, Clone)]
 pub struct SpikingIssue {
     pub issue: Issue,
+    pub props: OutputErrProps,
     pub computed_baseline: f64,
     pub current_bucket_value: i64,
 }
@@ -169,6 +171,7 @@ async fn try_increment_team_buckets(
 pub async fn do_spike_detection(
     context: Arc<AppContext>,
     issues_by_id: HashMap<Uuid, Issue>,
+    issue_props_by_id: HashMap<Uuid, OutputErrProps>,
     issue_counts: HashMap<Uuid, u32>,
 ) -> Result<(), UnhandledError> {
     if issue_counts.is_empty() {
@@ -218,6 +221,7 @@ pub async fn do_spike_detection(
     let spiking = get_spiking_issues(
         &*context.issue_buckets_redis_client,
         &issues_by_id,
+        &issue_props_by_id,
         &team_configs,
     )
     .await;
@@ -298,37 +302,63 @@ async fn emit_spiking_events(
         return;
     }
 
+    // Persist spike events to Postgres and emit a signal
+    for spike in &acquired_locks {
+        let id = Uuid::now_v7();
+        let now = Utc::now();
+        if let Err(e) = sqlx::query(
+            r#"INSERT INTO posthog_errortrackingspikeevent
+               (id, team_id, issue_id, detected_at, computed_baseline, current_bucket_value)
+               VALUES ($1, $2, $3, $4, $5, $6)"#,
+        )
+        .bind(id)
+        .bind(spike.issue.team_id)
+        .bind(spike.issue.id)
+        .bind(now)
+        .bind(spike.computed_baseline)
+        .bind(spike.current_bucket_value as i32)
+        .execute(&context.posthog_pool)
+        .await
+        {
+            warn!("Failed to persist spike event: {e}");
+        }
+
+        context.signal_client.emit_issue_spiking(
+            &spike.issue,
+            &spike.props,
+            spike.computed_baseline,
+            spike.current_bucket_value as f64,
+        );
+    }
+
     let emit_timer = common_metrics::timing_guard(SPIKE_EMIT_EVENTS_TIME, &[]);
     let events: Vec<(Uuid, InternalEvent)> = acquired_locks
         .iter()
-        .filter_map(|spike| {
+        .map(|spike| {
             let mut event =
                 InternalEventEvent::new(ISSUE_SPIKING_EVENT, spike.issue.id, Utc::now(), None);
-            event.insert_prop("name", spike.issue.name.clone()).ok()?;
+            event
+                .insert_prop("name", spike.issue.name.clone())
+                .expect("insert_prop for name should never fail");
             event
                 .insert_prop("description", spike.issue.description.clone())
-                .ok()?;
+                .expect("insert_prop for description should never fail");
             event
                 .insert_prop("computed_baseline", spike.computed_baseline)
-                .ok()?;
+                .expect("insert_prop for computed_baseline should never fail");
             event
                 .insert_prop("current_bucket_value", spike.current_bucket_value)
-                .ok()?;
-            Some((
+                .expect("insert_prop for current_bucket_value should never fail");
+            (
                 spike.issue.id,
                 InternalEvent {
                     team_id: spike.issue.team_id,
                     event,
                     person: None,
                 },
-            ))
+            )
         })
         .collect();
-
-    if events.is_empty() {
-        emit_timer.fin();
-        return;
-    }
 
     let kafka_events: Vec<&InternalEvent> = events.iter().map(|(_, e)| e).collect();
     let results = send_iter_to_kafka(
@@ -415,6 +445,7 @@ fn is_spiking(current_value: i64, baseline: f64, config: &SpikeDetectionConfig) 
 async fn get_spiking_issues(
     redis: &(dyn Client + Send + Sync),
     issues_by_id: &HashMap<Uuid, Issue>,
+    issue_props_by_id: &HashMap<Uuid, OutputErrProps>,
     team_configs: &HashMap<i32, SpikeDetectionConfig>,
 ) -> Result<Vec<SpikingIssue>, UnhandledError> {
     if issues_by_id.is_empty() {
@@ -456,6 +487,10 @@ async fn get_spiking_issues(
         if is_spiking(current_value, baseline, config) {
             spiking.push(SpikingIssue {
                 issue: issue.clone(),
+                props: issue_props_by_id
+                    .get(&bucket.issue_id)
+                    .cloned()
+                    .unwrap_or_default(),
                 computed_baseline: baseline,
                 current_bucket_value: current_value,
             });
@@ -530,9 +565,21 @@ fn compute_team_baselines(team_buckets: &[TeamBuckets]) -> HashMap<i32, f64> {
     team_buckets
         .iter()
         .map(|bucket| {
+            // Skip index 0 (current bucket) to avoid inflating the baseline
+            // with the events we just incremented — same as issue baseline does.
+            let historical_exceptions = if bucket.exception_counts.len() > 1 {
+                &bucket.exception_counts[1..]
+            } else {
+                &bucket.exception_counts[..]
+            };
+            let historical_issue_counts = if bucket.unique_issue_counts.len() > 1 {
+                &bucket.unique_issue_counts[1..]
+            } else {
+                &bucket.unique_issue_counts[..]
+            };
             (
                 bucket.team_id,
-                compute_team_baseline(&bucket.exception_counts, &bucket.unique_issue_counts),
+                compute_team_baseline(historical_exceptions, historical_issue_counts),
             )
         })
         .collect()
@@ -623,7 +670,8 @@ mod tests {
 
         async fn get_spiking(&self) -> Vec<SpikingIssue> {
             let configs = HashMap::from([(self.team_id, SpikeDetectionConfig::default())]);
-            get_spiking_issues(&self.redis, &self.issues_by_id(), &configs)
+            let empty_props = HashMap::new();
+            get_spiking_issues(&self.redis, &self.issues_by_id(), &empty_props, &configs)
                 .await
                 .unwrap()
         }
@@ -904,9 +952,10 @@ mod tests {
 
     // ISSUE BUCKETS (most recent first): 600
     // TEAM BUCKETS (most recent first):  20, 15, 12, 8 (unique issues: 2, 3, 4, 2)
-    // Per-bucket rates: 20/2=10, 15/3=5, 12/4=3, 8/2=4
-    // Team baseline = average(10, 5, 3, 4) = 22/4 = 5.5
-    // Current = 600, spike threshold = 55, so SPIKING
+    // Current team bucket (20/2=10) is excluded from baseline.
+    // Historical per-bucket rates: 15/3=5, 12/4=3, 8/2=4
+    // Team baseline = average(5, 3, 4) = 12/3 = 4.0
+    // Current = 600, spike threshold = 40, so SPIKING
     #[tokio::test]
     async fn test_team_baseline_average_of_rates() {
         let mut ctx = TestContext::new();
@@ -916,7 +965,7 @@ mod tests {
         let result = ctx.get_spiking().await;
 
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].computed_baseline, 5.5);
+        assert_eq!(result[0].computed_baseline, 4.0);
     }
 
     // Multi-team, multi-issue stress test
@@ -1050,7 +1099,8 @@ mod tests {
             (team_1, SpikeDetectionConfig::default()),
             (team_2, SpikeDetectionConfig::default()),
         ]);
-        let result = get_spiking_issues(&redis, &issues_by_id, &configs)
+        let empty_props = HashMap::new();
+        let result = get_spiking_issues(&redis, &issues_by_id, &empty_props, &configs)
             .await
             .unwrap();
 
@@ -1083,5 +1133,42 @@ mod tests {
         assert_eq!(spike_e.issue.team_id, team_2);
         assert_eq!(spike_e.computed_baseline, 200.0);
         assert_eq!(spike_e.current_bucket_value, 2500);
+    }
+
+    // Team baseline excludes the current bucket to avoid the spike itself
+    // inflating the baseline. This is the same approach as issue baseline.
+    //
+    // ISSUE BUCKETS: current=1000, no history -> falls back to team baseline
+    // TEAM BUCKETS: current=1000 (the spike), historical=10 each (1 issue each)
+    // Team baseline = average of historical only = 10 (not inflated by the 1000)
+    // Current = 1000, baseline = 10, threshold = 500, multiplier = 10
+    // 1000 >= 500 AND 1000 > 10*10=100 -> SPIKING
+    #[tokio::test]
+    async fn test_team_baseline_excludes_current_bucket() {
+        let mut ctx = TestContext::new();
+        ctx.setup_issue_buckets(&[Some(1000)]);
+        ctx.setup_team_buckets(
+            &[
+                Some(1000),
+                Some(10),
+                Some(10),
+                Some(10),
+                Some(10),
+                Some(10),
+                Some(10),
+                Some(10),
+                Some(10),
+                Some(10),
+                Some(10),
+                Some(10),
+            ],
+            &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        );
+
+        let result = ctx.get_spiking().await;
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].computed_baseline, 10.0);
+        assert_eq!(result[0].current_bucket_value, 1000);
     }
 }

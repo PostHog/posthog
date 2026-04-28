@@ -13,12 +13,15 @@ import type { sessionProfileLogicType } from './sessionProfileLogicType'
 /**
  * Extract the timestamp embedded in a UUIDv7.
  * UUIDv7 encodes the Unix timestamp in milliseconds in the first 48 bits.
+ *
+ * We apply buffers in both directions to handle clock skew between the client
+ * (which generates the UUIDv7) and the server (which records event timestamps).
  */
 function getTimestampFromUUIDv7(sessionId: string): { startDate: Date; endDate: Date } {
     const uuidHex = sessionId.replace(/-/g, '')
     const timestampMs = parseInt(uuidHex.substring(0, 12), 16)
-    const startDate = new Date(timestampMs)
-    // Add 2 days buffer to ensure we capture all events for the session
+    // Generous buffers for partition pruning while we wait for sessions v3
+    const startDate = new Date(timestampMs - 2 * 24 * 60 * 60 * 1000)
     const endDate = new Date(timestampMs + 2 * 24 * 60 * 60 * 1000)
     return { startDate, endDate }
 }
@@ -146,10 +149,8 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                         LIMIT 1
                     `
                             : (() => {
-                                  // Extract timestamp from UUIDv7 and use simple date constants
-                                  // This allows ClickHouse to push predicates down for partition pruning
-                                  const { startDate } = getTimestampFromUUIDv7(props.sessionId)
-                                  const endDate = new Date(startDate.getTime() + 60 * 60 * 1000) // +1 hour
+                                  // Extract timestamp from UUIDv7 and use date constants for partition pruning
+                                  const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
                                   return hogql`
                         SELECT
                             session_id,
@@ -535,9 +536,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             false as boolean,
             {
                 loadRecordingAvailability: async () => {
-                    const { startDate } = getTimestampFromUUIDv7(props.sessionId)
-                    // Only need +1 day for recording availability check
-                    const endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000)
+                    const { startDate, endDate } = getTimestampFromUUIDv7(props.sessionId)
 
                     const response = await api.recordings.list({
                         kind: NodeKind.RecordingsQuery,

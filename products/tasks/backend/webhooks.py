@@ -1,18 +1,46 @@
 import hmac
 import json
+import uuid
 import hashlib
 
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
-import posthoganalytics
 
 from posthog.models.instance_setting import get_instance_setting
 
 from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
+
+TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
+
+
+def find_task_run(
+    pr_url: str | None = None,
+    branch: str | None = None,
+    repository: str | None = None,
+) -> TaskRun | None:
+    if pr_url:
+        task_run = TaskRun.objects.filter(output__pr_url=pr_url).select_related(*TASK_RUN_SELECT_RELATED).first()
+        if task_run:
+            return task_run
+
+    # Branch-only lookups must be scoped to the repository the webhook came from.
+    # Without this, a PR opened on an unrelated repo with a colliding branch name
+    # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
+    repository = repository.strip() if repository else None
+    if branch and repository:
+        task_run = (
+            TaskRun.objects.filter(branch=branch, task__repository__iexact=repository)
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
+        if task_run:
+            return task_run
+
+    return None
 
 
 def verify_github_signature(payload: bytes, signature: str | None, secret: str) -> bool:
@@ -112,8 +140,9 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         logger.debug("github_pr_webhook_ignored_action", action=action, pr_url=pr_url)
         return HttpResponse(status=200)
 
-    # Find TaskRun by pr_url in output field
-    task_run = TaskRun.objects.filter(output__pr_url=pr_url).select_related("task", "task__created_by").first()
+    branch = pull_request.get("head", {}).get("ref")
+    repository_full_name = (payload.get("repository") or {}).get("full_name")
+    task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
 
     if not task_run:
         logger.debug(
@@ -124,9 +153,6 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         )
         return HttpResponse(status=200)
 
-    # Emit messgae to the task run
-    task_run.emit_console_event("info", f"PR {event_action}: {pr_url}")
-
     logger.info(
         "github_pr_webhook_processed",
         action=action,
@@ -136,29 +162,9 @@ def github_pr_webhook(request: HttpRequest) -> HttpResponse:
         run_id=str(task_run.id),
     )
 
-    # Emit PostHog analytics event
-    try:
-        # should probably not use a distinct id and send an anon id with person processing off in fail case...
-        distinct_id = (
-            str(task_run.task.created_by.distinct_id) if task_run.task.created_by else f"team_{task_run.team_id}"
-        )
-
-        posthoganalytics.capture(
-            distinct_id=distinct_id,
-            event=analytics_event,
-            properties={
-                "task_id": str(task_run.task_id),
-                "run_id": str(task_run.id),
-                "pr_url": pr_url,
-                "repository": task_run.task.repository,
-                "team_id": task_run.team_id,
-            },
-        )
-    except Exception as e:
-        logger.warning(
-            "github_pr_webhook_analytics_failed",
-            error=str(e),
-            analytics_event=analytics_event,
-        )
+    # Generate a deterministic UUID from the PR URL and event type so that
+    # duplicate webhook deliveries for the same PR action are deduplicated.
+    event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
+    task_run.capture_event(analytics_event, {"pr_url": pr_url}, event_uuid=event_uuid)
 
     return HttpResponse(status=200)

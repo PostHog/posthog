@@ -41,7 +41,12 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
                 <div className="flex gap-4">
                     <div className="flex-1">
                         <LemonField name="name" label="Filter name">
-                            <LemonInput placeholder="e.g. Environment" disabled={quickFiltersLoading} autoFocus />
+                            <LemonInput
+                                placeholder="e.g. Environment"
+                                disabledReason={quickFiltersLoading ? 'Quick filters are still loading' : undefined}
+                                autoFocus
+                                data-attr="quick-filter-name"
+                            />
                         </LemonField>
                     </div>
                     <div className="flex-1">
@@ -176,6 +181,9 @@ function FilterOptionRow({
                     />
                 </div>
                 {rowErrors?.value && <LemonField.Error error={rowErrors.value} />}
+                {option.operator === PropertyOperator.Exact &&
+                    Array.isArray(option.value) &&
+                    option.value.length > 1 && <span className="text-xs text-muted">Matches any of these values</span>}
             </div>
             <div className="flex flex-col w-[30%] gap-2">
                 <LemonInput
@@ -183,6 +191,7 @@ function FilterOptionRow({
                     onChange={(value) => updateOption(index, { label: value })}
                     placeholder="Display name (e.g., Production)"
                     disabledReason={!propertyName ? 'Select an event property first' : undefined}
+                    data-attr={`quick-filter-option-label-${index}`}
                 />
                 {rowErrors?.label && <LemonField.Error error={rowErrors.label} />}
             </div>

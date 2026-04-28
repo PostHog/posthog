@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 
 from django.db import IntegrityError
 
+from products.data_modeling.backend.models import DAG
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
@@ -15,10 +16,11 @@ class TestNodeNameSync(BaseTest):
             team=self.team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
         )
+        dag = DAG.objects.create(team=self.team, name="test")
 
         node = Node.objects.create(
             team=self.team,
-            dag_id_text="test",
+            dag=dag,
             name="ignored_name",
             saved_query=saved_query,
             type=NodeType.VIEW,
@@ -32,10 +34,11 @@ class TestNodeNameSync(BaseTest):
             team=self.team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
         )
+        dag = DAG.objects.create(team=self.team, name="test")
 
         node = Node.objects.create(
             team=self.team,
-            dag_id_text="test",
+            dag=dag,
             name="saved_query_name",
             saved_query=saved_query,
             type=NodeType.VIEW,
@@ -53,10 +56,11 @@ class TestNodeNameSync(BaseTest):
             team=self.team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
         )
+        dag = DAG.objects.create(team=self.team, name="test")
 
         node = Node.objects.create(
             team=self.team,
-            dag_id_text="test",
+            dag=dag,
             name="original_name",
             saved_query=saved_query,
             type=NodeType.VIEW,
@@ -69,9 +73,10 @@ class TestNodeNameSync(BaseTest):
         self.assertEqual(node.name, "updated_name")
 
     def test_table_node_name_is_not_affected_by_sync(self):
+        dag = DAG.objects.create(team=self.team, name="test")
         node = Node.objects.create(
             team=self.team,
-            dag_id_text="test",
+            dag=dag,
             name="events",
             saved_query=None,
             type=NodeType.TABLE,
@@ -86,10 +91,11 @@ class TestNodeNameSync(BaseTest):
         self.assertEqual(node.name, "custom_table_name")
 
     def test_node_without_saved_query_requires_name(self):
+        dag = DAG.objects.create(team=self.team, name="test")
         with self.assertRaises(ValueError) as context:
             Node.objects.create(
                 team=self.team,
-                dag_id_text="test",
+                dag=dag,
                 name="",
                 saved_query=None,
                 type=NodeType.TABLE,
@@ -103,16 +109,18 @@ class TestNodeNameSync(BaseTest):
             team=self.team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
         )
+        dag_one = DAG.objects.create(team=self.team, name="dag_one")
+        dag_two = DAG.objects.create(team=self.team, name="dag_two")
 
         node1 = Node.objects.create(
             team=self.team,
-            dag_id_text="dag_one",
+            dag=dag_one,
             saved_query=saved_query,
             type=NodeType.VIEW,
         )
         node2 = Node.objects.create(
             team=self.team,
-            dag_id_text="dag_two",
+            dag=dag_two,
             saved_query=saved_query,
             type=NodeType.VIEW,
         )
@@ -135,16 +143,17 @@ class TestNodeNameSync(BaseTest):
             team=self.team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
         )
+        dag = DAG.objects.create(team=self.team, name="dag_one")
         Node.objects.create(
             team=self.team,
-            dag_id_text="dag_one",
+            dag=dag,
             saved_query=saved_query,
             type=NodeType.VIEW,
         )
         with pytest.raises(IntegrityError):
             Node.objects.create(
                 team=self.team,
-                dag_id_text="dag_one",
+                dag=dag,
                 saved_query=saved_query,
                 type=NodeType.VIEW,
             )

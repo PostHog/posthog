@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from datetime import datetime
+from typing import Any, Optional
 
 
 @dataclass
@@ -88,6 +89,40 @@ class TeamSignalGroupingInput:
 
 
 @dataclass
+class BufferSignalsInput:
+    """Inputs for the buffer signals workflow."""
+
+    team_id: int
+    # Signals that arrived between the last drain and continue_as_new.
+    # Small in practice (only a few signals can sneak in during two activity calls),
+    # but must be carried over to avoid dropping them.
+    pending_signals: list["EmitSignalInputs"] = field(default_factory=list)
+
+
+@dataclass
+class TeamSignalGroupingV2Input:
+    """Inputs for the v2 grouping workflow."""
+
+    team_id: int
+    pending_batch_keys: list[str] = field(default_factory=list)
+    paused_until: Optional[datetime] = None
+
+
+@dataclass
+class ReadSignalsFromS3Input:
+    """Activity input for reading a signal batch."""
+
+    object_key: str
+
+
+@dataclass
+class ReadSignalsFromS3Output:
+    """Activity output: the deserialized signals."""
+
+    signals: list["EmitSignalInputs"]
+
+
+@dataclass
 class SignalReportSummaryWorkflowInputs:
     """Inputs for the signal report summary workflow."""
 
@@ -101,6 +136,14 @@ class SignalReportReingestionWorkflowInputs:
 
     team_id: int
     report_id: str
+
+
+@dataclass
+class TeamSignalReingestionWorkflowInputs:
+    """Inputs for the team-wide signal reingestion workflow."""
+
+    team_id: int
+    delete_only: bool = False
 
 
 @dataclass
@@ -132,8 +175,23 @@ class SignalData:
     source_type: str
     source_id: str
     weight: float
-    timestamp: str
+    timestamp: datetime
     extra: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+def _render_extra_to_text(extra: dict) -> list[str]:
+    """Render signal extra data to text lines for LLM consumption."""
+    lines = []
+    for key, value in extra.items():
+        if key == "images":
+            images = value or []
+            rendered = ", ".join(f"[{img.get('author', 'unknown')}] {img['url']}" for img in images if img.get("url"))
+            if rendered:
+                lines.append(f"- images: {rendered}")
+        else:
+            lines.append(f"- {key}: {value}")
+    return lines
 
 
 def render_signal_to_text(
@@ -144,8 +202,10 @@ def render_signal_to_text(
     lines = [f"Signal {index}:" if index is not None else "Signal:"]
     lines.append(f"- Source: {signal.source_product} / {signal.source_type}")
     lines.append(f"- Weight: {signal.weight}")
-    lines.append(f"- Timestamp: {signal.timestamp}")
+    lines.append(f"- Timestamp: {signal.timestamp.isoformat()}")
     lines.append(f"- Description: {signal.content}")
+    if signal.extra:
+        lines.extend(_render_extra_to_text(signal.extra))
     return "\n".join(lines)
 
 

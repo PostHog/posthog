@@ -43,9 +43,9 @@ describe('LLM Analytics', { concurrent: false }, () => {
             const result = await costsTool.handler(context, {
                 projectId: Number(TEST_PROJECT_ID),
             })
-            const costsData = parseToolResponse(result)
 
-            expect(Array.isArray(costsData)).toBe(true)
+            const costsData = parseToolResponse(result)
+            expect(Array.isArray(costsData.results)).toBe(true)
         })
 
         it('should get LLM costs for custom time period', async () => {
@@ -53,9 +53,9 @@ describe('LLM Analytics', { concurrent: false }, () => {
                 projectId: Number(TEST_PROJECT_ID),
                 days: 30,
             })
-            const costsData = parseToolResponse(result)
 
-            expect(Array.isArray(costsData)).toBe(true)
+            const costsData = parseToolResponse(result)
+            expect(Array.isArray(costsData.results)).toBe(true)
         })
 
         it('should get LLM costs for single day', async () => {
@@ -63,9 +63,9 @@ describe('LLM Analytics', { concurrent: false }, () => {
                 projectId: Number(TEST_PROJECT_ID),
                 days: 1,
             })
-            const costsData = parseToolResponse(result)
 
-            expect(Array.isArray(costsData)).toBe(true)
+            const costsData = parseToolResponse(result)
+            expect(Array.isArray(costsData.results)).toBe(true)
         })
     })
 
@@ -77,15 +77,17 @@ describe('LLM Analytics', { concurrent: false }, () => {
                 projectId: Number(TEST_PROJECT_ID),
                 days: 7,
             })
+
             const weekData = parseToolResponse(weekResult)
-            expect(Array.isArray(weekData)).toBe(true)
+            expect(Array.isArray(weekData.results)).toBe(true)
 
             const monthResult = await costsTool.handler(context, {
                 projectId: Number(TEST_PROJECT_ID),
                 days: 30,
             })
+
             const monthData = parseToolResponse(monthResult)
-            expect(Array.isArray(monthData)).toBe(true)
+            expect(Array.isArray(monthData.results)).toBe(true)
         })
     })
 })

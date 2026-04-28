@@ -16,7 +16,7 @@ from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, NodePath
 
 INSIGHT_TOOL_PROMPT = """
-Use this tool to generate an insight from a structured plan. It will return a visualization that the user can analyze and a textual representation for your analysis. These visualizations are transient and only exist within the current conversation—they are not saved to the project. To save an insight permanently, users should click the open insight button in the conversation.
+Use this tool to generate an insight from a structured plan. It will return a visualization that the user can analyze and a textual representation for your analysis. These visualizations are transient and only exist within the current conversation—they are not saved to the project. To save an insight permanently, users should click the open insight icon below the chart in the conversation.
 
 This tool can also be used to edit the visualization the user is currently viewing on the insight page. In that case, you need to generate a new plan based on the schema of the existing insight.
 
@@ -319,17 +319,17 @@ Funnel insights help stakeholders understand user behavior as users navigate thr
 </general_knowledge>
 
 <exclusion_steps>
-Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes for each exclusion where the minimum index is 1 (after first step) and the maximum index is the number of steps in the funnel. Exclusion events cannot be actions, only events.
+Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. You must include start and end indexes (0-based) for each exclusion where the minimum start index is 0 (first step) and the maximum end index is the number of steps minus one. Exclusion events cannot be actions, only events.
 
 IMPORTANT: Exclusion steps filter out conversions where the exclusion event occurred BETWEEN the specified steps. This does NOT exclude users who completed the event before the funnel started or after it ended.
 
-For example, there is a sequence with three steps: sign up (step 1), finish onboarding (step 2), purchase (step 3). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be:
+For example, there is a sequence with three steps: sign up (step 0), finish onboarding (step 1), purchase (step 2). If the user wants to exclude all conversions in which users navigated away between sign up and finishing onboarding, the exclusion step will be:
 
 ```
 Exclusions:
 - $pageleave
-    - start index: 1 (after sign up)
-    - end index: 2 (before finish onboarding)
+    - start index: 0 (sign up)
+    - end index: 1 (finish onboarding)
 ```
 
 </exclusion_steps>

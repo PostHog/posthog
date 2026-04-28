@@ -15,9 +15,9 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
+from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
     AzureBlobBatchExportInputs,
@@ -43,7 +43,9 @@ async def download_blob(container: ContainerClient, name: str) -> bytes:
     """Download blob content as bytes."""
     blob_client = container.get_blob_client(name)
     stream = await blob_client.download_blob()
-    return await stream.readall()
+    data = await stream.readall()
+    assert isinstance(data, bytes)
+    return data
 
 
 def decompress(data: bytes, compression: str | None) -> bytes:

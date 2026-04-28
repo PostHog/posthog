@@ -102,7 +102,7 @@ export function EditableBreakdownTag({
     )
 }
 
-type BreakdownTagProps = {
+export type BreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType | null | undefined
     disablePropertyInfo?: boolean

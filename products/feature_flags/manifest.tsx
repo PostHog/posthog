@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -11,7 +11,6 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/FeatureFlagTemplatesScene'),
             projectBased: true,
             name: 'Feature flag templates',
-            defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
         },
     },
     routes: {
@@ -25,10 +24,12 @@ export const manifest: ProductManifest = {
             type,
             sourceId,
             template,
+            intent,
         }: {
             type?: 'boolean' | 'multivariate' | 'remote_config'
             sourceId?: number | string | null
             template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
+            intent?: 'local-eval' | 'first-page-load'
         }): string => {
             const params = new URLSearchParams()
             if (type) {
@@ -39,6 +40,9 @@ export const manifest: ProductManifest = {
             }
             if (template) {
                 params.set('template', template)
+            }
+            if (intent) {
+                params.set('intent', intent)
             }
             return `/feature_flags/new?${params.toString()}`
         },
@@ -65,7 +69,7 @@ export const manifest: ProductManifest = {
         {
             path: `Feature flags`,
             intents: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS, ProductKey.EARLY_ACCESS_FEATURES],
-            category: 'Features',
+            category: ProductItemCategory.FEATURES,
             type: 'feature_flag',
             href: urls.featureFlags(),
             sceneKey: 'FeatureFlags',

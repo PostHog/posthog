@@ -8,7 +8,7 @@ use cymbal::{
     symbol_store::BlobClient,
 };
 
-use axum::async_trait;
+use async_trait::async_trait;
 use mockall::mock;
 use rdkafka::message::ToBytes;
 use reqwest::StatusCode;
@@ -37,19 +37,11 @@ pub(crate) async fn get_response<T: for<'de> Deserialize<'de>>(
     let mut config = Config::init_with_defaults().unwrap();
     config.object_storage_bucket = storage_bucket.clone();
 
-    let redis_client = Arc::new(MockRedisClient::new());
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
 
-    let app_ctx = AppContext::new(
-        &config,
-        s3_client,
-        db.clone(),
-        db.clone(),
-        redis_client,
-        issue_buckets_redis_client,
-    )
-    .await
-    .unwrap();
+    let app_ctx = AppContext::new(&config, s3_client, db.clone(), issue_buckets_redis_client)
+        .await
+        .unwrap();
 
     let ctx = Arc::new(app_ctx);
 
@@ -79,19 +71,11 @@ pub(crate) async fn get_raw_response(
     let mut config = Config::init_with_defaults().unwrap();
     config.object_storage_bucket = storage_bucket.clone();
 
-    let redis_client = Arc::new(MockRedisClient::new());
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
 
-    let app_ctx = AppContext::new(
-        &config,
-        s3_client,
-        db.clone(),
-        db.clone(),
-        redis_client,
-        issue_buckets_redis_client,
-    )
-    .await
-    .unwrap();
+    let app_ctx = AppContext::new(&config, s3_client, db.clone(), issue_buckets_redis_client)
+        .await
+        .unwrap();
 
     let ctx = Arc::new(app_ctx);
 

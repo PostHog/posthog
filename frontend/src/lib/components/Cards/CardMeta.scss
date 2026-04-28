@@ -1,5 +1,6 @@
 .TextCard,
-.InsightCard {
+.InsightCard,
+.ButtonTileCard {
     .handle {
         position: absolute;
         z-index: var(--z-raised);
@@ -14,21 +15,74 @@
             svg {
                 transform: rotate(90deg) translateX(0.75rem);
             }
+
+            &.top {
+                align-items: flex-start;
+
+                svg {
+                    transform: rotate(90deg) translateX(-0.75rem);
+                }
+            }
         }
 
         &.vertical {
             flex-direction: column;
 
-            svg {
-                transform: translateX(0.5rem);
+            &.right {
+                align-items: flex-end;
+                justify-content: center;
+
+                svg {
+                    transform: translateX(0.5rem);
+                }
+            }
+
+            &.left {
+                align-items: flex-start;
+                justify-content: center;
+
+                svg {
+                    transform: translateX(-0.5rem);
+                }
             }
         }
 
         &.corner {
+            align-items: flex-end;
+
+            // default bottom-right positioning
             justify-content: flex-end;
 
             svg {
                 transform: translate(0.5rem, 0.5rem);
+            }
+
+            /* Mirror the corner handle graphic while keeping the same anchor point */
+            &.bottom-left {
+                align-items: flex-end;
+                justify-content: flex-start;
+
+                svg {
+                    transform: translate(-0.5rem, 0.5rem) rotateY(180deg);
+                }
+            }
+
+            &.top-right {
+                align-items: flex-start;
+                justify-content: flex-end;
+
+                svg {
+                    transform: translate(0.5rem, -0.5rem) rotateX(180deg);
+                }
+            }
+
+            &.top-left {
+                align-items: flex-start;
+                justify-content: flex-start;
+
+                svg {
+                    transform: translate(-0.5rem, -0.5rem) rotateX(180deg) rotateY(180deg);
+                }
             }
         }
     }

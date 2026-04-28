@@ -17,10 +17,11 @@ import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
 import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
-import { maxLogic, mergeConversationHistory } from './maxLogic'
+import { maxLogic, mergeConversationHistory, mergeConversations } from './maxLogic'
 
 // Keep this stored across all projects, only display this once per device
 const AI_LIABILITY_NOTICE_STORAGE_KEY = 'posthog_ai_liability_notice_dismissed'
+const AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY = 'posthog_ai_data_processing_dismissed'
 
 /** Tools available everywhere. These CAN be shadowed by contextual tools for scene-specific handling (e.g. to intercept insight creation). */
 export const STATIC_TOOLS: ToolRegistration[] = [
@@ -94,6 +95,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
         dismissLiabilityNotice: true,
+        dismissDataProcessing: true,
     }),
 
     loaders(({ values }) => ({
@@ -108,7 +110,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     }
                 ) => {
                     const response = await api.conversations.list()
-                    return response.results
+                    return response.results.map((conversation) =>
+                        mergeConversations(
+                            conversation,
+                            values.conversationHistory.find((existing) => existing.id === conversation.id)
+                        )
+                    )
                 },
 
                 loadConversation: async (conversationId: string) => {
@@ -153,6 +160,13 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             { persist: true, storageKey: AI_LIABILITY_NOTICE_STORAGE_KEY },
             {
                 dismissLiabilityNotice: () => true,
+            },
+        ],
+        dataProcessingDismissed: [
+            false,
+            { persist: true, storageKey: AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY },
+            {
+                dismissDataProcessing: () => true,
             },
         ],
     }),

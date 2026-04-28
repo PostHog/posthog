@@ -7,6 +7,7 @@ import datetime as dt
 import operator
 import dataclasses
 import collections.abc
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
@@ -17,7 +18,15 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import (
+from posthog.kafka_client.topics import KAFKA_APP_METRICS2
+from posthog.models.team.team import Team
+from posthog.settings.base_variables import TEST
+from posthog.sync import database_sync_to_async
+from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.client import connect
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
     BatchExportInsertInputs,
@@ -28,14 +37,6 @@ from posthog.batch_exports.service import (
     running_backfills_for_batch_export,
     update_batch_export_run,
 )
-from posthog.kafka_client.topics import KAFKA_APP_METRICS2
-from posthog.models.team.team import Team
-from posthog.settings.base_variables import TEST
-from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.common.client import connect
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import use_distributed_events_recent_table
@@ -283,13 +284,18 @@ def iter_records(
     yield from client.stream_query_as_arrow(query_str, query_parameters=query_parameters)
 
 
-def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
+def get_data_interval(
+    interval: str, data_interval_end: str | None, timezone: str | None = None
+) -> tuple[dt.datetime, dt.datetime]:
     """Return the start and end of an export's data interval.
 
     Args:
         interval: The interval of the BatchExport associated with this Workflow.
         data_interval_end: The optional end of the BatchExport period. If not included, we will
             attempt to extract it from Temporal SearchAttributes.
+        timezone: The IANA timezone of the batch export (e.g. "US/Eastern"). When provided,
+            daily/weekly intervals use timezone-aware arithmetic so that DST transitions
+            produce correct interval lengths (23h or 25h) instead of a fixed 24h.
 
     Raises:
         TypeError: If when trying to obtain the data interval end we run into non-str types.
@@ -317,10 +323,8 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
         if isinstance(data_interval_end_search_attr[0], str):
             data_interval_end_str = data_interval_end_search_attr[0]
             data_interval_end_dt = dt.datetime.fromisoformat(data_interval_end_str)
-
         elif isinstance(data_interval_end_search_attr[0], dt.datetime):
             data_interval_end_dt = data_interval_end_search_attr[0]
-
         else:
             msg = (
                 f"Expected search attribute to be of type 'str' or 'datetime' but found '{data_interval_end_search_attr[0]}' "
@@ -330,12 +334,16 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
     else:
         data_interval_end_dt = dt.datetime.fromisoformat(data_interval_end_str)
 
+    tz = ZoneInfo(timezone) if timezone else dt.UTC
+
     if interval == "hour":
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(hours=1)
     elif interval == "day":
-        data_interval_start_dt = data_interval_end_dt - dt.timedelta(days=1)
+        local_end = data_interval_end_dt.astimezone(tz)
+        data_interval_start_dt = (local_end - dt.timedelta(days=1)).astimezone(dt.UTC)
     elif interval == "week":
-        data_interval_start_dt = data_interval_end_dt - dt.timedelta(weeks=1)
+        local_end = data_interval_end_dt.astimezone(tz)
+        data_interval_start_dt = (local_end - dt.timedelta(weeks=1)).astimezone(dt.UTC)
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
@@ -478,6 +486,7 @@ class FinishBatchExportRunInputs:
             See the docstring in 'pause_batch_export_if_over_failure_threshold'.
         bytes_exported: Total number of bytes exported.
             This is the size of the actual data exported, which takes into account the file type and compression.
+        records_failed: Number of records that failed downstream processing.
     """
 
     id: str
@@ -487,9 +496,10 @@ class FinishBatchExportRunInputs:
     latest_error: str | None = None
     records_completed: int | None = None
     records_total_count: int | None = None
-    failure_threshold: int = 10
+    failure_threshold: int = 3
     failure_check_window: int = 50
     bytes_exported: int | None = None
+    records_failed: int | None = None
 
 
 @activity.defn
@@ -545,13 +555,6 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         )
 
     elif batch_export_run.status == BatchExportRun.Status.FAILED:
-        external_logger.error(
-            "Batch export for range %s - %s failed with a non-recoverable error: %s",
-            batch_export_run.data_interval_start or "START",
-            batch_export_run.data_interval_end or "END",
-            batch_export_run.latest_error,
-        )
-
         from posthog.tasks.email import send_batch_export_run_failure
 
         try:
@@ -560,6 +563,13 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             logger.exception("Failure email notification could not be sent")
         else:
             external_logger.info("Failure notification email for run '%s' has been sent", inputs.id)
+
+        external_logger.error(
+            "Batch export for range %s - %s failed with a non-recoverable error: %s",
+            batch_export_run.data_interval_start or "START",
+            batch_export_run.data_interval_end or "END",
+            batch_export_run.latest_error,
+        )
 
         is_over_failure_threshold = await check_if_over_failure_threshold(
             inputs.batch_export_id,
@@ -631,12 +641,14 @@ async def try_produce_app_metrics(
 
     The metric name and kind will depend on the reported status.
     """
+    default_profile = settings.KAFKA_PROFILES["default"]
+    security_protocol = default_profile.security_protocol
     producer = aiokafka.AIOKafkaProducer(
-        bootstrap_servers=settings.KAFKA_HOSTS,
-        security_protocol=settings.KAFKA_SECURITY_PROTOCOL or "PLAINTEXT",
+        bootstrap_servers=default_profile.hosts,
+        security_protocol=security_protocol or "PLAINTEXT",
         acks="all",
         api_version="2.5.0",
-        ssl_context=configure_default_ssl_context() if settings.KAFKA_SECURITY_PROTOCOL == "SSL" else None,
+        ssl_context=configure_default_ssl_context() if security_protocol == "SSL" else None,
     )
 
     match status:
@@ -753,7 +765,6 @@ async def pause_batch_export_over_failure_threshold(batch_export_id: str) -> boo
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
         settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
         settings.TEMPORAL_CLIENT_CERT,
         settings.TEMPORAL_CLIENT_KEY,
     )
@@ -780,7 +791,6 @@ async def cancel_running_backfills(batch_export_id: str) -> int:
         settings.TEMPORAL_HOST,
         settings.TEMPORAL_PORT,
         settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
         settings.TEMPORAL_CLIENT_CERT,
         settings.TEMPORAL_CLIENT_KEY,
     )

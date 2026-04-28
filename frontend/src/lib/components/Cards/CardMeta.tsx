@@ -1,18 +1,14 @@
 import './CardMeta.scss'
 
 import clsx from 'clsx'
-import React from 'react'
-import { Transition } from 'react-transition-group'
+import React, { useEffect, useState } from 'react'
 
 import { IconPieChart } from '@posthog/icons'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
-import { useDelayedHover } from 'lib/hooks/useDelayedHover'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
@@ -20,10 +16,9 @@ import { InsightColor } from '~/types'
 
 export interface Resizeable {
     showResizeHandles?: boolean
-    canResizeWidth?: boolean
 }
 
-export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
+export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className' | 'onMouseDown'> {
     compact?: boolean
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
@@ -70,18 +65,27 @@ export function CardMeta({
     setAreDetailsShown,
     detailsTooltip,
     className,
+    onMouseDown,
     samplingFactor,
     extraControls,
-    metaDescription,
-    metaTitle,
-    popoverTopHeading,
-    metaDescriptionText,
-    onMetaSave,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
     const { ref: topRef, width: topWidth } = useResizeObserver()
     const { ref: headingRef, width: headingWidth } = useResizeObserver()
+
+    // Keep the details content mounted during the 200 ms collapse animation
+    // so the outer `.CardMeta__details` height transition plays over real
+    // content rather than an empty container.
+    const [shouldRenderDetails, setShouldRenderDetails] = useState(areDetailsShown)
+    useEffect(() => {
+        if (areDetailsShown) {
+            setShouldRenderDetails(true)
+            return
+        }
+        const t = window.setTimeout(() => setShouldRenderDetails(false), 200)
+        return () => clearTimeout(t)
+    }, [areDetailsShown])
 
     // Calculate available space for controls (doesn't depend on label state, so no cyclic dependency)
     const controlsAvailableSpace = (topWidth ?? 0) - (headingWidth ?? 0)
@@ -98,20 +102,16 @@ export function CardMeta({
         inStorybookTestRunner() ||
         (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
 
-    const {
-        visible: detailsPopoverVisible,
-        show: showDetails,
-        hide: hideDetails,
-    } = useDelayedHover({ showDelay: 500, hideDelay: 200 })
-
     return (
         <div
             className={clsx(
                 'CardMeta',
                 className,
                 compact && 'CardMeta--compact',
-                areDetailsShown && 'CardMeta--details-shown'
+                areDetailsShown && 'CardMeta--details-shown',
+                onMouseDown && 'cursor-grab'
             )}
+            onMouseDown={onMouseDown}
         >
             <div className="CardMeta__primary" ref={compact ? undefined : primaryRef}>
                 {ribbonColor &&
@@ -135,66 +135,7 @@ export function CardMeta({
                                         ))}
                                 </div>
                             </div>
-                            <Popover
-                                visible={detailsPopoverVisible}
-                                placement="bottom-start"
-                                showArrow
-                                onMouseEnterInside={showDetails}
-                                onMouseLeaveInside={hideDetails}
-                                overlay={
-                                    <div className="p-4 max-w-md space-y-2" onMouseDown={(e) => e.stopPropagation()}>
-                                        {(popoverTopHeading ?? topHeading) && (
-                                            <h5 className="uppercase text-xs font-bold text-muted tracking-wide m-0">
-                                                {popoverTopHeading ?? topHeading}
-                                            </h5>
-                                        )}
-                                        {onMetaSave ? (
-                                            <>
-                                                <EditableField
-                                                    name="title"
-                                                    value={metaTitle || ''}
-                                                    onSave={(value) => onMetaSave({ name: value })}
-                                                    placeholder="Untitled"
-                                                    saveOnBlur
-                                                    clickToEdit
-                                                    compactButtons
-                                                    compactIcon
-                                                    className="font-semibold text-sm"
-                                                    data-attr="insight-card-title"
-                                                />
-                                                <EditableField
-                                                    name="description"
-                                                    value={metaDescriptionText || ''}
-                                                    onSave={(value) => onMetaSave({ description: value })}
-                                                    placeholder="Enter description (optional)"
-                                                    saveOnBlur
-                                                    clickToEdit
-                                                    multiline
-                                                    markdown
-                                                    compactButtons
-                                                    compactIcon
-                                                    className="text-xs w-full"
-                                                    data-attr="insight-card-description"
-                                                />
-                                            </>
-                                        ) : (
-                                            <>
-                                                {metaTitle && <p className="font-semibold m-0">{metaTitle}</p>}
-                                                {metaDescription}
-                                            </>
-                                        )}
-                                        {metaDetails}
-                                    </div>
-                                }
-                            >
-                                <div
-                                    className="overflow-hidden min-w-0"
-                                    onMouseEnter={showDetails}
-                                    onMouseLeave={hideDetails}
-                                >
-                                    {meta}
-                                </div>
-                            </Popover>
+                            {meta}
                         </>
                     ) : (
                         <>
@@ -256,13 +197,12 @@ export function CardMeta({
                         height: areDetailsShown && detailsHeight ? detailsHeight + 1 : 0,
                     }}
                 >
-                    {/* By using a transition about displaying then we make sure we aren't rendering the content when not needed */}
-                    <Transition in={areDetailsShown} timeout={200} mountOnEnter unmountOnExit>
+                    {shouldRenderDetails && (
                         <div className="CardMeta__details__content" ref={detailsRef}>
                             {/* Stops the padding getting in the height calc  */}
                             <div className="p-4">{metaDetails}</div>
                         </div>
-                    </Transition>
+                    )}
                 </div>
             )}
         </div>

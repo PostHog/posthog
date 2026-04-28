@@ -1,17 +1,26 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
+import os
+import sys
 import uuid
+import types
 import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 # from posthog.clickhouse.client.connection import Workload
 # from posthog.schema import PersonsOnEventsMode
+import structlog
 from cachetools import cached
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import ProductKey
+
+logger = structlog.get_logger(__name__)
 
 
 class AccessMethod(StrEnum):
@@ -23,28 +32,62 @@ class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
     ENDPOINTS = "endpoints"
+    ERROR_TRACKING = "error_tracking"
     EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
+    GROUP_ANALYTICS = "group_analytics"
     LLM_ANALYTICS = "llm_analytics"
+    LOGS = "logs"
     MAX_AI = "max_ai"
     MESSAGING = "messaging"
+    MOBILE_REPLAY = "mobile_replay"
+    PIPELINE_DESTINATIONS = "pipeline_destinations"
+    PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
+    SIGNALS = "signals"
+    SURVEYS = "surveys"
     WAREHOUSE = "warehouse"
+    WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
+
+    BILLING = "billing"
+    INTERNAL = "internal"  # for internal use only
 
 
 class Feature(StrEnum):
+    ALERTING = "alerting"
+    BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
-    QUERY = "query"
+    QUERY = "query"  # customer-facing queries only
+    DIGEST = "digest"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
+    HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
+    PREAGGREGATION = "preaggregation"
+    DATA_DELETION = "data_deletion"
+    ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
+    SCHEMA_INTROSPECTION = "schema_introspection"
+    # Specific scenes that fan out into multiple ad-hoc queries; tagged separately so query
+    # usage analysis can attribute load to the originating product surface.
+    EVENT_DEFINITION_SCENE = "event_definition_scene"
+    PROPERTY_DEFINITION_SCENE = "property_definition_scene"
+    EXPLORE_EVENTS_SCENE = "explore_events_scene"
+    # Specific endpoints whose load is worth analysing on its own. The `/events/values` endpoint
+    # is hit from every taxonomic property-value picker across the app, so attribution by scene
+    # would be misleading; tagging by endpoint name keeps the signal honest.
+    EVENTS_VALUES_API = "events_values_api"
+    USAGE_REPORT = "usage_report"
+    BILLING_ETL = "billing_etl"
+    QUOTA_LIMITING = "quota_limiting"
+    MIGRATION = "migration"
+    MANAGEMENT_COMMAND = "management_command"
 
 
 class TemporalTags(BaseModel):
@@ -94,7 +137,7 @@ class QueryTags(BaseModel):
     # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
     kind: Optional[str] = None
     id: Optional[str] = None
-    session_id: Optional[uuid.UUID] = None
+    session_id: Optional[str] = None
 
     # temporalio tags
     temporal: Optional[TemporalTags] = None
@@ -119,6 +162,7 @@ class QueryTags(BaseModel):
     chargeable: Optional[int] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
+    endpoint_version: Optional[int] = None  # Endpoints, the product
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None
@@ -139,11 +183,23 @@ class QueryTags(BaseModel):
     # replays
     replay_playlist_id: Optional[int] = None
 
+    # ai events rollout
+    ai_query_source: Optional[str] = None
+
+    ai_data_processing_approved: Optional[bool] = None
+
     # experiments
     experiment_feature_flag_key: Optional[str] = None
     experiment_id: Optional[int] = None
     experiment_name: Optional[str] = None
     experiment_is_data_warehouse_query: Optional[bool] = None
+    experiment_metric_uuid: Optional[str] = None
+    experiment_metric_name: Optional[str] = None
+    experiment_metric_type: Optional[str] = None  # "mean", "funnel", "ratio", "retention"
+    experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
+    experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
+    experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included
 
     feature: Optional[Feature] = None
     filter: Optional[object] = None
@@ -181,6 +237,11 @@ class QueryTags(BaseModel):
     mcp_client_name: Optional[str] = None
     mcp_client_version: Optional[str] = None
     mcp_protocol_version: Optional[str] = None
+    mcp_oauth_client_name: Optional[str] = None
+
+    # caller source location (set automatically in sync_execute via stack inspection)
+    source_file: Optional[str] = None
+    source_line: Optional[int] = None
 
     # constant query tags
     git_commit: Optional[str] = None
@@ -266,6 +327,19 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
+def get_team_query_tags(team: "Team") -> dict[str, Any]:
+    from posthog.models.organization import Organization
+
+    tags: dict[str, Any] = {"team_id": team.pk}
+    try:
+        organization = team.organization
+        tags["org_id"] = organization.pk
+        tags["ai_data_processing_approved"] = organization.is_ai_data_processing_approved
+    except Organization.DoesNotExist:
+        logger.warning("get_team_query_tags_org_not_found", team_id=team.pk)
+    return tags
+
+
 def clear_tag(key):
     with suppress(LookupError):
         current_tags = query_tags.get()
@@ -320,3 +394,53 @@ def tags_context(**tags_to_set: Any) -> Generator[None, None, None]:
     finally:
         if tags_copy:
             query_tags.set(tags_copy)
+
+
+# Stack inspection for source_file / source_line tagging
+_THIS_FILE = os.path.abspath(__file__)
+_PROJECT_ROOT = os.path.normpath(os.path.join(os.path.dirname(_THIS_FILE), os.pardir, os.pardir))
+_PROJECT_ROOT_PREFIX = _PROJECT_ROOT + os.sep
+
+# Files/directories in the query execution infrastructure to skip when walking the stack
+_SOURCE_SKIP_PREFIXES: tuple[str, ...] = (
+    os.path.join(_PROJECT_ROOT, "posthog", "clickhouse", "client") + os.sep,
+    _THIS_FILE,
+    os.path.join(_PROJECT_ROOT, "posthog", "hogql", "query.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "hogql_queries", "insights", "paginators.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "queries", "insight.py"),
+    os.path.join(_PROJECT_ROOT, "posthog", "utils.py"),
+)
+
+_MAX_CALLER_STACK_DEPTH = 30
+
+
+def get_caller_source() -> tuple[Optional[str], Optional[int]]:
+    """Walk the call stack to find the first caller outside of query execution infrastructure.
+
+    Returns (source_file, source_line) where source_file is relative to the project root,
+    or (None, None) if no suitable caller is found.
+    """
+    try:
+        frame: Optional[types.FrameType] = sys._getframe(1)
+
+        for _ in range(_MAX_CALLER_STACK_DEPTH):
+            if frame is None:
+                break
+
+            filename = frame.f_code.co_filename
+
+            # Only consider frames within the project
+            if not filename.startswith(_PROJECT_ROOT_PREFIX):
+                frame = frame.f_back
+                continue
+
+            # Skip query execution infrastructure
+            if any(filename.startswith(prefix) for prefix in _SOURCE_SKIP_PREFIXES):
+                frame = frame.f_back
+                continue
+
+            return filename[len(_PROJECT_ROOT_PREFIX) :], frame.f_lineno
+
+        return None, None
+    except Exception:
+        return None, None

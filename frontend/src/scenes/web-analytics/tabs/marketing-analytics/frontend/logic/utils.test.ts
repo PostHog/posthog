@@ -41,6 +41,19 @@ describe('marketing analytics utils', () => {
                 true,
             ],
             ['filters out SnapchatAds with empty feature flags', {}, 'SnapchatAds', false],
+            [
+                'filters out PinterestAds when flag is disabled',
+                { [FEATURE_FLAGS.PINTEREST_ADS_SOURCE]: false },
+                'PinterestAds',
+                false,
+            ],
+            [
+                'includes PinterestAds when flag is enabled',
+                { [FEATURE_FLAGS.PINTEREST_ADS_SOURCE]: true },
+                'PinterestAds',
+                true,
+            ],
+            ['filters out PinterestAds with empty feature flags', {}, 'PinterestAds', false],
         ])('%s', (_name, featureFlags, source, shouldInclude) => {
             const result = getEnabledNativeMarketingSources(featureFlags ?? {})
             expect(result.includes(source as any)).toBe(shouldInclude)
@@ -48,7 +61,7 @@ describe('marketing analytics utils', () => {
 
         it('always includes sources without feature flag requirements', () => {
             const sourcesWithoutFlags = VALID_NATIVE_MARKETING_SOURCES.filter(
-                (s) => s !== 'BingAds' && s !== 'SnapchatAds'
+                (s) => s !== 'BingAds' && s !== 'SnapchatAds' && s !== 'PinterestAds'
             )
             const result = getEnabledNativeMarketingSources({})
             sourcesWithoutFlags.forEach((source) => {
@@ -335,6 +348,14 @@ describe('marketing analytics utils', () => {
                 'conversion_subscribe_value',
                 'currency',
             ],
+            PinterestAds: [
+                'spend_in_dollar',
+                'total_impression',
+                'total_clickthrough',
+                'total_conversions',
+                'total_checkout_value_in_micro_dollar',
+                'currency',
+            ],
         }
 
         // Minimal fields: only non-conversion columns (cost, impressions, clicks, currency)
@@ -346,6 +367,7 @@ describe('marketing analytics utils', () => {
             TikTokAds: ['spend', 'impressions', 'clicks', 'currency'],
             BingAds: ['spend', 'impressions', 'clicks', 'currency_code'],
             SnapchatAds: ['spend', 'impressions', 'swipes', 'currency'],
+            PinterestAds: ['spend_in_dollar', 'total_impression', 'total_clickthrough', 'currency'],
         }
 
         function makeMockSource(sourceType: NativeMarketingSource, fieldList: string[]): NativeSource {

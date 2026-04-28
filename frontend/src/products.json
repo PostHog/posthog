@@ -8,13 +8,6 @@
             "intents": ["site_apps"]
         },
         {
-            "path": "Data pipelines",
-            "category": "Tools",
-            "iconType": "data_pipeline",
-            "type": "hog_function",
-            "intents": ["pipeline_batch_exports", "pipeline_destinations", "pipeline_transformations", "site_apps"]
-        },
-        {
             "path": "Support",
             "category": "Behavior",
             "iconType": "conversations",
@@ -134,6 +127,13 @@
             "type": "llm_prompts",
             "intents": ["llm_prompts"]
         },
+        {
+            "path": "Skills",
+            "category": "AI engineering",
+            "iconType": null,
+            "type": "llm_skills",
+            "intents": ["llm_prompts"]
+        },
         { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",
@@ -142,6 +142,7 @@
             "type": null,
             "intents": ["marketing_analytics"]
         },
+        { "path": "Metrics", "category": "Unreleased", "iconType": "metrics", "type": null, "intents": ["metrics"] },
         {
             "path": "Product analytics",
             "category": "Analytics",
@@ -181,6 +182,7 @@
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": ["tasks"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
+        { "path": "Tracing", "category": "Unreleased", "iconType": "tracing", "type": null, "intents": ["tracing"] },
         {
             "path": "User interviews",
             "category": "Unreleased",
@@ -237,7 +239,6 @@
             "type": null,
             "intents": []
         },
-        { "path": "Support", "category": "Behavior", "iconType": null, "type": null, "intents": [] },
         { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {
             "path": "Sources",
@@ -279,13 +280,6 @@
         { "path": "SQL variables", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         { "path": "Annotations", "category": "Metadata", "iconType": "annotation", "type": null, "intents": [] },
         { "path": "Comments", "category": "Metadata", "iconType": "comment", "type": null, "intents": [] },
-        { "path": "Revenue definitions", "category": "Schema", "iconType": null, "type": null, "intents": [] },
-        {
-            "path": "Marketing settings",
-            "category": "Unreleased",
-            "iconType": "marketing_settings",
-            "type": null,
-            "intents": []
-        }
+        { "path": "Revenue definitions", "category": "Schema", "iconType": null, "type": null, "intents": [] }
     ]
 }

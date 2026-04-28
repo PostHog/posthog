@@ -9,4 +9,13 @@
         width: 100%;
         height: 100% !important;
     }
+
+    .PathNodeCard:hover {
+        z-index: 20 !important;
+    }
+
+    // When any card is active, dim the non-active cards
+    &:has(.PathNodeCard--active) .PathNodeCard:not(.PathNodeCard--active) {
+        opacity: 0.4;
+    }
 }

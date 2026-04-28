@@ -3,11 +3,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use etcd_client::EventType;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::leader_election::{self, LeaderElectionConfig};
 use assignment_coordination::strategy::AssignmentStrategy;
 use assignment_coordination::util;
+use k8s_awareness::types::ControllerKind;
+use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
 use crate::store::{self, KafkaAssignerStore};
@@ -59,6 +62,7 @@ pub struct Assigner {
     store: Arc<KafkaAssignerStore>,
     config: AssignerConfig,
     strategy: Arc<dyn AssignmentStrategy>,
+    k8s_awareness: Option<Arc<K8sAwareness>>,
 }
 
 impl Assigner {
@@ -66,11 +70,13 @@ impl Assigner {
         store: Arc<KafkaAssignerStore>,
         config: AssignerConfig,
         strategy: Arc<dyn AssignmentStrategy>,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
         Self {
             store,
             config,
             strategy,
+            k8s_awareness,
         }
     }
 
@@ -109,12 +115,18 @@ impl Assigner {
         self.handle_consumer_change(self.config.handoff_timeout)
             .await?;
 
+        // Serialize rebalance execution across all loops to prevent
+        // concurrent read-then-write races on assignments and handoffs.
+        let rebalance_guard: Arc<Mutex<()>> = Arc::new(Mutex::new(()));
+
         // Watch consumers and handoffs concurrently
         let mut tasks = tokio::task::JoinSet::new();
 
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let k8s = self.k8s_awareness.clone();
+            let guard = Arc::clone(&rebalance_guard);
             let debounce_interval = self.config.rebalance_debounce_interval;
             let handoff_timeout = self.config.handoff_timeout;
             let token = cancel.child_token();
@@ -122,8 +134,10 @@ impl Assigner {
                 Self::watch_consumers_loop(
                     store,
                     strategy,
+                    guard,
                     debounce_interval,
                     handoff_timeout,
+                    k8s,
                     token,
                 )
                 .await
@@ -133,10 +147,28 @@ impl Assigner {
         {
             let store = Arc::clone(&self.store);
             let strategy = Arc::clone(&self.strategy);
+            let k8s = self.k8s_awareness.clone();
+            let guard = Arc::clone(&rebalance_guard);
             let handoff_timeout = self.config.handoff_timeout;
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::watch_handoffs_loop(store, strategy, handoff_timeout, token).await
+                Self::watch_handoffs_loop(store, strategy, guard, handoff_timeout, k8s, token).await
+            });
+        }
+
+        // Periodic cleanup loop: catches timed-out handoffs that the
+        // event-driven watch loops miss (e.g. when the system is quiescent
+        // and no consumer/handoff events are firing).
+        {
+            let store = Arc::clone(&self.store);
+            let strategy = Arc::clone(&self.strategy);
+            let k8s = self.k8s_awareness.clone();
+            let guard = Arc::clone(&rebalance_guard);
+            let handoff_timeout = self.config.handoff_timeout;
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                Self::periodic_cleanup_loop(store, strategy, guard, handoff_timeout, k8s, token)
+                    .await
             });
         }
 
@@ -157,8 +189,10 @@ impl Assigner {
     async fn watch_consumers_loop(
         store: Arc<KafkaAssignerStore>,
         strategy: Arc<dyn AssignmentStrategy>,
+        rebalance_guard: Arc<Mutex<()>>,
         debounce_interval: Duration,
         handoff_timeout: Duration,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_consumers().await?;
@@ -186,7 +220,14 @@ impl Assigner {
                 }
             }
 
-            Self::handle_consumer_change_static(&store, strategy.as_ref(), handoff_timeout).await?;
+            let _lock = rebalance_guard.lock().await;
+            Self::handle_consumer_change_static(
+                &store,
+                strategy.as_ref(),
+                handoff_timeout,
+                k8s_awareness.as_deref(),
+            )
+            .await?;
         }
     }
 
@@ -202,7 +243,9 @@ impl Assigner {
     async fn watch_handoffs_loop(
         store: Arc<KafkaAssignerStore>,
         strategy: Arc<dyn AssignmentStrategy>,
+        rebalance_guard: Arc<Mutex<()>>,
         handoff_timeout: Duration,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut stream = store.watch_handoffs().await?;
@@ -225,18 +268,62 @@ impl Assigner {
                         }
                     }
 
-                    // Clean up handoffs that can no longer make progress
-                    // (e.g. old_owner died at Complete phase — nobody will
-                    // call PartitionReleased to delete the handoff).
+                    let _lock = rebalance_guard.lock().await;
+
                     let consumers = store.list_consumers().await?;
                     let active = active_consumer_names(&consumers);
                     Self::cleanup_stale_handoffs(&store, &active, handoff_timeout).await?;
 
-                    // After processing all events, check if all handoffs have
-                    // completed. If so, re-trigger rebalancing to pick up any
-                    // consumer changes that were deferred.
                     if store.list_handoffs().await?.is_empty() {
-                        Self::handle_consumer_change_static(&store, strategy.as_ref(), handoff_timeout).await?;
+                        Self::handle_consumer_change_static(
+                            &store,
+                            strategy.as_ref(),
+                            handoff_timeout,
+                            k8s_awareness.as_deref(),
+                        )
+                        .await?;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Periodically clean up timed-out handoffs and re-trigger rebalancing.
+    ///
+    /// The watch-based loops only run cleanup when events arrive. If the
+    /// system is quiescent (no consumer changes, no handoff updates), stale
+    /// handoffs can block rebalancing indefinitely. This loop runs every
+    /// `handoff_timeout / 2` to catch those cases.
+    async fn periodic_cleanup_loop(
+        store: Arc<KafkaAssignerStore>,
+        strategy: Arc<dyn AssignmentStrategy>,
+        rebalance_guard: Arc<Mutex<()>>,
+        handoff_timeout: Duration,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        // Check at half the timeout interval so we catch stale handoffs
+        // reasonably soon after they expire.
+        let interval = handoff_timeout / 2;
+
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(interval) => {
+                    let _lock = rebalance_guard.lock().await;
+
+                    let consumers = store.list_consumers().await?;
+                    let active = active_consumer_names(&consumers);
+                    Self::cleanup_stale_handoffs(&store, &active, handoff_timeout).await?;
+
+                    if store.list_handoffs().await?.is_empty() {
+                        Self::handle_consumer_change_static(
+                            &store,
+                            strategy.as_ref(),
+                            handoff_timeout,
+                            k8s_awareness.as_deref(),
+                        )
+                        .await?;
                     }
                 }
             }
@@ -291,20 +378,39 @@ impl Assigner {
     // ── Rebalancing ──────────────────────────────────────────────
 
     async fn handle_consumer_change(&self, handoff_timeout: Duration) -> Result<()> {
-        Self::handle_consumer_change_static(&self.store, self.strategy.as_ref(), handoff_timeout)
-            .await
+        Self::handle_consumer_change_static(
+            &self.store,
+            self.strategy.as_ref(),
+            handoff_timeout,
+            self.k8s_awareness.as_deref(),
+        )
+        .await
     }
 
     async fn handle_consumer_change_static(
         store: &KafkaAssignerStore,
         strategy: &dyn AssignmentStrategy,
         handoff_timeout: Duration,
+        k8s_awareness: Option<&K8sAwareness>,
     ) -> Result<()> {
         let consumers = store.list_consumers().await?;
-        let active_consumers = active_consumer_names(&consumers);
+        let mut ready_consumers = active_consumer_names(&consumers);
+        let registered = registered_consumer_names(&consumers);
+
+        // K8s-aware consumer filtering for smarter rebalancing
+        if let Some(k8s) = k8s_awareness {
+            ready_consumers = filter_consumers_for_k8s(k8s, &consumers, ready_consumers).await;
+        }
 
         // Clean up handoffs targeting consumers that are no longer active.
-        Self::cleanup_stale_handoffs(store, &active_consumers, handoff_timeout).await?;
+        Self::cleanup_stale_handoffs(store, &ready_consumers, handoff_timeout).await?;
+
+        // No registered consumers at all: delete all assignments so stale keys don't linger.
+        if registered.is_empty() {
+            tracing::info!("no registered consumers, clearing all assignments");
+            store.delete_all_assignments().await?;
+            return Ok(());
+        }
 
         // Skip rebalancing while handoffs are in flight to prevent
         // overlapping rebalances. watch_handoffs_loop re-triggers
@@ -318,6 +424,12 @@ impl Assigner {
             return Ok(());
         }
 
+        // No Ready consumers to assign to (but some are still registered/draining).
+        if ready_consumers.is_empty() {
+            tracing::debug!("no ready consumers, skipping assignment");
+            return Ok(());
+        }
+
         let topic_configs = store.list_topic_configs().await?;
         if topic_configs.is_empty() {
             tracing::debug!("no topic configs, skipping assignment");
@@ -326,7 +438,11 @@ impl Assigner {
 
         let mut all_assignments: Vec<PartitionAssignment> = Vec::new();
         let mut all_handoffs: Vec<HandoffState> = Vec::new();
+        let mut has_changes = false;
         let now = util::now_seconds();
+        // Use registered set for liveness: a Draining consumer is alive and
+        // needs the handoff protocol, not a direct reassignment.
+        let registered_set: HashSet<&str> = registered.iter().map(|s| s.as_str()).collect();
 
         for config in &topic_configs {
             let current_assignments = store.list_assignments_for_topic(&config.topic).await?;
@@ -337,16 +453,49 @@ impl Assigner {
 
             let desired = strategy.compute_assignments(
                 &current_map,
-                &active_consumers,
+                &ready_consumers,
                 config.partition_count,
             );
-            let handoffs = util::compute_required_handoffs(&current_map, &desired);
+            let moves = util::compute_required_handoffs(&current_map, &desired);
 
-            let handoff_partitions: HashSet<u32> = handoffs.iter().map(|(p, _, _)| *p).collect();
+            if !moves.is_empty() || current_map.len() != desired.len() {
+                has_changes = true;
+            }
 
-            // Stable assignments: partitions not being handed off
+            // Separate moves into direct assignments (old owner is dead) and
+            // handoffs (old owner is alive and needs the handoff protocol).
+            let mut moving_partitions: HashSet<u32> = HashSet::new();
+            for (partition, old_owner, new_owner) in moves {
+                moving_partitions.insert(partition);
+                if registered_set.contains(old_owner.as_str()) {
+                    all_handoffs.push(HandoffState {
+                        topic: config.topic.clone(),
+                        partition,
+                        old_owner,
+                        new_owner,
+                        phase: HandoffPhase::Warming,
+                        started_at: now,
+                    });
+                } else {
+                    tracing::info!(
+                        topic = %config.topic,
+                        partition,
+                        old_owner = %old_owner,
+                        new_owner = %new_owner,
+                        "old owner is dead, assigning directly without handoff"
+                    );
+                    all_assignments.push(PartitionAssignment {
+                        topic: config.topic.clone(),
+                        partition,
+                        owner: new_owner,
+                        status: AssignmentStatus::Active,
+                    });
+                }
+            }
+
+            // Stable assignments: partitions not moving
             for (&partition, owner) in &desired {
-                if !handoff_partitions.contains(&partition) {
+                if !moving_partitions.contains(&partition) {
                     all_assignments.push(PartitionAssignment {
                         topic: config.topic.clone(),
                         partition,
@@ -355,17 +504,12 @@ impl Assigner {
                     });
                 }
             }
+        }
 
-            for (partition, old_owner, new_owner) in handoffs {
-                all_handoffs.push(HandoffState {
-                    topic: config.topic.clone(),
-                    partition,
-                    old_owner,
-                    new_owner,
-                    phase: HandoffPhase::Warming,
-                    started_at: now,
-                });
-            }
+        // No-op fast path: desired matches current for all topics.
+        if !has_changes {
+            tracing::debug!("assignments unchanged, skipping write");
+            return Ok(());
         }
 
         if all_assignments.is_empty() && all_handoffs.is_empty() {
@@ -437,7 +581,8 @@ impl Assigner {
 
 // ── Pure functions ──────────────────────────────────────────────
 
-/// Extract sorted consumer names, filtering to active statuses.
+/// Extract sorted consumer names, filtering to Ready status only.
+/// Use for assignment computation (only Ready consumers get new partitions).
 fn active_consumer_names(consumers: &[RegisteredConsumer]) -> Vec<String> {
     let mut active: Vec<&RegisteredConsumer> = consumers
         .iter()
@@ -445,6 +590,76 @@ fn active_consumer_names(consumers: &[RegisteredConsumer]) -> Vec<String> {
         .collect();
     active.sort_by(|a, b| a.consumer_name.cmp(&b.consumer_name));
     active.iter().map(|c| c.consumer_name.clone()).collect()
+}
+
+/// Extract sorted names of all registered consumers regardless of status.
+/// Use for liveness checks (a Draining consumer is still alive).
+fn registered_consumer_names(consumers: &[RegisteredConsumer]) -> Vec<String> {
+    let mut names: Vec<String> = consumers.iter().map(|c| c.consumer_name.clone()).collect();
+    names.sort();
+    names
+}
+
+/// Adjust the active consumer list based on K8s controller intent.
+///
+/// Public for integration testing with k3s testcontainers.
+///
+/// Two adjustments during rollouts:
+///
+/// 1. **Deployment rollout** — old-gen Ready consumers are excluded from the
+///    active list so the strategy never assigns partitions to them. Existing
+///    assignments move to new-gen consumers via handoff.
+///
+/// 2. **StatefulSet rollout** — Draining consumers are *added back* to the
+///    active list so their assignments are held. In a StatefulSet rollout the
+///    same pod name comes back with a new revision, so there's no point
+///    handing off to a different consumer.
+pub async fn filter_consumers_for_k8s(
+    k8s: &K8sAwareness,
+    consumers: &[RegisteredConsumer],
+    mut active: Vec<String>,
+) -> Vec<String> {
+    for consumer in consumers {
+        let (Some(controller), generation) = (&consumer.controller, &consumer.generation) else {
+            continue;
+        };
+
+        if generation.is_empty() {
+            continue;
+        }
+
+        let reason = k8s.classify_departure(controller, generation).await;
+
+        match (&controller.kind, consumer.status, reason) {
+            // Deployment rollout: old-gen Ready consumer → exclude
+            (ControllerKind::Deployment, ConsumerStatus::Ready, DepartureReason::Rollout) => {
+                tracing::info!(
+                    consumer = %consumer.consumer_name,
+                    controller = %controller,
+                    generation = %generation,
+                    "excluding old-gen deployment consumer from active list"
+                );
+                active.retain(|name| name != &consumer.consumer_name);
+            }
+            // StatefulSet rollout: Draining consumer → add back (hold assignment)
+            (ControllerKind::StatefulSet, ConsumerStatus::Draining, DepartureReason::Rollout) => {
+                tracing::info!(
+                    consumer = %consumer.consumer_name,
+                    controller = %controller,
+                    generation = %generation,
+                    "holding assignment for statefulset consumer during rollout"
+                );
+                if !active.contains(&consumer.consumer_name) {
+                    active.push(consumer.consumer_name.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    active.sort();
+    active.dedup();
+    active
 }
 
 #[cfg(test)]
@@ -456,6 +671,8 @@ mod tests {
             consumer_name: name.to_string(),
             status: ConsumerStatus::Ready,
             registered_at: 0,
+            generation: String::new(),
+            controller: None,
         }
     }
 

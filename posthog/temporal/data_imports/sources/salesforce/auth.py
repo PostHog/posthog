@@ -1,35 +1,24 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
 
 import requests
-from dlt.common.configuration import configspec
-from dlt.common.pendulum import pendulum
-from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 
-from posthog.security.outbound_proxy import external_requests
+from posthog.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
 
 
-@configspec
 class SalesforceAuth(BearerTokenAuth):
-    refresh_token: Optional[str] = None
-    instance_url: Optional[str] = None
-    token_expiry: Optional[pendulum.DateTime] = None
-
     def __init__(
         self,
         refresh_token: Optional[str] = None,
         access_token: Optional[str] = None,
         instance_url: Optional[str] = None,
     ):
-        super().__init__()
-        if access_token is not None:
-            self.parse_native_representation(access_token)
-        if refresh_token is not None:
-            self.refresh_token = refresh_token
-        if instance_url is not None:
-            self.instance_url = instance_url
-        self.token_expiry = pendulum.now()
+        super().__init__(token=access_token)
+        self.refresh_token = refresh_token
+        self.instance_url = instance_url
+        self.token_expiry: Optional[datetime] = datetime.now(UTC)
 
     def __call__(self, request: Any) -> Any:
         if self.token is None or self.is_token_expired():
@@ -40,14 +29,14 @@ class SalesforceAuth(BearerTokenAuth):
     def is_token_expired(self) -> bool:
         if self.token_expiry is None:
             return True
-        return pendulum.now() >= self.token_expiry
+        return datetime.now(UTC) >= self.token_expiry
 
     def obtain_token(self) -> None:
         if self.refresh_token is None or self.instance_url is None:
             raise ValueError("refresh_token and instance_url are required to obtain a new token")
         new_token = salesforce_refresh_access_token(self.refresh_token, self.instance_url)
-        self.parse_native_representation(new_token)
-        self.token_expiry = pendulum.now().add(hours=1)
+        self.token = new_token
+        self.token_expiry = datetime.now(UTC) + timedelta(hours=1)
 
 
 class SalesforceAuthRequestError(Exception):
@@ -85,7 +74,7 @@ class SalesforceAuthRequestError(Exception):
 
 
 def salesforce_refresh_access_token(refresh_token: str, instance_url: str) -> str:
-    res = external_requests.post(
+    res = requests.post(
         f"{instance_url}/services/oauth2/token",
         data={
             "grant_type": "refresh_token",
@@ -101,7 +90,7 @@ def salesforce_refresh_access_token(refresh_token: str, instance_url: str) -> st
 
 
 def get_salesforce_access_token_from_code(code: str, redirect_uri: str, instance_url: str) -> tuple[str, str]:
-    res = external_requests.post(
+    res = requests.post(
         f"{instance_url}/services/oauth2/token",
         data={
             "grant_type": "authorization_code",

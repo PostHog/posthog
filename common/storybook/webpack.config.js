@@ -75,12 +75,14 @@ function createEntry(entry) {
                 lib: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib'),
                 scenes: path.resolve(__dirname, '..', '..', 'frontend', 'src', 'scenes'),
                 '@posthog/lemon-ui': path.resolve(__dirname, '..', '..', 'frontend', '@posthog', 'lemon-ui', 'src'),
+                '@posthog/mosaic': path.resolve(__dirname, '..', '..', 'common', 'mosaic', 'src'),
                 '@posthog/shared-onboarding': path.resolve(__dirname, '..', '..', 'docs', 'onboarding'),
                 storybook: path.resolve(__dirname, '..', '..', 'frontend', '.storybook'),
                 types: path.resolve(__dirname, '..', '..', 'frontend', 'types'),
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
                 process: 'process/browser',
                 products: path.resolve(__dirname, '..', '..', 'products'),
+                '@common': path.resolve(__dirname, '..', '..', 'common'),
                 react: path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'react'),
                 'react-dom': path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'react-dom'),
                 kea: path.resolve(__dirname, '..', '..', 'frontend', 'node_modules', 'kea'),
@@ -157,7 +159,7 @@ function createEntry(entry) {
 
                 {
                     // Now we apply rule for images
-                    test: /\.(png|jpe?g|gif|svg|lottie)$/,
+                    test: /\.(png|jpe?g|gif|svg)$/,
                     use: [
                         {
                             // Using file-loader for these files

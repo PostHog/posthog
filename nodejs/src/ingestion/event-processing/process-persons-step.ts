@@ -2,14 +2,14 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Person, Team } from '../../types'
-import { PersonContext } from '../../worker/ingestion/persons/person-context'
+import { PersonContext, PersonOutputs } from '../../worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../worker/ingestion/persons/person-event-processor'
 import { PersonMergeService } from '../../worker/ingestion/persons/person-merge-service'
 import { determineMergeMode } from '../../worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../worker/ingestion/persons/person-property-service'
 import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { AsyncOutput } from '../analytics/outputs'
 import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
@@ -27,22 +27,25 @@ export type ProcessPersonsOutput = {
 
 export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
     options: EventPipelineRunnerOptions,
-    kafkaProducer: KafkaProducerWrapper,
+    personOutputs: PersonOutputs,
     personsStore: PersonsStore
-): ProcessingStep<TInput, TInput & ProcessPersonsOutput> {
+): ProcessingStep<TInput, TInput & ProcessPersonsOutput, AsyncOutput> {
     const mergeMode = determineMergeMode(
         options.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
         options.PERSON_MERGE_ASYNC_ENABLED,
-        options.PERSON_MERGE_ASYNC_TOPIC,
         options.PERSON_MERGE_SYNC_BATCH_SIZE
     )
 
-    return async function processPersonsStep(input: TInput): Promise<PipelineResult<TInput & ProcessPersonsOutput>> {
+    return async function processPersonsStep(
+        input: TInput
+    ): Promise<PipelineResult<TInput & ProcessPersonsOutput, AsyncOutput>> {
         const { normalizedEvent, team, timestamp, personlessPerson } = input
 
         if (personlessPerson && !personlessPerson.force_upgrade) {
             return ok({ ...input, person: personlessPerson })
         }
+
+        const shouldUpdateLastSeenAt = team.extra_settings?.person_last_seen_at_enabled === true
 
         const context = new PersonContext(
             normalizedEvent,
@@ -50,11 +53,12 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             String(normalizedEvent.distinct_id),
             timestamp,
             true,
-            kafkaProducer,
+            personOutputs,
             personsStore,
             options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
             mergeMode,
-            options.PERSON_PROPERTIES_UPDATE_ALL
+            options.PERSON_PROPERTIES_UPDATE_ALL,
+            shouldUpdateLastSeenAt
         )
 
         const processor = new PersonEventProcessor(

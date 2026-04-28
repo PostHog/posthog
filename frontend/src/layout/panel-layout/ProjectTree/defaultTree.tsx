@@ -8,7 +8,7 @@ import {
     IconCircleDashed,
     IconClock,
     IconCode,
-    IconCode2,
+    IconEndpoints,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -26,6 +26,7 @@ import {
     IconHome,
     IconLifecycle,
     IconListCheck,
+    IconListTree,
     IconLive,
     IconLlmAnalytics,
     IconLlmPromptManagement,
@@ -109,7 +110,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
     },
     endpoints: {
-        icon: <IconCode2 />,
+        icon: <IconEndpoints />,
         iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
     },
     sql_editor: {
@@ -152,6 +153,14 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     logs: {
         icon: <IconLive />,
         iconColor: ['var(--color-product-logs-light)'],
+    },
+    tracing: {
+        icon: <IconListTree />,
+        iconColor: ['var(--color-product-tracing-light)'],
+    },
+    metrics: {
+        icon: <IconGraph />,
+        iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'],
     },
     early_access_feature: {
         icon: <IconRocket />,
@@ -400,6 +409,23 @@ export function iconForType(type?: FileSystemIconType, colorOverride?: FileSyste
                 {iconTypes[type as keyof typeof iconTypes].icon}
             </ProductIconWrapper>
         )
+    }
+
+    // Handle group type indices (group_0, group_1, etc.)
+    if (type.startsWith('group_')) {
+        const index = parseInt(type.split('_')[1], 10)
+        if (!isNaN(index)) {
+            return (
+                <ProductIconWrapper type="group" colorOverride={colorOverride}>
+                    <span className="relative flex items-center">
+                        <IconPeople />
+                        <div className="absolute -bottom-0.5 -right-1 z-10 flex h-[1.5em] w-[1.5em] items-center justify-center rounded-full bg-surface-tertiary text-[0.45em] font-[700] leading-none">
+                            {index}
+                        </div>
+                    </span>
+                </ProductIconWrapper>
+            )
+        }
     }
 
     // Handle hog_function types

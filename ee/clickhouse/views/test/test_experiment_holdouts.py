@@ -1,7 +1,8 @@
 from rest_framework import status
 
-from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
+
+from products.experiments.backend.models.experiment import Experiment
 
 from ee.api.test.base import APILicensedTest
 
@@ -68,8 +69,8 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
         self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
+            created_ff.filters["holdout"],
+            {"id": holdout_id, "exclusion_percentage": 20},
         )
 
         exp_id = response.json()["id"]
@@ -98,8 +99,8 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         # make sure flag for experiment in question was updated as well
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(
-            created_ff.filters["holdout_groups"],
-            [{"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}],
+            created_ff.filters["holdout"],
+            {"id": holdout_id, "exclusion_percentage": 30},
         )
 
         # now delete holdout
@@ -108,7 +109,7 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
 
         # make sure flag for experiment in question was updated as well
         created_ff = FeatureFlag.objects.get(key=ff_key)
-        self.assertEqual(created_ff.filters["holdout_groups"], None)
+        self.assertEqual(created_ff.filters["holdout"], None)
 
         # and same for experiment
         exp = Experiment.objects.get(pk=exp_id)
@@ -143,7 +144,7 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Filters are required to create an holdout group")
+        self.assertEqual(response.json()["detail"], "Filters must not be empty.")
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_holdouts",
@@ -197,3 +198,20 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Rollout percentage must be present.")
+
+    def test_update_with_empty_filters_is_rejected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_holdouts/",
+            data={
+                "name": "Test holdout",
+                "filters": [{"properties": [], "rollout_percentage": 20, "variant": "holdout"}],
+            },
+            format="json",
+        )
+        holdout_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_holdouts/{holdout_id}",
+            {"filters": []},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

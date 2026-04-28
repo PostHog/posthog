@@ -1,8 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { BulkActionToolbar } from 'lib/components/BulkActions/BulkActionToolbar'
+import { SelectionCheckbox } from 'lib/components/BulkActions/SelectionCheckbox'
+import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -13,6 +17,7 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getSelectionState, listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -23,7 +28,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import {
     AccessControlLevel,
@@ -35,18 +39,6 @@ import {
 
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
-
-export function getDashboardFolderLabelFromItems(
-    itemsByRef: Record<string, { path?: string }>,
-    id: DashboardType['id']
-): string {
-    const entry = itemsByRef[`dashboard::${id}`]
-    const folderParts = splitPath(entry?.path).slice(0, -1)
-    if (folderParts.length === 0) {
-        return '—'
-    }
-    return folderParts.join(' / ')
-}
 
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -74,9 +66,54 @@ export function DashboardsTable({
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
+    const { openMoveToModal } = useActions(moveToLogic)
     const { itemsByRef } = useValues(projectTreeDataLogic)
 
+    const dashboardSelection = listSelectionLogic({ resource: 'dashboards' })
+    const { selectedIds } = useValues(dashboardSelection)
+    const { selectAllOnPage } = useActions(dashboardSelection)
+
+    const allPageItems = (dashboards as DashboardType[]).map((d) => ({
+        id: d.id,
+        isEditable: accessLevelSatisfied(
+            AccessControlResourceType.Dashboard,
+            d.user_access_level,
+            AccessControlLevel.Editor
+        ),
+    }))
+    const editableIds = allPageItems.filter((item) => item.isEditable).map((item) => item.id)
+
+    const { isAllSelected, isSomeSelected } = getSelectionState(selectedIds, editableIds)
+
     const columns: LemonTableColumns<DashboardType> = [
+        {
+            key: 'selection',
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={isSomeSelected ? 'indeterminate' : isAllSelected}
+                    onChange={() => selectAllOnPage(allPageItems)}
+                    aria-label="Select all dashboards on this page"
+                />
+            ),
+            render: function Render(_: unknown, dashboard: DashboardType, index: number) {
+                const canEdit = accessLevelSatisfied(
+                    AccessControlResourceType.Dashboard,
+                    dashboard.user_access_level,
+                    AccessControlLevel.Editor
+                )
+                return (
+                    <SelectionCheckbox
+                        resource="dashboards"
+                        id={dashboard.id}
+                        index={index}
+                        allPageItems={allPageItems}
+                        disabledReason={!canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : undefined}
+                        ariaLabel={`Select dashboard ${dashboard.name}`}
+                    />
+                )
+            },
+        },
         {
             width: 0,
             dataIndex: 'pinned',
@@ -144,13 +181,6 @@ export function DashboardsTable({
                 return tags ? <ObjectTags tags={[...tags].sort()} staticOnly /> : null
             },
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-        {
-            title: 'Folder',
-            key: 'folder',
-            render: function RenderFolder(_, { id }: DashboardType) {
-                return getDashboardFolderLabelFromItems(itemsByRef, id)
-            },
-        },
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         atColumn<DashboardType>('last_accessed_at', 'Last accessed at') as LemonTableColumn<
@@ -209,9 +239,32 @@ export function DashboardsTable({
                                           Duplicate
                                       </LemonButton>
 
+                                      {itemsByRef[`dashboard::${id}`] && (
+                                          <AccessControlAction
+                                              resourceType={AccessControlResourceType.Dashboard}
+                                              minAccessLevel={AccessControlLevel.Editor}
+                                              userAccessLevel={user_access_level}
+                                          >
+                                              <LemonButton
+                                                  onClick={() => {
+                                                      const entry = itemsByRef[`dashboard::${id}`]
+                                                      openMoveToModal([entry as any])
+                                                  }}
+                                                  fullWidth
+                                                  data-attr="dashboard-move-to-folder"
+                                              >
+                                                  Move to another folder
+                                              </LemonButton>
+                                          </AccessControlAction>
+                                      )}
+
                                       <LemonDivider />
 
-                                      <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
+                                      <LemonRow
+                                          icon={<IconHome className="size-4 text-warning" />}
+                                          fullWidth
+                                          status="warning"
+                                      >
                                           <span className="text-secondary">
                                               Change the default dashboard
                                               <br />
@@ -245,6 +298,11 @@ export function DashboardsTable({
     return (
         <>
             <DashboardsFiltersBar extraActions={extraActions} />
+            {selectedIds.length > 0 && (
+                <div className="flex items-center justify-end gap-2 min-h-12">
+                    <BulkActionToolbar resource="dashboards" />
+                </div>
+            )}
             <LemonTable
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 100 }}

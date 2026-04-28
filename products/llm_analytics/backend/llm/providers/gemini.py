@@ -52,6 +52,17 @@ class GeminiConfig:
         "gemini-1.5-pro",
     ]
 
+    # Models available to trial users (PostHog pays). Excludes older/preview
+    # pro tiers while keeping the current flagship (gemini-2.5-pro).
+    TRIAL_MODELS: list[str] = [
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash",
+    ]
+
 
 class GeminiAdapter:
     """Gemini provider implementing the unified Client interface."""
@@ -201,7 +212,7 @@ class GeminiAdapter:
             yield StreamChunk(type="error", data={"error": "Unexpected error"})
 
     @staticmethod
-    def validate_key(api_key: str) -> tuple[str, str | None]:
+    def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
         """Validate a Gemini API key."""
         from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
@@ -218,7 +229,7 @@ class GeminiAdapter:
         return set(GeminiConfig.SUPPORTED_MODELS)
 
     @staticmethod
-    def list_models(api_key: str | None = None) -> list[str]:
+    def list_models(api_key: str | None = None, **kwargs: Any) -> list[str]:
         """List available Gemini models.
 
         Without a key, returns the curated SUPPORTED_MODELS list.

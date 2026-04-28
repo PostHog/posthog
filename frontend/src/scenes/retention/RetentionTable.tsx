@@ -43,7 +43,7 @@ export function RetentionTable({
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
-    const allowSelectingColumns = !insightProps.dashboardId && !inSharedMode && !embedded
+    const allowSelectingColumns = !inSharedMode && !embedded
 
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found

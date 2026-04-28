@@ -345,7 +345,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const _params: AppMetricsTotalsRequest = {
                         ...params,
                         breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: ['succeeded', 'failed', 'disabled_permanently', 'rate_limited', 'triggered'],
+                        metricName: ['succeeded', 'failed', 'rate_limited', 'triggered'],
                     }
                     const response = await loadAppMetricsTotals(_params, timezone)
                     await breakpoint(10)
@@ -362,9 +362,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
                             if (['succeeded', 'failed'].includes(metricName)) {
                                 instanceId = EXIT_NODE_ID
-                            } else if (['disabled_permanently', 'rate_limited', 'triggered'].includes(metricName)) {
+                            } else if (['rate_limited', 'triggered'].includes(metricName)) {
                                 instanceId = TRIGGER_NODE_ID
-                                if (['disabled_permanently', 'rate_limited'].includes(metricName)) {
+                                if (['rate_limited'].includes(metricName)) {
                                     metricName = 'failed'
                                 }
                                 if (['triggered'].includes(metricName)) {
@@ -594,9 +594,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             selectable: false,
                         })
 
-                        // If this branch edge has same target as other edges, we also add a single dropzone near the target node
+                        // If multiple edges share the same target, add a single dropzone near the target node
+                        // to allow branch convergence (fan-in). This covers both branch edges directly
+                        // from a conditional node and continue edges from downstream nodes in parallel paths.
                         const hasSiblingEdges = edges.filter((e) => e.data?.edge.to === edge.target).length > 1
-                        if (edge.data?.edge.type === 'branch' && hasSiblingEdges) {
+                        if (hasSiblingEdges) {
                             // Use an ID that we can consistently look up for the branch join point to avoid duplicate dropzones
                             const branchJoinDropzoneTargetId = `dropzone_target_${edge.target}_branch_join`
                             // Avoid duplicating dropzones for multiple branch edges to the same target
@@ -604,7 +606,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 return
                             }
 
-                            // For branch edges, we also add a dropzone near the target node to allow easier dropping
+                            // Add a dropzone near the target node to allow merging parallel branches
                             dropzoneNodes.push({
                                 id: branchJoinDropzoneTargetId,
                                 type: 'dropzone',
@@ -758,26 +760,36 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         const prefix = outputVar.key
                         if (outputVar.spread) {
                             // Create individual variables for each expected property
-                            const spreadKeys = [
-                                'status',
-                                'priority',
-                                'ticket_number',
-                                'channel_source',
-                                'message_count',
-                                'last_message_at',
-                                'last_message_text',
-                                'unread_team_count',
-                                'unread_customer_count',
-                            ].map((prop) => `${prefix}_${prop}`)
+                            const spreadFields: [string, string][] = [
+                                ['status', 'Status'],
+                                ['priority', 'Priority'],
+                                ['number', 'Number'],
+                                ['channel_source', 'Channel source'],
+                                ['last_message_at', 'Last message at'],
+                                ['last_message_text', 'Last message text'],
+                                ['unread_team_count', 'Unread team'],
+                                ['unread_customer_count', 'Unread customer'],
+                                ['sla', 'SLA'],
+                                ['assignee', 'Assignee'],
+                                ['url', 'URL'],
+                                ['tags', 'Tags'],
+                                ['slack_channel_id', 'Slack channel ID'],
+                                ['slack_thread_ts', 'Slack thread timestamp'],
+                                ['slack_team_id', 'Slack team ID'],
+                                ['email_subject', 'Email subject'],
+                                ['email_from', 'Email from'],
+                                ['email_to', 'Email to'],
+                                ['cc_participants', 'CC participants'],
+                            ]
 
-                            const newVars = spreadKeys
-                                .filter((key) => !updatedVariables?.some((v) => v.key === key))
-                                .map((key) => ({
-                                    key,
-                                    label: key,
+                            const newVars = spreadFields
+                                .map(([prop, label]) => ({
+                                    key: `${prefix}_${prop}`,
+                                    label,
                                     type: 'string' as const,
                                     default: '',
                                 }))
+                                .filter(({ key }) => !updatedVariables?.some((v) => v.key === key))
 
                             if (newVars.length > 0) {
                                 updatedVariables = [...(updatedVariables || []), ...newVars]

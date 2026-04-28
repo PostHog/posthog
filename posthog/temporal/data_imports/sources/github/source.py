@@ -2,22 +2,24 @@ from typing import Optional, cast
 
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
-    Option,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
 from posthog.models.integration import GitHubIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GithubSourceConfig
 from posthog.temporal.data_imports.sources.github.github import (
+    GithubResumeConfig,
     github_source,
     validate_credentials as validate_github_credentials,
 )
@@ -27,7 +29,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
+class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GITHUB
@@ -37,7 +39,7 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
         return SourceConfig(
             name=SchemaExternalDataSourceType.GITHUB,
             label="GitHub",
-            betaSource=True,
+            releaseStatus="beta",
             caption="Connect your GitHub repository to sync issues, pull requests, commits, and more.",
             iconPath="/static/services/github.png",
             iconClassName="dark:bg-white rounded",
@@ -50,7 +52,7 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
                         required=True,
                         defaultValue="oauth",
                         options=[
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="OAuth (GitHub App)",
                                 value="oauth",
                                 fields=cast(
@@ -65,7 +67,7 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
                                     ],
                                 ),
                             ),
-                            Option(
+                            SourceFieldSelectConfigOption(
                                 label="Personal access token",
                                 value="pat",
                                 fields=cast(
@@ -121,8 +123,10 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
             raise ValueError("GitHub access token not found")
         return integration.access_token
 
-    def get_schemas(self, config: GithubSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: GithubSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
@@ -131,6 +135,10 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
             )
             for endpoint in list(ENDPOINTS)
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def validate_credentials(
         self, config: GithubSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -141,15 +149,23 @@ class GithubSource(SimpleSource[GithubSourceConfig], OAuthMixin):
         except Exception as e:
             return False, str(e)
 
-    def source_for_pipeline(self, config: GithubSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GithubResumeConfig]:
+        return ResumableSourceManager[GithubResumeConfig](inputs, GithubResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: GithubSourceConfig,
+        resumable_source_manager: ResumableSourceManager[GithubResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         access_token = self._get_access_token(config, inputs.team_id)
 
         return github_source(
             personal_access_token=access_token,
             repository=config.repository,
             endpoint=inputs.schema_name,
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
+            logger=inputs.logger,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

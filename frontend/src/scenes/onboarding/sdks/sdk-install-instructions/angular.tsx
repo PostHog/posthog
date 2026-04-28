@@ -15,7 +15,7 @@ function EnvVarsSnippet(): JSX.Element {
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[`POSTHOG_KEY=${currentTeam?.api_token}`, `POSTHOG_HOST=${apiHostOrigin()}`].join('\n')}
+            {[`POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`, `POSTHOG_HOST=${apiHostOrigin()}`].join('\n')}
         </CodeSnippet>
     )
 }
@@ -33,7 +33,7 @@ import { AppComponent } from './app/app.component';
 import posthog from 'posthog-js'
 
 posthog.init(
-  process.env.POSTHOG_KEY,
+  process.env.POSTHOG_PROJECT_TOKEN,
   {
     api_host:process.env.POSTHOG_HOST,
     ${

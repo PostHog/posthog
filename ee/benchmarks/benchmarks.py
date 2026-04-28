@@ -7,7 +7,6 @@ from ee.clickhouse.materialized_columns.analyze import (
     materialize,
 )
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn
-from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.queries.funnels import ClickhouseFunnel
 from posthog.queries.property_values import (
@@ -21,7 +20,6 @@ from posthog.queries.session_recordings.session_recording_list import (
 from posthog.queries.util import get_earliest_timestamp
 from posthog.models import Action, Cohort, Team, Organization
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
@@ -428,68 +426,6 @@ class QuerySuite:
             team=self.team,
         )
         FunnelCorrelation(filter, self.team).run()
-
-    @benchmark_clickhouse
-    def track_stickiness(self):
-        filter = StickinessFilter(
-            data={
-                "insight": "STICKINESS",
-                "events": [{"id": "$pageview"}],
-                "shown_as": "Stickiness",
-                "display": "ActionsLineGraph",
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        ClickhouseStickiness().run(filter, self.team)
-
-    @benchmark_clickhouse
-    def track_stickiness_filter_by_person_property(self):
-        filter = StickinessFilter(
-            data={
-                "insight": "STICKINESS",
-                "events": [{"id": "$pageview"}],
-                "shown_as": "Stickiness",
-                "display": "ActionsLineGraph",
-                "properties": [
-                    {
-                        "key": "email",
-                        "operator": "icontains",
-                        "value": ".com",
-                        "type": "person",
-                    }
-                ],
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        with no_materialized_columns():
-            ClickhouseStickiness().run(filter, self.team)
-
-    @benchmark_clickhouse
-    def track_stickiness_filter_by_person_property_materialized(self):
-        filter = StickinessFilter(
-            data={
-                "insight": "STICKINESS",
-                "events": [{"id": "$pageview"}],
-                "shown_as": "Stickiness",
-                "display": "ActionsLineGraph",
-                "properties": [
-                    {
-                        "key": "email",
-                        "operator": "icontains",
-                        "value": ".com",
-                        "type": "person",
-                    }
-                ],
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        ClickhouseStickiness().run(filter, self.team)
 
     @benchmark_clickhouse
     def track_session_recordings_list(self):

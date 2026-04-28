@@ -22,7 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import (
@@ -39,6 +39,9 @@ from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+
+from products.data_warehouse.backend.models import ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -111,6 +114,63 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
             self.assertEqual(response.results, [(2, "random event")])
+
+    def test_cte_with_unaliased_expression_and_outer_star(self):
+        response = execute_hogql_query(
+            """
+            WITH blah AS (
+                SELECT
+                    1 AS customer_id,
+                    dateTrunc('month', toDate('2026-08-03')) AS month,
+                    toDate('2026-08-03'),
+                    '2026-08-03' AS period_end
+            )
+            SELECT *, toDate(period_end)
+            FROM blah
+            WHERE month < '2027-01-01'
+            LIMIT 1000
+            """,
+            self.team,
+            pretty=False,
+        )
+
+        self.assertEqual(
+            response.columns,
+            ["customer_id", "month", "toDate('2026-08-03')", "period_end", "toDate(period_end)"],
+        )
+        self.assertEqual(
+            response.results,
+            [(1, datetime.date(2026, 8, 1), datetime.date(2026, 8, 3), "2026-08-03", datetime.date(2026, 8, 3))],
+        )
+
+    def test_cte_with_duplicate_unaliased_expression_names(self):
+        response = execute_hogql_query(
+            """
+            WITH blah AS (
+                SELECT
+                    1 AS customer_id,
+                    dateTrunc('month', toDate(period_end)) AS month,
+                    toDate(period_end),
+                    period_end
+                FROM (SELECT '2026-08-03' AS period_end)
+            )
+            SELECT *, toDate(period_end)
+            FROM blah
+            WHERE month < '2027-01-01'
+            LIMIT 1000
+            """,
+            self.team,
+            pretty=False,
+        )
+
+        self.assertEqual(
+            response.columns,
+            ["customer_id", "month", "toDate(period_end)", "period_end", "toDate(period_end)"],
+        )
+        self.assertEqual(
+            response.results,
+            [(1, datetime.date(2026, 8, 1), datetime.date(2026, 8, 3), "2026-08-03", datetime.date(2026, 8, 3))],
+        )
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_distinct(self):
@@ -232,6 +292,48 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
+
+    def test_execute_hogql_query_rejects_non_direct_connection_id(self):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="stripe",
+        )
+        with self.assertRaises(ExposedHogQLError) as error:
+            execute_hogql_query(
+                "select 1",
+                team=self.team,
+                connection_id=str(selected_source.id),
+            )
+
+        self.assertEqual(str(error.exception), "Invalid connectionId for this team")
+
+    @patch("posthog.hogql.query.sync_execute")
+    def test_execute_hogql_query_rejects_non_direct_connection_before_clickhouse(self, mock_sync_execute):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            execute_hogql_query(
+                "select 1",
+                team=self.team,
+                connection_id=str(selected_source.id),
+            )
+
+        self.assertEqual(str(error.exception), "Invalid connectionId for this team")
+        mock_sync_execute.assert_not_called()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_persons(self):

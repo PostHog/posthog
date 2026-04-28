@@ -4,7 +4,6 @@ from clickhouse_driver.errors import ServerException
 from rest_framework import filters, response, serializers, status, viewsets
 
 from posthog.hogql import ast
-from posthog.hogql.ast import Call, Field
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import LazyJoin
@@ -16,6 +15,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
@@ -69,11 +69,11 @@ class ViewLinkValidationMixin:
             raise serializers.ValidationError({"non_field_errors": [f"Invalid table: {table_name}"]})
 
         try:
-            node = parse_expr(join_key)
+            parse_expr(join_key)
         except SyntaxError as e:
             raise serializers.ValidationError({"non_field_errors": [str(e)]})
 
-        if not isinstance(node, Field) and not (isinstance(node, Call) and isinstance(node.args[0], Field)):
+        if get_join_field_chain(join_key) is None:
             raise serializers.ValidationError({"non_field_errors": [f"Join key {join_key} must be a table field"]})
 
         return
@@ -232,6 +232,7 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             user = cast(User, self.request.user)
+            tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
             query_response = execute_hogql_query(
                 query=validation_query,
                 team=self.team,

@@ -1,8 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { captureException } from '../../utils/posthog'
-import { createContext, createNewPipeline } from './helpers'
-import { PipelineResultWithContext } from './pipeline.interface'
+import { createContext, createNewPipeline, createOkContext } from './helpers'
 import { PipelineResultType, dlq, ok } from './results'
 import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
 
@@ -39,7 +38,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const result = await retryingPipeline.process(input)
 
@@ -76,7 +75,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -107,7 +106,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -136,7 +135,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const result = await retryingPipeline.process(input)
 
@@ -176,7 +175,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -205,7 +204,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const result = await retryingPipeline.process(input)
 
@@ -246,7 +245,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const result = await retryingPipeline.process(input)
 
@@ -277,7 +276,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -306,7 +305,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -334,7 +333,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -365,7 +364,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
 
             const processPromise = retryingPipeline.process(input)
 
@@ -395,7 +394,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
             const result = await retryingPipeline.process(input)
 
             expect(result.context.warnings).toEqual([stepWarning])
@@ -428,7 +427,7 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), { message })
+            const input = createOkContext<{ message: Message }, { message: Message }>({ message }, { message })
             const result = await retryingPipeline.process(input)
 
             expect(callCount).toBe(2)
@@ -454,10 +453,13 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), {
-                message,
-                warnings: [contextWarning],
-            })
+            const input = createOkContext<{ message: Message }, { message: Message }>(
+                { message },
+                {
+                    message,
+                    warnings: [contextWarning],
+                }
+            )
             const result = await retryingPipeline.process(input)
 
             // Context warnings should be preserved when DLQ result is returned
@@ -485,10 +487,13 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), {
-                message,
-                warnings: [contextWarning],
-            })
+            const input = createOkContext<{ message: Message }, { message: Message }>(
+                { message },
+                {
+                    message,
+                    warnings: [contextWarning],
+                }
+            )
             const result = await retryingPipeline.process(input)
 
             expect(result.context.warnings).toEqual([contextWarning])
@@ -516,10 +521,13 @@ describe('RetryingPipeline', () => {
                 headers: [],
             }
 
-            const input: PipelineResultWithContext<{ message: Message }> = createContext(ok({ message }), {
-                message,
-                warnings: [contextWarning],
-            })
+            const input = createOkContext<{ message: Message }, { message: Message }>(
+                { message },
+                {
+                    message,
+                    warnings: [contextWarning],
+                }
+            )
             const result = await retryingPipeline.process(input)
 
             // Should have both context and step warnings

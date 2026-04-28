@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { editor } from 'monaco-editor'
 import posthog from 'posthog-js'
@@ -302,4 +302,9 @@ export const dataWarehouseSettingsSceneLogic = kea<dataWarehouseSettingsSceneLog
             actions.setEditingView(null)
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (!values.database && !values.databaseLoading) {
+            actions.loadDatabase()
+        }
+    }),
 ])

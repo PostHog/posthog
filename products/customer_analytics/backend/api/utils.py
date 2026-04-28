@@ -2,8 +2,8 @@ from typing import Optional, cast
 
 from loginas.utils import is_impersonated_session
 
-from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.user import User
 
 from products.customer_analytics.backend.models import CustomerProfileConfig
 

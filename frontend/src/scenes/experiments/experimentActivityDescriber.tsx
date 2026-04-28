@@ -4,7 +4,7 @@ import { ActivityLogItem, HumanizedChange, userNameForLogItem } from 'lib/compon
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
-import { ExperimentProgressStatus } from '~/types'
+import { ExperimentStatus } from '~/types'
 
 import {
     getExperimentChangeDescription,
@@ -21,7 +21,7 @@ export const ExperimentDetails = ({
     status,
 }: {
     logItem: ActivityLogItem
-    status: ExperimentProgressStatus
+    status: ExperimentStatus
 }): JSX.Element => {
     return (
         <LemonCard className="flex items-center justify-between gap-3 p-4">
@@ -169,7 +169,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                                 <span>created a new shared metric:</span>
                             ) : (
                                 <span>
-                                    created a new <StatusTag status={ExperimentProgressStatus.Draft} /> experiment:
+                                    created a new <StatusTag status={ExperimentStatus.Draft} /> experiment:
                                 </span>
                             ),
                         ]}
@@ -263,10 +263,6 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                                   .otherwise(() => humanizeExperimentChange(getExperimentChangeDescription(change)))
                           )
                           .filter((part) => part !== null)
-
-            if (changes.length > 0 && listParts.length === 0) {
-                return { description: null }
-            }
 
             const suffix = match(updateLogDetail.type)
                 .with('shared_metric', () => nameOrLinkToSharedMetric(updateLogDetail.name, item_id))

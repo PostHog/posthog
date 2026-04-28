@@ -10,13 +10,16 @@ import django.utils.timezone
 
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, ConfigDict, Field
+from rest_framework import serializers
 
 from posthog.schema import SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem
 
 from posthog.constants import DEFAULT_SURVEY_APPEARANCE
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Survey, Team
+from posthog.models import Team
 
+from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
+from products.surveys.backend.models import Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
 from ee.hogai.tool import MaxTool
@@ -47,6 +50,11 @@ QUESTION_TYPE_MAP: dict[str, dict[str, Any]] = {
 class SimpleSurveyQuestion(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    id: str | None = Field(
+        default=None,
+        description="Question number from the survey context (e.g. '1', '2', '3'). "
+        "Reuse to preserve question identity and historical response data. Omit for new questions.",
+    )
     type: SEMANTIC_QUESTION_TYPE
     question: str
     description: str | None = None
@@ -86,6 +94,11 @@ def _build_question(q: SimpleSurveyQuestion) -> dict[str, Any]:
     if q.button_text is not None:
         result["buttonText"] = q.button_text
     return result
+
+
+def _validate_and_sanitize_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    serializer = SurveySerializerCreateUpdateOnly()
+    return serializer.validate_questions(questions)
 
 
 def _build_appearance(team: Team) -> dict[str, Any]:
@@ -266,6 +279,7 @@ class CreateSurveyTool(MaxTool):
                 wait_period_days=wait_period_days,
                 responses_limit=responses_limit,
             )
+            survey_data["questions"] = _validate_and_sanitize_questions(survey_data["questions"])
 
             if should_launch:
                 survey_data["start_date"] = django.utils.timezone.now()
@@ -284,6 +298,12 @@ class CreateSurveyTool(MaxTool):
                 "survey_type": survey_type,
             }
 
+        except serializers.ValidationError as e:
+            error_message = str(e.detail if hasattr(e, "detail") else e)
+            return f"Survey validation failed: {error_message}", {
+                "error": "validation_failed",
+                "error_message": error_message,
+            }
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create survey: {str(e)}", {"error": "creation_failed", "details": str(e)}
@@ -304,6 +324,11 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
     - Set launch=true to start collecting responses
     - Set stop=true to stop collecting responses
     - Set archive=true to archive the survey
+
+    # Question identity
+    - When updating questions, use read_data(kind="survey") first to see the current questions
+    - Each question is shown with a number (1, 2, 3, ...) — pass that number as the question's `id` to preserve its identity and historical response data
+    - Omit `id` for entirely new questions; they will be assigned a fresh ID automatically
 
     # Important
     - Only include fields you want to change
@@ -414,7 +439,18 @@ class EditSurveyTool(MaxTool):
             if description is not None:
                 update_data["description"] = description
             if questions is not None:
-                update_data["questions"] = [_build_question(q) for q in questions]
+                new_questions = [_build_question(q) for q in questions]
+                existing_questions = survey.questions or []
+
+                # Build numeric label -> real UUID mapping (1-indexed, matching read_data output)
+                id_map = {str(i + 1): eq["id"] for i, eq in enumerate(existing_questions) if "id" in eq}
+
+                # Resolve numeric labels back to real UUIDs; unknown/missing id -> new question
+                for new_q, simple_q in zip(new_questions, questions):
+                    if simple_q.id and simple_q.id in id_map:
+                        new_q["id"] = id_map[simple_q.id]
+
+                update_data["questions"] = _validate_and_sanitize_questions(new_questions)
             if linked_flag_id is not None:
                 update_data["linked_flag_id"] = linked_flag_id
             if responses_limit is not None:
@@ -468,6 +504,12 @@ class EditSurveyTool(MaxTool):
                 "updated_fields": list(update_data.keys()),
             }
 
+        except serializers.ValidationError as e:
+            error_message = str(e.detail if hasattr(e, "detail") else e)
+            return f"Survey validation failed: {error_message}", {
+                "error": "validation_failed",
+                "error_message": error_message,
+            }
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to edit survey: {str(e)}", {"error": "edit_failed", "details": str(e)}

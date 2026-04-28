@@ -140,7 +140,12 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 kind: NodeKind.InsightVizNode,
                 source: {
                     kind: NodeKind.FunnelsQuery,
-                    series: actionsAndEventsToSeries({ events }, true, MathAvailability.None),
+                    series: actionsAndEventsToSeries(
+                        { events },
+                        true,
+                        MathAvailability.None,
+                        NodeKind.FunnelsDataWarehouseNode
+                    ),
                     dateRange: {
                         date_from: values.dateRange?.date_from,
                     },

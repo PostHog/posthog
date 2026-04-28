@@ -5,10 +5,16 @@ from typing import Any
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDay
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, request, response, viewsets
 
+from posthog.schema import ProductKey
+
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models import BatchExportRun
 from posthog.models.plugin import PluginConfig
 from posthog.queries.app_metrics.app_metrics import AppMetricsErrorDetailsQuery, AppMetricsErrorsQuery, AppMetricsQuery
@@ -21,8 +27,10 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
     scope_object = "plugin"
     queryset = PluginConfig.objects.all()
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT})
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
+            tag_queries(product=ProductKey.PIPELINE_BATCH_EXPORTS, feature=Feature.QUERY)
             dates, successes, failures = self.get_batch_export_runs_app_metrics_queryset(batch_export_id=kwargs["pk"])
 
             return response.Response(
@@ -58,6 +66,7 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
             }
             errors = []
         else:
+            tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
             metric_results = AppMetricsQuery(self.team, kwargs["pk"], filter).run()
             errors = AppMetricsErrorsQuery(self.team, kwargs["pk"], filter).run()
         return response.Response({"metrics": metric_results, "errors": errors})
@@ -67,6 +76,7 @@ class AppMetricsViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, views
         filter = AppMetricsErrorsRequestSerializer(data=request.query_params)
         filter.is_valid(raise_exception=True)
 
+        tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
         error_details = AppMetricsErrorDetailsQuery(self.team, kwargs["pk"], filter).run()
         return response.Response({"result": error_details})
 
@@ -125,7 +135,9 @@ class HistoricalExportsAppMetricsViewSet(
     viewsets.ViewSet,
 ):
     scope_object = "plugin"
+    serializer_class = _FallbackSerializer
 
+    @extend_schema(operation_id="app_metrics_historical_exports_list")
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         return response.Response(
             {
@@ -136,7 +148,12 @@ class HistoricalExportsAppMetricsViewSet(
             }
         )
 
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.INT, OpenApiParameter.PATH)],
+        responses={200: OpenApiTypes.OBJECT},
+    )
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        tag_queries(product=ProductKey.PIPELINE_DESTINATIONS, feature=Feature.QUERY)
         job_id = kwargs["pk"]
         plugin_config_id = self.parents_query_dict["plugin_config_id"]
         return response.Response(historical_export_metrics(self.team, plugin_config_id, job_id))

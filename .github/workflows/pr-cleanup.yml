@@ -32,6 +32,7 @@ jobs:
     cleanup-hobby-preview:
         name: Cleanup hobby preview droplets
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         steps:
             - uses: actions/checkout@v6
 
@@ -135,6 +136,7 @@ jobs:
     cleanup-cf-pages-playwright:
         name: Cleanup Cloudflare Pages playwright reports
         runs-on: ubuntu-24.04
+        timeout-minutes: 30
         steps:
             - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:

@@ -10,6 +10,7 @@ from posthog.personhog_client.converters import (
     GroupTypeMappingResult,
     proto_group_type_mapping_to_dict,
     proto_group_type_mapping_to_result,
+    proto_person_to_model,
 )
 
 
@@ -46,7 +47,7 @@ class TestProtoGroupTypeMappingToDict:
                     "name_plural": "Organizations",
                     "default_columns": json.dumps(["name", "industry"]).encode(),
                     "detail_dashboard_id": 42,
-                    "created_at": 1700000000,
+                    "created_at": 1700000000000,
                 },
                 {
                     "group_type": "organization",
@@ -132,3 +133,85 @@ class TestProtoGroupTypeMappingToResult:
         result = GroupTypeMappingResult(group_type="org", group_type_index=0)
         with pytest.raises(AttributeError):
             result.group_type = "changed"  # type: ignore
+
+
+def _make_proto_person(**kwargs) -> SimpleNamespace:
+    defaults = {
+        "id": 0,
+        "uuid": "",
+        "team_id": 0,
+        "properties": b"",
+        "properties_last_updated_at": b"",
+        "properties_last_operation": b"",
+        "created_at": 0,
+        "version": 0,
+        "is_identified": False,
+        "is_user_id": False,
+        "last_seen_at": 0,
+    }
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+
+class TestProtoPersonToModel:
+    @parameterized.expand(
+        [
+            (
+                "all_fields_populated",
+                {
+                    "id": 42,
+                    "uuid": "550e8400-e29b-41d4-a716-446655440000",
+                    "team_id": 10,
+                    "properties": json.dumps({"email": "test@example.com", "name": "Test"}).encode(),
+                    "created_at": 1700000000000,
+                    "is_identified": True,
+                    "last_seen_at": 1700000000000,
+                },
+                None,
+            ),
+            (
+                "empty_properties",
+                {"id": 1, "uuid": "550e8400-e29b-41d4-a716-446655440001", "team_id": 5},
+                None,
+            ),
+            (
+                "with_distinct_ids",
+                {
+                    "id": 7,
+                    "uuid": "550e8400-e29b-41d4-a716-446655440002",
+                    "team_id": 3,
+                    "properties": json.dumps({"foo": "bar"}).encode(),
+                    "created_at": 1700000000000,
+                },
+                ["did1", "did2"],
+            ),
+        ]
+    )
+    def test_conversion(self, _name: str, proto_kwargs: dict, distinct_ids: list[str] | None):
+        proto = _make_proto_person(**proto_kwargs)
+        person = proto_person_to_model(proto, distinct_ids=distinct_ids)  # type: ignore[arg-type]
+
+        assert person.id == proto_kwargs.get("id", 0)
+        assert str(person.uuid) == proto_kwargs.get("uuid", "")
+        assert person.team_id == proto_kwargs.get("team_id", 0)
+        assert person.is_identified == proto_kwargs.get("is_identified", False)
+
+        raw_props = proto_kwargs.get("properties", b"")
+        expected_props = json.loads(raw_props) if raw_props else {}
+        assert person.properties == expected_props
+
+        if proto_kwargs.get("created_at"):
+            assert person.created_at == datetime.fromtimestamp(proto_kwargs["created_at"] / 1000, tz=UTC)
+        else:
+            # When proto has no created_at, we fall back to now() since the Django field is non-nullable
+            assert isinstance(person.created_at, datetime)
+
+        if proto_kwargs.get("last_seen_at"):
+            assert person.last_seen_at == datetime.fromtimestamp(proto_kwargs["last_seen_at"] / 1000, tz=UTC)
+        else:
+            assert person.last_seen_at is None
+
+        if distinct_ids is not None:
+            assert person.distinct_ids == distinct_ids
+        else:
+            assert not hasattr(person, "_distinct_ids") or person._distinct_ids is None

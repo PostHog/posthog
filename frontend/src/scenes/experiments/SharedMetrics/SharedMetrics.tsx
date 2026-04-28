@@ -1,10 +1,11 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconCopy, IconPencil } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonInput,
     LemonTable,
     LemonTableColumn,
     LemonTableColumns,
@@ -12,16 +13,17 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { tagsModel } from '~/models/tagsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { isLegacySharedMetric } from '../utils'
+import { isLegacySharedMetric, matchesSharedMetricSearch } from '../utils'
+import { InlineTagEditor } from './InlineTagEditor'
 import { SharedMetric } from './sharedMetricLogic'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
@@ -31,7 +33,14 @@ export const scene: SceneExport = {
 }
 
 export function SharedMetrics(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading } = useValues(sharedMetricsLogic)
+    const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId } = useValues(sharedMetricsLogic)
+    const { setSearchTerm, updateSharedMetricTags } = useActions(sharedMetricsLogic)
+    const { tags: allTags } = useValues(tagsModel)
+
+    const searchLower = searchTerm.toLowerCase()
+    const filteredMetrics = searchTerm
+        ? (sharedMetrics || []).filter((metric) => matchesSharedMetricSearch(metric, searchLower))
+        : sharedMetrics || []
 
     const columns: LemonTableColumns<SharedMetric> = [
         {
@@ -69,8 +78,15 @@ export function SharedMetrics(): JSX.Element {
         {
             title: 'Tags',
             dataIndex: 'tags' as keyof SharedMetric,
-            render: function Render(tags: SharedMetric['tags']) {
-                return tags ? <ObjectTags tags={tags} staticOnly /> : null
+            render: function Render(_: any, metric: SharedMetric) {
+                return (
+                    <InlineTagEditor
+                        metric={metric}
+                        allTags={allTags}
+                        onSave={(newTags) => updateSharedMetricTags(metric.id, newTags)}
+                        saving={savingTagsMetricId === metric.id}
+                    />
+                )
             },
         } as LemonTableColumn<SharedMetric, keyof SharedMetric | undefined>,
         {
@@ -122,14 +138,20 @@ export function SharedMetrics(): JSX.Element {
                 ideal for tracking key metrics like conversion rates or revenue across different experiments without
                 having to set them up each time.
             </LemonBanner>
-            <div className="flex justify-end">
+            <div className="flex justify-between items-center gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search shared metrics..."
+                    value={searchTerm}
+                    onChange={setSearchTerm}
+                />
                 <LemonButton size="small" type="primary" to={urls.experimentsSharedMetric('new')}>
                     New shared metric
                 </LemonButton>
             </div>
             <LemonTable
                 columns={columns}
-                dataSource={sharedMetrics || []}
+                dataSource={filteredMetrics}
                 loading={sharedMetricsLoading}
                 emptyState={<div>You haven't created any shared metrics yet.</div>}
             />

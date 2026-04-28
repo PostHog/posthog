@@ -3,22 +3,25 @@ import { useEffect, useRef } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { uuid } from 'lib/utils'
-import { ChatHeader } from 'scenes/max/components/AiFirstMaxInstance'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { Thread } from 'scenes/max/Thread'
-import { urls } from 'scenes/urls'
-
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
 
 export function HomepageThread(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
-    const { threadLogicKey, conversation, conversationId } = useValues(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
+    const { threadLogicKey, conversation } = useValues(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
     const { askMax, setQuestion } = useActions(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
+
+    const scrollRef = useRef<HTMLDivElement | null>(null)
+
+    // Mark the scroll container so ThreadAutoScroller can find it
+    useEffect(() => {
+        scrollRef.current?.setAttribute('data-attr', 'max-scrollable')
+    }, [])
 
     // Send the initial query once on mount
     const hasSentInitial = useRef(false)
@@ -42,17 +45,7 @@ export function HomepageThread(): JSX.Element {
     return (
         <BindLogic logic={maxLogic} props={{ tabId: HOMEPAGE_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                <ChatHeader conversationId={conversationId}>
-                    <SceneBreadcrumbBackButton
-                        forceBackTo={{
-                            name: 'Project homepage',
-                            path: urls.projectHomepage(),
-                            type: 'projectTree',
-                            key: 'projectHomepage',
-                        }}
-                    />
-                </ChatHeader>
-                <ScrollableShadows direction="vertical" styledScrollbars className="grow min-h-0">
+                <ScrollableShadows direction="vertical" styledScrollbars className="grow min-h-0" scrollRef={scrollRef}>
                     <ThreadAutoScroller>
                         <Thread className="p-3" />
                     </ThreadAutoScroller>

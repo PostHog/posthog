@@ -5,9 +5,12 @@ from typing import Any, get_args
 from django.core.exceptions import ImproperlyConfigured
 
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
-from drf_spectacular.plumbing import build_mock_request
+from drf_spectacular.openapi import AutoSchema
+from drf_spectacular.plumbing import build_basic_type, build_mock_request, build_parameter_type
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
+    OpenApiParameter,
+    PolymorphicProxySerializer,
     extend_schema,  # noqa: F401
     extend_schema_field,
     extend_schema_serializer,  # noqa: F401
@@ -16,8 +19,77 @@ from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.models.entity import MathType
+from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+
+# Path parameters that are resolved at runtime by TeamAndOrgViewSetMixin and
+# therefore cannot be derived from any model field.  We pre-supply their
+# OpenAPI types so drf-spectacular never falls through to the warning path.
+_KNOWN_PATH_PARAMS: dict[str, dict[str, Any]] = {
+    "project_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
+    "environment_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
+    "organization_id": {"schema": build_basic_type(OpenApiTypes.STR), "description": ""},
+    "plugin_config_id": {"schema": build_basic_type(OpenApiTypes.INT), "description": ""},
+}
+
+
+class _FallbackSerializer(serializers.Serializer):
+    """Fallback ``serializer_class`` for ViewSets whose methods declare their own
+    ``@extend_schema``.  The component name "Fallback" is valid OpenAPI and will
+    never appear in the final spec because no endpoint references it."""
+
+    pass
+
+
+class PostHogAutoSchema(AutoSchema):
+    """AutoSchema subclass that silences path-parameter warnings for params
+    handled by TeamAndOrgViewSetMixin (project_id, environment_id, etc.)."""
+
+    def _resolve_path_parameters(self, variables):
+        from drf_spectacular.plumbing import get_view_model, resolve_django_path_parameter, resolve_regex_path_parameter
+
+        model = get_view_model(self.view, emit_warnings=False)
+        parameters = []
+
+        for variable in variables:
+            if variable in _KNOWN_PATH_PARAMS:
+                # Params handled by TeamAndOrgViewSetMixin — not derivable from any model.
+                parameters.append(
+                    build_parameter_type(
+                        name=variable,
+                        location=OpenApiParameter.PATH,
+                        description=_KNOWN_PATH_PARAMS[variable]["description"],
+                        schema=_KNOWN_PATH_PARAMS[variable]["schema"],
+                    )
+                )
+            elif model is None:
+                # No queryset — try to resolve from the URL pattern (e.g. <int:id>),
+                # otherwise default to string without warning. Method-level
+                # @extend_schema(parameters=...) provides the proper type per-endpoint.
+                schema: dict[str, Any] = build_basic_type(OpenApiTypes.STR) or {"type": "string"}
+                resolved = resolve_django_path_parameter(
+                    self.path_regex,
+                    variable,
+                    self.map_renderers("format"),
+                )
+                if not resolved:
+                    resolved = resolve_regex_path_parameter(self.path_regex, variable)
+                if resolved and (resolved_schema := resolved.get("schema")) is not None:
+                    schema = resolved_schema
+                parameters.append(
+                    build_parameter_type(
+                        name=variable,
+                        location=OpenApiParameter.PATH,
+                        description="",
+                        schema=schema,
+                    )
+                )
+            else:
+                # Has a model — let the parent derive type + description from the PK field.
+                parameters.extend(super()._resolve_path_parameters([variable]))
+
+        return parameters
 
 
 def build_openapi_mock_request(method, path, view, original_request, **kwargs):
@@ -31,7 +103,16 @@ def build_openapi_mock_request(method, path, view, original_request, **kwargs):
     return request
 
 
-@extend_schema_field(OpenApiTypes.STR)
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "number"}]}},
+        ]
+    }
+)
 class ValueField(serializers.Field):
     def to_representation(self, value):
         return value
@@ -90,11 +171,342 @@ class PropertyItemSerializer(serializers.Serializer):
     )
 
 
+# ---------------------------------------------------------------------------
+# Narrowed property filter serializers (schema-only, not used at runtime)
+#
+# These produce a oneOf union in the OpenAPI spec so that generated clients
+# (TypeScript, MCP tools) see operator/value combinations that actually make
+# sense, instead of a single permissive type with all 17 operators.
+# ---------------------------------------------------------------------------
+
+_PROPERTY_TYPE_CHOICES = get_args(PropertyType)
+
+
+class _PropertyFilterBase(serializers.Serializer):
+    """Shared fields for all narrowed property filter subtypes."""
+
+    key = serializers.CharField(
+        help_text="Key of the property you're filtering on. For example `email` or `$current_url`.",
+        required=True,
+    )
+    type = serializers.ChoiceField(
+        choices=_PROPERTY_TYPE_CHOICES,
+        default="event",
+        required=False,
+        help_text="Property type (event, person, session, etc.).",
+    )
+
+
+class StringPropertyFilterSerializer(_PropertyFilterBase):
+    """Matches string values with text-oriented operators."""
+
+    value = serializers.CharField(
+        help_text="String value to match against.",
+        required=True,
+    )
+    operator = serializers.ChoiceField(
+        choices=["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        default="exact",
+        required=False,
+        help_text="String comparison operator.",
+    )
+
+
+class NumericPropertyFilterSerializer(_PropertyFilterBase):
+    """Matches numeric values with comparison operators."""
+
+    value = serializers.FloatField(
+        help_text="Numeric value to compare against.",
+        required=True,
+    )
+    operator = serializers.ChoiceField(
+        choices=["exact", "is_not", "gt", "lt", "gte", "lte"],
+        default="exact",
+        required=False,
+        help_text="Numeric comparison operator.",
+    )
+
+
+class ArrayPropertyFilterSerializer(_PropertyFilterBase):
+    """Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in)."""
+
+    value = serializers.ListField(
+        child=serializers.CharField(),
+        help_text='List of values to match. For example `["test@example.com", "ok@example.com"]`.',
+        required=True,
+    )
+    operator = serializers.ChoiceField(
+        choices=["exact", "is_not", "in", "not_in"],
+        default="exact",
+        required=False,
+        help_text="Array comparison operator.",
+    )
+
+
+class DatePropertyFilterSerializer(_PropertyFilterBase):
+    """Matches date/datetime values with date-specific operators."""
+
+    value = serializers.CharField(
+        help_text="Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z').",
+        required=True,
+    )
+    operator = serializers.ChoiceField(
+        choices=["is_date_exact", "is_date_before", "is_date_after"],
+        default="is_date_exact",
+        required=False,
+        help_text="Date comparison operator.",
+    )
+
+
+class ExistencePropertyFilterSerializer(_PropertyFilterBase):
+    """Checks whether a property is set or not, without comparing values."""
+
+    operator = serializers.ChoiceField(
+        choices=["is_set", "is_not_set"],
+        required=True,
+        help_text="Existence check operator.",
+    )
+
+
+_FEATURE_FLAG_FILTER_NON_FLAG_TYPE_CHOICES = [
+    property_filter_type.value for property_filter_type in PropertyFilterType if property_filter_type.value != "flag"
+]
+
+
+class _FeatureFlagFilterPropertyBaseSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Property key used in this feature flag condition.")
+    type = serializers.ChoiceField(
+        choices=_FEATURE_FLAG_FILTER_NON_FLAG_TYPE_CHOICES,
+        required=False,
+        help_text="Property filter type. Common values are 'person' and 'cohort'.",
+    )
+    cohort_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Resolved cohort name for cohort-type filters.",
+    )
+    group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Group type index when using group-based filters.",
+    )
+
+
+class FeatureFlagFilterPropertyGenericSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    value = serializers.JSONField(
+        required=True,
+        help_text="Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.",
+    )
+    operator = serializers.ChoiceField(
+        choices=[
+            "exact",
+            "is_not",
+            "icontains",
+            "not_icontains",
+            "regex",
+            "not_regex",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+        ],
+        required=True,
+        help_text="Operator used to compare the property value.",
+    )
+
+
+class FeatureFlagFilterPropertyExistsSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    operator = serializers.ChoiceField(
+        choices=["is_set", "is_not_set"],
+        required=True,
+        help_text="Existence operator.",
+    )
+    value = serializers.JSONField(
+        required=False,
+        help_text="Optional value. Runtime behavior determines whether this is ignored.",
+    )
+
+
+class FeatureFlagFilterPropertyDateSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    operator = serializers.ChoiceField(
+        choices=["is_date_exact", "is_date_after", "is_date_before"],
+        required=True,
+        help_text="Date comparison operator.",
+    )
+    value = serializers.CharField(
+        required=True,
+        help_text="Date value in ISO format or relative date expression.",
+    )
+
+
+class FeatureFlagFilterPropertySemverSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    operator = serializers.ChoiceField(
+        choices=[
+            "semver_gt",
+            "semver_gte",
+            "semver_lt",
+            "semver_lte",
+            "semver_eq",
+            "semver_neq",
+            "semver_tilde",
+            "semver_caret",
+            "semver_wildcard",
+        ],
+        required=True,
+        help_text="Semantic version comparison operator.",
+    )
+    value = serializers.CharField(
+        required=True,
+        help_text="Semantic version string.",
+    )
+
+
+class FeatureFlagFilterPropertyMultiContainsSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    operator = serializers.ChoiceField(
+        choices=["icontains_multi", "not_icontains_multi"],
+        required=True,
+        help_text="Multi-contains operator.",
+    )
+    value = serializers.ListField(
+        child=serializers.CharField(),
+        required=True,
+        help_text="List of strings to evaluate against.",
+    )
+
+
+class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    type = serializers.ChoiceField(
+        choices=["cohort"],
+        required=True,
+        help_text="Cohort property type required for in/not_in operators.",
+    )
+    operator = serializers.ChoiceField(
+        choices=["in", "not_in"],
+        required=True,
+        help_text="Membership operator for cohort properties.",
+    )
+    value = serializers.JSONField(
+        required=True,
+        help_text="Cohort comparison value (single or list, depending on usage).",
+    )
+
+
+class FeatureFlagFilterPropertyFlagEvaluatesSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    type = serializers.ChoiceField(
+        choices=["flag"],
+        required=True,
+        help_text="Flag property type required for flag dependency checks.",
+    )
+    operator = serializers.ChoiceField(
+        choices=["flag_evaluates_to"],
+        required=True,
+        help_text="Operator for feature flag dependency evaluation.",
+    )
+    value = serializers.JSONField(
+        required=True,
+        help_text="Value to compare flag evaluation against.",
+    )
+
+
+_FeatureFlagFilterPropertyUnion = PolymorphicProxySerializer(
+    component_name="FeatureFlagFilterPropertySchema",
+    serializers=[
+        FeatureFlagFilterPropertyGenericSchemaSerializer,
+        FeatureFlagFilterPropertyExistsSchemaSerializer,
+        FeatureFlagFilterPropertyDateSchemaSerializer,
+        FeatureFlagFilterPropertySemverSchemaSerializer,
+        FeatureFlagFilterPropertyMultiContainsSchemaSerializer,
+        FeatureFlagFilterPropertyCohortInSchemaSerializer,
+        FeatureFlagFilterPropertyFlagEvaluatesSchemaSerializer,
+    ],
+    resource_type_field_name=None,
+)
+
+
+@extend_schema_field(serializers.ListSerializer(child=_FeatureFlagFilterPropertyUnion))
+class FeatureFlagFilterPropertyListSchemaField(serializers.ListField):
+    """ListField with oneOf feature-flag property filter typing for OpenAPI generation."""
+
+    pass
+
+
+class FeatureFlagConditionGroupSchemaSerializer(serializers.Serializer):
+    properties = FeatureFlagFilterPropertyListSchemaField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Property conditions for this release condition group.",
+    )
+    rollout_percentage = serializers.FloatField(
+        required=False,
+        help_text="Rollout percentage for this release condition group.",
+    )
+    variant = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Variant key override for multivariate flags.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Group type index for this condition set. None means person-level aggregation.",
+    )
+
+
+class FeatureFlagMultivariateVariantSchemaSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Unique key for this variant.")
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Human-readable name for this variant.",
+    )
+    rollout_percentage = serializers.FloatField(help_text="Variant rollout percentage.")
+
+
+class FeatureFlagMultivariateSchemaSerializer(serializers.Serializer):
+    variants = FeatureFlagMultivariateVariantSchemaSerializer(
+        many=True,
+        help_text="Variant definitions for multivariate feature flags.",
+    )
+
+
+class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
+    groups = FeatureFlagConditionGroupSchemaSerializer(
+        many=True,
+        required=False,
+        help_text="Release condition groups for the feature flag.",
+    )
+    multivariate = FeatureFlagMultivariateSchemaSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Multivariate configuration for variant-based rollouts.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Group type index for group-based feature flags.",
+    )
+    payloads = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        help_text="Optional payload values keyed by variant key.",
+    )
+    super_groups = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Additional super condition groups used by experiments.",
+    )
+    feature_enrollment = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.",
+    )
+
+
 property_help_text = "Filter events by event property, person property, cohort, groups and more."
 
 
 class PropertySerializer(serializers.Serializer):
-    def run_validation(self, data):
+    def run_validation(self, data=fields.empty):
         if isinstance(data, list):
             items = []
             for item in data:
@@ -212,9 +624,23 @@ class FilterActionSerializer(serializers.Serializer):
 # Global mapping of (path, method) → product folder, populated during preprocessing
 _endpoint_product_mapping: dict[tuple[str, str], str] = {}
 
+# Set of (path, method) for org-level paths that duplicate a /api/projects/ path.
+# These get marked deprecated and prefixed with "org_" in postprocessing.
+_org_paths_with_project_dup: set[tuple[str, str]] = set()
+
 # Prefix used to identify deprecated environment duplicates in postprocessing.
 # Only env paths that duplicate a /api/projects/ path get this prefix (via {environment_id}).
 _DEPRECATED_ENV_PREFIX = "/api/environments/{environment_id}/"
+
+# Match any /api/{root}/{parent_lookup_*}/ prefix regardless of the lookup variable name.
+# This handles registrations that use team_id, project_id, organization_id, etc.
+_PROJECTS_PREFIX_RE = re.compile(r"^/api/projects/\{parent_lookup_\w+\}/")
+_ENVIRONMENTS_PREFIX_RE = re.compile(r"^/api/environments/\{parent_lookup_\w+\}/")
+_ORG_PREFIX_RE = re.compile(r"^/api/organizations/\{parent_lookup_\w+\}/")
+
+# Match finalized paths (after {parent_lookup_*} substitution) for postprocessing.
+_ORG_PROJECTS_FINAL_RE = re.compile(r"^/api/organizations/[^/]+/projects/")
+_PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
 
 
 def _get_product_from_module(module: str) -> str | None:
@@ -226,12 +652,10 @@ def _get_product_from_module(module: str) -> str | None:
     return None
 
 
-def _extract_env_suffix(path: str) -> str | None:
-    """Extract the resource suffix from an /api/environments/ path, or None if not an env path."""
-    prefix = "/api/environments/{parent_lookup_team_id}/"
-    if path.startswith(prefix):
-        return path[len(prefix) :]
-    return None
+def _extract_root_suffix(prefix_re: re.Pattern, path: str) -> str | None:
+    """Extract the resource suffix after the root /api/{resource}/{lookup}/ prefix, or None."""
+    m = prefix_re.match(path)
+    return path[m.end() :] if m else None
 
 
 def preprocess_exclude_path_format(endpoints, **kwargs):
@@ -240,20 +664,26 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     format_suffix_patterns is used and {format} path params are unwanted.
 
     Also tracks endpoints registered under both /api/environments/ and
-    /api/projects/ (via register_grandfathered_environment_nested_viewset),
-    so that environment duplicates can be marked deprecated in postprocessing.
+    /api/projects/ so that environment duplicates can be marked deprecated in
+    postprocessing.  Also detects /api/organizations/ paths that duplicate a
+    /api/projects/ path (same resource suffix) for the same treatment.
+
+    Uses regex-based prefix matching so it works regardless of which
+    {parent_lookup_*} variable name a registration chose (team_id vs project_id
+    vs organization_id, etc.).
     """
     # For frontend type generation, include INTERNAL views if they have explicit tags
     include_internal = os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
 
-    # Clear previous mapping
+    # Clear previous mappings
     _endpoint_product_mapping.clear()
+    _org_paths_with_project_dup.clear()
 
     # Pass 1: collect all included endpoints and build a set of suffixes that
-    # exist under /api/projects/ so we can identify /api/environments/ duplicates.
+    # exist under /api/projects/ so we can identify /api/environments/ and
+    # /api/organizations/ duplicates.
     included: list[tuple[str, str, str, Any]] = []
     projects_suffixes: set[tuple[str, str]] = set()
-    projects_prefix = "/api/projects/{parent_lookup_team_id}/"
 
     for path, path_regex, method, callback in endpoints:
         if getattr(callback.cls, "param_derived_from_user_current_team", None):
@@ -265,24 +695,37 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
             continue
 
         included.append((path, path_regex, method, callback))
-        if path.startswith(projects_prefix):
-            suffix = path[len(projects_prefix) :]
+        suffix = _extract_root_suffix(_PROJECTS_PREFIX_RE, path)
+        if suffix is not None:
             projects_suffixes.add((suffix, method))
 
-    # Pass 2: keep all endpoints, but mark env duplicates for deprecation in postprocessing.
-    # Env duplicates get {environment_id} param (matching _DEPRECATED_ENV_PREFIX), others get {project_id}.
+    # Pass 2: keep all endpoints, but mark env/org duplicates for deprecation in postprocessing.
+    # Env duplicates get {environment_id} param (matching _DEPRECATED_ENV_PREFIX).
+    # Org duplicates are tracked in _org_paths_with_project_dup by their final path string.
+    # All other {parent_lookup_*} variables are collapsed to the simple name.
     # drf-spectacular may rewrite other params (e.g. {pk} → {id}) between pre- and postprocessing,
-    # so postprocessing identifies deprecated paths by the {environment_id} prefix, not exact match.
+    # so postprocessing identifies deprecated paths by prefix/set membership, not exact match.
     result = []
     for path, path_regex, method, callback in included:
-        env_suffix = _extract_env_suffix(path)
+        env_suffix = _extract_root_suffix(_ENVIRONMENTS_PREFIX_RE, path)
         is_env_duplicate = env_suffix is not None and (env_suffix, method) in projects_suffixes
 
+        org_suffix = _extract_root_suffix(_ORG_PREFIX_RE, path)
+        is_org_duplicate = org_suffix is not None and (org_suffix, method) in projects_suffixes
+
         if is_env_duplicate:
-            path = path.replace("{parent_lookup_team_id}", "{environment_id}")
+            path = _ENVIRONMENTS_PREFIX_RE.sub("/api/environments/{environment_id}/", path, count=1)
+        elif _ENVIRONMENTS_PREFIX_RE.match(path):
+            path = _ENVIRONMENTS_PREFIX_RE.sub("/api/environments/{project_id}/", path, count=1)
         else:
+            # For projects/org paths, {parent_lookup_team_id} → {project_id} (legacy convention).
             path = path.replace("{parent_lookup_team_id}", "{project_id}")
+        # Collapse any remaining {parent_lookup_X} → {X}
         path = path.replace("{parent_lookup_", "{")
+
+        if is_org_duplicate:
+            # Normalize {pk} → {id} to match what drf-spectacular emits in postprocessing.
+            _org_paths_with_project_dup.add((path.replace("{pk}", "{id}"), method))
 
         # Track product folder for auto-tagging
         product = _get_product_from_module(callback.cls.__module__)
@@ -381,22 +824,61 @@ def custom_postprocessing_hook(result, generator, request, public):
             definition["x-explicit-tags"] = explicit_tags
 
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects", "environments"]]
-            match = re.search(
-                r"((\/api\/(organizations|projects|environments)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/",
-                path,
-            )
-            if match:
-                definition["tags"].append(match.group("one"))
+
+            # If a ViewSet sets x-swagger-tag via @extend_schema(extensions={"x-swagger-tag": "..."}),
+            # use that as the sole display tag instead of appending the URL-derived one.
+            # This controls Swagger UI grouping without affecting x-explicit-tags (used for codegen).
+            swagger_tag = definition.pop("x-swagger-tag", None)
+            if swagger_tag:
+                definition["tags"] = [swagger_tag]
+            else:
+                match = re.search(
+                    r"((\/api\/(organizations|projects|environments)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/",
+                    path,
+                )
+                if match:
+                    definition["tags"].append(match.group("one"))
             for tag in definition["tags"]:
                 all_tags.append(tag)
 
             # Strip router-derived prefixes from operationIds.
-            # Keep environments_ on deprecated env paths to avoid collisions with projects_ versions.
-            definition["operationId"] = definition["operationId"].replace("organizations_", "", 1)
-            if not is_deprecated_env:
-                definition["operationId"] = (
-                    definition["operationId"].replace("projects_", "", 1).replace("environments_", "", 1)
-                )
+            #
+            # Rules:
+            # - Deprecated env paths keep their environments_ prefix (distinguishes them from the
+            #   canonical project version that Orval will use).
+            # - Org paths that duplicate a project path get an org_ prefix and are marked deprecated.
+            # - /api/organizations/{id}/projects/… paths must NOT have projects_ stripped — that
+            #   segment is the resource name, not a router namespace, and stripping it collapses
+            #   everything to e.g. "list"/"create" which then collides with top-level org paths.
+            # - /api/projects/{id}/environments/… paths must NOT have environments_ stripped for the
+            #   same reason — those are sub-resources, not the main /api/environments/ router.
+            # - Everything else: strip projects_/environments_ (router-namespace noise).
+            is_org_dup = (path, method.upper()) in _org_paths_with_project_dup
+            is_org_projects = bool(_ORG_PROJECTS_FINAL_RE.match(path))
+            is_project_envs = bool(_PROJECT_ENVS_FINAL_RE.match(path))
+
+            if is_org_dup:
+                definition["deprecated"] = True
+                op_id = definition["operationId"]
+                if not op_id.startswith("org_"):
+                    definition["operationId"] = "org_" + op_id
+            elif not is_org_projects:
+                # Only strip organizations_ for non-org/projects paths (it's a root-level prefix)
+                definition["operationId"] = definition["operationId"].replace("organizations_", "", 1)
+
+            if is_deprecated_env:
+                # Ensure the operationId carries the environments_ namespace even when an
+                # explicit @extend_schema(operation_id=...) was used on the ViewSet method.
+                op_id = definition["operationId"]
+                if not op_id.startswith("environments_"):
+                    definition["operationId"] = "environments_" + op_id
+            elif not is_org_dup:
+                op_id = definition["operationId"]
+                if not is_org_projects:
+                    op_id = op_id.replace("projects_", "", 1)
+                if not is_project_envs:
+                    op_id = op_id.replace("environments_", "", 1)
+                definition["operationId"] = op_id
 
             if "parameters" in definition:
                 definition["parameters"] = [

@@ -1,6 +1,5 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { useEffect } from 'react'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
@@ -17,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { asDisplay } from './person-utils'
-import { personsLogic } from './personsLogic'
+import { personLogic } from './personLogic'
 
 export type PersonPreviewProps = {
     distinctId?: string
@@ -26,21 +25,15 @@ export type PersonPreviewProps = {
 }
 
 export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
-    const logicProps = { syncWithUrl: false, urlId: props.distinctId || props.personId }
-    const { loadPerson, loadPersonUUID } = useActions(personsLogic(logicProps))
-    const { person, personLoading } = useValues(personsLogic(logicProps))
-
-    useEffect(() => {
-        if (props.distinctId) {
-            loadPerson(props.distinctId)
-        } else if (props.personId) {
-            loadPersonUUID(props.personId)
-        }
-    }, [loadPerson, loadPersonUUID, props.distinctId, props.personId])
-
     if (!props.distinctId && !props.personId) {
         return null
     }
+    return <PersonPreviewInner {...props} />
+}
+
+function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
+    const logicProps = { id: props.personId, distinctId: props.distinctId }
+    const { person, personLoading } = useValues(personLogic(logicProps))
 
     if (personLoading) {
         return <Spinner />

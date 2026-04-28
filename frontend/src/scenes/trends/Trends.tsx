@@ -13,7 +13,6 @@ import { ChartDisplayType, InsightType } from '~/types'
 
 import { trendsDataLogic } from './trendsDataLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
-
 // Lazy-loaded viz types that are rarely used on dashboards
 const WorldMap = lazy(() => import('scenes/insights/views/WorldMap').then((m) => ({ default: m.WorldMap })))
 const RegionMap = lazy(() => import('scenes/insights/views/RegionMap').then((m) => ({ default: m.RegionMap })))

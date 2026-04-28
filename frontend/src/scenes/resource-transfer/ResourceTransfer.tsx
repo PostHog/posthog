@@ -133,6 +133,8 @@ function sourceResourceUrl(resourceKind: string, resourceId: string): string {
             return urls.dashboard(resourceId)
         case 'Insight':
             return urls.insightView(resourceId as InsightShortId)
+        case 'Survey':
+            return urls.survey(resourceId)
         default:
             return urls.projectHomepage()
     }

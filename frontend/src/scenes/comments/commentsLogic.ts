@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -8,6 +8,7 @@ import { isEmptyObject } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
@@ -40,8 +41,22 @@ export const commentsLogic = kea<commentsLogicType>([
     key((props) => `${props.scope}-${props.item_id || ''}`),
 
     connect(() => ({
-        actions: [sidePanelDiscussionLogic, ['incrementCommentCount', 'scrollToLastComment']],
-        values: [userLogic, ['user'], sceneLogic, ['activeTab'], membersLogic, ['meFirstMembers']],
+        actions: [
+            sidePanelDiscussionLogic,
+            ['incrementCommentCount', 'scrollToLastComment'],
+            membersLogic,
+            ['ensureAllMembersLoaded'],
+        ],
+        values: [
+            userLogic,
+            ['user'],
+            sceneLogic,
+            ['activeTab'],
+            membersLogic,
+            ['meFirstMembers'],
+            teamLogic,
+            ['currentProjectId'],
+        ],
     })),
 
     actions({
@@ -154,13 +169,17 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     const textContent = getTextContent(content, values.meFirstMembers)
 
+                    const composerAnchor = values.itemContext?.context
+                    const isNewAnchoredThread =
+                        composerAnchor && (composerAnchor.type === 'mark' || composerAnchor.type === 'node')
+
                     const newComment = await api.comments.create({
                         rich_content: content,
                         content: textContent,
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: itemContext,
-                        source_comment: values.replyingCommentId ?? undefined,
+                        source_comment: isNewAnchoredThread ? undefined : (values.replyingCommentId ?? undefined),
                         mentions,
                         slug: discussionsSlug(props.scope, props.item_id),
                     })
@@ -202,7 +221,7 @@ export const commentsLogic = kea<commentsLogicType>([
 
                 deleteComment: async ({ comment }) => {
                     await deleteWithUndo({
-                        endpoint: `projects/@current/comments`,
+                        endpoint: `projects/${values.currentProjectId}/comments`,
                         object: { name: comment.item_context?.is_emoji ? 'Reaction' : 'Comment', id: comment.id },
                         callback: (isUndo) => {
                             if (isUndo) {
@@ -238,8 +257,10 @@ export const commentsLogic = kea<commentsLogicType>([
     })),
 
     listeners(({ values, actions }) => ({
-        setReplyingComment: () => {
-            actions.clearItemContext()
+        setReplyingComment: ({ commentId }) => {
+            if (commentId) {
+                actions.clearItemContext()
+            }
         },
         clearItemContext: () => {
             values.itemContext?.callback?.({ sent: false })
@@ -359,4 +380,8 @@ export const commentsLogic = kea<commentsLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions }) => {
+        actions.ensureAllMembersLoaded()
+    }),
 ])

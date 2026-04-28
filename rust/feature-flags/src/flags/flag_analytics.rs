@@ -8,6 +8,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const SURVEY_TARGETING_FLAG_PREFIX: &str = "survey-targeting-";
 pub const PRODUCT_TOUR_TARGETING_FLAG_PREFIX: &str = "product-tour-targeting-";
 
+pub fn is_billable_flag_key(key: &str) -> bool {
+    !key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
+        && !key.starts_with(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+}
+
 const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
 
 pub fn get_team_request_key(team_id: i32, request_type: FlagRequestType) -> String {
@@ -37,7 +42,7 @@ pub fn get_team_request_library_key(
 pub async fn increment_request_count(
     redis_client: Arc<dyn RedisClient + Send + Sync>,
     team_id: i32,
-    count: i32,
+    count: i64,
     request_type: FlagRequestType,
     library: Option<Library>,
 ) -> Result<(), CustomRedisError> {
@@ -170,13 +175,13 @@ mod tests {
             / CACHE_BUCKET_SIZE;
 
         // Verify the counts in Redis
-        let decide_count: i32 = redis_client
+        let decide_count: i64 = redis_client
             .hget(decide_key.clone(), time_bucket.to_string())
             .await
             .unwrap()
             .parse()
             .unwrap();
-        let flag_definitions_count: i32 = redis_client
+        let flag_definitions_count: i64 = redis_client
             .hget(flag_definitions_key.clone(), time_bucket.to_string())
             .await
             .unwrap()
@@ -221,13 +226,13 @@ mod tests {
             .as_secs()
             / CACHE_BUCKET_SIZE;
 
-        let decide_count: i32 = redis_client
+        let decide_count: i64 = redis_client
             .hget(decide_key.clone(), time_bucket.to_string())
             .await
             .unwrap()
             .parse()
             .unwrap();
-        let library_count: i32 = redis_client
+        let library_count: i64 = redis_client
             .hget(library_key.clone(), time_bucket.to_string())
             .await
             .unwrap()
@@ -272,7 +277,7 @@ mod tests {
             .as_secs()
             / CACHE_BUCKET_SIZE;
 
-        let decide_count: i32 = redis_client
+        let decide_count: i64 = redis_client
             .hget(decide_key.clone(), time_bucket.to_string())
             .await
             .unwrap()
@@ -338,19 +343,19 @@ mod tests {
             .as_secs()
             / CACHE_BUCKET_SIZE;
 
-        let decide_count: i32 = redis_client
+        let decide_count: i64 = redis_client
             .hget(decide_key.clone(), time_bucket.to_string())
             .await
             .unwrap()
             .parse()
             .unwrap();
-        let js_count: i32 = redis_client
+        let js_count: i64 = redis_client
             .hget(js_key.clone(), time_bucket.to_string())
             .await
             .unwrap()
             .parse()
             .unwrap();
-        let node_count: i32 = redis_client
+        let node_count: i64 = redis_client
             .hget(node_key.clone(), time_bucket.to_string())
             .await
             .unwrap()

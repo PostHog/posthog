@@ -16,9 +16,9 @@ describe('RecipientsManager', () => {
         hub = await createHub()
         await resetTestDatabase()
         manager = new RecipientsManagerService(hub.postgres)
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = (await getTeam(hub.postgres, team2Id))!
     })
 
     afterEach(async () => {
@@ -158,6 +158,88 @@ describe('RecipientsManager', () => {
             expect(manager.getPreference(recipient, 'category-1')).toBe('OPTED_IN')
             expect(manager.getPreference(recipient, 'category-2')).toBe('OPTED_OUT')
             expect(manager.getPreference(recipient, 'category-3')).toBe('NO_PREFERENCE')
+        })
+    })
+
+    describe('optOut', () => {
+        it('should create a new recipient with $all OPTED_OUT when none exists', async () => {
+            await manager.optOut(team.id, ['new@example.com'])
+
+            const result = await manager.get({ teamId: team.id, identifier: 'new@example.com' })
+            expect(result).toMatchObject({
+                team_id: team.id,
+                identifier: 'new@example.com',
+                preferences: { $all: 'OPTED_OUT' },
+            })
+        })
+
+        it('should merge $all OPTED_OUT into existing preferences', async () => {
+            await createRecipient(team.id, 'user@example.com', { 'category-1': 'OPTED_IN' })
+
+            await manager.optOut(team.id, ['user@example.com'])
+
+            const result = await manager.get({ teamId: team.id, identifier: 'user@example.com' })
+            expect(result?.preferences).toEqual({
+                'category-1': 'OPTED_IN',
+                $all: 'OPTED_OUT',
+            })
+        })
+
+        it('should overwrite existing $all preference with OPTED_OUT', async () => {
+            await createRecipient(team.id, 'user@example.com', { $all: 'OPTED_IN', 'category-1': 'OPTED_IN' })
+
+            await manager.optOut(team.id, ['user@example.com'])
+
+            const result = await manager.get({ teamId: team.id, identifier: 'user@example.com' })
+            expect(result?.preferences).toEqual({
+                'category-1': 'OPTED_IN',
+                $all: 'OPTED_OUT',
+            })
+        })
+
+        it('should opt out multiple recipients in a single call', async () => {
+            await createRecipient(team.id, 'user1@example.com', { 'category-1': 'OPTED_IN' })
+            // user2 does not exist yet
+            await createRecipient(team.id, 'user3@example.com', { 'category-1': 'OPTED_IN', 'category-2': 'OPTED_IN' })
+
+            await manager.optOut(team.id, ['user1@example.com', 'user2@example.com', 'user3@example.com'])
+
+            const result1 = await manager.get({ teamId: team.id, identifier: 'user1@example.com' })
+            expect(result1?.preferences).toEqual({ 'category-1': 'OPTED_IN', $all: 'OPTED_OUT' })
+
+            const result2 = await manager.get({ teamId: team.id, identifier: 'user2@example.com' })
+            expect(result2?.preferences).toEqual({ $all: 'OPTED_OUT' })
+
+            const result3 = await manager.get({ teamId: team.id, identifier: 'user3@example.com' })
+            expect(result3?.preferences).toEqual({
+                'category-1': 'OPTED_IN',
+                'category-2': 'OPTED_IN',
+                $all: 'OPTED_OUT',
+            })
+        })
+
+        it('should be a no-op for an empty array', async () => {
+            await createRecipient(team.id, 'user@example.com', { 'category-1': 'OPTED_IN' })
+
+            await manager.optOut(team.id, [])
+
+            const result = await manager.get({ teamId: team.id, identifier: 'user@example.com' })
+            expect(result?.preferences).toEqual({ 'category-1': 'OPTED_IN' })
+        })
+
+        it('should clear the cache after opt-out', async () => {
+            await createRecipient(team.id, 'user@example.com', { $all: 'OPTED_IN' })
+
+            // Load into cache
+            const before = await manager.get({ teamId: team.id, identifier: 'user@example.com' })
+            expect(before?.preferences.$all).toBe('OPTED_IN')
+
+            // Opt out (should clear cache)
+            await manager.optOut(team.id, ['user@example.com'])
+
+            // Should reflect the new value, not the cached one
+            const after = await manager.get({ teamId: team.id, identifier: 'user@example.com' })
+            expect(after?.preferences.$all).toBe('OPTED_OUT')
         })
     })
 

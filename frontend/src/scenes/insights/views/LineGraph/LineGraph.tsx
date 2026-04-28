@@ -1,6 +1,6 @@
 import 'chartjs-adapter-dayjs-3'
 
-import { DeepPartial } from 'chart.js/dist/types/utils'
+import { type DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
@@ -27,26 +27,28 @@ import {
     TooltipModel,
     TooltipOptions,
 } from 'lib/Chart'
+import { resolveVariableColor } from 'lib/charts/utils/color'
+import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
+import { AnomalyPoint } from 'lib/components/Alerts/types'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { getDatumTitle, TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-import { createXAxisTickCallback } from 'scenes/insights/views/LineGraph/formatXAxisTick'
+import { unpinTooltip, useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
+import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
+import { useChartZoom } from 'scenes/web-analytics/hooks/useChartZoom'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -62,29 +64,45 @@ function truncateString(str: string, num: number): string {
     return str
 }
 
-const RESOLVED_COLOR_MAP = new Map<string, string>()
 const INCOMPLETE_SEGMENT_BORDER_DASH = [10, 10]
-export function resolveVariableColor(color: string | undefined): string | undefined {
-    if (!color) {
-        return color
+
+export function onTooltipClick(
+    datasetIndex: number,
+    dataIndex: number,
+    datasets: GraphDataset[],
+    onClick?: (payload: GraphPointPayload) => void
+): void {
+    const dataset = datasets[datasetIndex]
+    if (!dataset) {
+        return
     }
 
-    if (RESOLVED_COLOR_MAP.has(color)) {
-        return RESOLVED_COLOR_MAP.get(color)
+    const referencePoint: GraphPoint = {
+        datasetIndex,
+        index: dataIndex,
+        element: {} as any,
+        dataset,
     }
 
-    // Cache complex variables to avoid the `getComputedStyle` call on every call
-    if (color.startsWith('var(--')) {
-        const replaced = color.replace('var(', '').replace(')', '')
-        const computedColor = getComputedStyle(document.documentElement).getPropertyValue(replaced)
-        RESOLVED_COLOR_MAP.set(color, computedColor)
-        return computedColor
-    }
+    const crossDataset = datasets
+        .filter((_dt) => !_dt.dotted)
+        .map((_dt) => ({
+            ..._dt,
+            personUrl: _dt.persons_urls?.[dataIndex]?.url,
+            pointValue: _dt.data[dataIndex],
+        }))
 
-    // Optimize to avoid the `startsWith` check on every call
-    RESOLVED_COLOR_MAP.set(color, color)
-
-    return color
+    onClick?.({
+        points: {
+            pointsIntersectingLine: [],
+            pointsIntersectingClick: [referencePoint],
+            clickedPointNotLine: true,
+            referencePoint,
+        },
+        index: dataIndex,
+        crossDataset,
+        seriesId: dataset.id,
+    })
 }
 
 export function onChartClick(
@@ -98,10 +116,15 @@ export function onChartClick(
         return
     }
     // Get all points along line
-    const sortDirection = 'y'
-    const sortPoints = (a: InteractionItem, b: InteractionItem): number =>
-        Math.abs(a.element[sortDirection] - (event[sortDirection] ?? 0)) -
-        Math.abs(b.element[sortDirection] - (event[sortDirection] ?? 0))
+    const sortPoints = (a: InteractionItem, b: InteractionItem): number => {
+        const eventY = event.y ?? 0
+        // Compare distance to bar center, not top edge (stacked bars share edges)
+        const aEl = a.element as unknown as { y: number; base?: number }
+        const bEl = b.element as unknown as { y: number; base?: number }
+        const aY = aEl.base != null ? (aEl.y + aEl.base) / 2 : aEl.y
+        const bY = bEl.base != null ? (bEl.y + bEl.base) / 2 : bEl.y
+        return Math.abs(aY - eventY) - Math.abs(bY - eventY)
+    }
     const pointsIntersectingLine = chart
         .getElementsAtEventForMode(
             nativeEvent,
@@ -130,10 +153,24 @@ export function onChartClick(
 
     const clickedPointNotLine = pointsIntersectingClick.length !== 0
 
-    // Take first point when clicking a specific point.
-    const referencePoint: GraphPoint = clickedPointNotLine
-        ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
-        : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
+    // Use the tooltip's active data point so the modal matches what the user sees,
+    // but only when the tooltip refers to the same data column as the click
+    const tooltipDataPoint = chart.tooltip?.dataPoints?.[0]
+    const tooltipIsForThisColumn =
+        tooltipDataPoint != null &&
+        pointsIntersectingLine.some(
+            (p) => p.datasetIndex === tooltipDataPoint.datasetIndex && p.index === tooltipDataPoint.dataIndex
+        )
+    const referencePoint: GraphPoint = tooltipIsForThisColumn
+        ? {
+              datasetIndex: tooltipDataPoint.datasetIndex,
+              index: tooltipDataPoint.dataIndex,
+              element: tooltipDataPoint.element,
+              dataset: datasets[tooltipDataPoint.datasetIndex],
+          }
+        : clickedPointNotLine
+          ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
+          : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
 
     const crossDataset = datasets
         .filter((_dt) => !_dt.dotted)
@@ -238,8 +275,10 @@ export interface LineGraphProps {
     goalLines?: GoalLine[]
     isStacked?: boolean
     showTrendLines?: boolean
+    anomalyPoints?: AnomalyPoint[]
     ignoreActionsInSeriesLabels?: boolean
     datalabelFormatter?: (value: number, datasetIndex: number) => string
+    onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -285,24 +324,30 @@ export function LineGraph_({
     goalLines: _goalLines,
     isStacked = true,
     showTrendLines = false,
+    anomalyPoints,
     ignoreActionsInSeriesLabels = false,
     datalabelFormatter,
+    onDateRangeZoom,
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
 
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { baseCurrency } = useValues(teamLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, isFunnels, breakdownFilter, interval, insightData } = useValues(
+    const { timezone, isTrends, isStickiness, isFunnels, breakdownFilter, interval, insightData } = useValues(
         insightVizDataLogic(insightProps)
     )
-    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex } = useValues(trendsDataLogic(insightProps))
+    const { theme, getTrendsColor, getTrendsHidden, hoveredDatasetIndex, currentPeriodResult } = useValues(
+        trendsDataLogic(insightProps)
+    )
     const { setHoveredDatasetIndex } = useActions(trendsDataLogic(insightProps))
 
-    const { tooltipId, hideTooltip, getTooltip, positionTooltip } = useInsightTooltip()
+    const { tooltipId, hideTooltip, showTooltip, getTooltip, positionTooltip, pinTooltip } = useInsightTooltip({
+        isPinnable: true,
+    })
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -318,6 +363,13 @@ export function LineGraph_({
     const showAnnotations = ((isTrends && !isHorizontal) || isFunnels) && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
     const isHighlightBarMode = isBar && isStacked && isShiftPressed
+    const hasMultipleSeries = new Set(_datasets.map((d) => d.action?.order).filter((o) => o !== undefined)).size > 1
+    const effectiveZoomCallback = !isBar && !isHorizontal ? onDateRangeZoom : undefined
+    const zoomPluginOptions = useChartZoom({
+        datasets,
+        onDateRangeZoom: effectiveZoomCallback,
+        enabled: !!effectiveZoomCallback,
+    })
 
     useEffect(() => {
         if (!isShiftPressed) {
@@ -412,6 +464,44 @@ export function LineGraph_({
                   ctx.p1DataIndex >= incompleteStartIndex ? areaIncompletePattern : undefined
             : undefined
 
+        // Build anomaly point styling if this series has anomaly points.
+        // Match by date (not index) since the alert check data range may differ from the chart range.
+        const seriesAnomalyPoints = (anomalyPoints ?? []).filter(
+            (ap) => ap.seriesIndex === (dataset.seriesIndex ?? index)
+        )
+        const chartDays: string[] = dataset.days ?? dataset.labels ?? []
+        const anomalyDateSet = new Set(seriesAnomalyPoints.map((ap) => ap.date))
+        const anomalyScoreByDate: Record<string, number | null> = {}
+        for (const ap of seriesAnomalyPoints) {
+            anomalyScoreByDate[ap.date] = ap.score
+        }
+        // Resolve to chart indices by matching dates
+        const seriesAnomalyIndices = new Set<number>()
+        const anomalyScoresMap: Record<number, number | null> = {}
+        for (let i = 0; i < chartDays.length; i++) {
+            if (anomalyDateSet.has(chartDays[i])) {
+                seriesAnomalyIndices.add(i)
+                anomalyScoresMap[i] = anomalyScoreByDate[chartDays[i]] ?? null
+            }
+        }
+        const hasAnomalyPoints = seriesAnomalyIndices.size > 0
+
+        const anomalyPointRadius = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 3 : 0)
+            : undefined
+        const anomalyPointBackgroundColor = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? mainColor : 'transparent')
+            : undefined
+        const anomalyPointBorderColor = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? mainColor : 'transparent')
+            : undefined
+        const anomalyPointBorderWidth = hasAnomalyPoints
+            ? (ctx: any) => (seriesAnomalyIndices.has(ctx.dataIndex) ? 2 : 0)
+            : undefined
+
+        const defaultPointRadius = Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0
+        const defaultHitRadius = Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0
+
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
@@ -424,11 +514,15 @@ export function LineGraph_({
                 backgroundColor: incompleteSegmentBackgroundColor,
             },
             borderWidth: isBar ? 0 : 2,
-            pointRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 4 : 0,
-            hitRadius: Array.isArray(adjustedData) && adjustedData.length === 1 ? 8 : 0,
+            pointRadius: anomalyPointRadius ?? defaultPointRadius,
+            pointBackgroundColor: anomalyPointBackgroundColor,
+            pointBorderColor: anomalyPointBorderColor,
+            pointBorderWidth: anomalyPointBorderWidth,
+            hitRadius: hasAnomalyPoints ? 8 : defaultHitRadius,
             order: 1,
             ...(type === GraphType.Histogram ? { barPercentage: 1 } : {}),
             ...dataset,
+            anomalyScores: hasAnomalyPoints ? anomalyScoresMap : undefined,
             data: adjustedData,
             hoverBorderWidth: isBar ? 0 : 2,
             hoverBorderRadius: isBar ? 0 : 2,
@@ -446,6 +540,7 @@ export function LineGraph_({
                           colorMax: mainColor,
                           lineStyle: 'dotted',
                           width: 2,
+                          trendoffset: incompletenessOffsetFromEnd,
                       },
                   }
                 : {}),
@@ -456,7 +551,7 @@ export function LineGraph_({
         if (showPercentView) {
             return `${Number(value).toFixed(1)}%`
         }
-        return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+        return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView, baseCurrency)
     }
 
     function generateYaxesForLineGraph(
@@ -521,13 +616,17 @@ export function LineGraph_({
     Chart.register(annotationPlugin)
     Chart.register(chartTrendline)
 
-    const MAX_CHART_DATASETS = 50
+    // Chart.js locks up the main thread when rendering too many series, effectively
+    // freezing the browser. Cap the dataset count to keep the UI responsive.
+    const MAX_CHART_DATASETS = 150
+
     const { canvasRef, chartRef } = useChart({
         getConfig: () => {
             let filteredDatasets = datasets
             if (!isHorizontal) {
                 filteredDatasets = filteredDatasets.filter((data) => !getTrendsHidden(data as IndexedTrendResult))
             }
+
             if (filteredDatasets.length > MAX_CHART_DATASETS) {
                 filteredDatasets = filteredDatasets.slice(0, MAX_CHART_DATASETS)
             }
@@ -582,13 +681,14 @@ export function LineGraph_({
                     weight: 'normal',
                 },
             }
-            const xAxisTickCallback = featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN]
-                ? createXAxisTickCallback({
-                      interval: interval ?? 'day',
-                      allDays: filteredDatasets[0]?.days ?? [],
-                      timezone,
-                  })
-                : undefined
+            const xAxisTickCallback = createXAxisTickCallback({
+                interval: interval ?? 'day',
+                allDays: currentPeriodResult?.days ?? [],
+                timezone,
+                numericTickPrefix: isStickiness
+                    ? `${(interval ?? 'day').slice(0, 1).toUpperCase()}${(interval ?? 'day').slice(1)}`
+                    : undefined,
+            })
 
             const gridOptions: Partial<GridLineOptions> = {
                 color: (context) => {
@@ -671,7 +771,8 @@ export function LineGraph_({
                             return formatPercentStackAxisValue(
                                 trendsFilter,
                                 percentageValue || value,
-                                isPercentStackView
+                                isPercentStackView,
+                                baseCurrency
                             )
                         },
                         borderWidth: 2,
@@ -695,13 +796,13 @@ export function LineGraph_({
                                     position: annotation.position ?? 'end',
                                 },
                                 enter: () => {
-                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    const tooltipEl = document.getElementById('InsightTooltipWrapper-hover')
                                     if (tooltipEl) {
                                         tooltipEl.classList.add('opacity-0', 'invisible')
                                     }
                                 },
                                 leave: () => {
-                                    const tooltipEl = document.getElementById(`InsightTooltipWrapper-${tooltipId}`)
+                                    const tooltipEl = document.getElementById('InsightTooltipWrapper-hover')
                                     if (tooltipEl) {
                                         tooltipEl.classList.remove('opacity-0', 'invisible')
                                     }
@@ -719,6 +820,11 @@ export function LineGraph_({
                                 return
                             }
 
+                            if (effectiveZoomCallback && chart.isZoomingOrPanning?.()) {
+                                hideTooltip()
+                                return
+                            }
+
                             const [tooltipRoot, tooltipEl] = getTooltip()
                             if (tooltip.opacity === 0) {
                                 hideTooltip()
@@ -727,7 +833,7 @@ export function LineGraph_({
 
                             tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
                             tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                            tooltipEl.style.opacity = '1'
+                            showTooltip()
 
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0]
@@ -778,9 +884,34 @@ export function LineGraph_({
                                         interval={interval}
                                         dateRange={insightData?.resolved_date_range}
                                         showShiftKeyHint={isBar && isStacked && !isHighlightBarMode && !inSurveyView}
+                                        formatCompareLabel={tooltipConfig?.formatCompareLabel}
+                                        onClose={pinTooltip ? () => unpinTooltip(tooltipId) : undefined}
+                                        onRowClick={
+                                            onClick
+                                                ? (datum) => {
+                                                      onTooltipClick(
+                                                          datum.datasetIndex,
+                                                          datum.dataIndex,
+                                                          processedDatasets,
+                                                          onClick
+                                                      )
+                                                      unpinTooltip(tooltipId)
+                                                  }
+                                                : undefined
+                                        }
                                         renderSeries={(value, datum) => {
                                             const hasBreakdown =
                                                 datum.breakdown_value !== undefined && !!datum.breakdown_value
+
+                                            if (hasBreakdown && !hasMultipleSeries) {
+                                                const title = getDatumTitle(
+                                                    datum,
+                                                    breakdownFilter,
+                                                    tooltipConfig?.formatCompareLabel
+                                                )
+
+                                                return <div className="datum-label-column">{title}</div>
+                                            }
 
                                             return (
                                                 <div className="datum-label-column">
@@ -810,14 +941,15 @@ export function LineGraph_({
                                                         if (originalValue !== undefined && originalValue !== null) {
                                                             return `${value.toFixed(1)}% (${formatAggregationAxisValue(
                                                                 trendsFilter,
-                                                                originalValue
+                                                                originalValue,
+                                                                baseCurrency
                                                             )})`
                                                         }
                                                     }
                                                 }
 
                                                 if (!isPercentStackView) {
-                                                    return formatAggregationAxisValue(trendsFilter, value)
+                                                    return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
                                                 }
 
                                                 const total = seriesData.reduce((a, b) => a + b.count, 0)
@@ -828,12 +960,13 @@ export function LineGraph_({
                                                 const isNaN = Number.isNaN(percentageLabel)
 
                                                 if (isNaN) {
-                                                    return formatAggregationAxisValue(trendsFilter, value)
+                                                    return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
                                                 }
 
                                                 return `${formatAggregationAxisValue(
                                                     trendsFilter,
-                                                    value
+                                                    value,
+                                                    baseCurrency
                                                 )} (${percentageLabel}%)`
                                             })
                                         }
@@ -879,6 +1012,7 @@ export function LineGraph_({
                         : {
                               crosshair: false,
                           }),
+                    ...(zoomPluginOptions ? { zoom: zoomPluginOptions } : {}),
                 },
                 hover: {
                     mode: isBar ? 'point' : 'nearest',
@@ -887,6 +1021,13 @@ export function LineGraph_({
                 },
                 onHover(event: ChartEvent, elements: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
+
+                    if (effectiveZoomCallback) {
+                        const target = event.native?.target as HTMLElement | undefined
+                        if (target && target.style.cursor !== 'pointer') {
+                            target.style.cursor = 'crosshair'
+                        }
+                    }
 
                     // For stacked bar charts when shift is pressed, track hovered dataset to highlight only that bar
                     if (isHighlightBarMode) {
@@ -897,7 +1038,39 @@ export function LineGraph_({
                     }
                 },
                 onClick: (event: ChartEvent, _: ActiveElement[], chart: Chart) => {
-                    onChartClick(event, chart, processedDatasets, onClick)
+                    if (!pinTooltip) {
+                        onChartClick(event, chart, processedDatasets, onClick)
+                        return
+                    }
+
+                    // Only pin if the tooltip has multiple data points to choose from
+                    const tooltipBody = chart.tooltip?.body
+                    if (!tooltipBody || tooltipBody.length <= 1) {
+                        onChartClick(event, chart, processedDatasets, onClick)
+                        return
+                    }
+
+                    // Show the crosshair on click if it was enabled initially
+                    if ((chart as any).crosshair) {
+                        ;(chart as any).crosshair.enabled = true
+                    }
+
+                    const events = [...(chart.options.events ?? [])]
+                    chart.options.events = []
+                    chart.update('none')
+                    showTooltip()
+
+                    pinTooltip(() => {
+                        // Hide crosshair on tooltip unpin
+                        if ((chart as any).crosshair) {
+                            ;(chart as any).crosshair.enabled = false
+                        }
+
+                        // Reset chart back to initial events
+                        chart.options.events = events
+                        chart.setActiveElements([])
+                        chart.update('none')
+                    })
                 },
             }
 
@@ -939,7 +1112,12 @@ export function LineGraph_({
                             display: !hideYAxis,
                             precision,
                             callback: (value) => {
-                                return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+                                return formatPercentStackAxisValue(
+                                    trendsFilter,
+                                    value,
+                                    isPercentStackView,
+                                    baseCurrency
+                                )
                             },
                         },
                         grid: gridOptions,
@@ -996,7 +1174,12 @@ export function LineGraph_({
                             ...tickOptions,
                             precision,
                             callback: (value) => {
-                                return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+                                return formatPercentStackAxisValue(
+                                    trendsFilter,
+                                    value,
+                                    isPercentStackView,
+                                    baseCurrency
+                                )
                             },
                         },
                         grid: gridOptions,
@@ -1094,13 +1277,19 @@ export function LineGraph_({
             isArea,
             showTrendLines,
             labels,
+            legend?.display,
             hideTooltip,
+            showTooltip,
             getTooltip,
+            pinTooltip,
             hoveredDatasetIndex,
             setHoveredDatasetIndex,
             isHighlightBarMode,
             interval,
             timezone,
+            effectiveZoomCallback,
+            zoomPluginOptions,
+            anomalyPoints,
         ],
     })
 

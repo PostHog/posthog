@@ -1,508 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
-        "ActionCreateSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "Name of the action (must be unique within the project)"
-                },
-                "description": {
-                    "description": "Description of what this action represents",
-                    "type": "string"
-                },
-                "steps": {
-                    "minItems": 1,
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "event": {
-                                "description": "Event name (e.g., '$pageview', '$autocapture', or custom event name)",
-                                "type": "string"
-                            },
-                            "properties": {
-                                "description": "Event properties to filter on",
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "key": {
-                                            "type": "string",
-                                            "description": "Property key"
-                                        },
-                                        "value": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "boolean"
-                                                },
-                                                {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "string"
-                                                    }
-                                                },
-                                                {
-                                                    "type": "array",
-                                                    "items": {
-                                                        "type": "number"
-                                                    }
-                                                }
-                                            ],
-                                            "description": "Property value to match"
-                                        },
-                                        "operator": {
-                                            "description": "Comparison operator (default: exact)",
-                                            "type": "string",
-                                            "enum": [
-                                                "exact",
-                                                "is_not",
-                                                "is_set",
-                                                "is_not_set",
-                                                "icontains",
-                                                "not_icontains",
-                                                "regex",
-                                                "not_regex",
-                                                "gt",
-                                                "gte",
-                                                "lt",
-                                                "lte"
-                                            ]
-                                        },
-                                        "type": {
-                                            "description": "Property type",
-                                            "type": "string",
-                                            "enum": ["event", "person"]
-                                        }
-                                    },
-                                    "required": ["key", "value"]
-                                }
-                            },
-                            "tag_name": {
-                                "description": "HTML tag name to match (e.g., \"button\", \"a\", \"input\")",
-                                "type": "string"
-                            },
-                            "text": {
-                                "description": "Element text content to match",
-                                "type": "string"
-                            },
-                            "text_matching": {
-                                "description": "How to match text (default: exact)",
-                                "type": "string",
-                                "enum": ["contains", "regex", "exact"]
-                            },
-                            "href": {
-                                "description": "Link href attribute to match",
-                                "type": "string"
-                            },
-                            "href_matching": {
-                                "description": "How to match href (default: exact)",
-                                "type": "string",
-                                "enum": ["contains", "regex", "exact"]
-                            },
-                            "selector": {
-                                "description": "CSS selector to match element",
-                                "type": "string"
-                            },
-                            "url": {
-                                "description": "Page URL to match",
-                                "type": "string"
-                            },
-                            "url_matching": {
-                                "description": "How to match URL (default: contains)",
-                                "type": "string",
-                                "enum": ["contains", "regex", "exact"]
-                            }
-                        }
-                    },
-                    "description": "Action steps - each step defines a trigger condition. Multiple steps are OR-ed together."
-                },
-                "tags": {
-                    "description": "Tags for organizing actions",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "post_to_slack": {
-                    "description": "Whether to post to Slack when this action is triggered",
-                    "default": false,
-                    "type": "boolean"
-                },
-                "slack_message_format": {
-                    "description": "Custom Slack message format",
-                    "type": "string"
-                }
-            },
-            "required": ["name", "steps"]
-        },
-        "ActionDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "actionId": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991,
-                    "description": "The ID of the action to delete"
-                }
-            },
-            "required": ["actionId"]
-        },
-        "ActionGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "description": "Maximum number of actions to return",
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "offset": {
-                            "description": "Number of actions to skip for pagination",
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                        }
-                    }
-                }
-            }
-        },
-        "ActionGetSchema": {
-            "type": "object",
-            "properties": {
-                "actionId": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991,
-                    "description": "The ID of the action to retrieve"
-                }
-            },
-            "required": ["actionId"]
-        },
-        "ActionUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "actionId": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991,
-                    "description": "The ID of the action to update"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "description": "Updated action name",
-                            "type": "string",
-                            "minLength": 1
-                        },
-                        "description": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Updated description"
-                        },
-                        "steps": {
-                            "description": "Updated action steps",
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "event": {
-                                        "description": "Event name (e.g., '$pageview', '$autocapture', or custom event name)",
-                                        "type": "string"
-                                    },
-                                    "properties": {
-                                        "description": "Event properties to filter on",
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "key": {
-                                                    "type": "string",
-                                                    "description": "Property key"
-                                                },
-                                                "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "boolean"
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "string"
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "number"
-                                                            }
-                                                        }
-                                                    ],
-                                                    "description": "Property value to match"
-                                                },
-                                                "operator": {
-                                                    "description": "Comparison operator (default: exact)",
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "exact",
-                                                        "is_not",
-                                                        "is_set",
-                                                        "is_not_set",
-                                                        "icontains",
-                                                        "not_icontains",
-                                                        "regex",
-                                                        "not_regex",
-                                                        "gt",
-                                                        "gte",
-                                                        "lt",
-                                                        "lte"
-                                                    ]
-                                                },
-                                                "type": {
-                                                    "description": "Property type",
-                                                    "type": "string",
-                                                    "enum": ["event", "person"]
-                                                }
-                                            },
-                                            "required": ["key", "value"]
-                                        }
-                                    },
-                                    "tag_name": {
-                                        "description": "HTML tag name to match (e.g., \"button\", \"a\", \"input\")",
-                                        "type": "string"
-                                    },
-                                    "text": {
-                                        "description": "Element text content to match",
-                                        "type": "string"
-                                    },
-                                    "text_matching": {
-                                        "description": "How to match text (default: exact)",
-                                        "type": "string",
-                                        "enum": ["contains", "regex", "exact"]
-                                    },
-                                    "href": {
-                                        "description": "Link href attribute to match",
-                                        "type": "string"
-                                    },
-                                    "href_matching": {
-                                        "description": "How to match href (default: exact)",
-                                        "type": "string",
-                                        "enum": ["contains", "regex", "exact"]
-                                    },
-                                    "selector": {
-                                        "description": "CSS selector to match element",
-                                        "type": "string"
-                                    },
-                                    "url": {
-                                        "description": "Page URL to match",
-                                        "type": "string"
-                                    },
-                                    "url_matching": {
-                                        "description": "How to match URL (default: contains)",
-                                        "type": "string",
-                                        "enum": ["contains", "regex", "exact"]
-                                    }
-                                }
-                            }
-                        },
-                        "tags": {
-                            "description": "Updated tags",
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        },
-                        "post_to_slack": {
-                            "description": "Whether to post to Slack",
-                            "type": "boolean"
-                        },
-                        "slack_message_format": {
-                            "description": "Custom Slack message format",
-                            "type": "string"
-                        },
-                        "pinned_at": {
-                            "description": "Pin timestamp (set to pin, null to unpin)",
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        }
-                    }
-                }
-            },
-            "required": ["actionId", "data"]
-        },
-        "DashboardAddInsightSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "insightId": {
-                            "type": "string"
-                        },
-                        "dashboardId": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        }
-                    },
-                    "required": ["insightId", "dashboardId"]
-                }
-            },
-            "required": ["data"]
-        },
-        "DashboardCreateSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "minLength": 1
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "pinned": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "required": ["name"]
-                }
-            },
-            "required": ["data"]
-        },
-        "DashboardDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "number"
-                }
-            },
-            "required": ["dashboardId"]
-        },
-        "DashboardGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "search": {
-                            "type": "string"
-                        },
-                        "pinned": {
-                            "type": "boolean"
-                        }
-                    }
-                }
-            }
-        },
-        "DashboardGetSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "number"
-                }
-            },
-            "required": ["dashboardId"]
-        },
-        "DashboardReorderTilesSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991,
-                    "description": "The ID of the dashboard to reorder tiles on"
-                },
-                "tileOrder": {
-                    "minItems": 1,
-                    "type": "array",
-                    "items": {
-                        "type": "integer",
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991
-                    },
-                    "description": "Array of tile IDs in the desired order from top to bottom"
-                }
-            },
-            "required": ["dashboardId", "tileOrder"]
-        },
-        "DashboardUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "number"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "pinned": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "required": ["dashboardId", "data"]
-        },
         "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {
@@ -549,72 +47,6 @@
                 }
             },
             "required": ["query"]
-        },
-        "ErrorTrackingDetailsSchema": {
-            "type": "object",
-            "properties": {
-                "issueId": {
-                    "type": "string"
-                },
-                "dateFrom": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                },
-                "dateTo": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                }
-            },
-            "required": ["issueId"]
-        },
-        "ErrorTrackingListSchema": {
-            "type": "object",
-            "properties": {
-                "orderBy": {
-                    "type": "string",
-                    "enum": ["occurrences", "first_seen", "last_seen", "users", "sessions"]
-                },
-                "dateFrom": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                },
-                "dateTo": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                },
-                "orderDirection": {
-                    "type": "string",
-                    "enum": ["ASC", "DESC"]
-                },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
-                "status": {
-                    "type": "string",
-                    "enum": ["active", "resolved", "archived", "suppressed", "pending_release", "all"]
-                }
-            }
-        },
-        "ErrorTrackingUpdateIssueStatusSchema": {
-            "type": "object",
-            "properties": {
-                "issueId": {
-                    "type": "string",
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-                    "description": "The ID of the error tracking issue to update"
-                },
-                "status": {
-                    "type": "string",
-                    "enum": ["active", "resolved", "archived", "suppressed", "pending_release"],
-                    "description": "The new status for the issue: active, resolved, archived, suppressed, or pending_release"
-                }
-            },
-            "required": ["issueId", "status"]
         },
         "EventDefinitionUpdateInputSchema": {
             "type": "object",
@@ -885,14 +317,20 @@
                                 "description": "Human-readable variant name",
                                 "type": "string"
                             },
-                            "rollout_percentage": {
+                            "split_percent": {
+                                "description": "Percentage of traffic allocated to this variant (0-100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage (deprecated) must be provided per variant.",
                                 "type": "number",
                                 "minimum": 0,
-                                "maximum": 100,
-                                "description": "Percentage of users to show this variant"
+                                "maximum": 100
+                            },
+                            "rollout_percentage": {
+                                "description": "Deprecated: use split_percent instead. Accepted for backward compatibility.",
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 100
                             }
                         },
-                        "required": ["key", "rollout_percentage"]
+                        "required": ["key"]
                     }
                 },
                 "minimum_detectable_effect": {
@@ -921,63 +359,28 @@
                 "holdout_id": {
                     "description": "Holdout group ID if this experiment should exclude users from other experiments",
                     "type": "number"
+                },
+                "allow_unknown_events": {
+                    "description": "Set to true to skip validation that event names exist in the project. Use when intentionally referencing events that have not been ingested yet.",
+                    "type": "boolean"
                 }
             },
             "required": ["name", "feature_flag_key"]
         },
-        "ExperimentDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "experimentId": {
-                    "type": "number",
-                    "description": "The ID of the experiment to delete"
-                }
-            },
-            "required": ["experimentId"]
-        },
-        "ExperimentGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                        }
-                    }
-                }
-            }
-        },
-        "ExperimentGetSchema": {
-            "type": "object",
-            "properties": {
-                "experimentId": {
-                    "type": "number",
-                    "description": "The ID of the experiment to retrieve"
-                }
-            },
-            "required": ["experimentId"]
-        },
         "ExperimentResultsGetSchema": {
             "type": "object",
             "properties": {
-                "experimentId": {
+                "id": {
                     "type": "number",
                     "description": "The ID of the experiment to get comprehensive results for"
                 },
                 "refresh": {
-                    "type": "boolean",
-                    "description": "Force refresh of results instead of using cached values"
+                    "default": false,
+                    "description": "Force refresh of results instead of using cached values. Defaults to false.",
+                    "type": "boolean"
                 }
             },
-            "required": ["experimentId", "refresh"]
+            "required": ["id"]
         },
         "ExperimentUpdateInputSchema": {
             "type": "object",
@@ -1394,387 +797,32 @@
             },
             "required": ["experimentId", "data"]
         },
-        "FeatureFlagCreateSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "key": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "filters": {
-                    "type": "object",
-                    "properties": {
-                        "groups": {
-                            "minItems": 1,
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "properties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "key": {
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "boolean"
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "string"
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "number"
-                                                            }
-                                                        }
-                                                    ]
-                                                },
-                                                "operator": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "exact",
-                                                        "is_not",
-                                                        "is_set",
-                                                        "is_not_set",
-                                                        "icontains",
-                                                        "not_icontains",
-                                                        "regex",
-                                                        "not_regex",
-                                                        "gt",
-                                                        "gte",
-                                                        "lt",
-                                                        "lte"
-                                                    ]
-                                                }
-                                            },
-                                            "required": ["key", "value"]
-                                        }
-                                    },
-                                    "rollout_percentage": {
-                                        "type": "number"
-                                    },
-                                    "variant": {
-                                        "description": "Variant key to serve for this condition (for multivariate flags)",
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["properties", "rollout_percentage"]
-                            }
-                        },
-                        "multivariate": {
-                            "description": "Multivariate configuration with variant definitions",
-                            "type": "object",
-                            "properties": {
-                                "variants": {
-                                    "minItems": 2,
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "key": {
-                                                "type": "string",
-                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
-                                            },
-                                            "name": {
-                                                "description": "Human-readable name for this variant",
-                                                "type": "string"
-                                            },
-                                            "rollout_percentage": {
-                                                "type": "integer",
-                                                "minimum": 0,
-                                                "maximum": 100,
-                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer."
-                                            }
-                                        },
-                                        "required": ["key", "rollout_percentage"]
-                                    }
-                                }
-                            },
-                            "required": ["variants"]
-                        }
-                    },
-                    "required": ["groups"]
-                },
-                "active": {
-                    "type": "boolean"
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
+        "ExternalDataJobsAfterSchema": {
+            "type": "string",
+            "description": "ISO timestamp — only return jobs created after this date (e.g. \"2025-01-01T00:00:00Z\")."
+        },
+        "ExternalDataJobsBeforeSchema": {
+            "type": "string",
+            "description": "ISO timestamp — only return jobs created before this date (e.g. \"2025-12-31T23:59:59Z\")."
+        },
+        "ExternalDataJobsSchemasSchema": {
+            "type": "array",
+            "items": {
+                "type": "string"
             },
-            "required": ["name", "key", "description", "filters", "active"]
+            "description": "Filter jobs by table schema names (e.g. [\"users\", \"orders\"]). Only returns jobs for these tables."
         },
-        "FeatureFlagDeleteSchema": {
+        "ExternalDataSourcePayloadSchema": {
             "type": "object",
-            "properties": {
-                "flagKey": {
-                    "type": "string"
-                }
+            "propertyNames": {
+                "type": "string"
             },
-            "required": ["flagKey"]
+            "additionalProperties": {},
+            "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type."
         },
-        "FeatureFlagGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                        }
-                    }
-                }
-            }
-        },
-        "FeatureFlagGetDefinitionSchema": {
-            "type": "object",
-            "properties": {
-                "flagId": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
-                },
-                "flagKey": {
-                    "type": "string"
-                }
-            }
-        },
-        "FeatureFlagUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "flagKey": {
-                    "type": "string"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "filters": {
-                            "type": "object",
-                            "properties": {
-                                "groups": {
-                                    "minItems": 1,
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "properties": {
-                                                "type": "array",
-                                                "items": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "key": {
-                                                            "type": "string"
-                                                        },
-                                                        "value": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                },
-                                                                {
-                                                                    "type": "array",
-                                                                    "items": {
-                                                                        "type": "string"
-                                                                    }
-                                                                },
-                                                                {
-                                                                    "type": "array",
-                                                                    "items": {
-                                                                        "type": "number"
-                                                                    }
-                                                                }
-                                                            ]
-                                                        },
-                                                        "operator": {
-                                                            "type": "string",
-                                                            "enum": [
-                                                                "exact",
-                                                                "is_not",
-                                                                "is_set",
-                                                                "is_not_set",
-                                                                "icontains",
-                                                                "not_icontains",
-                                                                "regex",
-                                                                "not_regex",
-                                                                "gt",
-                                                                "gte",
-                                                                "lt",
-                                                                "lte"
-                                                            ]
-                                                        }
-                                                    },
-                                                    "required": ["key", "value"]
-                                                }
-                                            },
-                                            "rollout_percentage": {
-                                                "type": "number"
-                                            },
-                                            "variant": {
-                                                "description": "Variant key to serve for this condition (for multivariate flags)",
-                                                "anyOf": [
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ]
-                                            }
-                                        },
-                                        "required": ["properties", "rollout_percentage"]
-                                    }
-                                },
-                                "multivariate": {
-                                    "description": "Multivariate configuration with variant definitions",
-                                    "type": "object",
-                                    "properties": {
-                                        "variants": {
-                                            "minItems": 2,
-                                            "type": "array",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "key": {
-                                                        "type": "string",
-                                                        "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
-                                                    },
-                                                    "name": {
-                                                        "description": "Human-readable name for this variant",
-                                                        "type": "string"
-                                                    },
-                                                    "rollout_percentage": {
-                                                        "type": "integer",
-                                                        "minimum": 0,
-                                                        "maximum": 100,
-                                                        "description": "Percentage of users who will see this variant (0-100). Must be an integer."
-                                                    }
-                                                },
-                                                "required": ["key", "rollout_percentage"]
-                                            }
-                                        }
-                                    },
-                                    "required": ["variants"]
-                                }
-                            },
-                            "required": ["groups"]
-                        },
-                        "active": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "required": ["flagKey", "data"]
-        },
-        "InsightCreateSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "query": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string",
-                                            "const": "InsightVizNode"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "const": "DataVisualizationNode"
-                                        }
-                                    ]
-                                },
-                                "source": {
-                                    "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused."
-                                }
-                            },
-                            "required": ["kind", "source"]
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "required": ["name", "query", "favorited"]
-                }
-            },
-            "required": ["data"]
-        },
-        "InsightDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                }
-            },
-            "required": ["insightId"]
+        "ExternalDataSourceTypeSchema": {
+            "type": "string",
+            "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields."
         },
         "InsightGenerateHogQLFromQuestionSchema": {
             "type": "object",
@@ -1787,106 +835,21 @@
             },
             "required": ["question"]
         },
-        "InsightGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "number"
-                        },
-                        "offset": {
-                            "type": "number"
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "search": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "InsightGetSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                }
-            },
-            "required": ["insightId"]
-        },
         "InsightQueryInputSchema": {
             "type": "object",
             "properties": {
                 "insightId": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "The insight ID or short_id to run."
+                },
+                "output_format": {
+                    "default": "optimized",
+                    "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+                    "type": "string",
+                    "enum": ["optimized", "json"]
                 }
             },
             "required": ["insightId"]
-        },
-        "InsightUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "insightId": {
-                    "type": "string"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "filters": {
-                            "type": "object",
-                            "propertyNames": {
-                                "type": "string"
-                            },
-                            "additionalProperties": {}
-                        },
-                        "query": {
-                            "type": "object",
-                            "properties": {
-                                "kind": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string",
-                                            "const": "InsightVizNode"
-                                        },
-                                        {
-                                            "type": "string",
-                                            "const": "DataVisualizationNode"
-                                        }
-                                    ]
-                                },
-                                "source": {
-                                    "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused"
-                                }
-                            },
-                            "required": ["kind", "source"]
-                        },
-                        "favorited": {
-                            "type": "boolean"
-                        },
-                        "dashboard": {
-                            "type": "number"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "required": ["query"]
-                }
-            },
-            "required": ["insightId", "data"]
         },
         "LLMAnalyticsGetCostsSchema": {
             "type": "object",
@@ -1901,170 +864,6 @@
                 }
             },
             "required": ["projectId"]
-        },
-        "LogsListAttributeValuesInputSchema": {
-            "type": "object",
-            "properties": {
-                "key": {
-                    "type": "string",
-                    "description": "The attribute key to get values for"
-                },
-                "attributeType": {
-                    "description": "Type of attribute: \"log\" for log attributes, \"resource\" for resource attributes (default: log)",
-                    "type": "string",
-                    "enum": ["log", "resource"]
-                },
-                "search": {
-                    "description": "Search filter for attribute values",
-                    "type": "string"
-                }
-            },
-            "required": ["key"]
-        },
-        "LogsListAttributesInputSchema": {
-            "type": "object",
-            "properties": {
-                "search": {
-                    "description": "Search filter for attribute names",
-                    "type": "string"
-                },
-                "attributeType": {
-                    "description": "Type of attributes to list: \"log\" for log attributes, \"resource\" for resource attributes (default: log)",
-                    "type": "string",
-                    "enum": ["log", "resource"]
-                },
-                "limit": {
-                    "description": "Maximum number of results (1-100, default: 100)",
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 100
-                },
-                "offset": {
-                    "description": "Offset for pagination (default: 0)",
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 9007199254740991
-                }
-            }
-        },
-        "LogsQueryInputSchema": {
-            "type": "object",
-            "properties": {
-                "dateFrom": {
-                    "type": "string",
-                    "description": "Start of date range (ISO 8601 format, e.g., \"2024-01-01T00:00:00Z\")"
-                },
-                "dateTo": {
-                    "type": "string",
-                    "description": "End of date range (ISO 8601 format, e.g., \"2024-01-02T00:00:00Z\")"
-                },
-                "severityLevels": {
-                    "description": "Filter by severity levels (trace, debug, info, warn, error, fatal)",
-                    "type": "array",
-                    "items": {
-                        "type": "string",
-                        "enum": ["trace", "debug", "info", "warn", "error", "fatal"]
-                    }
-                },
-                "serviceNames": {
-                    "description": "Filter by service names",
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "filters": {
-                    "description": "Structured attribute filters. Each filter targets a log field or attribute. Combined with AND by default (use filtersType to change).",
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "key": {
-                                "type": "string",
-                                "description": "The attribute key to filter on. For type \"log\", use \"message\" to filter the log body. For \"log_attribute\" or \"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\")."
-                            },
-                            "type": {
-                                "type": "string",
-                                "enum": ["log", "log_attribute", "log_resource_attribute"],
-                                "description": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes (e.g. k8s labels)."
-                            },
-                            "operator": {
-                                "type": "string",
-                                "enum": [
-                                    "exact",
-                                    "is_not",
-                                    "icontains",
-                                    "not_icontains",
-                                    "regex",
-                                    "not_regex",
-                                    "is_set",
-                                    "is_not_set",
-                                    "gt",
-                                    "gte",
-                                    "lt",
-                                    "lte",
-                                    "in",
-                                    "not_in"
-                                ],
-                                "description": "Comparison operator"
-                            },
-                            "value": {
-                                "description": "Value to compare against. Omit for is_set/is_not_set operators.",
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "number"
-                                    },
-                                    {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string"
-                                        }
-                                    },
-                                    {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "number"
-                                        }
-                                    }
-                                ]
-                            }
-                        },
-                        "required": ["key", "type", "operator"]
-                    }
-                },
-                "filtersType": {
-                    "description": "Logical operator to combine filters (default: AND)",
-                    "type": "string",
-                    "enum": ["AND", "OR"]
-                },
-                "orderBy": {
-                    "description": "Order results by timestamp (default: latest)",
-                    "type": "string",
-                    "enum": ["latest", "earliest"]
-                },
-                "limit": {
-                    "description": "Maximum number of results (1-1000, default: 100)",
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 1000
-                },
-                "after": {
-                    "description": "Cursor for pagination (from previous response nextCursor)",
-                    "type": "string"
-                }
-            },
-            "required": ["dateFrom", "dateTo"]
-        },
-        "OrganizationGetAllSchema": {
-            "type": "object",
-            "properties": {}
-        },
-        "OrganizationGetDetailsSchema": {
-            "type": "object",
-            "properties": {}
         },
         "OrganizationSetActiveSchema": {
             "type": "object",
@@ -2138,65 +937,20 @@
             },
             "required": ["projectId"]
         },
-        "PromptCreateSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "pattern": "^[a-zA-Z0-9_-]+$",
-                    "description": "Unique name (letters, numbers, hyphens, underscores only)"
-                },
-                "prompt": {
-                    "description": "The prompt content (string or JSON object)"
-                }
-            },
-            "required": ["name", "prompt"]
-        },
-        "PromptGetSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "pattern": "^[a-zA-Z0-9_-]+$",
-                    "description": "The name of the prompt to retrieve"
-                },
-                "version": {
-                    "description": "Specific version number to retrieve. Omit for latest",
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
-                }
-            },
-            "required": ["name"]
-        },
-        "PromptListSchema": {
+        "PromptListInputSchema": {
             "type": "object",
             "properties": {
                 "search": {
-                    "description": "Filter prompts by name",
+                    "description": "Optional substring filter applied to prompt names and prompt content.",
                     "type": "string"
+                },
+                "content": {
+                    "default": "none",
+                    "description": "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.",
+                    "type": "string",
+                    "enum": ["full", "preview", "none"]
                 }
             }
-        },
-        "PromptUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "pattern": "^[a-zA-Z0-9_-]+$",
-                    "description": "The name of the prompt to update"
-                },
-                "prompt": {
-                    "description": "The updated prompt content"
-                },
-                "base_version": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991,
-                    "description": "The version number you are basing this update on (for conflict detection)"
-                }
-            },
-            "required": ["name", "prompt", "base_version"]
         },
         "QueryRunInputSchema": {
             "type": "object",
@@ -3742,6 +2496,163 @@
                                 }
                             },
                             "required": ["kind", "source"]
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "type": "string",
+                                    "const": "HogQLQuery"
+                                },
+                                "query": {
+                                    "type": "string"
+                                },
+                                "filters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "properties": {
+                                            "type": "array",
+                                            "items": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "key": {
+                                                                "type": "string"
+                                                            },
+                                                            "value": {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "anyOf": [
+                                                                            {
+                                                                                "type": "string"
+                                                                            },
+                                                                            {
+                                                                                "type": "number"
+                                                                            },
+                                                                            {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "string"
+                                                                                }
+                                                                            },
+                                                                            {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "number"
+                                                                                }
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    {
+                                                                        "type": "null"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "operator": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["key"]
+                                                    },
+                                                    {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "type": {
+                                                                "type": "string",
+                                                                "enum": ["AND", "OR"]
+                                                            },
+                                                            "values": {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "key": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "value": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "anyOf": [
+                                                                                        {
+                                                                                            "type": "string"
+                                                                                        },
+                                                                                        {
+                                                                                            "type": "number"
+                                                                                        },
+                                                                                        {
+                                                                                            "type": "array",
+                                                                                            "items": {
+                                                                                                "type": "string"
+                                                                                            }
+                                                                                        },
+                                                                                        {
+                                                                                            "type": "array",
+                                                                                            "items": {
+                                                                                                "type": "number"
+                                                                                            }
+                                                                                        }
+                                                                                    ]
+                                                                                },
+                                                                                {
+                                                                                    "type": "null"
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "operator": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "type": {
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "required": ["key"]
+                                                                }
+                                                            }
+                                                        },
+                                                        "required": ["type", "values"]
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "dateRange": {
+                                            "type": "object",
+                                            "properties": {
+                                                "date_from": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "date_to": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ]
+                                                },
+                                                "explicitDate": {
+                                                    "type": "boolean"
+                                                }
+                                            }
+                                        },
+                                        "filterTestAccounts": {
+                                            "type": "boolean"
+                                        }
+                                    }
+                                }
+                            },
+                            "required": ["kind", "query"]
                         }
                     ]
                 }
@@ -3759,6 +2670,20 @@
                                 "kind": {
                                     "type": "string",
                                     "const": "events"
+                                },
+                                "limit": {
+                                    "description": "Number of events to return per page.",
+                                    "default": 500,
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 500
+                                },
+                                "offset": {
+                                    "description": "Number of events to skip for pagination.",
+                                    "default": 0,
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
                                 }
                             },
                             "required": ["kind"]
@@ -3874,1736 +2799,9 @@
             "properties": {},
             "description": "No input required. Returns core data warehouse schemas."
         },
-        "SurveyCreateSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "minLength": 1
-                },
-                "description": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string",
-                    "enum": ["popover", "api", "widget", "external_survey"]
-                },
-                "questions": {
-                    "minItems": 1,
-                    "type": "array",
-                    "items": {
-                        "anyOf": [
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "open"
-                                    }
-                                },
-                                "required": ["question", "type"]
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "link"
-                                    },
-                                    "link": {
-                                        "type": "string",
-                                        "format": "uri"
-                                    }
-                                },
-                                "required": ["question", "type", "link"]
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "rating"
-                                    },
-                                    "display": {
-                                        "description": "Display format: 'number' shows numeric scale, 'emoji' shows emoji scale",
-                                        "type": "string",
-                                        "enum": ["number", "emoji"]
-                                    },
-                                    "scale": {
-                                        "description": "Rating scale can be one of 3, 5, or 7",
-                                        "anyOf": [
-                                            {
-                                                "type": "number",
-                                                "const": 3
-                                            },
-                                            {
-                                                "type": "number",
-                                                "const": 5
-                                            },
-                                            {
-                                                "type": "number",
-                                                "const": 7
-                                            }
-                                        ]
-                                    },
-                                    "lowerBoundLabel": {
-                                        "description": "Label for the lowest rating (e.g., 'Very Poor')",
-                                        "type": "string"
-                                    },
-                                    "upperBoundLabel": {
-                                        "description": "Label for the highest rating (e.g., 'Excellent')",
-                                        "type": "string"
-                                    },
-                                    "branching": {
-                                        "anyOf": [
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "next_question"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "end"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "response_based"
-                                                    },
-                                                    "responseValues": {
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "negative": {
-                                                                "description": "Lower third of scale",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            },
-                                                            "neutral": {
-                                                                "description": "Middle third of scale",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            },
-                                                            "positive": {
-                                                                "description": "Upper third of scale",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            }
-                                                        },
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
-                                                    }
-                                                },
-                                                "required": ["type", "responseValues"],
-                                                "description": "For rating questions: use sentiment keys based on scale thirds - negative (lower third), neutral (middle third), positive (upper third)"
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "specific_question"
-                                                    },
-                                                    "index": {
-                                                        "type": "number"
-                                                    }
-                                                },
-                                                "required": ["type", "index"]
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["question", "type"]
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "rating"
-                                    },
-                                    "display": {
-                                        "type": "string",
-                                        "const": "number",
-                                        "description": "NPS questions always use numeric scale"
-                                    },
-                                    "scale": {
-                                        "type": "number",
-                                        "const": 10,
-                                        "description": "NPS questions always use 0-10 scale"
-                                    },
-                                    "lowerBoundLabel": {
-                                        "description": "Label for 0 rating (typically 'Not at all likely')",
-                                        "type": "string"
-                                    },
-                                    "upperBoundLabel": {
-                                        "description": "Label for 10 rating (typically 'Extremely likely')",
-                                        "type": "string"
-                                    },
-                                    "branching": {
-                                        "anyOf": [
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "next_question"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "end"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "response_based"
-                                                    },
-                                                    "responseValues": {
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "detractors": {
-                                                                "description": "NPS detractors (0-6)",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            },
-                                                            "passives": {
-                                                                "description": "NPS passives (7-8)",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            },
-                                                            "promoters": {
-                                                                "description": "NPS promoters (9-10)",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            }
-                                                        },
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
-                                                    }
-                                                },
-                                                "required": ["type", "responseValues"],
-                                                "description": "For NPS rating questions: use sentiment keys based on score ranges - detractors (0-6), passives (7-8), promoters (9-10)"
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "specific_question"
-                                                    },
-                                                    "index": {
-                                                        "type": "number"
-                                                    }
-                                                },
-                                                "required": ["type", "index"]
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["question", "type", "display", "scale"]
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "single_choice"
-                                    },
-                                    "choices": {
-                                        "minItems": 2,
-                                        "maxItems": 20,
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string",
-                                            "minLength": 1
-                                        },
-                                        "description": "Array of choice options. Choice indices (0, 1, 2, etc.) are used for branching logic"
-                                    },
-                                    "shuffleOptions": {
-                                        "description": "Whether to randomize the order of choices for each respondent",
-                                        "type": "boolean"
-                                    },
-                                    "hasOpenChoice": {
-                                        "description": "Whether the last choice (typically 'Other', is an open text input question",
-                                        "type": "boolean"
-                                    },
-                                    "branching": {
-                                        "anyOf": [
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "next_question"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "end"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "response_based"
-                                                    },
-                                                    "responseValues": {
-                                                        "type": "object",
-                                                        "propertyNames": {
-                                                            "type": "string"
-                                                        },
-                                                        "additionalProperties": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "string",
-                                                                    "const": "end"
-                                                                }
-                                                            ]
-                                                        },
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
-                                                    }
-                                                },
-                                                "required": ["type", "responseValues"],
-                                                "description": "For single choice questions: use choice indices as string keys (\"0\", \"1\", \"2\", etc.)"
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "specific_question"
-                                                    },
-                                                    "index": {
-                                                        "type": "number"
-                                                    }
-                                                },
-                                                "required": ["type", "index"]
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["question", "type", "choices"]
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "multiple_choice"
-                                    },
-                                    "choices": {
-                                        "minItems": 2,
-                                        "maxItems": 20,
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string",
-                                            "minLength": 1
-                                        },
-                                        "description": "Array of choice options. Multiple selections allowed. No branching logic supported."
-                                    },
-                                    "shuffleOptions": {
-                                        "description": "Whether to randomize the order of choices for each respondent",
-                                        "type": "boolean"
-                                    },
-                                    "hasOpenChoice": {
-                                        "description": "Whether the last choice (typically 'Other', is an open text input question",
-                                        "type": "boolean"
-                                    }
-                                },
-                                "required": ["question", "type", "choices"]
-                            }
-                        ]
-                    }
-                },
-                "appearance": {
-                    "type": "object",
-                    "properties": {
-                        "backgroundColor": {
-                            "type": "string"
-                        },
-                        "submitButtonColor": {
-                            "type": "string"
-                        },
-                        "textColor": {
-                            "type": "string"
-                        },
-                        "submitButtonText": {
-                            "type": "string"
-                        },
-                        "submitButtonTextColor": {
-                            "type": "string"
-                        },
-                        "descriptionTextColor": {
-                            "type": "string"
-                        },
-                        "ratingButtonColor": {
-                            "type": "string"
-                        },
-                        "ratingButtonActiveColor": {
-                            "type": "string"
-                        },
-                        "ratingButtonHoverColor": {
-                            "type": "string"
-                        },
-                        "whiteLabel": {
-                            "type": "boolean"
-                        },
-                        "autoDisappear": {
-                            "type": "boolean"
-                        },
-                        "displayThankYouMessage": {
-                            "type": "boolean"
-                        },
-                        "thankYouMessageHeader": {
-                            "type": "string"
-                        },
-                        "thankYouMessageDescription": {
-                            "type": "string"
-                        },
-                        "thankYouMessageDescriptionContentType": {
-                            "type": "string",
-                            "enum": ["html", "text"]
-                        },
-                        "thankYouMessageCloseButtonText": {
-                            "type": "string"
-                        },
-                        "borderColor": {
-                            "type": "string"
-                        },
-                        "placeholder": {
-                            "type": "string"
-                        },
-                        "shuffleQuestions": {
-                            "type": "boolean"
-                        },
-                        "surveyPopupDelaySeconds": {
-                            "type": "number"
-                        },
-                        "widgetType": {
-                            "type": "string",
-                            "enum": ["button", "tab", "selector"]
-                        },
-                        "widgetSelector": {
-                            "type": "string"
-                        },
-                        "widgetLabel": {
-                            "type": "string"
-                        },
-                        "widgetColor": {
-                            "type": "string"
-                        },
-                        "fontFamily": {
-                            "type": "string"
-                        },
-                        "maxWidth": {
-                            "type": "string"
-                        },
-                        "zIndex": {
-                            "type": "string"
-                        },
-                        "disabledButtonOpacity": {
-                            "type": "string"
-                        },
-                        "boxPadding": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "start_date": {
-                    "default": null,
-                    "description": "Setting this will launch the survey immediately. Don't add a start_date unless explicitly requested to do so.",
-                    "anyOf": [
-                        {
-                            "type": "string",
-                            "format": "date-time",
-                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "responses_limit": {
-                    "description": "The maximum number of responses before automatically stopping the survey.",
-                    "anyOf": [
-                        {
-                            "type": "number",
-                            "exclusiveMinimum": 0
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "iteration_count": {
-                    "description": "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.",
-                    "anyOf": [
-                        {
-                            "type": "number",
-                            "exclusiveMinimum": 0
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "iteration_frequency_days": {
-                    "description": "For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.",
-                    "anyOf": [
-                        {
-                            "type": "number",
-                            "exclusiveMinimum": 0,
-                            "maximum": 365
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "enable_partial_responses": {
-                    "description": "When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).",
-                    "type": "boolean"
-                },
-                "linked_flag_id": {
-                    "description": "The feature flag linked to this survey",
-                    "anyOf": [
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "targeting_flag_filters": {
-                    "description": "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]}",
-                    "type": "object",
-                    "properties": {
-                        "groups": {
-                            "minItems": 1,
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "properties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "key": {
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "boolean"
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "string"
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "number"
-                                                            }
-                                                        }
-                                                    ]
-                                                },
-                                                "operator": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "exact",
-                                                        "is_not",
-                                                        "is_set",
-                                                        "is_not_set",
-                                                        "icontains",
-                                                        "not_icontains",
-                                                        "regex",
-                                                        "not_regex",
-                                                        "gt",
-                                                        "gte",
-                                                        "lt",
-                                                        "lte"
-                                                    ]
-                                                }
-                                            },
-                                            "required": ["key", "value"]
-                                        }
-                                    },
-                                    "rollout_percentage": {
-                                        "type": "number"
-                                    },
-                                    "variant": {
-                                        "description": "Variant key to serve for this condition (for multivariate flags)",
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["properties", "rollout_percentage"]
-                            }
-                        },
-                        "multivariate": {
-                            "description": "Multivariate configuration with variant definitions",
-                            "type": "object",
-                            "properties": {
-                                "variants": {
-                                    "minItems": 2,
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "key": {
-                                                "type": "string",
-                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
-                                            },
-                                            "name": {
-                                                "description": "Human-readable name for this variant",
-                                                "type": "string"
-                                            },
-                                            "rollout_percentage": {
-                                                "type": "integer",
-                                                "minimum": 0,
-                                                "maximum": 100,
-                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer."
-                                            }
-                                        },
-                                        "required": ["key", "rollout_percentage"]
-                                    }
-                                }
-                            },
-                            "required": ["variants"]
-                        }
-                    },
-                    "required": ["groups"]
-                }
-            },
-            "required": ["name", "questions"]
-        },
-        "SurveyDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "surveyId": {
-                    "type": "string"
-                }
-            },
-            "required": ["surveyId"]
-        },
-        "SurveyGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "number"
-                },
-                "offset": {
-                    "type": "number"
-                },
-                "search": {
-                    "type": "string"
-                }
-            }
-        },
-        "SurveyGetSchema": {
-            "type": "object",
-            "properties": {
-                "surveyId": {
-                    "type": "string"
-                }
-            },
-            "required": ["surveyId"]
-        },
-        "SurveyGlobalStatsSchema": {
-            "type": "object",
-            "properties": {
-                "date_from": {
-                    "description": "Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                },
-                "date_to": {
-                    "description": "Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                }
-            }
-        },
         "SurveyResponseCountsSchema": {
             "type": "object",
             "properties": {}
-        },
-        "SurveyStatsSchema": {
-            "type": "object",
-            "properties": {
-                "survey_id": {
-                    "type": "string"
-                },
-                "date_from": {
-                    "description": "Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)",
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                },
-                "date_to": {
-                    "description": "Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)",
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                }
-            },
-            "required": ["survey_id"]
-        },
-        "SurveyUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string",
-                    "minLength": 1
-                },
-                "description": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string",
-                    "enum": ["popover", "api", "widget", "external_survey"]
-                },
-                "questions": {
-                    "minItems": 1,
-                    "type": "array",
-                    "items": {
-                        "anyOf": [
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "open"
-                                    }
-                                },
-                                "required": ["question", "type"]
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "link"
-                                    },
-                                    "link": {
-                                        "type": "string",
-                                        "format": "uri"
-                                    }
-                                },
-                                "required": ["question", "type", "link"]
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "rating"
-                                    },
-                                    "display": {
-                                        "description": "Display format: 'number' shows numeric scale, 'emoji' shows emoji scale",
-                                        "type": "string",
-                                        "enum": ["number", "emoji"]
-                                    },
-                                    "scale": {
-                                        "description": "Rating scale can be one of 3, 5, or 7",
-                                        "anyOf": [
-                                            {
-                                                "type": "number",
-                                                "const": 3
-                                            },
-                                            {
-                                                "type": "number",
-                                                "const": 5
-                                            },
-                                            {
-                                                "type": "number",
-                                                "const": 7
-                                            }
-                                        ]
-                                    },
-                                    "lowerBoundLabel": {
-                                        "description": "Label for the lowest rating (e.g., 'Very Poor')",
-                                        "type": "string"
-                                    },
-                                    "upperBoundLabel": {
-                                        "description": "Label for the highest rating (e.g., 'Excellent')",
-                                        "type": "string"
-                                    },
-                                    "branching": {
-                                        "anyOf": [
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "next_question"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "end"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "response_based"
-                                                    },
-                                                    "responseValues": {
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "negative": {
-                                                                "description": "Lower third of scale",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            },
-                                                            "neutral": {
-                                                                "description": "Middle third of scale",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            },
-                                                            "positive": {
-                                                                "description": "Upper third of scale",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            }
-                                                        },
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
-                                                    }
-                                                },
-                                                "required": ["type", "responseValues"],
-                                                "description": "For rating questions: use sentiment keys based on scale thirds - negative (lower third), neutral (middle third), positive (upper third)"
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "specific_question"
-                                                    },
-                                                    "index": {
-                                                        "type": "number"
-                                                    }
-                                                },
-                                                "required": ["type", "index"]
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["question", "type"]
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "rating"
-                                    },
-                                    "display": {
-                                        "type": "string",
-                                        "const": "number",
-                                        "description": "NPS questions always use numeric scale"
-                                    },
-                                    "scale": {
-                                        "type": "number",
-                                        "const": 10,
-                                        "description": "NPS questions always use 0-10 scale"
-                                    },
-                                    "lowerBoundLabel": {
-                                        "description": "Label for 0 rating (typically 'Not at all likely')",
-                                        "type": "string"
-                                    },
-                                    "upperBoundLabel": {
-                                        "description": "Label for 10 rating (typically 'Extremely likely')",
-                                        "type": "string"
-                                    },
-                                    "branching": {
-                                        "anyOf": [
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "next_question"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "end"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "response_based"
-                                                    },
-                                                    "responseValues": {
-                                                        "type": "object",
-                                                        "properties": {
-                                                            "detractors": {
-                                                                "description": "NPS detractors (0-6)",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            },
-                                                            "passives": {
-                                                                "description": "NPS passives (7-8)",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            },
-                                                            "promoters": {
-                                                                "description": "NPS promoters (9-10)",
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "number"
-                                                                    },
-                                                                    {
-                                                                        "type": "string",
-                                                                        "const": "end"
-                                                                    }
-                                                                ]
-                                                            }
-                                                        },
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
-                                                    }
-                                                },
-                                                "required": ["type", "responseValues"],
-                                                "description": "For NPS rating questions: use sentiment keys based on score ranges - detractors (0-6), passives (7-8), promoters (9-10)"
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "specific_question"
-                                                    },
-                                                    "index": {
-                                                        "type": "number"
-                                                    }
-                                                },
-                                                "required": ["type", "index"]
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["question", "type", "display", "scale"]
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "single_choice"
-                                    },
-                                    "choices": {
-                                        "minItems": 2,
-                                        "maxItems": 20,
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string",
-                                            "minLength": 1
-                                        },
-                                        "description": "Array of choice options. Choice indices (0, 1, 2, etc.) are used for branching logic"
-                                    },
-                                    "shuffleOptions": {
-                                        "description": "Whether to randomize the order of choices for each respondent",
-                                        "type": "boolean"
-                                    },
-                                    "hasOpenChoice": {
-                                        "description": "Whether the last choice (typically 'Other', is an open text input question",
-                                        "type": "boolean"
-                                    },
-                                    "branching": {
-                                        "anyOf": [
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "next_question"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "end"
-                                                    }
-                                                },
-                                                "required": ["type"]
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "response_based"
-                                                    },
-                                                    "responseValues": {
-                                                        "type": "object",
-                                                        "propertyNames": {
-                                                            "type": "string"
-                                                        },
-                                                        "additionalProperties": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "string",
-                                                                    "const": "end"
-                                                                }
-                                                            ]
-                                                        },
-                                                        "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior)."
-                                                    }
-                                                },
-                                                "required": ["type", "responseValues"],
-                                                "description": "For single choice questions: use choice indices as string keys (\"0\", \"1\", \"2\", etc.)"
-                                            },
-                                            {
-                                                "type": "object",
-                                                "properties": {
-                                                    "type": {
-                                                        "type": "string",
-                                                        "const": "specific_question"
-                                                    },
-                                                    "index": {
-                                                        "type": "number"
-                                                    }
-                                                },
-                                                "required": ["type", "index"]
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["question", "type", "choices"]
-                            },
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "question": {
-                                        "type": "string"
-                                    },
-                                    "description": {
-                                        "type": "string"
-                                    },
-                                    "descriptionContentType": {
-                                        "type": "string",
-                                        "enum": ["html", "text"]
-                                    },
-                                    "optional": {
-                                        "type": "boolean"
-                                    },
-                                    "buttonText": {
-                                        "type": "string"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "const": "multiple_choice"
-                                    },
-                                    "choices": {
-                                        "minItems": 2,
-                                        "maxItems": 20,
-                                        "type": "array",
-                                        "items": {
-                                            "type": "string",
-                                            "minLength": 1
-                                        },
-                                        "description": "Array of choice options. Multiple selections allowed. No branching logic supported."
-                                    },
-                                    "shuffleOptions": {
-                                        "description": "Whether to randomize the order of choices for each respondent",
-                                        "type": "boolean"
-                                    },
-                                    "hasOpenChoice": {
-                                        "description": "Whether the last choice (typically 'Other', is an open text input question",
-                                        "type": "boolean"
-                                    }
-                                },
-                                "required": ["question", "type", "choices"]
-                            }
-                        ]
-                    }
-                },
-                "conditions": {
-                    "type": "object",
-                    "properties": {
-                        "url": {
-                            "type": "string"
-                        },
-                        "selector": {
-                            "type": "string"
-                        },
-                        "seenSurveyWaitPeriodInDays": {
-                            "description": "Don't show this survey to users who saw any survey in the last x days.",
-                            "type": "number"
-                        },
-                        "urlMatchType": {
-                            "type": "string",
-                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
-                            "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain)"
-                        },
-                        "events": {
-                            "type": "object",
-                            "properties": {
-                                "repeatedActivation": {
-                                    "description": "Whether to show the survey every time one of the events is triggered (true), or just once (false)",
-                                    "type": "boolean"
-                                },
-                                "values": {
-                                    "description": "Array of event names that trigger the survey",
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "name": {
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["name"]
-                                    }
-                                }
-                            }
-                        },
-                        "deviceTypes": {
-                            "type": "array",
-                            "items": {
-                                "type": "string",
-                                "enum": ["Desktop", "Mobile", "Tablet"]
-                            }
-                        },
-                        "deviceTypesMatchType": {
-                            "type": "string",
-                            "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
-                            "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain)"
-                        },
-                        "linkedFlagVariant": {
-                            "description": "The variant of the feature flag linked to this survey",
-                            "type": "string"
-                        }
-                    }
-                },
-                "appearance": {
-                    "type": "object",
-                    "properties": {
-                        "backgroundColor": {
-                            "type": "string"
-                        },
-                        "submitButtonColor": {
-                            "type": "string"
-                        },
-                        "textColor": {
-                            "type": "string"
-                        },
-                        "submitButtonText": {
-                            "type": "string"
-                        },
-                        "submitButtonTextColor": {
-                            "type": "string"
-                        },
-                        "descriptionTextColor": {
-                            "type": "string"
-                        },
-                        "ratingButtonColor": {
-                            "type": "string"
-                        },
-                        "ratingButtonActiveColor": {
-                            "type": "string"
-                        },
-                        "ratingButtonHoverColor": {
-                            "type": "string"
-                        },
-                        "whiteLabel": {
-                            "type": "boolean"
-                        },
-                        "autoDisappear": {
-                            "type": "boolean"
-                        },
-                        "displayThankYouMessage": {
-                            "type": "boolean"
-                        },
-                        "thankYouMessageHeader": {
-                            "type": "string"
-                        },
-                        "thankYouMessageDescription": {
-                            "type": "string"
-                        },
-                        "thankYouMessageDescriptionContentType": {
-                            "type": "string",
-                            "enum": ["html", "text"]
-                        },
-                        "thankYouMessageCloseButtonText": {
-                            "type": "string"
-                        },
-                        "borderColor": {
-                            "type": "string"
-                        },
-                        "placeholder": {
-                            "type": "string"
-                        },
-                        "shuffleQuestions": {
-                            "type": "boolean"
-                        },
-                        "surveyPopupDelaySeconds": {
-                            "type": "number"
-                        },
-                        "widgetType": {
-                            "type": "string",
-                            "enum": ["button", "tab", "selector"]
-                        },
-                        "widgetSelector": {
-                            "type": "string"
-                        },
-                        "widgetLabel": {
-                            "type": "string"
-                        },
-                        "widgetColor": {
-                            "type": "string"
-                        },
-                        "fontFamily": {
-                            "type": "string"
-                        },
-                        "maxWidth": {
-                            "type": "string"
-                        },
-                        "zIndex": {
-                            "type": "string"
-                        },
-                        "disabledButtonOpacity": {
-                            "type": "string"
-                        },
-                        "boxPadding": {
-                            "type": "string"
-                        }
-                    }
-                },
-                "schedule": {
-                    "description": "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)",
-                    "type": "string",
-                    "enum": ["once", "recurring", "always"]
-                },
-                "start_date": {
-                    "description": "When the survey should start being shown to users. Setting this will launch the survey",
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                },
-                "end_date": {
-                    "description": "When the survey stopped being shown to users. Setting this will complete the survey.",
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
-                },
-                "archived": {
-                    "type": "boolean"
-                },
-                "responses_limit": {
-                    "description": "The maximum number of responses before automatically stopping the survey.",
-                    "anyOf": [
-                        {
-                            "type": "number",
-                            "exclusiveMinimum": 0
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "iteration_count": {
-                    "description": "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.",
-                    "anyOf": [
-                        {
-                            "type": "number",
-                            "exclusiveMinimum": 0
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "iteration_frequency_days": {
-                    "description": "For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.",
-                    "anyOf": [
-                        {
-                            "type": "number",
-                            "exclusiveMinimum": 0,
-                            "maximum": 365
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "enable_partial_responses": {
-                    "description": "When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).",
-                    "type": "boolean"
-                },
-                "linked_flag_id": {
-                    "description": "The feature flag to link to this survey",
-                    "anyOf": [
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "targeting_flag_id": {
-                    "description": "An existing targeting flag to use for this survey",
-                    "type": "number"
-                },
-                "targeting_flag_filters": {
-                    "description": "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 50}]}",
-                    "type": "object",
-                    "properties": {
-                        "groups": {
-                            "minItems": 1,
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "properties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "key": {
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "boolean"
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "string"
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "number"
-                                                            }
-                                                        }
-                                                    ]
-                                                },
-                                                "operator": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "exact",
-                                                        "is_not",
-                                                        "is_set",
-                                                        "is_not_set",
-                                                        "icontains",
-                                                        "not_icontains",
-                                                        "regex",
-                                                        "not_regex",
-                                                        "gt",
-                                                        "gte",
-                                                        "lt",
-                                                        "lte"
-                                                    ]
-                                                }
-                                            },
-                                            "required": ["key", "value"]
-                                        }
-                                    },
-                                    "rollout_percentage": {
-                                        "type": "number"
-                                    },
-                                    "variant": {
-                                        "description": "Variant key to serve for this condition (for multivariate flags)",
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["properties", "rollout_percentage"]
-                            }
-                        },
-                        "multivariate": {
-                            "description": "Multivariate configuration with variant definitions",
-                            "type": "object",
-                            "properties": {
-                                "variants": {
-                                    "minItems": 2,
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "key": {
-                                                "type": "string",
-                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
-                                            },
-                                            "name": {
-                                                "description": "Human-readable name for this variant",
-                                                "type": "string"
-                                            },
-                                            "rollout_percentage": {
-                                                "type": "integer",
-                                                "minimum": 0,
-                                                "maximum": 100,
-                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer."
-                                            }
-                                        },
-                                        "required": ["key", "rollout_percentage"]
-                                    }
-                                }
-                            },
-                            "required": ["variants"]
-                        }
-                    },
-                    "required": ["groups"]
-                },
-                "remove_targeting_flag": {
-                    "description": "Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).",
-                    "type": "boolean"
-                },
-                "surveyId": {
-                    "type": "string"
-                }
-            },
-            "required": ["surveyId"]
         }
     }
 }

@@ -22,34 +22,32 @@ import (
 func TestStreamEventsHandler_AuthValidation(t *testing.T) {
 	logger := echo.New().Logger
 	subChan := make(chan events.Subscription, 10)
-	filter := &events.Filter{
-		UnSubChan: make(chan events.Subscription, 10),
-	}
-	handler := StreamEventsHandler(logger, subChan, filter)
+	unSubChan := make(chan events.Subscription, 10)
+	handler := StreamEventsHandler(logger, subChan, unSubChan)
 
 	tests := []struct {
 		name           string
+		description    string
 		setupHeader    func(*http.Request)
 		expectedStatus int
 		expectedError  string
-		description    string
 	}{
 		{
-			name: "Missing authorization header returns unauthorized",
+			name:        "Missing authorization header returns unauthorized",
+			description: "When auth header is missing, handler should return 401 with 'wrong token'",
 			setupHeader: func(req *http.Request) {
 			},
 			expectedStatus: http.StatusUnauthorized,
 			expectedError:  "wrong token",
-			description:    "When auth header is missing, GetAuthClaims returns error and handler should return 401",
 		},
 		{
-			name: "Invalid auth header returns unauthorized",
+			name:        "Invalid auth header returns unauthorized",
+			description: "When auth header is invalid (not Bearer format), handler should return 401 with 'wrong token'",
 			setupHeader: func(req *http.Request) {
 				req.Header.Set("Authorization", "InvalidToken")
 			},
 			expectedStatus: http.StatusUnauthorized,
 			expectedError:  "wrong token",
-			description:    "When auth header is invalid, GetAuthClaims returns error and handler should return 401",
 		},
 	}
 
@@ -80,46 +78,44 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 
 	logger := echo.New().Logger
 	subChan := make(chan events.Subscription, 10)
-	filter := &events.Filter{
-		UnSubChan: make(chan events.Subscription, 10),
-	}
-	handler := StreamEventsHandler(logger, subChan, filter)
+	unSubChan := make(chan events.Subscription, 10)
+	handler := StreamEventsHandler(logger, subChan, unSubChan)
 
 	tests := []struct {
 		name         string
+		description  string
 		claims       jwt.MapClaims
 		expectError  bool
 		errorMessage string
-		description  string
 	}{
 		{
-			name: "Empty api_token should return unauthorized",
+			name:        "Empty api_token should return unauthorized",
+			description: "New validation: empty token in JWT claims should be rejected with 401",
 			claims: jwt.MapClaims{
 				"team_id":   123,
 				"api_token": "",
 			},
 			expectError:  true,
 			errorMessage: "wrong token",
-			description:  "New validation: empty token should be rejected even with valid JWT",
 		},
 		{
-			name: "Team ID 0 should return unauthorized",
+			name:        "Team ID 0 should return unauthorized",
+			description: "New validation: teamID=0 in JWT claims should be rejected with 401",
 			claims: jwt.MapClaims{
 				"team_id":   0,
 				"api_token": "valid-token",
 			},
 			expectError:  true,
 			errorMessage: "wrong token",
-			description:  "New validation: teamID=0 should be rejected even with valid JWT",
 		},
 		{
-			name: "HappyPath",
+			name:        "Valid token and team ID succeeds",
+			description: "New validation: teamID=7 and non-empty token should pass validation",
 			claims: jwt.MapClaims{
 				"team_id":   7,
 				"api_token": "valid-token",
 			},
 			expectError: false,
-			description: "New validation: teamID=7 should be accepted even with valid JWT",
 		},
 	}
 
@@ -252,4 +248,131 @@ func TestStatsHandler_FallsBackToLocal(t *testing.T) {
 	assert.Equal(t, 3, resp.UsersOnProduct)
 	assert.Equal(t, 2, resp.ActiveRecordings)
 	assert.Empty(t, resp.Error)
+}
+
+func TestFilterNotificationForUser(t *testing.T) {
+	const userID = 42
+
+	tests := []struct {
+		name       string
+		payload    string
+		wantOK     bool
+		wantReason string
+		wantHasKey string // a key expected to be present in cleaned output when delivered
+	}{
+		{
+			name:       "invalid json -> malformed_payload",
+			payload:    "not-json",
+			wantOK:     false,
+			wantReason: "malformed_payload",
+		},
+		{
+			name:       "missing resolved_user_ids -> malformed_payload",
+			payload:    `{"id": "n1"}`,
+			wantOK:     false,
+			wantReason: "malformed_payload",
+		},
+		{
+			name:       "resolved_user_ids wrong type -> malformed_payload",
+			payload:    `{"id": "n1", "resolved_user_ids": "42"}`,
+			wantOK:     false,
+			wantReason: "malformed_payload",
+		},
+		{
+			name:       "user not in list -> wrong_user",
+			payload:    `{"id": "n1", "resolved_user_ids": [1, 2, 3]}`,
+			wantOK:     false,
+			wantReason: "wrong_user",
+		},
+		{
+			name:       "user in list -> delivered, resolved_user_ids stripped",
+			payload:    `{"id": "n1", "resolved_user_ids": [1, 42, 3], "body": "hi"}`,
+			wantOK:     true,
+			wantHasKey: "body",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cleaned, ok, reason := filterNotificationForUser(tt.payload, userID)
+			assert.Equal(t, tt.wantOK, ok)
+			assert.Equal(t, tt.wantReason, reason)
+			if ok {
+				var out map[string]interface{}
+				require.NoError(t, json.Unmarshal([]byte(cleaned), &out))
+				_, present := out["resolved_user_ids"]
+				assert.False(t, present, "resolved_user_ids must be stripped from delivered payload")
+				if tt.wantHasKey != "" {
+					_, present := out[tt.wantHasKey]
+					assert.True(t, present, "expected key %q in cleaned payload", tt.wantHasKey)
+				}
+			} else {
+				assert.Empty(t, cleaned)
+			}
+		})
+	}
+}
+
+func TestParsePropertyFilters(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  []string
+		want map[string][]string
+	}{
+		{
+			name: "nil input",
+			raw:  nil,
+			want: nil,
+		},
+		{
+			name: "empty input",
+			raw:  []string{},
+			want: nil,
+		},
+		{
+			name: "single key=value",
+			raw:  []string{"$browser=Chrome"},
+			want: map[string][]string{"$browser": {"Chrome"}},
+		},
+		{
+			name: "multiple keys AND",
+			raw:  []string{"$browser=Chrome", "plan=enterprise"},
+			want: map[string][]string{
+				"$browser": {"Chrome"},
+				"plan":     {"enterprise"},
+			},
+		},
+		{
+			name: "same key OR",
+			raw:  []string{"$browser=Chrome", "$browser=Firefox"},
+			want: map[string][]string{"$browser": {"Chrome", "Firefox"}},
+		},
+		{
+			name: "missing equals skipped",
+			raw:  []string{"$browser", "plan=free"},
+			want: map[string][]string{"plan": {"free"}},
+		},
+		{
+			name: "empty key skipped",
+			raw:  []string{"=Chrome", "plan=free"},
+			want: map[string][]string{"plan": {"free"}},
+		},
+		{
+			name: "all malformed returns nil",
+			raw:  []string{"=foo", "bar"},
+			want: nil,
+		},
+		{
+			name: "empty value allowed",
+			raw:  []string{"plan="},
+			want: map[string][]string{"plan": {""}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parsePropertyFilters(tt.raw)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

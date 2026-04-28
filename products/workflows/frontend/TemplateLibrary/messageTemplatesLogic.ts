@@ -1,31 +1,21 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-// eslint-disable-next-line import/no-cycle
-import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
-
-import { UserBasicType } from '~/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { messageTemplatesLogicType } from './messageTemplatesLogicType'
+import { MessageTemplate } from './types'
 
-export interface MessageTemplate {
-    id: string
-    name: string
-    description: string
-    content: {
-        templating: 'liquid' | 'hog'
-        email: EmailTemplate
-    }
-    created_at: string | null
-    updated_at: string | null
-    created_by: UserBasicType | null
-}
+export type { MessageTemplate }
 
 export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
     path(['products', 'workflows', 'frontend', 'library', 'messageTemplatesLogic']),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamIdStrict']],
+    })),
     actions({
         setSearch: (search: string) => ({ search }),
         setCreatedByFilter: (createdBy: number | null) => ({ createdBy }),
@@ -44,7 +34,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
                     await deleteWithUndo({
-                        endpoint: `environments/@current/messaging_templates`,
+                        endpoint: `environments/${values.currentTeamIdStrict}/messaging_templates`,
                         object: {
                             id: template.id,
                             name: template.name,

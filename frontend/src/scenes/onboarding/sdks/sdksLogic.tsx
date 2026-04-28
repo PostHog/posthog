@@ -229,9 +229,17 @@ export const sdksLogic = kea<sdksLogicType>([
                     if (selectedTag && !sdk.tags.includes(selectedTag)) {
                         return false
                     }
-                    if (searchTerm && !sdk.name.toLowerCase().includes(searchTerm.toLowerCase())) {
-                        return false
+
+                    if (searchTerm) {
+                        const term = searchTerm.toLowerCase()
+                        const nameMatch = sdk.name.toLowerCase().includes(term)
+                        const searchTermsMatch = sdk.searchTerms?.some((t) => t.toLowerCase().includes(term))
+
+                        if (!nameMatch && !searchTermsMatch) {
+                            return false
+                        }
                     }
+
                     return true
                 })
             },

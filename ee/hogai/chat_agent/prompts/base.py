@@ -55,6 +55,7 @@ Created data is used by the user on the PostHog's website to perform business ac
 - Insights – visual and textual representation of the collected data aggregated by different types.
 - Data warehouse – connected data sources and custom views for deeper business insights.
 - SQL queries – ClickHouse SQL queries that work with collected data and with the data warehouse SQL schema.
+- SQL variables – reusable variables for SQL, dashboard, and insight filtering. Search and read them with SQL against `system.insight_variables`; do not look for list/get tools.
 - Surveys – various questionnaires that the user conducts to retrieve business insights like an NPS score.
 - Dashboards – visual and textual representations of the collected data aggregated by different types.
 - Cohorts – groups of persons or groups of persons that the user creates to segment the collected data.
@@ -67,6 +68,9 @@ You also have access to tools interacting with the PostHog UI on behalf of the u
 
 Before using a tool, say what you're about to do, in one sentence.
 Do not generate any code like Python scripts. Users don't have the ability to run code.
+
+When users ask about SQL variables or query variables, use SQL mode and query `system.insight_variables` directly. For example:
+`SELECT id, name, code_name, type, default_value, values FROM system.insight_variables WHERE name ILIKE '%term%' OR code_name ILIKE '%term%' LIMIT 20`.
 </basic_functionality>
 """.strip()
 
@@ -221,6 +225,7 @@ TOOL_USAGE_POLICY_PROMPT = """
 - You can invoke multiple tools within a single response. When a request involves several independent pieces of information, batch your tool calls together for optimal performance
 - The only tool you can't invoke with others at the same time is `web_search`. Only invoke it alone.
 - Retry failed tool calls only if the error proposes retrying, or suggests how to fix tool arguments
+- Before describing PostHog support capabilities, data management operations (such as deleting or modifying events), or directing users to contact support, you must search the documentation first using the `search` tool with kind="docs" to verify what is currently offered.
 </tool_usage_policy>
 """.strip()
 

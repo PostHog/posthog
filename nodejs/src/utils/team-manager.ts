@@ -109,7 +109,7 @@ export class TeamManager {
                 t.name,
                 t.anonymize_ips,
                 t.api_token,
-                t.slack_incoming_webhook,
+                t.secret_api_token,
                 t.session_recording_opt_in,
                 t.person_processing_opt_out,
                 t.heatmaps_opt_in,
@@ -118,6 +118,7 @@ export class TeamManager {
                 t.cookieless_server_hash_mode,
                 t.timezone,
                 t.logs_settings,
+                t.extra_settings,
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 o.available_product_features
             FROM posthog_team t

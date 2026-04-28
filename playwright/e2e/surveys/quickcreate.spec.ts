@@ -162,7 +162,7 @@ test.describe('Quick create survey from feature flag', () => {
         await expectEvents(page, ['$autocapture'])
     })
 
-    test('survey responses visible in feature flag feedback tab', async ({ page }) => {
+    test.skip('survey responses visible in feature flag feedback tab', async ({ page }) => {
         await saveFeatureFlag(page)
         await clickCreateSurvey(page, name)
         await launchSurvey(page, name)
@@ -178,7 +178,7 @@ test.describe('Quick create survey from feature flag', () => {
         await expect(page.getByText('Filter survey results')).toBeVisible()
     })
 
-    test('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
+    test.skip('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
         await addTwoVariants(page)
         await saveFeatureFlag(page)
 

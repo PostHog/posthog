@@ -63,7 +63,7 @@ Two endpoints on `IntegrationViewSet`:
   and redirect detection. All API interaction lives here.
 - **`DomainConnectBanner.tsx`** — Drop-in banner component. Renders one of three states: auto-detected
   provider, manual provider buttons, or nothing.
-- **`assets/`** — Local provider logos (Cloudflare for now).
+- **`assets/`** — Local provider logos (Cloudflare, Vercel).
 - **`templates/`** — Backup copies of the Domain Connect template JSON files (see below).
 
 ### Settings

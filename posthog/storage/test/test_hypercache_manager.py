@@ -4,7 +4,7 @@ Tests for HyperCache management operations.
 Covers:
 - Django key prefix extraction for Redis patterns
 - Redis URL routing for dedicated caches
-- Cache invalidation and stats operations
+- Cache stats operations
 """
 
 from posthog.test.base import BaseTest
@@ -14,7 +14,6 @@ from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
     get_cache_stats,
-    invalidate_all_caches,
     push_hypercache_stats_metrics,
     warm_caches,
 )
@@ -226,106 +225,6 @@ class TestRedisUrlRouting(BaseTest):
         # The default hypercache uses settings.REDIS_URL
         call_args = mock_get_client.call_args[0]
         assert call_args[0] is not None  # Should have a URL from settings
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_invalidate_all_caches_uses_config_redis_url(self, mock_get_client):
-        """Test that invalidate_all_caches uses the Redis URL from config.
-
-        Regression test: Previously this function used get_client() without
-        the redis_url, causing it to scan the wrong Redis instance.
-        """
-        config = create_test_config()
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = iter([])
-
-        # Mock the hypercache's redis_url to simulate a dedicated Redis
-        with patch.object(config.hypercache, "redis_url", "redis://dedicated:6379/1"):
-            invalidate_all_caches(config)
-
-        mock_get_client.assert_called_once_with("redis://dedicated:6379/1")
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_invalidate_all_caches_uses_default_redis_url(self, mock_get_client):
-        """Test that invalidate_all_caches uses the default Redis URL from settings."""
-        config = create_test_config()
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = iter([])
-
-        invalidate_all_caches(config)
-
-        # Should be called with whatever redis_url the hypercache has
-        mock_get_client.assert_called_once()
-        call_args = mock_get_client.call_args[0]
-        assert call_args[0] is not None  # Should have a URL from settings
-
-
-class TestInvalidateAllCaches(BaseTest):
-    """Test invalidate_all_caches functionality."""
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_deletes_matching_keys(self, mock_get_client):
-        """Test that invalidate_all_caches deletes all keys matching the pattern."""
-        config = create_test_config()
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = iter([b"key1", b"key2", b"key3"])
-
-        deleted_count = invalidate_all_caches(config)
-
-        assert deleted_count == 3
-        # 3 cache keys + 1 expiry sorted set = 4 total deletes
-        assert mock_redis.delete.call_count == 4
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_clears_expiry_sorted_set(self, mock_get_client):
-        """Test that invalidate_all_caches also clears the expiry tracking set."""
-        config = create_test_config()
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = iter([])
-
-        invalidate_all_caches(config)
-
-        # Should delete the expiry sorted set
-        mock_redis.delete.assert_called_with(config.hypercache.expiry_sorted_set_key)
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_returns_zero_on_error(self, mock_get_client):
-        """Test that invalidate_all_caches returns 0 on error."""
-        config = create_test_config()
-
-        mock_get_client.side_effect = Exception("Redis connection failed")
-
-        deleted_count = invalidate_all_caches(config)
-
-        assert deleted_count == 0
-
-    @patch("posthog.storage.hypercache_manager.get_client")
-    def test_uses_correct_pattern_with_django_prefix(self, mock_get_client):
-        """Test that scan uses the pattern with Django prefix."""
-        config = create_test_config(namespace="feature_flags", value="flags.json")
-
-        mock_cache_client = MagicMock()
-        mock_cache_client.key_prefix = "posthog"
-        mock_cache_client.version = 1
-
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.scan_iter.return_value = iter([])
-
-        with patch.object(config.hypercache, "cache_client", mock_cache_client):
-            invalidate_all_caches(config)
-
-        # Verify scan was called with the correct pattern
-        mock_redis.scan_iter.assert_called_once()
-        call_kwargs = mock_redis.scan_iter.call_args[1]
-        assert call_kwargs["match"] == "posthog:1:cache/teams/*/feature_flags/*"
 
 
 class TestGetCacheStats(BaseTest):

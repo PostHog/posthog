@@ -8,8 +8,48 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 
 import { Hub, Team } from '../../../types'
-import { EmailService } from './email.service'
+import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
+
+describe('sanitizeEmailSubject', () => {
+    it.each([
+        ['passes through normal text', 'Hello World', 'Hello World'],
+        ['strips null bytes', 'Hello\x00World', 'HelloWorld'],
+        ['replaces newlines with space', 'Hello\r\nWorld', 'Hello World'],
+        ['replaces lone CR with space', 'Hello\rWorld', 'Hello World'],
+        ['replaces lone LF with space', 'Hello\nWorld', 'Hello World'],
+        ['strips control chars (BEL, BS, ESC)', 'He\x07ll\x08o\x1BWorld', 'HelloWorld'],
+        ['strips DEL character', 'Hello\x7FWorld', 'HelloWorld'],
+        ['preserves horizontal tab', 'Hello\tWorld', 'Hello\tWorld'],
+        ['trims leading/trailing whitespace', '  Hello World  ', 'Hello World'],
+        [
+            'collapses multiple newlines into single space',
+            'Hello \\ \ goodbye rn\r\n\r\nn ¯\_(ツ)_/¯',
+            'Hello \\  goodbye rn n ¯\_(ツ)_/¯',
+        ],
+        ['handles mixed control chars and newlines', '\x00Hello\r\n\x07World\x1B', 'Hello World'],
+        ['preserves unicode characters', 'Héllo Wörld 🎉', 'Héllo Wörld 🎉'],
+        ['preserves email-typical special chars', 'Re: Your order #1234 — 50% off!', 'Re: Your order #1234 — 50% off!'],
+    ])('%s', (_name, input, expected) => {
+        expect(sanitizeEmailSubject(input)).toEqual(expected)
+    })
+})
+
+describe('parseAddressList', () => {
+    it.each([
+        ['clean input', 'a@b.com, c@d.com', ['a@b.com', 'c@d.com']],
+        ['extra spaces', '  a@b.com ,  c@d.com  ', ['a@b.com', 'c@d.com']],
+        ['trailing comma', 'a@b.com, c@d.com,', ['a@b.com', 'c@d.com']],
+    ])('%s', (_name, input, expected) => {
+        expect(parseAddressList(input)).toEqual(expected)
+    })
+
+    it('should return undefined for empty values', () => {
+        expect(parseAddressList(undefined)).toBeUndefined()
+        expect(parseAddressList('')).toBeUndefined()
+        expect(parseAddressList(',')).toBeUndefined()
+    })
+})
 
 const createEmailParams = (
     params: Partial<CyclotronInvocationQueueParametersEmailType> = {}
@@ -31,7 +71,7 @@ describe('EmailService', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub({})
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         service = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -260,7 +300,7 @@ describe('EmailService', () => {
             const emails = await mailDevAPI.getEmails()
             expect(emails).toHaveLength(1)
             expect(emails[0].html).toEqual(
-                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE" style="display: none;" /></body>`
+                `<body>Hi! <a href="http://localhost:8010/public/m/redirect?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6&target=https%3A%2F%2Fexample.com">Click me</a><img src="http://localhost:8010/public/m/pixel?ph_id=ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6" style="display: none;" /></body>`
             )
         })
     })
@@ -338,13 +378,63 @@ describe('EmailService', () => {
                   "EmailTags": [
                     {
                       "Name": "ph_id",
-                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE",
+                      "Value": "ZnVuY3Rpb24tMTppbnZvY2F0aW9uLTE6Mjo6",
                     },
                   ],
                   "FeedbackForwardingEmailAddress": "test@posthog-test.com",
                   "FromEmailAddress": "\"Test User\" <test@posthog-test.com>",
                 }
             `)
+        })
+
+        it('should include cc addresses in SES destination', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                cc: 'cc1@example.com, cc2@example.com',
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Destination.CcAddresses).toEqual(['cc1@example.com', 'cc2@example.com'])
+        })
+
+        it('should include bcc addresses in SES destination', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                bcc: 'bcc@example.com',
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Destination.BccAddresses).toEqual(['bcc@example.com'])
+        })
+
+        it('should not include cc/bcc in SES destination when not provided', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Destination.CcAddresses).toBeUndefined()
+            expect(sentCommand.input.Destination.BccAddresses).toBeUndefined()
+        })
+
+        it('should not include cc/bcc in SES destination when empty strings', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                cc: '',
+                bcc: '  ',
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Destination.CcAddresses).toBeUndefined()
+            expect(sentCommand.input.Destination.BccAddresses).toBeUndefined()
         })
 
         it('should not include replyTo if not in params', async () => {
@@ -384,6 +474,24 @@ describe('EmailService', () => {
                 'reply2@example.com',
                 'Customer Service <reply3@example.com>',
             ])
+        })
+
+        it('should send plaintext-only email when html is empty', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                html: '',
+                text: 'Hello, this is a plain text email.',
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Content.Simple.Body.Text).toEqual({
+                Data: 'Hello, this is a plain text email.',
+                Charset: 'UTF-8',
+            })
+            expect(sentCommand.input.Content.Simple.Body.Html).toBeUndefined()
         })
 
         it('should not include preheader span if not in params', async () => {

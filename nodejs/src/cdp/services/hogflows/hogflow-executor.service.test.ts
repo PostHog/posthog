@@ -197,6 +197,7 @@ describe('Hogflow Executor', () => {
 
             expect(result).toEqual({
                 capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,
@@ -239,7 +240,7 @@ describe('Hogflow Executor', () => {
                 finished: true,
                 logs: [
                     {
-                        level: 'debug',
+                        level: 'info',
                         message:
                             'Starting workflow execution at trigger for [Person:person_id|John Doe] on [Event:uuid|test|2026-01-30T20:20:20.200Z]',
                         timestamp: expect.any(DateTime),
@@ -1632,7 +1633,7 @@ describe('Hogflow Executor', () => {
         }
 
         it('should record billing metrics for both regular hog functions and email functions', async () => {
-            const team = await getFirstTeam(hub)
+            const team = await getFirstTeam(hub.postgres)
 
             await insertIntegration(hub.postgres, team.id, {
                 id: 1,

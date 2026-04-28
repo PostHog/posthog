@@ -1,5 +1,5 @@
 import time
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from freezegun import freeze_time
@@ -18,6 +18,7 @@ from posthog.redis import get_client
 
 from ee.billing.quota_limiting import (
     QUOTA_LIMIT_DATA_RETENTION_FLAG,
+    OrganizationUsageInfo,
     QuotaLimitingCaches,
     QuotaResource,
     UsageCounters,
@@ -567,7 +568,7 @@ class TestQuotaLimiting(BaseTest):
             "survey_responses": {"usage": 20, "limit": 100},
         }
 
-        assert set_org_usage_summary(self.organization, new_usage=new_usage)
+        assert set_org_usage_summary(self.organization, new_usage=cast(OrganizationUsageInfo, new_usage))
 
         assert self.organization.usage == {
             "events": {"usage": 100, "limit": 100, "todays_usage": 0},
@@ -604,7 +605,7 @@ class TestQuotaLimiting(BaseTest):
             "survey_responses": {"usage": 10, "limit": 100},
         }
 
-        assert not set_org_usage_summary(self.organization, new_usage=new_usage)
+        assert not set_org_usage_summary(self.organization, new_usage=cast(OrganizationUsageInfo, new_usage))
 
         assert self.organization.usage == {
             "events": {"usage": 99, "limit": 100, "todays_usage": 10},
@@ -630,14 +631,17 @@ class TestQuotaLimiting(BaseTest):
 
         assert set_org_usage_summary(
             self.organization,
-            todays_usage={
-                "events": 20,
-                "exceptions": 51,
-                "recordings": 21,
-                "rows_synced": 21,
-                "feature_flag_requests": 21,
-                "survey_responses": 21,
-            },
+            todays_usage=cast(
+                UsageCounters,
+                {
+                    "events": 20,
+                    "exceptions": 51,
+                    "recordings": 21,
+                    "rows_synced": 21,
+                    "feature_flag_requests": 21,
+                    "survey_responses": 21,
+                },
+            ),
         )
 
         assert self.organization.usage == {
@@ -971,16 +975,24 @@ class TestQuotaLimiting(BaseTest):
             now = timezone.now().timestamp()
 
             replace_limited_team_tokens(
-                QuotaResource.EVENTS, {"1234": now + 10000}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                QuotaResource.EVENTS,
+                {"1234": int(now + 10000)},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
             replace_limited_team_tokens(
-                QuotaResource.EXCEPTIONS, {"5678": now + 10000}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                QuotaResource.EXCEPTIONS,
+                {"5678": int(now + 10000)},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
             replace_limited_team_tokens(
-                QuotaResource.ROWS_SYNCED, {"1337": now + 10000}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                QuotaResource.ROWS_SYNCED,
+                {"1337": int(now + 10000)},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
             replace_limited_team_tokens(
-                QuotaResource.SURVEY_RESPONSES, {"5678": now + 10000}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+                QuotaResource.SURVEY_RESPONSES,
+                {"5678": int(now + 10000)},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
             self.organization.usage = {
                 "events": {"usage": 99, "limit": 100},

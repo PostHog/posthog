@@ -1,0 +1,52 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Notebook content as a ProseMirror JSON document structure."
+        },
+        "deleted": {
+            "description": "Whether the notebook has been soft-deleted.",
+            "type": "boolean"
+        },
+        "short_id": {
+            "type": "string"
+        },
+        "text_content": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Plain text representation of the notebook content for search."
+        },
+        "title": {
+            "anyOf": [
+                {
+                    "maxLength": 256,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Title of the notebook."
+        },
+        "version": {
+            "description": "Version number for optimistic concurrency control. Must match the current version when updating content.",
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        }
+    },
+    "required": ["short_id"],
+    "type": "object"
+}

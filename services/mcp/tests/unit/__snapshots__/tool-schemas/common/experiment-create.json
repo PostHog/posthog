@@ -1,0 +1,295 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "allow_unknown_events": {
+            "default": false,
+            "type": "boolean"
+        },
+        "description": {
+            "anyOf": [
+                {
+                    "maxLength": 3000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Description of the experiment hypothesis and expected outcomes."
+        },
+        "exposure_criteria": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "exposure_config": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "event": {
+                                            "description": "Custom exposure event name.",
+                                            "type": "string"
+                                        },
+                                        "kind": {
+                                            "default": "ExperimentEventExposureConfig",
+                                            "enum": ["ExperimentEventExposureConfig"],
+                                            "type": "string"
+                                        },
+                                        "properties": {
+                                            "description": "Event property filters. Pass an empty array if no filters needed.",
+                                            "items": {
+                                                "properties": {
+                                                    "key": {
+                                                        "type": "string"
+                                                    },
+                                                    "label": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "operator": {
+                                                        "anyOf": [
+                                                            {
+                                                                "enum": [
+                                                                    "exact",
+                                                                    "is_not",
+                                                                    "icontains",
+                                                                    "not_icontains",
+                                                                    "regex",
+                                                                    "not_regex",
+                                                                    "gt",
+                                                                    "gte",
+                                                                    "lt",
+                                                                    "lte",
+                                                                    "is_set",
+                                                                    "is_not_set",
+                                                                    "is_date_exact",
+                                                                    "is_date_before",
+                                                                    "is_date_after",
+                                                                    "between",
+                                                                    "not_between",
+                                                                    "min",
+                                                                    "max",
+                                                                    "in",
+                                                                    "not_in",
+                                                                    "is_cleaned_path_exact",
+                                                                    "flag_evaluates_to",
+                                                                    "semver_eq",
+                                                                    "semver_neq",
+                                                                    "semver_gt",
+                                                                    "semver_gte",
+                                                                    "semver_lt",
+                                                                    "semver_lte",
+                                                                    "semver_tilde",
+                                                                    "semver_caret",
+                                                                    "semver_wildcard",
+                                                                    "icontains_multi",
+                                                                    "not_icontains_multi"
+                                                                ],
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "type": {
+                                                        "default": "event",
+                                                        "description": "Event properties",
+                                                        "enum": ["event"],
+                                                        "type": "string"
+                                                    },
+                                                    "value": {
+                                                        "anyOf": [
+                                                            {
+                                                                "anyOf": [
+                                                                    {
+                                                                        "items": {
+                                                                            "anyOf": [
+                                                                                {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                {
+                                                                                    "type": "number"
+                                                                                },
+                                                                                {
+                                                                                    "type": "boolean"
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "type": "array"
+                                                                    },
+                                                                    {
+                                                                        "type": "string"
+                                                                    },
+                                                                    {
+                                                                        "type": "number"
+                                                                    },
+                                                                    {
+                                                                        "type": "boolean"
+                                                                    }
+                                                                ]
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "required": ["key"],
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": ["event", "properties"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "filterTestAccounts": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Exposure configuration including filter test accounts and custom exposure events."
+        },
+        "feature_flag_key": {
+            "description": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible.",
+            "type": "string"
+        },
+        "holdout_id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of a holdout group to exclude from the experiment."
+        },
+        "name": {
+            "description": "Name of the experiment.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "parameters": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "feature_flag_variants": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "properties": {
+                                            "key": {
+                                                "description": "Variant key, e.g. 'control', 'test', 'variant_a'.",
+                                                "type": "string"
+                                            },
+                                            "name": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Human-readable variant name."
+                                            },
+                                            "rollout_percentage": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "split_percent": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "number"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided."
+                                            }
+                                        },
+                                        "required": ["key"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Experiment variants. If not specified, defaults to a 50/50 control/test split."
+                        },
+                        "minimum_detectable_effect": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments."
+                        },
+                        "rollout_percentage": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100."
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Variant split and rollout scope. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set rollout_percentage (0-100) to control the overall fraction of users entering the experiment. Set feature_flag_variants with split_percent on each variant to customize the variant split. Default: 50/50 control/test, 100% rollout."
+        },
+        "stats_config": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ]
+        }
+    },
+    "required": ["name", "feature_flag_key"],
+    "type": "object"
+}

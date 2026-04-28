@@ -12,6 +12,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -21,7 +22,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
 
 export function PropertyDefinitionsTable(): JSX.Element {
-    const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
+    const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions, showVerifiedFilter } =
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
 
@@ -94,18 +95,38 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     Query with SQL
                 </Link>
             </LemonBanner>
-            <div className={cn('flex gap-2 flex-wrap')}>
+            <div className={cn('flex flex-wrap justify-between items-center gap-2')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for properties"
                     onChange={(e) => setFilters({ property: e || '' })}
                     value={filters.property}
+                    className="flex-1 min-w-60"
                 />
-                <LemonSelect
-                    options={propertyTypeOptions}
-                    value={`${filters.type}::${filters.group_type_index ?? ''}`}
-                    onSelect={setPropertyType}
-                />
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    <LemonSelect
+                        options={propertyTypeOptions}
+                        value={`${filters.type}::${filters.group_type_index ?? ''}`}
+                        onSelect={setPropertyType}
+                    />
+                    {showVerifiedFilter && (
+                        <>
+                            <span>Status:</span>
+                            <LemonSelect
+                                value={verifiedFilterValue(filters.verified)}
+                                options={verifiedOptions}
+                                data-attr="property-verified-filter"
+                                dropdownMatchSelectWidth={false}
+                                onChange={(value) => {
+                                    setFilters({
+                                        verified: verifiedFilterFromOption(value),
+                                    })
+                                }}
+                                size="small"
+                            />
+                        </>
+                    )}
+                </div>
             </div>
             <LemonTable
                 columns={columns}

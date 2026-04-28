@@ -7,7 +7,8 @@ import { alphabet, formatPercentage } from 'lib/utils'
 
 import type { FeatureFlagType } from '~/types'
 
-import { TrafficPreview, VariantsPanelCreateFeatureFlag } from '../../ExperimentForm/VariantsPanelCreateFeatureFlag'
+import { TrafficPreview } from '../../ExperimentForm/VariantDistributionEditor'
+import { VariantsPanelCreateFeatureFlag } from '../../ExperimentForm/VariantsPanelCreateFeatureFlag'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 const ReadOnlyVariantsStep = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {
@@ -23,6 +24,27 @@ const ReadOnlyVariantsStep = ({ flag }: { flag: FeatureFlagType }): JSX.Element 
             </LemonBanner>
 
             <div className="flex gap-4 flex-col">
+                <div className="flex-1">
+                    <div className="font-semibold mb-2">Rollout</div>
+                    <div className="border border-primary rounded p-4 flex flex-col gap-5">
+                        <div className="flex items-center justify-between">
+                            <h4 className="m-0">Rollout percent</h4>
+                            <div className="flex items-center gap-1 text-sm font-semibold">
+                                <span
+                                    className="inline-block w-3 h-3 rounded-sm"
+                                    style={{ backgroundColor: getSeriesColor(0) }}
+                                />
+                                {rolloutPercentage}%
+                            </div>
+                        </div>
+                        <TrafficPreview
+                            variants={variants}
+                            rolloutPercentage={rolloutPercentage}
+                            areVariantRolloutsValid={variantRolloutSum === 100}
+                        />
+                    </div>
+                </div>
+
                 <div className="flex-1">
                     <div className="font-semibold mb-2">Variants</div>
                     <div className="border border-primary rounded p-4">
@@ -54,27 +76,6 @@ const ReadOnlyVariantsStep = ({ flag }: { flag: FeatureFlagType }): JSX.Element 
                                 ))}
                             </tbody>
                         </table>
-                    </div>
-                </div>
-
-                <div className="flex-1">
-                    <div className="font-semibold mb-2">Rollout</div>
-                    <div className="border border-primary rounded p-4 flex flex-col gap-5">
-                        <div className="flex items-center justify-between">
-                            <h4 className="m-0">Rollout percent</h4>
-                            <div className="flex items-center gap-1 text-sm font-semibold">
-                                <span
-                                    className="inline-block w-3 h-3 rounded-sm"
-                                    style={{ backgroundColor: getSeriesColor(0) }}
-                                />
-                                {rolloutPercentage}%
-                            </div>
-                        </div>
-                        <TrafficPreview
-                            variants={variants}
-                            rolloutPercentage={rolloutPercentage}
-                            areVariantRolloutsValid={variantRolloutSum === 100}
-                        />
                     </div>
                 </div>
             </div>

@@ -21,7 +21,7 @@ jobs:
         outputs:
             docker_files: ${{ steps.filter.outputs.docker_files }}
         steps:
-            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: filter
               with:
                   predicate-quantifier: 'every'
@@ -36,6 +36,7 @@ jobs:
         name: Build Docker image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
         runs-on: depot-ubuntu-latest-4
+        timeout-minutes: 30
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -76,21 +77,10 @@ jobs:
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Digest: \`$IMAGE_DIGEST\`" >> $GITHUB_STEP_SUMMARY
 
-    deploy_preview:
-        name: Deploy preview environment
-        uses: ./.github/workflows/pr-preview-deploy.yml
-        # these permissions are required by pr-preview-deploy.yml
-        permissions:
-            id-token: write
-            contents: read
-            deployments: write
-        needs: [posthog_build, changes]
-        secrets: inherit
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') && needs.changes.outputs.docker_files == 'true' }}
-
     lint:
         name: Lint changed Dockerfiles
         runs-on: ubuntu-24.04
+        timeout-minutes: 5
         steps:
             - name: Check out
               uses: actions/checkout@v6
@@ -100,7 +90,7 @@ jobs:
 
             - name: Check if any Dockerfile has changed
               id: changed-files
-              uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
+              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
                   files: |
                       **/Dockerfile

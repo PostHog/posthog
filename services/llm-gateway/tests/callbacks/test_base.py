@@ -168,47 +168,95 @@ class TestExtractEndUserId:
             result = callback._extract_end_user_id(kwargs)
         assert result == "123"
 
-    def test_api_key_uses_end_user_from_request(
+    def test_api_key_returns_auth_user_id(
         self, callback: InstrumentedCallback, api_key_user: AuthenticatedUser
     ) -> None:
-        kwargs = {"standard_logging_object": {"end_user": "request-user"}}
+        with patch("llm_gateway.callbacks.base.get_auth_user", return_value=api_key_user):
+            result = callback._extract_end_user_id({})
+        assert result == "123"
+
+    def test_api_key_ignores_client_provided_user(
+        self, callback: InstrumentedCallback, api_key_user: AuthenticatedUser
+    ) -> None:
+        kwargs = {"user": "attacker-supplied-id", "standard_logging_object": {"end_user": "request-user"}}
         with patch("llm_gateway.callbacks.base.get_auth_user", return_value=api_key_user):
             result = callback._extract_end_user_id(kwargs)
-        assert result == "request-user"
+        assert result == "123"
 
-    def test_api_key_falls_back_to_metadata_user_id(
+    def test_api_key_ignores_metadata_user_id(
         self, callback: InstrumentedCallback, api_key_user: AuthenticatedUser
     ) -> None:
         kwargs = {"litellm_params": {"metadata": {"user_id": "anthropic-user"}}}
         with patch("llm_gateway.callbacks.base.get_auth_user", return_value=api_key_user):
             result = callback._extract_end_user_id(kwargs)
-        assert result == "anthropic-user"
+        assert result == "123"
 
-    def test_api_key_prefers_end_user_over_metadata(
-        self, callback: InstrumentedCallback, api_key_user: AuthenticatedUser
-    ) -> None:
-        kwargs = {
-            "standard_logging_object": {"end_user": "openai-user"},
-            "litellm_params": {"metadata": {"user_id": "anthropic-user"}},
-        }
-        with patch("llm_gateway.callbacks.base.get_auth_user", return_value=api_key_user):
-            result = callback._extract_end_user_id(kwargs)
-        assert result == "openai-user"
-
-    def test_api_key_returns_none_without_end_user(
-        self, callback: InstrumentedCallback, api_key_user: AuthenticatedUser
-    ) -> None:
-        with patch("llm_gateway.callbacks.base.get_auth_user", return_value=api_key_user):
-            result = callback._extract_end_user_id({})
-        assert result is None
-
-    def test_no_auth_user_uses_end_user(self, callback: InstrumentedCallback) -> None:
-        kwargs = {"standard_logging_object": {"end_user": "request-user"}}
-        with patch("llm_gateway.callbacks.base.get_auth_user", return_value=None):
-            result = callback._extract_end_user_id(kwargs)
-        assert result == "request-user"
-
-    def test_no_auth_user_returns_none_without_end_user(self, callback: InstrumentedCallback) -> None:
+    def test_no_auth_user_returns_none(self, callback: InstrumentedCallback) -> None:
         with patch("llm_gateway.callbacks.base.get_auth_user", return_value=None):
             result = callback._extract_end_user_id({})
         assert result is None
+
+    def test_no_auth_user_returns_none_even_with_kwargs(self, callback: InstrumentedCallback) -> None:
+        kwargs = {"user": "some-user", "standard_logging_object": {"end_user": "request-user"}}
+        with patch("llm_gateway.callbacks.base.get_auth_user", return_value=None):
+            result = callback._extract_end_user_id(kwargs)
+        assert result is None
+
+
+class TestExtractEndUserIdPoisoningPrevention:
+    """Verify that client-provided user fields cannot poison rate limit buckets.
+
+    An attacker could supply another user's ID in the 'user' request param,
+    'standard_logging_object.end_user', or 'litellm_params.metadata.user_id'
+    to bill costs against the victim's quota.
+    """
+
+    @pytest.fixture
+    def callback(self) -> InstrumentedCallback:
+        return MockCallback()
+
+    @pytest.fixture
+    def attacker_user(self) -> AuthenticatedUser:
+        return AuthenticatedUser(
+            user_id=999,
+            team_id=1,
+            auth_method="personal_api_key",
+            distinct_id="attacker-distinct-id",
+        )
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            pytest.param({"user": "42"}, id="openai_user_param_with_victim_id"),
+            pytest.param({"user": "victim-user-id"}, id="openai_user_param_with_victim_string"),
+            pytest.param(
+                {"standard_logging_object": {"end_user": "42"}},
+                id="standard_logging_object_end_user",
+            ),
+            pytest.param(
+                {"litellm_params": {"metadata": {"user_id": "42"}}},
+                id="anthropic_metadata_user_id",
+            ),
+            pytest.param(
+                {
+                    "user": "42",
+                    "standard_logging_object": {"end_user": "42"},
+                    "litellm_params": {"metadata": {"user_id": "42"}},
+                },
+                id="all_injection_vectors_combined",
+            ),
+        ],
+    )
+    def test_attacker_cannot_poison_victim_rate_limit_bucket(
+        self, callback: InstrumentedCallback, attacker_user: AuthenticatedUser, kwargs: dict
+    ) -> None:
+        with patch("llm_gateway.callbacks.base.get_auth_user", return_value=attacker_user):
+            result = callback._extract_end_user_id(kwargs)
+        assert result == "999", "Must return attacker's own authenticated ID, not the injected victim ID"
+
+    def test_attacker_cannot_evade_rate_limiting_by_omitting_user(
+        self, callback: InstrumentedCallback, attacker_user: AuthenticatedUser
+    ) -> None:
+        with patch("llm_gateway.callbacks.base.get_auth_user", return_value=attacker_user):
+            result = callback._extract_end_user_id({})
+        assert result == "999", "Must return authenticated ID even when no user param is provided"

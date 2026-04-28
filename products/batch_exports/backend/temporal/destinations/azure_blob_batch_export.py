@@ -4,22 +4,23 @@ import dataclasses
 
 from django.conf import settings
 
-from azure.storage.blob.aio import BlobServiceClient, ContainerClient
+from azure.core.exceptions import HttpResponseError
+from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
-    AzureBlobBatchExportInputs,
-    BatchExportField,
-    BatchExportInsertInputs,
-    BatchExportModel,
-)
 from posthog.models.integration import AzureBlobIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.service import (
+    AzureBlobBatchExportInputs,
+    BatchExportField,
+    BatchExportInsertInputs,
+    BatchExportModel,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -40,12 +41,13 @@ from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
-    "ResourceNotFoundError",
-    "ClientAuthenticationError",
     "AzureBlobIntegrationError",
     "AzureBlobIntegrationNotFoundError",
-    "UnsupportedFileFormatError",
+    "ClientAuthenticationError",
+    "MissingRequiredPermissionsError",
+    "ResourceNotFoundError",
     "UnsupportedCompressionError",
+    "UnsupportedFileFormatError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -85,6 +87,13 @@ class AzureBlobIntegrationNotFoundError(Exception):
             super().__init__(f"Azure Blob integration ID not provided for team '{team_id}'")
         else:
             super().__init__(f"Azure Blob integration with ID '{integration_id}' not found for team '{team_id}'")
+
+
+class MissingRequiredPermissionsError(Exception):
+    """Raised when missing required permissions in Azure Blob."""
+
+    def __init__(self):
+        super().__init__("Missing required permissions to run this batch export")
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -158,6 +167,10 @@ class AzureBlobConsumer(Consumer):
             conn_str=connection_string,
             max_single_put_size=64 * 1024 * 1024,  # 64 MiB
             max_block_size=4 * 1024 * 1024,  # 4 MiB
+            # Increase the read timeout to 10 minutes to account for large uploads.
+            read_timeout=600,
+            # Azure SDK defaults but we set them explicitly for visibility.
+            retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
         )
         container_client = blob_service_client.get_container_client(inputs.container_name)
 
@@ -207,11 +220,17 @@ class AzureBlobConsumer(Consumer):
 
         self.logger.debug("Blob upload started", blob_key=blob_key, size_bytes=len(self.current_buffer))
 
-        await blob_client.upload_blob(
-            bytes(self.current_buffer),
-            overwrite=True,
-            max_concurrency=self.max_concurrency,
-        )
+        try:
+            await blob_client.upload_blob(
+                bytes(self.current_buffer),
+                overwrite=True,
+                max_concurrency=self.max_concurrency,
+            )
+        except HttpResponseError as exc:
+            if exc.error is not None and exc.error.code == "AuthorizationFailure":
+                raise MissingRequiredPermissionsError()
+            else:
+                raise
 
         self.logger.debug("Blob upload completed", blob_key=blob_key)
         self.files_uploaded.append(blob_key)
@@ -227,10 +246,18 @@ class AzureBlobConsumer(Consumer):
         manifest_content = json.dumps({"files": self.files_uploaded}, indent=2)
 
         blob_client = self.container_client.get_blob_client(manifest_key)
-        await blob_client.upload_blob(
-            manifest_content.encode("utf-8"),
-            overwrite=True,
-        )
+
+        try:
+            await blob_client.upload_blob(
+                manifest_content.encode("utf-8"),
+                overwrite=True,
+            )
+        except HttpResponseError as exc:
+            if exc.error is not None and exc.error.code == "AuthorizationFailure":
+                raise MissingRequiredPermissionsError()
+            else:
+                raise
+
         self.logger.info("Manifest uploaded", manifest_key=manifest_key, file_count=len(self.files_uploaded))
 
 
@@ -335,7 +362,9 @@ class AzureBlobBatchExportWorkflow(PostHogWorkflow):
     async def run(self, inputs: AzureBlobBatchExportInputs):
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

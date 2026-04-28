@@ -22,7 +22,7 @@ class TestLoadRawSessionSummary:
     ) -> None:
         allowed_event_ids = ["abcd1234", "defg4567", "ghij7890", "mnop3456", "stuv9012"]
         result = load_raw_session_summary_from_llm_content(
-            mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, final_validation=True
+            mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id
         )
         assert result is not None
         # Ensure the LLM output is valid
@@ -34,7 +34,7 @@ class TestLoadRawSessionSummary:
         with pytest.raises(
             SummaryValidationError, match=f"No LLM content found when summarizing session_id {mock_session_id}"
         ):
-            load_raw_session_summary_from_llm_content(None, [], mock_session_id, final_validation=True)  # type: ignore
+            load_raw_session_summary_from_llm_content(None, [], mock_session_id)  # type: ignore
 
     def test_load_raw_session_summary_invalid_yaml(
         self, mock_valid_llm_yaml_response: str, mock_session_id: str
@@ -47,9 +47,7 @@ class TestLoadRawSessionSummary:
             SummaryValidationError,
             match=f"Error loading YAML content into JSON when summarizing session_id {mock_session_id}",
         ):
-            load_raw_session_summary_from_llm_content(
-                mock_valid_llm_yaml_response, [], mock_session_id, final_validation=False
-            )
+            load_raw_session_summary_from_llm_content(mock_valid_llm_yaml_response, [], mock_session_id)
 
     def test_load_raw_session_summary_hallucinated_events_failed_summary(
         self, mock_valid_llm_yaml_response: str, mock_session_id: str
@@ -58,37 +56,7 @@ class TestLoadRawSessionSummary:
         allowed_event_ids = ["abcd1234"]
         # Should fail the summary and force to retry
         with pytest.raises(SummaryValidationError, match=f"Too many hallucinated events"):
-            load_raw_session_summary_from_llm_content(
-                mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, final_validation=True
-            )
-
-    def test_load_raw_session_summary_hallucinated_events_intermediate_should_not_fail(
-        self, mock_valid_llm_yaml_response: str, mock_session_id: str
-    ) -> None:
-        # 4/5 events are missing (would be marked as hallucinated)
-        allowed_event_ids = ["abcd1234"]
-        # Should not fail the summary as it's an intermediate validation, so not all events are processed yet
-        summary = load_raw_session_summary_from_llm_content(
-            mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, final_validation=False
-        )
-        # However, it should still have all the hallucinated events removed
-        assert summary is not None
-        assert summary.data is not None
-        assert summary.data["key_actions"] == [
-            {
-                "events": [
-                    {
-                        "abandonment": False,
-                        "confusion": False,
-                        "description": "First significant action in this segment",
-                        "event_id": "abcd1234",
-                        "exception": None,
-                    }
-                ],
-                "segment_index": 0,
-            },
-            {"events": [], "segment_index": 1},
-        ]
+            load_raw_session_summary_from_llm_content(mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id)
 
     def test_load_raw_session_summary_hallucinated_events_below_threshold(
         self, mock_valid_llm_yaml_response: str, mock_session_id: str
@@ -98,7 +66,7 @@ class TestLoadRawSessionSummary:
         # Should pass through, as only 20% of events are hallucinated
         with patch("ee.hogai.session_summaries.session.output_data.HALLUCINATED_EVENTS_MIN_RATIO", 0.25):
             summary = load_raw_session_summary_from_llm_content(
-                mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id, final_validation=True
+                mock_valid_llm_yaml_response, allowed_event_ids, mock_session_id
             )
             assert summary is not None
             assert summary.data is not None
@@ -160,7 +128,6 @@ class TestLoadRawSessionSummary:
                 modified_yaml,
                 ["abcd1234", "defg4567", "ghij7890", "mnop3456", "stuv9012"],
                 mock_session_id,
-                final_validation=True,
             )
 
     def test_load_raw_session_summary_invalid_schema(
@@ -183,9 +150,7 @@ session_outcome:
             SummaryValidationError,
             match=f"Error validating LLM output against the schema when summarizing session_id {mock_session_id}",
         ):
-            load_raw_session_summary_from_llm_content(
-                modified_yaml, ["abcd1234", "defg4567"], mock_session_id, final_validation=True
-            )
+            load_raw_session_summary_from_llm_content(modified_yaml, ["abcd1234", "defg4567"], mock_session_id)
 
 
 @pytest.mark.parametrize(
@@ -210,7 +175,7 @@ class TestEnrichRawSessionSummary:
         self, mock_valid_llm_yaml_response: str, mock_valid_event_ids: list[str], mock_session_id: str
     ) -> RawSessionSummarySerializer:
         result = load_raw_session_summary_from_llm_content(
-            mock_valid_llm_yaml_response, mock_valid_event_ids, mock_session_id, final_validation=True
+            mock_valid_llm_yaml_response, mock_valid_event_ids, mock_session_id
         )
         assert result is not None
         return result
@@ -237,7 +202,6 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
-            final_validation=True,
         )
         assert result.is_valid()
         # Check segments
@@ -296,7 +260,6 @@ class TestEnrichRawSessionSummary:
                 session_id=mock_session_id,
                 session_start_time_str=mock_session_metadata.start_time.isoformat(),
                 session_duration=mock_session_metadata.duration,
-                final_validation=True,
             )
 
     def test_calculate_segment_meta_missing_event(
@@ -324,7 +287,6 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
-            final_validation=True,
         )
         assert result.is_valid()
         # Verify the result has segments and the missing event was handled
@@ -371,7 +333,6 @@ class TestEnrichRawSessionSummary:
                 session_id=mock_session_id,
                 session_start_time_str=mock_session_metadata.start_time.isoformat(),
                 session_duration=mock_session_metadata.duration,
-                final_validation=True,
             )
 
     def test_enrich_raw_session_summary_missing_url(
@@ -399,7 +360,6 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
-            final_validation=True,
         )
 
     def test_enrich_raw_session_summary_missing_window_id(
@@ -427,7 +387,6 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
-            final_validation=True,
         )
 
     def test_enrich_raw_session_summary_chronological_sorting(
@@ -456,7 +415,6 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
-            final_validation=True,
         )
         assert result.is_valid()
         # Check that events are sorted chronologically
@@ -489,7 +447,6 @@ class TestEnrichRawSessionSummary:
             session_id=mock_session_id,
             session_start_time_str=mock_session_metadata.start_time.isoformat(),
             session_duration=mock_session_metadata.duration,
-            final_validation=True,
         )
         assert result.is_valid()
 
@@ -545,12 +502,6 @@ def _get_valid_summary_data() -> dict[str, Any]:
 class TestSessionSummarySerializerValidation:
     def test_valid_summary_passes_validation(self) -> None:
         serializer = SessionSummarySerializer(data=_get_valid_summary_data())
-        assert serializer.is_valid()
-
-    def test_validation_skipped_with_streaming_validation_context(self) -> None:
-        data = _get_valid_summary_data()
-        data["session_outcome"] = None
-        serializer = SessionSummarySerializer(data=data, context={"streaming_validation": True})
         assert serializer.is_valid()
 
     @pytest.mark.parametrize(
@@ -621,6 +572,110 @@ class TestSessionSummarySerializerValidation:
         assert "segments[0].index" in serializer.errors
         assert "segments[0].name" in serializer.errors
         assert "session_outcome.success" in serializer.errors
+
+    def test_valid_summary_with_sentiment(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.3,
+            "outcome": "friction",
+            "sentiment_signals": [
+                {
+                    "signal_type": "repeated_error",
+                    "segment_index": 0,
+                    "description": "User hit the same validation error twice",
+                    "intensity": 0.4,
+                },
+            ],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    def test_valid_summary_without_sentiment(self) -> None:
+        data = _get_valid_summary_data()
+        assert "sentiment" not in data
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    def test_valid_summary_with_null_sentiment(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = None
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    def test_sentiment_with_empty_signals(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.0,
+            "outcome": "successful",
+            "sentiment_signals": [],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    @pytest.mark.parametrize("outcome", ["successful", "friction", "frustrated", "blocked"])
+    def test_sentiment_valid_outcome_values(self, outcome: str) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.5,
+            "outcome": outcome,
+            "sentiment_signals": [],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert serializer.is_valid()
+
+    def test_sentiment_invalid_outcome(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.5,
+            "outcome": "unknown",
+            "sentiment_signals": [],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+
+    def test_sentiment_frustration_score_out_of_range(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 1.5,
+            "outcome": "frustrated",
+            "sentiment_signals": [],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+
+    def test_sentiment_signal_invalid_type(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.5,
+            "outcome": "friction",
+            "sentiment_signals": [
+                {
+                    "signal_type": "invalid_type",
+                    "segment_index": 0,
+                    "description": "Something happened",
+                    "intensity": 0.5,
+                },
+            ],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
+
+    def test_sentiment_signal_intensity_out_of_range(self) -> None:
+        data = _get_valid_summary_data()
+        data["sentiment"] = {
+            "frustration_score": 0.5,
+            "outcome": "friction",
+            "sentiment_signals": [
+                {
+                    "signal_type": "rage_click",
+                    "segment_index": 0,
+                    "description": "Rage clicking on button",
+                    "intensity": 2.0,
+                },
+            ],
+        }
+        serializer = SessionSummarySerializer(data=data)
+        assert not serializer.is_valid()
 
     def test_validation_correctly_identifies_error_position_in_arrays(self) -> None:
         data = {

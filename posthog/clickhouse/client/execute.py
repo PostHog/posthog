@@ -31,11 +31,13 @@ from posthog.clickhouse.query_tagging import (
     Feature,
     Product,
     QueryTags,
+    get_caller_source,
     get_query_tag_value,
     get_query_tags,
 )
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
-from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, TEST
+from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, DEBUG, TEST
+from posthog.settings.data_stores import is_enable_analyzer_team
 from posthog.temporal.common.clickhouse import update_query_tags_with_temporal_info
 from posthog.utils import generate_short_id, patchable
 
@@ -77,6 +79,10 @@ CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
 is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
 
 
+class UntaggedQueryError(Exception):
+    """Raised in DEBUG mode when a ClickHouse query is executed without product or feature tags."""
+
+
 class KillSwitchLevel(StrEnum):
     OFF = "off"
     LIGHT = "light"
@@ -108,6 +114,17 @@ _KILL_SWITCH_SETTINGS: dict[KillSwitchLevel, dict[str, int]] = {
 
 def get_kill_switch_level() -> KillSwitchLevel:
     return _get_kill_switch_level(round(time.time() / 60))
+
+
+def get_hedged_app_queries_enabled() -> bool:
+    return _get_hedged_app_queries_enabled(round(time.time() / 60))
+
+
+@lru_cache(maxsize=1)
+def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
+    from posthog.models.instance_setting import get_instance_setting
+
+    return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
 
 
 @lru_cache(maxsize=1)
@@ -261,6 +278,10 @@ def sync_execute(
         **(settings or {}),
     }
 
+    # Only enable if not explicitly disabled — setdefault preserves existing value
+    if team_id is not None and is_enable_analyzer_team(team_id):
+        core_settings.setdefault("enable_analyzer", 1)
+
     kill_switch_level = KillSwitchLevel.OFF if TEST else get_kill_switch_level()
     if kill_switch_level != KillSwitchLevel.OFF and ch_user not in _KILL_SWITCH_EXEMPT_USERS:
         overrides = _KILL_SWITCH_SETTINGS[kill_switch_level]
@@ -286,7 +307,22 @@ def sync_execute(
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
 
-    if (
+    # Fail fast if trying to run an untagged query in local dev.
+    # If you are reading this because you got the error below, please fix your query by
+    # adding tags!
+    # See `tag_queries` and `tags_context` in posthog/clickhouse/query_tagging.py for how to
+    # attach tags.
+    # Please add whichever tags are relevant, in particular use helper functions like
+    # `get_request_analytics_properties` in posthog/event_usage.py for anything that was an
+    # http request.
+    if DEBUG and not TEST and (tags.product is None or tags.feature is None):
+        missing = [name for name, value in (("product", tags.product), ("feature", tags.feature)) if value is None]
+        raise UntaggedQueryError(
+            f"sync_execute called with missing query tags: {', '.join(missing)}. "
+            "Wrap the call site in `with tags_context(product=..., feature=...):` or call "
+            "`tag_queries(product=..., feature=...)` from posthog.clickhouse.query_tagging."
+        )
+    elif (
         not TEST
         and ch_user in (ClickHouseUser.APP, ClickHouseUser.DEFAULT)
         and (tags.team_id is None or tags.product is None or tags.kind is None or tags.query_type is None)
@@ -307,9 +343,14 @@ def sync_execute(
             stacktrace="".join(traceback.format_stack()),
         )
 
+    source_file, source_line = get_caller_source()
+    query_log_tags = tags.model_copy(deep=True)
+    query_log_tags.source_file = source_file
+    query_log_tags.source_line = source_line
+
     settings = {
         **core_settings,
-        "log_comment": tags.to_json(),
+        "log_comment": query_log_tags.to_json(),
     }
     if workload == Workload.OFFLINE:
         # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
@@ -321,7 +362,7 @@ def sync_execute(
         if kill_switch_level != KillSwitchLevel.OFF:
             settings["use_hedged_requests"] = "0"
         else:
-            settings["use_hedged_requests"] = "1"
+            settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
 
     try:

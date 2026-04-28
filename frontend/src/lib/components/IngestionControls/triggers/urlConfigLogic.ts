@@ -11,7 +11,7 @@ export function isStringWithLength(x: unknown): x is string {
     return typeof x === 'string' && x.trim() !== ''
 }
 
-function ensureAnchored(url: string): string {
+export function ensureAnchored(url: string): string {
     url = url.startsWith('^') ? url.substring(1) : url
     url = url.endsWith('$') ? url.substring(0, url.length - 1) : url
     return `^${url}$`

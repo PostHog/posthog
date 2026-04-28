@@ -14,9 +14,9 @@ import {
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
 import { HogExecutorService } from './hog-executor.service'
+import { InvocationResultsService } from './invocation-results.service'
 import { GroupsManagerService } from './managers/groups-manager.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
-import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogWatcherService } from './monitoring/hog-watcher.service'
 
 // TODO: This might be too strict so we need to validate that it matches well what we would expect to get from batch exports
@@ -33,7 +33,7 @@ const batchExportRequestBodySchema = z.object({
         elements_chain: z.string().default(''),
         person_properties: z.string().optional(),
     }),
-    invocation_id: z.string().uuid().optional(),
+    invocation_id: z.guid().optional(),
 })
 
 export class BatchExportHogFunctionService {
@@ -46,7 +46,7 @@ export class BatchExportHogFunctionService {
         private hogFunctionManager: HogFunctionManagerService,
         private hogExecutor: HogExecutorService,
         private hogWatcher: HogWatcherService,
-        private hogFunctionMonitoringService: HogFunctionMonitoringService
+        private invocationResultsService: InvocationResultsService
     ) {
         this.promiseScheduler = new PromiseScheduler()
     }
@@ -66,7 +66,7 @@ export class BatchExportHogFunctionService {
         let team: Team | null
         try {
             team = await this.teamManager.getTeam(parseInt(params.team_id))
-        } catch (e) {
+        } catch {
             throw new ParseError('Invalid team_id: ' + params.team_id)
         }
         if (!team) {
@@ -88,15 +88,17 @@ export class BatchExportHogFunctionService {
         const invocation = createInvocation(globalsWithInputs, hogFunction)
         invocation.id = invocationId.toString()
 
-        const result = await this.hogExecutor.executeWithAsyncFunctions(invocation)
+        const result = await this.hogExecutor.executeWithAsyncFunctions(invocation, { maxFetchRetries: 0 }) // Retries are handled by the batch export service
 
         // TODO: Follow up - we might want to more accuratelt link an execution to the fact it came from a batch export
         // We have the parent_id but that overrides the function id which is not always what we want
         // Likely after v0 we will want to add an extra field or concept depending on whether it is a backfill vs a standard run
 
-        await this.hogFunctionMonitoringService.queueInvocationResults([result])
         void this.promiseScheduler.schedule(
-            Promise.all([this.hogFunctionMonitoringService.flush(), this.hogWatcher.observeResultsBuffered(result)])
+            Promise.all([
+                this.invocationResultsService.queueInvocationResultsAndFlush([result]),
+                this.hogWatcher.observeResultsBuffered(result),
+            ])
         )
 
         return result

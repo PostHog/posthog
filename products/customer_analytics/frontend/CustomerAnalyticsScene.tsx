@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -17,20 +18,27 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SessionInsights } from 'products/customer_analytics/frontend/components/Insights/SessionInsights'
 
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
-import { FeedbackBanner } from './components/FeedbackBanner'
+import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
+import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
+import { DeleteJourneyButton } from './components/CustomerJourneys/DeleteJourneyButton'
+import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorLogic'
+import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
+import { customerAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 
 export const scene: SceneExport = {
     component: CustomerAnalyticsScene,
@@ -38,7 +46,15 @@ export const scene: SceneExport = {
     productKey: ProductKey.CUSTOMER_ANALYTICS,
 }
 
-export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
+export function CustomerAnalyticsScene(props: { tabId?: string }): JSX.Element {
+    return (
+        <FeaturePreviewSceneGate config={customerAnalyticsFeaturePreviewGate}>
+            <CustomerAnalyticsSceneContent {...props} />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function CustomerAnalyticsSceneContent({ tabId }: { tabId?: string }): JSX.Element {
     const { addProductIntent } = useActions(teamLogic)
     const { reportCustomerAnalyticsDashboardConfigurationButtonClicked, reportCustomerAnalyticsViewed } =
         useActions(eventUsageLogic)
@@ -46,6 +62,14 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const { isEditMode, stagedNodes, isSaving } = useValues(journeyEditorLogic)
+    const { saveChanges, cancelChanges } = useActions(journeyEditorLogic)
+    const { activeJourney } = useValues(customerJourneysLogic)
+
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
 
     if (!tabId) {
         throw new Error('CustomerAnalyticsScene was rendered with no tabId')
@@ -57,7 +81,10 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
 
     const dashboardContent =
         businessType === 'b2b' && shouldShowGroupsIntroduction ? (
-            <GroupsIntroduction />
+            <>
+                <CustomerAnalyticsFilters />
+                <GroupsIntroduction />
+            </>
         ) : (
             <>
                 <CustomerAnalyticsFilters />
@@ -97,34 +124,83 @@ export function CustomerAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                         type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                     }}
                     actions={
-                        <AppShortcut
-                            name="CustomerAnalyticsSettings"
-                            keybind={[keyBinds.settings]}
-                            intent="Configure customer analytics"
-                            interaction="click"
-                            scope={Scene.CustomerAnalytics}
-                        >
-                            <LemonButton
-                                icon={<IconGear />}
-                                size="small"
-                                type="secondary"
-                                to={urls.customerAnalyticsConfiguration()}
-                                onClick={() => {
-                                    addProductIntent({
-                                        product_type: ProductKey.CUSTOMER_ANALYTICS,
-                                        intent_context:
-                                            ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED,
-                                    })
-                                    reportCustomerAnalyticsDashboardConfigurationButtonClicked()
-                                }}
-                                tooltip="Configure customer analytics"
-                                children="Configure"
-                                data-attr="customer-analytics-config"
-                            />
-                        </AppShortcut>
+                        <>
+                            <FeedbackButton id="customer-analytics-dashboard-feedback-button" />
+                            {isEditMode ? (
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm text-muted font-medium whitespace-nowrap">
+                                        {stagedNodes.length} step{stagedNodes.length !== 1 ? 's' : ''} to add
+                                    </span>
+                                    <LemonButton type="secondary" size="small" onClick={cancelChanges}>
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        onClick={saveChanges}
+                                        disabledReason={
+                                            accessControlDisabledReason ??
+                                            (stagedNodes.length === 0 ? 'No steps staged' : undefined)
+                                        }
+                                        loading={isSaving}
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </div>
+                            ) : activeTab === 'journeys' ? (
+                                <>
+                                    <CustomerJourneySelect />
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        to={urls.customerJourneyTemplates()}
+                                        data-attr="new-journey"
+                                        disabledReason={accessControlDisabledReason}
+                                    >
+                                        New journey
+                                    </LemonButton>
+                                    {activeJourney && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            to={`${urls.customerJourneyEdit(activeJourney.id)}?insightId=${activeJourney.insight}`}
+                                            data-attr="edit-journey"
+                                        >
+                                            Edit
+                                        </LemonButton>
+                                    )}
+                                    <DeleteJourneyButton />
+                                </>
+                            ) : (
+                                <AppShortcut
+                                    name="CustomerAnalyticsSettings"
+                                    keybind={[keyBinds.settings]}
+                                    intent="Configure customer analytics"
+                                    interaction="click"
+                                    scope={Scene.CustomerAnalytics}
+                                >
+                                    <LemonButton
+                                        icon={<IconGear />}
+                                        size="small"
+                                        type="secondary"
+                                        to={urls.customerAnalyticsConfiguration()}
+                                        onClick={() => {
+                                            addProductIntent({
+                                                product_type: ProductKey.CUSTOMER_ANALYTICS,
+                                                intent_context:
+                                                    ProductIntentContext.CUSTOMER_ANALYTICS_DASHBOARD_CONFIGURATION_BUTTON_CLICKED,
+                                            })
+                                            reportCustomerAnalyticsDashboardConfigurationButtonClicked()
+                                        }}
+                                        tooltip="Configure customer analytics"
+                                        children="Configure"
+                                        data-attr="customer-analytics-config"
+                                    />
+                                </AppShortcut>
+                            )}
+                        </>
                     }
                 />
-                <FeedbackBanner feedbackButtonId="dashboard" />
                 {tabs.length > 1 ? (
                     <LemonTabs activeKey={activeTab} data-attr="customer-analytics-tabs" tabs={tabs} sceneInset />
                 ) : (

@@ -25,7 +25,12 @@ _hogli_completion() {{
         return 0
     fi
 
-    COMPREPLY=($(compgen -W "${{commands}}" -- ${{cur}}))
+    # First arg: command names. After that: file paths.
+    if [[ ${{COMP_CWORD}} -eq 1 ]]; then
+        COMPREPLY=($(compgen -W "${{commands}}" -- ${{cur}}))
+    else
+        COMPREPLY=($(compgen -f -- ${{cur}}))
+    fi
     return 0
 }}
 
@@ -50,7 +55,7 @@ def generate_zsh_completion(cli_name: str = "hogli") -> str:
             desc = cmd_config.get("description", "")
             # Escape special characters for zsh
             desc = desc.replace("[", "\\[").replace("]", "\\]")
-            desc = desc.replace("'", "\\'")
+            desc = desc.replace("'", "'\"'\"'")
 
         # Escape colons in command name for zsh completion format
         escaped_cmd = cmd.replace(":", "\\:")
@@ -70,7 +75,12 @@ _hogli() {{
     {completions_str}
   )
 
-  _describe 'hogli commands' commands
+  # First arg (CURRENT==2): command names. After that: file paths.
+  if (( CURRENT == 2 )); then
+    _describe 'hogli commands' commands
+  else
+    _files
+  fi
 }}
 
 _hogli

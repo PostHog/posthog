@@ -1,7 +1,8 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Union
+from typing import ClassVar, Union
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -28,6 +29,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     GoogleAdsConfig,
     LinkedinAdsConfig,
     MetaAdsConfig,
+    PinterestAdsConfig,
     QueryContext,
     RedditAdsConfig,
     TikTokAdsConfig,
@@ -37,6 +39,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.bing_ads import
 from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.pinterest_ads import PinterestAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import (
     AWSAdapter,
@@ -76,7 +79,7 @@ class TableInfo:
     credential: DataWarehouseCredential
     platform: str
     source_type: str
-    cleanup_fn: callable
+    cleanup_fn: Callable[[], None]
 
 
 @dataclass
@@ -94,6 +97,7 @@ class DataConfig:
 class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     maxDiff = None
     CLASS_DATA_LEVEL_SETUP = False
+    test_data_configs: ClassVar[dict[str, DataConfig]]
 
     @classmethod
     def setUpClass(cls):
@@ -160,47 +164,23 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                 },
             ),
             "linkedin_campaigns": DataConfig(
-                csv_filename="test/linkedin_ads/campaigns.csv",
-                table_name="linkedin_campaigns_table",
+                csv_filename="test/linkedin_ads/campaign_groups.csv",
+                table_name="linkedin_campaign_groups_table",
                 platform="LinkedIn Ads",
                 source_type="LinkedinAds",
                 bucket_suffix="linkedin_campaigns",
                 column_schema={
                     "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "locale": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "account": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "version": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "cost_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "unit_cost": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "account_id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "total_budget": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "created_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "daily_budget": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "run_schedule": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "campaign_group": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "campaign_group_id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
-                    "last_modified_time": {
-                        "hogql": "StringDatabaseField",
-                        "clickhouse": "String",
-                        "schema_valid": True,
-                    },
-                    "targeting_criteria": {
-                        "hogql": "StringDatabaseField",
-                        "clickhouse": "String",
-                        "schema_valid": True,
-                    },
-                    "change_audit_stamps": {
-                        "hogql": "StringDatabaseField",
-                        "clickhouse": "String",
-                        "schema_valid": True,
-                    },
                 },
             ),
             "linkedin_stats": DataConfig(
-                csv_filename="test/linkedin_ads/campaign_stats.csv",
-                table_name="linkedin_campaign_stats_table",
+                csv_filename="test/linkedin_ads/campaign_group_stats.csv",
+                table_name="linkedin_campaign_group_stats_table",
                 platform="LinkedIn Ads",
                 source_type="LinkedinAds",
                 bucket_suffix="linkedin_stats",
@@ -210,8 +190,13 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "date_end": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "date_range": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "date_start": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
-                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_group_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                     "cost_in_usd": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cost_in_local_currency": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
                     "impressions": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "video_views": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                     "pivot_values": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
@@ -714,13 +699,132 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "conversion_rate": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
                 },
             ),
+            "pinterest_campaigns": DataConfig(
+                csv_filename="test/pinterest_ads/campaigns.csv",
+                table_name="pinterestads_campaigns",
+                platform="Pinterest Ads",
+                source_type="PinterestAds",
+                bucket_suffix="pinterest_campaigns",
+                column_schema={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "objective_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "daily_spend_cap": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "lifetime_spend_cap": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "start_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "end_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "tracking_urls": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "order_line_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_format": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "ad_account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "created_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "updated_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                },
+            ),
+            "pinterest_campaign_analytics": DataConfig(
+                csv_filename="test/pinterest_ads/campaign_analytics.csv",
+                table_name="pinterestads_campaign_analytics",
+                platform="Pinterest Ads",
+                source_type="PinterestAds",
+                bucket_suffix="pinterest_campaign_analytics",
+                column_schema={
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "date": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "spend_in_dollar": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "spend_in_micro_dollar": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "paid_impression": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "impression_1": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "total_impression": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "clickthrough_1": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "total_clickthrough": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "outbound_click_1": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "total_engagement": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "engagement_rate": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "ctr": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "ectr": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cpc_in_micro_dollar": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "ecpc_in_dollar": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cpm_in_dollar": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "total_conversions": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "total_checkout": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "total_checkout_value_in_micro_dollar": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "checkout_roas": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "total_signup": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "total_lead": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "total_page_visit": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "total_video_3sec_views": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "total_video_mrc_views": {
+                        "hogql": "IntegerDatabaseField",
+                        "clickhouse": "Int64",
+                        "schema_valid": True,
+                    },
+                    "currency": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                },
+            ),
         }
 
     def setUp(self):
         super().setUp()
         self.context = self._create_test_context()
         self.test_tables: dict[str, TableInfo] = {}
-        self._cleanup_functions: list[callable] = []
+        self._cleanup_functions: list[Callable[[], None]] = []
 
     def tearDown(self):
         for cleanup_fn in self._cleanup_functions:
@@ -782,7 +886,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         self.test_tables[table_key] = table_info
         self._cleanup_functions.append(cleanup_fn)
 
-        logger.info("created_table", table_name=config.table_name, row_count=len(csv_df))
+        row_count = 0 if csv_df is None else len(csv_df)
+        logger.info("created_table", table_name=config.table_name, row_count=row_count)
         return table_info
 
     def _create_mock_table(self, name: str, source_type: str) -> Mock:
@@ -829,6 +934,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         assert result is not None, "Query execution should not return None"
         assert result.results is not None, "Query results should not be None"
+        assert result.columns is not None, "Query columns should not be None"
         assert len(result.columns) == EXPECTED_COLUMN_COUNT, f"Should have {EXPECTED_COLUMN_COUNT} columns"
 
         return result.results
@@ -959,8 +1065,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert isinstance(result.errors, list), "GoogleCloudAdapter should return list of errors"
 
     def test_linkedin_ads_adapter_validation_consistency(self):
-        campaign_table = self._create_mock_table("linkedin_campaigns_table", "linkedin_ads")
-        stats_table = self._create_mock_table("linkedin_campaign_stats_table", "linkedin_ads")
+        campaign_table = self._create_mock_table("linkedin_campaign_groups_table", "linkedin_ads")
+        stats_table = self._create_mock_table("linkedin_campaign_group_stats_table", "linkedin_ads")
 
         config = LinkedinAdsConfig(
             campaign_table=campaign_table,
@@ -1042,6 +1148,50 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         assert result.is_valid, "BingAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "BingAdsAdapter should return list of errors"
+
+    @parameterized.expand(
+        [
+            ("total_impression", "_get_impressions_field"),
+            ("total_clickthrough", "_get_clicks_field"),
+            ("spend_in_dollar", "_get_cost_field"),
+        ]
+    )
+    def test_pinterest_ads_returns_zero_when_stats_column_missing(self, missing_column, field_method):
+        campaign_table = self._create_mock_table("pinterestads_campaigns", "PinterestAds")
+        stats_table = self._create_mock_table("pinterestads_campaign_analytics", "PinterestAds")
+        all_columns = ("total_impression", "total_clickthrough", "spend_in_dollar")
+        stats_table.columns = {col: {"valid": True} for col in all_columns if col != missing_column}
+
+        config = PinterestAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="PinterestAds",
+            source_id="test_missing_column",
+        )
+        adapter = PinterestAdsAdapter(config=config, context=self.context)
+        expr = getattr(adapter, field_method)()
+
+        assert isinstance(expr, ast.Call)
+        assert expr.name == "toFloat"
+        assert isinstance(expr.args[0], ast.Constant)
+        assert expr.args[0].value == 0
+
+    def test_pinterest_ads_adapter_validation_consistency(self):
+        campaign_table = self._create_mock_table("pinterestads_campaigns", "PinterestAds")
+        stats_table = self._create_mock_table("pinterestads_campaign_analytics", "PinterestAds")
+
+        config = PinterestAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="PinterestAds",
+            source_id="test_consistency",
+        )
+
+        adapter = PinterestAdsAdapter(config=config, context=self.context)
+        result = adapter.validate()
+
+        assert result.is_valid, "PinterestAdsAdapter validation should succeed"
+        assert isinstance(result.errors, list), "PinterestAdsAdapter should return list of errors"
 
     # ================================================================
     # QUERY GENERATION TESTS
@@ -1193,6 +1343,29 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         self._validate_query_structure(query, "BingAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
+    def test_pinterest_ads_native_query_generation(self):
+        campaign_table = self._create_mock_table("pinterest_campaigns", "PinterestAds")
+        stats_table = self._create_mock_table("pinterest_campaign_analytics", "PinterestAds")
+        stats_table.columns = {
+            "total_impression": {"valid": True},
+            "total_clickthrough": {"valid": True},
+            "spend_in_dollar": {"valid": True},
+        }
+
+        config = PinterestAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="PinterestAds",
+            source_id="pinterest_ads",
+        )
+
+        adapter = PinterestAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "PinterestAdsAdapter should generate a query"
+        self._validate_query_structure(query, "PinterestAdsAdapter")
+        assert self._execute_and_snapshot(query) == self.snapshot
+
     def test_tiktok_ads_query_generation(self):
         table = self._create_mock_table("tiktok_table", "aws")
         source_map = self._create_source_map(
@@ -1221,8 +1394,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert self._execute_and_snapshot(query) == self.snapshot
 
     def test_linkedin_ads_query_generation(self):
-        campaign_table = self._create_mock_table("linkedin_campaigns", "LinkedinAds")
-        stats_table = self._create_mock_table("linkedin_stats", "LinkedinAds")
+        campaign_table = self._create_mock_table("linkedin_campaign_groups", "LinkedinAds")
+        stats_table = self._create_mock_table("linkedin_campaign_group_stats", "LinkedinAds")
 
         config = LinkedinAdsConfig(
             campaign_table=campaign_table,
@@ -1476,7 +1649,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         total_impressions = sum(int(row[4] or 0) for row in results)
         total_clicks = sum(int(row[5] or 0) for row in results)
 
-        assert len(results) == 5, "Expected 5 campaigns from LinkedIn Ads JOIN"
+        assert len(results) == 3, "Expected 3 campaign groups from LinkedIn Ads JOIN"
         assert abs(total_cost - 1600.00) < 0.01, f"Expected cost $1600.00, got ${total_cost}"
         assert total_impressions == 485, f"Expected 485 impressions, got {total_impressions}"
         assert total_clicks == 26, f"Expected 26 clicks, got {total_clicks}"
@@ -1510,13 +1683,60 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         total_impressions = sum(int(row[4] or 0) for row in results)
         total_clicks = sum(int(row[5] or 0) for row in results)
 
+        total_conversion_value = sum(float(row[8] or 0) for row in results)
+
         assert len(results) == 10, "Expected 10 campaigns from Reddit Ads JOIN"
         assert abs(total_cost - 90.6) < 0.01, f"Expected cost $90.6, got ${total_cost}"
         assert total_impressions == 14299, f"Expected 14299 impressions, got {total_impressions}"
         assert total_clicks == 454, f"Expected 454 clicks, got {total_clicks}"
+        # Conversion values in CSV are in cents: signup=(10000+15000+12000)=37000, purchase=(50000+75000+60000)=185000
+        # After dividing by 100: $370 + $1850 = $2220
+        assert abs(total_conversion_value - 2220.0) < 0.01, (
+            f"Expected conversion value $2220.0, got ${total_conversion_value}"
+        )
 
         sources = [row[3] for row in results]
         assert all(source == "reddit" for source in sources), "All sources should be 'reddit'"
+
+    def test_pinterest_ads_adapter_with_real_data(self):
+        campaign_info = self._setup_csv_table("pinterest_campaigns")
+        stats_info = self._setup_csv_table("pinterest_campaign_analytics")
+
+        config = PinterestAdsConfig(
+            campaign_table=campaign_info.table,
+            stats_table=stats_info.table,
+            source_type="PinterestAds",
+            source_id="pinterest_ads",
+        )
+
+        adapter = PinterestAdsAdapter(config=config, context=self.context)
+
+        validation_result = adapter.validate()
+        assert validation_result.is_valid, f"Validation failed: {validation_result.errors}"
+
+        query = adapter.build_query()
+        assert query is not None, "PinterestAdsAdapter should generate a query"
+        results = self._execute_query_and_validate(query)
+
+        # Column indices: match_key=0, campaign=1, id=2, source=3, impressions=4,
+        # clicks=5, cost=6, reported_conversion=7, reported_conversion_value=8
+        total_cost = sum(float(row[6] or 0) for row in results)
+        total_impressions = sum(int(row[4] or 0) for row in results)
+        total_clicks = sum(int(row[5] or 0) for row in results)
+        total_conversions = sum(float(row[7] or 0) for row in results)
+        total_conversion_value = sum(float(row[8] or 0) for row in results)
+
+        assert len(results) == 10, "Expected 10 campaigns from Pinterest Ads JOIN"
+        assert abs(total_cost - 468.0) < 0.01, f"Expected cost $468.0, got ${total_cost}"
+        assert total_impressions == 94950, f"Expected 94950 impressions, got {total_impressions}"
+        assert total_clicks == 1614, f"Expected 1614 clicks, got {total_clicks}"
+        assert abs(total_conversions - 174) < 0.01, f"Expected 174 conversions, got {total_conversions}"
+        assert abs(total_conversion_value - 2548.0) < 0.01, (
+            f"Expected conversion value $2548.0, got ${total_conversion_value}"
+        )
+
+        sources = [row[3] for row in results]
+        assert all(source == "pinterest" for source in sources), "All sources should be 'pinterest'"
 
     def test_multi_adapter_union_with_real_data(self):
         bigquery_info = self._setup_csv_table("bigquery")
@@ -1563,6 +1783,8 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         facebook_query = facebook_adapter.build_query()
         tiktok_query = tiktok_adapter.build_query()
+        assert facebook_query is not None
+        assert tiktok_query is not None
 
         union_query = ast.SelectSetQuery.create_from_queries([facebook_query, tiktok_query], "UNION ALL")
         results = self._execute_query_and_validate(union_query)
@@ -1605,7 +1827,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         config = ExternalConfig(
             table=table,
-            source_map=None,
+            source_map=None,  # type: ignore[arg-type]
             source_type="BigQuery",
             source_id="validation_error",
             schema_name="marketing_schema",
@@ -1632,7 +1854,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
             with pytest.raises(AssertionError, match="CSV file must exist"):
                 self._setup_csv_table("nonexistent_table")
         finally:
-            self.test_data_configs = old_configs
+            type(self).test_data_configs = old_configs
 
     # ================================================================
     # PERFORMANCE TESTS

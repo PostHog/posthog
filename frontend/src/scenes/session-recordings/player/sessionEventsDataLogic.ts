@@ -4,17 +4,20 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import { ViewportResolution } from '@posthog/replay-shared'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
+import { getEventsWithPromotedProperty } from 'lib/utils/promotedEventProperty'
 import { TimeTree } from 'lib/utils/time-tree'
 
+import { promotedEventPropertiesModel } from '~/models/promotedEventPropertiesModel'
 import { HogQLQueryString, hogql } from '~/queries/utils'
 import { RecordingEventType } from '~/types'
 
 import type { sessionEventsDataLogicType } from './sessionEventsDataLogicType'
 import { SessionRecordingMetaLogicProps, sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
-import { ViewportResolution } from './snapshot-processing/patch-meta-event'
 
 const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
 const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
@@ -26,8 +29,8 @@ export const sessionEventsDataLogic = kea<sessionEventsDataLogicType>([
     connect((props: SessionRecordingMetaLogicProps) => {
         const metaLogic = sessionRecordingMetaLogic(props)
         return {
-            values: [metaLogic, ['sessionPlayerMetaData']],
-            actions: [metaLogic, ['loadRecordingMetaSuccess']],
+            values: [metaLogic, ['sessionPlayerMetaData'], promotedEventPropertiesModel, ['promotedProperties']],
+            actions: [metaLogic, ['loadRecordingMetaSuccess'], promotedEventPropertiesModel, ['ensureLoadedForEvents']],
         }
     }),
     actions({
@@ -215,6 +218,13 @@ AND properties.$lib != 'web'`
         loadRecordingMetaSuccess: () => {
             actions.loadEvents()
         },
+        loadEventsSuccess: ({ sessionEventsData }) => {
+            // Make sure the promoted-property override map is populated for every event in the
+            // recording, so the `eventsWithPromotedProperty` selector can preload them.
+            if (sessionEventsData?.length) {
+                actions.ensureLoadedForEvents(Array.from(new Set(sessionEventsData.map((e) => e.event))))
+            }
+        },
     })),
     selectors(() => ({
         webVitalsEvents: [
@@ -233,13 +243,24 @@ AND properties.$lib != 'web'`
             (sessionEventsData): RecordingEventType[] =>
                 (sessionEventsData || []).filter((e) => e.event === '$exception'),
         ],
+        eventsWithPromotedProperty: [
+            (s) => [s.sessionEventsData, s.promotedProperties],
+            (sessionEventsData, promotedProperties): RecordingEventType[] =>
+                getEventsWithPromotedProperty(sessionEventsData || [], promotedProperties),
+        ],
         preloadableEvents: [
-            (s) => [s.webVitalsEvents, s.AIEvents, s.exceptionEvents],
-            (webVitalsEvents, AIEvents, exceptionEvents): RecordingEventType[] => [
-                ...webVitalsEvents,
-                ...AIEvents,
-                ...exceptionEvents,
-            ],
+            (s) => [s.webVitalsEvents, s.AIEvents, s.exceptionEvents, s.eventsWithPromotedProperty],
+            (webVitalsEvents, AIEvents, exceptionEvents, eventsWithPromotedProperty): RecordingEventType[] => {
+                const seen = new Set<string>()
+                const merged: RecordingEventType[] = []
+                for (const e of [...webVitalsEvents, ...AIEvents, ...exceptionEvents, ...eventsWithPromotedProperty]) {
+                    if (!seen.has(e.id)) {
+                        seen.add(e.id)
+                        merged.push(e)
+                    }
+                }
+                return merged
+            },
             { resultEqualityCheck: equal },
         ],
         eventViewportsItems: [

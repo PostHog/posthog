@@ -82,6 +82,15 @@ export enum TileId {
     MARKETING = 'MARKETING',
     MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
     MARKETING_NON_INTEGRATED_CONVERSIONS = 'MARKETING_NON_INTEGRATED_CONVERSIONS',
+
+    // Bot Analytics Tiles
+    BOT_OVERVIEW = 'BOT_OVERVIEW',
+    BOT_TRENDS = 'BOT_TRENDS',
+    BOT_PATHS = 'BOT_PATHS',
+    BOT_SOURCES = 'BOT_SOURCES',
+    BOT_AI_REFERRALS = 'BOT_AI_REFERRALS',
+    BOT_AI_ENGAGEMENT = 'BOT_AI_ENGAGEMENT',
+    BOT_CRAWLERS = 'BOT_CRAWLERS',
 }
 
 export enum ProductTab {
@@ -92,14 +101,17 @@ export enum ProductTab {
     MARKETING = 'marketing',
     HEALTH = 'health',
     LIVE = 'live',
+    BOT_ANALYTICS = 'bots',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
 
+export type BotTrafficFilter = 'regular' | 'bot' | 'all'
+
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
 
-export const tabSplitIndexMap: Partial<Record<TileId, number>> = {
-    [TileId.SOURCES]: 2, // Show Channel + Referring Domain as buttons, rest in dropdown
+export const tabSplitIndicesMap: Partial<Record<TileId, number[]>> = {
+    [TileId.SOURCES]: [1, 3], // [Channel] [Referring Domain ▼ Referring URL] [UTM Source ▼ ...]
 }
 
 export const loadPriorityMap: Record<TileId, number> = {
@@ -155,6 +167,15 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.MARKETING]: 2,
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 3,
     [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 4,
+
+    // Bot Analytics Tiles
+    [TileId.BOT_OVERVIEW]: 1,
+    [TileId.BOT_TRENDS]: 2,
+    [TileId.BOT_PATHS]: 3,
+    [TileId.BOT_SOURCES]: 4,
+    [TileId.BOT_AI_REFERRALS]: 5,
+    [TileId.BOT_AI_ENGAGEMENT]: 6,
+    [TileId.BOT_CRAWLERS]: 7,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -220,6 +241,13 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.MARKETING]: 'Marketing',
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 'Campaign breakdown',
     [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 'Non-integrated conversions',
+    [TileId.BOT_OVERVIEW]: 'Bot traffic overview',
+    [TileId.BOT_TRENDS]: 'Bot requests over time',
+    [TileId.BOT_PATHS]: 'Most crawled paths',
+    [TileId.BOT_SOURCES]: 'Bot referrer domains',
+    [TileId.BOT_AI_REFERRALS]: 'AI referral traffic',
+    [TileId.BOT_AI_ENGAGEMENT]: 'AI referral engagement',
+    [TileId.BOT_CRAWLERS]: 'Crawlers',
 }
 
 export interface BaseTile {
@@ -263,6 +291,7 @@ export interface TabsTile extends BaseTile {
     activeTabId: string
     setTabId: (id: string) => void
     tabs: TabsTileTab[]
+    splitIndices?: number[]
 }
 
 export interface ReplayTile extends BaseTile {
@@ -296,6 +325,7 @@ export enum GraphsTab {
 export enum SourceTab {
     CHANNEL = 'CHANNEL',
     REFERRING_DOMAIN = 'REFERRING_DOMAIN',
+    REFERRING_URL = 'REFERRING_URL',
     UTM_SOURCE = 'UTM_SOURCE',
     UTM_MEDIUM = 'UTM_MEDIUM',
     UTM_CAMPAIGN = 'UTM_CAMPAIGN',
@@ -349,6 +379,27 @@ export interface WebAnalyticsStatusCheck {
     hasAuthorizedUrls: boolean
 }
 
+export const SOURCE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, SourceTab>> = {
+    [WebStatsBreakdown.InitialChannelType]: SourceTab.REFERRING_DOMAIN,
+    [WebStatsBreakdown.InitialReferringDomain]: SourceTab.REFERRING_URL,
+    [WebStatsBreakdown.InitialUTMSource]: SourceTab.UTM_MEDIUM,
+    [WebStatsBreakdown.InitialUTMMedium]: SourceTab.UTM_CAMPAIGN,
+    [WebStatsBreakdown.InitialUTMCampaign]: SourceTab.UTM_CONTENT,
+    [WebStatsBreakdown.InitialUTMContent]: SourceTab.UTM_TERM,
+    [WebStatsBreakdown.InitialUTMSourceMediumCampaign]: SourceTab.UTM_CONTENT,
+}
+
+export const GEOGRAPHY_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, GeographyTab>> = {
+    [WebStatsBreakdown.Country]: GeographyTab.REGIONS,
+    [WebStatsBreakdown.Region]: GeographyTab.CITIES,
+}
+
+export const DEVICE_DRILL_DOWN_MAP: Partial<Record<WebStatsBreakdown, DeviceTab>> = {
+    [WebStatsBreakdown.DeviceType]: DeviceTab.BROWSER,
+    [WebStatsBreakdown.Browser]: DeviceTab.OS,
+    [WebStatsBreakdown.OS]: DeviceTab.VIEWPORT,
+}
+
 export type TileVisualizationOption = 'table' | 'graph'
 
 export const webStatsBreakdownToPropertyName = (
@@ -373,6 +424,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$channel_type', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialReferringDomain:
             return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialReferringURL:
+            return { key: '$session_entry_referrer', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSource:
             return { key: '$entry_utm_source', type: PropertyFilterType.Session }
         case WebStatsBreakdown.InitialUTMCampaign:
@@ -431,6 +484,9 @@ export const INITIAL_WEB_ANALYTICS_FILTER = [] as WebAnalyticsPropertyFilters
 export const INITIAL_DATE_FROM = '-7d' as string | null
 export const INITIAL_DATE_TO = null as string | null
 export const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
+
+/** Events included in bot analytics queries — crawlers don't execute JS so $http_log captures most real bot traffic */
+export const BOT_ANALYTICS_EVENTS = ['$pageview', '$screen', '$http_log']
 
 export const WEB_ANALYTICS_DEFAULT_QUERY_TAGS: QueryLogTags = {
     productKey: ProductKey.WEB_ANALYTICS,
@@ -515,6 +571,8 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
                 return 'Channel Type'
             case WebStatsBreakdown.InitialReferringDomain:
                 return 'Referring Domain'
+            case WebStatsBreakdown.InitialReferringURL:
+                return 'Referring URL'
             case WebStatsBreakdown.InitialUTMSource:
                 return 'UTM Source'
             case WebStatsBreakdown.InitialUTMCampaign:

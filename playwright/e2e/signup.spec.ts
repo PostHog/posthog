@@ -80,11 +80,11 @@ test.describe('Signup', () => {
         await expect(page.locator('[data-attr=signup-auth-continue]')).toBeVisible()
         await page.locator('[data-attr=password]').fill('123')
         await page.locator('[data-attr=signup-auth-continue]').click()
-        await expect(page.getByText('Add another word or two')).toBeVisible()
+        await expect(page.getByText('Must be at least 8 characters long')).toBeVisible()
 
         await page.locator('[data-attr=password]').fill('123 abc def')
         await page.locator('[data-attr=signup-auth-continue]').click()
-        await expect(page.getByText('Add another word or two')).not.toBeVisible()
+        await expect(page.getByText('Must be at least 8 characters long')).not.toBeVisible()
     })
 
     test.skip('Can create user account with first name, last name and organization name', async ({ page }) => {
@@ -196,7 +196,8 @@ test.describe('Signup', () => {
     })
 
     test('Can fill out all the fields on social login', async ({ page }) => {
-        await page.goto('/logout')
+        await page.context().clearCookies()
+        await page.goto('/')
         await expect(page).toHaveURL(/.*\/login/)
         await page.goto('/organization/confirm-creation?organization_name=&first_name=Test&email=test%40posthog.com')
 
@@ -230,7 +231,8 @@ test.describe('Signup', () => {
             await route.fulfill({ json: response })
         })
 
-        await page.goto('/logout')
+        await page.context().clearCookies()
+        await page.goto('/')
         await expect(page).toHaveURL(/.*\/login/)
 
         // Modify window object before page load

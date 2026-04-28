@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Default maximum age (seconds) of a local metadata.json before the local store
+/// is considered stale and the service falls back to S3 import. 2 hours.
+pub const DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS: u64 = 7200;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CheckpointConfig {
     /// How often to trigger a checkpoint attempt for all locally-hosted partition stores
@@ -72,14 +76,25 @@ pub struct CheckpointConfig {
     pub max_concurrent_checkpoint_file_downloads: usize,
 
     /// Maximum concurrent S3 file uploads during checkpoint export.
-    /// Less critical than downloads since uploads are already bounded by max_concurrent_checkpoints,
-    /// but provides additional defense in depth.
+    /// Controls the LimitStore semaphore that bounds concurrent S3 HTTP requests.
     pub max_concurrent_checkpoint_file_uploads: usize,
+
+    /// Maximum number of upload futures actively polled (files open with read buffers
+    /// and BufWriters) per partition checkpoint. Controls the `buffer_unordered` window
+    /// to bound memory independently from the S3 HTTP concurrency limit above.
+    /// Each active buffer consumes ~18MB (8MB read buffer + ~10MB BufWriter).
+    pub max_upload_buffers_per_partition: usize,
 
     /// Maximum time allowed for a complete checkpoint import for a single partition.
     /// This includes listing checkpoints, downloading metadata, and downloading all files.
     /// Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
     pub checkpoint_partition_import_timeout: Duration,
+
+    /// Maximum age of a local metadata.json before the local store is considered stale
+    /// and the service falls back to S3 import. Separate from checkpoint_import_window_hours
+    /// (the S3 listing window): local staleness must be tighter because if a pod was down
+    /// for longer than this, another pod likely consumed the partition and local data is behind.
+    pub local_checkpoint_max_staleness: Duration,
 }
 
 impl Default for CheckpointConfig {
@@ -105,9 +120,13 @@ impl Default for CheckpointConfig {
             s3_attempt_timeout: Duration::from_secs(20),
             s3_max_retries: 3,
             checkpoint_import_attempt_depth: 10,
-            max_concurrent_checkpoint_file_downloads: 1000,
-            max_concurrent_checkpoint_file_uploads: 1000,
+            max_concurrent_checkpoint_file_downloads: 40,
+            max_concurrent_checkpoint_file_uploads: 40,
+            max_upload_buffers_per_partition: 40,
             checkpoint_partition_import_timeout: Duration::from_secs(240),
+            local_checkpoint_max_staleness: Duration::from_secs(
+                DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
+            ),
         }
     }
 }

@@ -2,16 +2,16 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { IconFlag, IconInfo } from '@posthog/icons'
 
-import { LemonTag as LemonTagComponent, LemonTagType } from './LemonTag'
+import { LemonTag as LemonTagComponent, LemonTagProps, LemonTagType } from './LemonTag'
 
-const meta: Meta<typeof LemonTagComponent> = {
+const meta: Meta<LemonTagProps> = {
     title: 'Lemon UI/Lemon Tag',
-    component: LemonTagComponent,
+    component: LemonTagComponent as any,
     tags: ['autodocs'],
 }
 
 export default meta
-type Story = StoryObj<typeof LemonTagComponent>
+type Story = StoryObj<LemonTagProps>
 
 const SIZES: ('small' | 'medium')[] = ['small', 'medium']
 

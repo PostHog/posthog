@@ -1,0 +1,93 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}
+{{ super }}
+<style>
+    .checks-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .checks-table th {
+        padding: 8px 10px;
+        text-align: left;
+        border-bottom: 2px solid #e5e7eb;
+        background: #f9fafb;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #6b7280;
+    }
+    .checks-table td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #f3f4f6;
+        font-size: 13px;
+    }
+    .checks-table tr:last-child td {
+        border-bottom: none;
+    }
+    .checks-table code {
+        background: #f3f4f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+    }
+    .trigger-link {
+        display: inline-block;
+        padding: 4px 12px;
+        background: #3b82f6;
+        color: #fff;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        text-decoration: none;
+    }
+    .trigger-link:hover {
+        background: #2563eb;
+        color: #fff;
+    }
+    .badge-yes { color: #166534; }
+    .badge-no { color: #6b7280; }
+</style>
+{% endblock %}
+
+{% block content %}
+<p><a href="/admin/">&larr; Back to admin</a></p>
+
+{% if checks %}
+<table class="checks-table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Kind</th>
+            <th>Owner</th>
+            <th>Schedule</th>
+            <th>Batch size</th>
+            <th>Max concurrent</th>
+            <th>Rollout %</th>
+            <th>Active since</th>
+            <th>Dry run</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for check in checks %}
+        <tr>
+            <td><strong>{{ check.name }}</strong></td>
+            <td><code>{{ check.kind }}</code></td>
+            <td>{{ check.owner }}</td>
+            <td>{% if check.schedule %}<code>{{ check.schedule }}</code>{% else %}<span class="badge-no">Manual only</span>{% endif %}</td>
+            <td>{{ check.batch_size }}</td>
+            <td>{{ check.max_concurrent }}</td>
+            <td>{{ check.rollout_percentage|floatformat:2 }}</td>
+            <td>{% if check.active_since_days %}{{ check.active_since_days }}d{% else %}All teams{% endif %}</td>
+            <td>{% if check.dry_run %}<span class="badge-yes">Yes</span>{% else %}<span class="badge-no">No</span>{% endif %}</td>
+            <td><a class="trigger-link" href="{% url 'health-check-trigger' check.kind %}">Trigger</a></td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>No health checks registered. Ensure product health check modules are listed in the registry.</p>
+{% endif %}
+{% endblock %}

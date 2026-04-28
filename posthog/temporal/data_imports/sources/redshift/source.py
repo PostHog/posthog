@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+import structlog
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -20,6 +21,7 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 from posthog.temporal.data_imports.sources.redshift.redshift import (
     filter_redshift_incremental_fields,
+    get_primary_keys_for_schemas as get_redshift_primary_keys_for_schemas,
     get_redshift_row_count,
     get_schemas as get_redshift_schemas,
     redshift_source,
@@ -55,7 +57,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
             caption="Enter your Redshift credentials to automatically pull your Redshift data into the PostHog Data warehouse",
             iconPath="/static/services/redshift.png",
             docsUrl="https://posthog.com/docs/cdp/sources/redshift",
-            betaSource=True,
+            releaseStatus="beta",
             fields=cast(
                 list[FieldType],
                 [
@@ -129,13 +131,15 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
             "Name or service not known": None,
             "Network is unreachable": None,
             "InsufficientPrivilege": None,
-            "OperationalError: connection failed: connection to server at": None,
+            "No route to host": None,
             "password authentication failed connection": None,
             "connection timeout expired": None,
             "Connection refused": None,
         }
 
-    def get_schemas(self, config: RedshiftSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: RedshiftSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):
@@ -146,7 +150,21 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                 password=config.password,
                 database=config.database,
                 schema=config.schema,
+                names=names,
             )
+            try:
+                detected_pks = get_redshift_primary_keys_for_schemas(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                    table_names=list(db_schemas.keys()),
+                )
+            except Exception as e:
+                structlog.get_logger().warning("Failed to detect primary keys for Redshift schemas", exc_info=e)
+                detected_pks = {}
 
             if with_counts:
                 row_counts = get_redshift_row_count(
@@ -156,6 +174,7 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                     schema=config.schema,
+                    names=names,
                 )
             else:
                 row_counts = {}
@@ -180,6 +199,9 @@ class RedshiftSource(SimpleSource[RedshiftSourceConfig], SSHTunnelMixin, Validat
                     supports_append=len(incremental_fields) > 0,
                     incremental_fields=incremental_fields,
                     row_count=row_counts.get(table_name, None),
+                    columns=columns,
+                    detected_primary_keys=detected_pks.get(table_name)
+                    or (["id"] if any(col[0] == "id" for col in columns) else None),
                 )
             )
 

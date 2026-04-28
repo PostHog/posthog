@@ -46,7 +46,7 @@ export function useMaxTool({
     const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-    const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
+    const { setActiveGroup, startNewConversation } = useActions(maxLogic({ tabId: 'sidepanel' }))
 
     const definition = getToolDefinition(identifier)
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
@@ -85,6 +85,8 @@ export function useMaxTool({
         openMax: !active
             ? null
             : (): void => {
+                  // Start a new conversation so the prompt doesn't get added to an existing session
+                  startNewConversation()
                   // Show the suggestions from this specific tool
                   if (definition && suggestions && suggestions.length > 0) {
                       setActiveGroup(

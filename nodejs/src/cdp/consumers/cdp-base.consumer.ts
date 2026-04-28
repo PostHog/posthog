@@ -1,17 +1,19 @@
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
-import { KafkaProducerWrapper } from '../../kafka/producer'
-import { HealthCheckResult, PluginServerService, PluginsServerConfig, TeamId } from '../../types'
+import type { CommonConfig } from '../../common/config'
+import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
 import { GeoIPService } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
 import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
-import { CdpCoreServicesConfig, CdpCoreServicesDeps, createCdpCoreServices } from '../cdp-services'
+import { CdpCoreServicesConfig, CdpCoreServicesDeps, CdpOutputs, createCdpCoreServices } from '../cdp-services'
+import type { CdpConfig } from '../config'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from '../services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
+import { InvocationResultsService } from '../services/invocation-results.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { GroupsManagerService } from '../services/managers/groups-manager.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
@@ -26,7 +28,8 @@ import { NativeDestinationExecutorService } from '../services/native-destination
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 
 export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
-    Pick<PluginsServerConfig, 'KAFKA_CLIENT_RACK' | 'CDP_OVERFLOW_QUEUE_ENABLED'>
+    Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
+    Pick<CdpConfig, 'CDP_OVERFLOW_QUEUE_ENABLED'>
 
 export interface CdpConsumerBaseDeps extends CdpCoreServicesDeps {
     personRepository: PersonRepository
@@ -58,12 +61,13 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     recipientsManager: RecipientsManagerService
 
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
     pluginDestinationExecutorService: LegacyPluginExecutorService
     recipientPreferencesService: RecipientPreferencesService
     segmentDestinationExecutorService: SegmentDestinationExecutorService
 
-    protected kafkaProducer?: KafkaProducerWrapper
+    protected outputs: CdpOutputs
     protected abstract name: string
 
     protected heartbeat = () => {}
@@ -85,12 +89,14 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.invocationResultsService = services.invocationResultsService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
+        this.outputs = services.outputs
 
         // Base-only services
         this.hogMasker = new HogMaskerService(services.redis)
-        this.personsManager = new PersonsManagerService(deps.personRepository)
+        this.personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     }
@@ -113,22 +119,16 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     }
 
     public async start(): Promise<void> {
-        // NOTE: This is only for starting shared services
-        await Promise.all([
-            KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK).then((producer) => {
-                this.kafkaProducer = producer
-            }),
-        ])
+        // Outputs are resolved in the constructor via `createCdpCoreServices` — no
+        // per-consumer producer lifecycle. The outer server owns producer shutdown
+        // through `cdpProducerRegistry.disconnectAll()`.
     }
 
-    public async stop(): Promise<void> {
+    public stop(): Promise<void> {
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
-
-        // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
-        logger.info('🔁', `${this.name} - stopping kafka producer`)
-        await this.kafkaProducer?.disconnect()
         logger.info('👍', `${this.name} - stopped!`)
+        return Promise.resolve()
     }
 
     public abstract isHealthy(): HealthCheckResult

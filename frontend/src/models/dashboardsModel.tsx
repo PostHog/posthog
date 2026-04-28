@@ -19,6 +19,50 @@ import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, Query
 
 import type { dashboardsModelType } from './dashboardsModelType'
 
+export function mergeTileTextUpdatesIntoDashboard(
+    dashboard: DashboardType<QueryBasedInsightModel>,
+    tilesPayload: Partial<DashboardTile>[] | undefined
+): DashboardType<QueryBasedInsightModel> {
+    // Optimistically reconcile text tile updates in-place after save.
+    // Some dashboard PATCH responses can momentarily return stale tile.text values, so we patch the
+    // returned dashboard with the just-submitted text body for matching tiles to avoid UI flicker/regression.
+    // We only merge `body` so server-owned metadata (timestamps, modifier fields, etc.) remains authoritative.
+    if (!tilesPayload?.length || !dashboard.tiles?.length) {
+        return dashboard
+    }
+
+    const incomingTextByTileId = new Map<number, NonNullable<DashboardTile['text']>>()
+    for (const tile of tilesPayload) {
+        if (typeof tile.id !== 'number' || !tile.text) {
+            continue
+        }
+        incomingTextByTileId.set(tile.id, tile.text)
+    }
+
+    if (incomingTextByTileId.size === 0) {
+        return dashboard
+    }
+
+    return {
+        ...dashboard,
+        tiles: dashboard.tiles.map((tile) => {
+            const incomingText = incomingTextByTileId.get(tile.id)
+            if (!incomingText) {
+                return tile
+            }
+
+            return {
+                ...tile,
+                text: tile.text
+                    ? incomingText.body !== undefined
+                        ? { ...tile.text, body: incomingText.body }
+                        : tile.text
+                    : incomingText,
+            }
+        }),
+    }
+}
+
 export const dashboardsModel = kea<dashboardsModelType>([
     path(['models', 'dashboardsModel']),
     connect(() => ({
@@ -30,15 +74,25 @@ export const dashboardsModel = kea<dashboardsModelType>([
         delayedDeleteDashboard: (id: number) => ({ id }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
         addDashboardSuccess: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
-        // this is moved out of dashboardLogic, so that you can click "undo" on an item move when already
-        // on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
-        // can provide extra dashboard ids if not all listeners will choose to respond to this action
-        // not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
-        // specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
-        // if an update is made against an insight it will hold color in dashboard context
-        updateDashboardInsight: (insight: QueryBasedInsightModel, extraDashboardIds?: number[]) => ({
+        /**
+         * this is moved out of dashboardLogic, so that you can click "undo" on an item move when already
+         * on another dashboard - both dashboards can listen to and share this event, even if one is not yet mounted
+         * can provide extra dashboard ids if not all listeners will choose to respond to this action
+         * not providing a dashboard id is a signal that only listeners in the item.dashboards array should respond
+         * specifying `number` not `Pick<DashboardType, 'id'> because kea typegen couldn't figure out the import in `savedInsightsLogic`
+         * if an update is made against an insight it will hold color in dashboard context
+         * @param extraDashboardIds - Same meaning as before: merged with `dashboard_tiles` so listeners still match
+         *   when placement info is incomplete (copy/move/remove).
+         * @param sourceDashboardId - Set for a dashboard-scoped GET/refresh; merged `query` is only valid for that dashboard.
+         */
+        updateDashboardInsight: (
+            insight: QueryBasedInsightModel,
+            extraDashboardIds?: number[],
+            sourceDashboardId?: number
+        ) => ({
             insight,
             extraDashboardIds,
+            sourceDashboardId,
         }),
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
@@ -156,7 +210,16 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     })
                 }
 
-                return discardResult ? values.dashboard : getQueryBasedDashboard(response)
+                if (discardResult) {
+                    return values.dashboard
+                }
+
+                const mappedDashboard = getQueryBasedDashboard(response)
+                if (!mappedDashboard) {
+                    return mappedDashboard
+                }
+
+                return mergeTileTextUpdatesIntoDashboard(mappedDashboard, payload.tiles)
             },
             deleteDashboard: async ({ id, deleteInsights }) => {
                 const deleted = getQueryBasedDashboard(

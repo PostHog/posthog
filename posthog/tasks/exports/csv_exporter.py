@@ -23,11 +23,11 @@ from rest_framework_csv.renderers import CSVRenderer
 from posthog.schema import QuerySchemaRoot
 
 from posthog.api.services.query import process_query_dict
+from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.exported_asset import ExportedAsset, save_content_from_file
-from posthog.security.outbound_proxy import external_requests
 from posthog.utils import absolute_uri
 
 from ...exceptions import ClickHouseQuerySizeExceeded
@@ -47,6 +47,23 @@ logger = structlog.get_logger(__name__)
 RESULT_LIMIT_KEYS = ("distinct_ids",)
 RESULT_LIMIT_LENGTH = 10
 QUERY_PAGE_SIZE = 10000
+
+# Characters that can trigger formula execution in spreadsheet applications
+_FORMULA_TRIGGER_CHARS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sanitize_formula_injection(value: Any) -> Any:
+    """Prefix dangerous cell values with a single quote to prevent formula injection.
+
+    Spreadsheet applications like Excel and Google Sheets interpret cells
+    starting with =, +, -, @, tab, or carriage return as formulas. Prefixing
+    with a single quote forces them to be treated as plain text.
+    """
+    if not isinstance(value, str):
+        return value
+    if value and value[0] in _FORMULA_TRIGGER_CHARS:
+        return f"'{value}"
+    return value
 
 
 def sanitize_value_for_excel(value: Any) -> Any:
@@ -68,11 +85,12 @@ class CsvWriter(TabularWriter):
 
     def write_header(self, columns: list[str]) -> None:
         self._writer = csv.DictWriter(self._tmp, fieldnames=columns, extrasaction="ignore")
-        self._writer.writeheader()
+        # Write sanitized header manually — fieldnames must stay raw for dict key lookup
+        self._writer.writer.writerow([_sanitize_formula_injection(c) for c in columns])
 
     def write_row(self, row: dict) -> None:
         assert self._writer is not None
-        self._writer.writerow(row)
+        self._writer.writerow({k: _sanitize_formula_injection(v) for k, v in row.items()})
 
     def finish(self) -> str:
         self._tmp.close()
@@ -91,7 +109,7 @@ class ExcelWriter(TabularWriter):
     def write_header(self, columns: list[str]) -> None:
         self._columns = columns
         try:
-            self._worksheet.append(columns)
+            self._worksheet.append([_sanitize_formula_injection(c) for c in columns])
         except ValueError as e:
             if "Invalid column index" in str(e):
                 raise ExcelColumnLimitExceeded() from e
@@ -103,7 +121,10 @@ class ExcelWriter(TabularWriter):
             value = row.get(col)
             if value is not None and not isinstance(value, str | int | float | bool):
                 value = str(value)
-            values.append(sanitize_value_for_excel(value))
+            # Strip illegal Excel chars first so formula check sees the final string
+            value = sanitize_value_for_excel(value)
+            value = _sanitize_formula_injection(value)
+            values.append(value)
         try:
             self._worksheet.append(values)
         except ValueError as e:
@@ -130,7 +151,9 @@ class RowBuffer:
 
 
 @contextmanager
-def _buffer_rows(exported_asset: ExportedAsset, limit: int) -> Iterator[RowBuffer]:
+def _buffer_rows(
+    exported_asset: ExportedAsset, limit: int, analytics_props: Optional[AnalyticsProps] = None
+) -> Iterator[RowBuffer]:
     """Buffer rows to a temp file, discovering columns along the way.
 
     Yields a RowBuffer that exposes:
@@ -140,7 +163,9 @@ def _buffer_rows(exported_asset: ExportedAsset, limit: int) -> Iterator[RowBuffe
     - __iter__: yields rows as dicts
     """
     with tempfile.NamedTemporaryFile(mode="w+", suffix=".jsonl", delete=True) as jsonl_file:
-        row_count, columns, seen_keys = _write_rows_to_jsonl(jsonl_file, exported_asset, limit)
+        row_count, columns, seen_keys = _write_rows_to_jsonl(
+            jsonl_file, exported_asset, limit, analytics_props=analytics_props
+        )
         jsonl_file.seek(0)
 
         yield RowBuffer(
@@ -452,7 +477,9 @@ def _query_supports_limit(query: dict) -> bool:
         return False
 
 
-def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any, None, None]:
+def get_from_query(
+    exported_asset: ExportedAsset, limit: int, resource: dict, analytics_props: Optional[AnalyticsProps] = None
+) -> Generator[Any, None, None]:
     query = resource.get("source")
     assert query is not None
 
@@ -468,9 +495,7 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
         paginated_query = query.copy()
         if supports_limit:
             paginated_query["limit"] = QUERY_PAGE_SIZE
-            if cursor is not None:
-                paginated_query["after"] = cursor
-            elif offset > 0:
+            if cursor is None and offset > 0:
                 paginated_query["offset"] = offset
 
         try:
@@ -479,6 +504,8 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
                 query_json=paginated_query,
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                pagination_cursor=cursor,
+                analytics_props=analytics_props,
             )
         except ClickHouseQuerySizeExceeded:
             if "breakdownFilter" not in query or limit <= CSV_EXPORT_BREAKDOWN_LIMIT_LOW:
@@ -519,11 +546,13 @@ def get_from_query(exported_asset: ExportedAsset, limit: int, resource: dict) ->
             break
 
 
-def _iter_rows(exported_asset: ExportedAsset, limit: int) -> Generator[Any, None, None]:
+def _iter_rows(
+    exported_asset: ExportedAsset, limit: int, analytics_props: Optional[AnalyticsProps] = None
+) -> Generator[Any, None, None]:
     resource = exported_asset.export_context or {}
 
     if resource.get("source"):
-        yield from get_from_query(exported_asset, limit, resource)
+        yield from get_from_query(exported_asset, limit, resource, analytics_props=analytics_props)
     else:
         # Legacy path for PersonsNode exports (uses API path instead of HogQL source).
         # PersonsNode was migrated to ActorsQuery in migration 0459, so this path
@@ -531,7 +560,9 @@ def _iter_rows(exported_asset: ExportedAsset, limit: int) -> Generator[Any, None
         yield from get_from_insights_api(exported_asset, CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, resource)
 
 
-def _write_rows_to_jsonl(jsonl_file: Any, exported_asset: ExportedAsset, limit: int) -> tuple[int, list[str], set[str]]:
+def _write_rows_to_jsonl(
+    jsonl_file: Any, exported_asset: ExportedAsset, limit: int, analytics_props: Optional[AnalyticsProps] = None
+) -> tuple[int, list[str], set[str]]:
     """Write flattened rows to a JSON lines file, discovering columns as we go.
 
     Returns:
@@ -542,7 +573,7 @@ def _write_rows_to_jsonl(jsonl_file: Any, exported_asset: ExportedAsset, limit: 
     seen_keys: set[str] = set()
     row_count = 0
 
-    for row in _iter_rows(exported_asset, limit):
+    for row in _iter_rows(exported_asset, limit, analytics_props=analytics_props):
         flat_row = dict(renderer.flatten_item(row))
 
         for key in flat_row.keys():
@@ -582,11 +613,13 @@ def _determine_columns(user_columns: list[str], all_keys: list[str], seen_keys: 
     return columns
 
 
-def _export_tabular(exported_asset: ExportedAsset, limit: int, writer: TabularWriter) -> None:
+def _export_tabular(
+    exported_asset: ExportedAsset, limit: int, writer: TabularWriter, analytics_props: Optional[AnalyticsProps] = None
+) -> None:
     """Export data using the provided writer."""
     user_columns = (exported_asset.export_context or {}).get("columns", [])
 
-    with _buffer_rows(exported_asset, limit) as buffer:
+    with _buffer_rows(exported_asset, limit, analytics_props=analytics_props) as buffer:
         if buffer.row_count == 0:
             columns = user_columns if user_columns else ["error"]
             writer.write_header(columns)
@@ -626,7 +659,7 @@ def make_api_call(
         request_url,
         {get_limit_param_key(request_url): str(limit), "is_csv_export": "1"},
     )
-    response = external_requests.request(
+    response = requests.request(
         method=method.lower(),
         url=url,
         json=body,
@@ -637,16 +670,20 @@ def make_api_call(
     return response
 
 
-def export_tabular(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
+def export_tabular(
+    exported_asset: ExportedAsset, limit: Optional[int] = None, source: Optional[EventSource] = None
+) -> None:
     if not limit:
         limit = CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
+
+    analytics_props: AnalyticsProps = {"source": source or EventSource.EXPORT}
 
     try:
         with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
             if exported_asset.export_format == ExportedAsset.ExportFormat.CSV:
-                _export_tabular(exported_asset, limit, CsvWriter())
+                _export_tabular(exported_asset, limit, CsvWriter(), analytics_props=analytics_props)
             elif exported_asset.export_format == ExportedAsset.ExportFormat.XLSX:
-                _export_tabular(exported_asset, limit, ExcelWriter())
+                _export_tabular(exported_asset, limit, ExcelWriter(), analytics_props=analytics_props)
             else:
                 raise NotImplementedError(f"Export to format {exported_asset.export_format} is not supported")
     except Exception as e:

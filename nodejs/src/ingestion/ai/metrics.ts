@@ -29,3 +29,21 @@ export const aiToolCallExtractionCounter = new Counter({
     help: 'AI tool call extraction outcomes',
     labelNames: ['status'],
 })
+
+export const aiOtelMiddlewareCounter = new Counter({
+    name: 'llma_ai_otel_middleware_total',
+    help: 'OTel events processed by library middleware',
+    labelNames: ['library'],
+})
+
+export const aiOtelEventTypeCounter = new Counter({
+    name: 'llma_ai_otel_event_type_total',
+    help: 'OTel events by type and library',
+    labelNames: ['event_type', 'library'],
+})
+
+export const aiOtelOlderSpecEventsCounter = new Counter({
+    name: 'llma_ai_otel_older_spec_events_total',
+    help: 'Outcome of decoding the older OTel GenAI span-events `events` attribute',
+    labelNames: ['outcome'],
+})

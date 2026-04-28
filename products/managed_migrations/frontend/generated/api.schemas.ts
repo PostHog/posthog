@@ -23,6 +23,11 @@ export const BatchImportStatusEnumApi = {
 } as const
 
 /**
+ * @nullable
+ */
+export type BatchImportApiCreatedBy = { [key: string]: unknown } | null | null
+
+/**
  * Serializer for BatchImport model
  */
 export interface BatchImportApi {
@@ -31,7 +36,8 @@ export interface BatchImportApi {
     readonly created_at: string
     readonly updated_at: string
     readonly state: unknown | null
-    readonly created_by: string
+    /** @nullable */
+    readonly created_by: BatchImportApiCreatedBy
     status?: BatchImportStatusEnumApi
     /** @nullable */
     readonly display_status_message: string | null
@@ -48,6 +54,11 @@ export interface PaginatedBatchImportListApi {
 }
 
 /**
+ * @nullable
+ */
+export type PatchedBatchImportApiCreatedBy = { [key: string]: unknown } | null | null
+
+/**
  * Serializer for BatchImport model
  */
 export interface PatchedBatchImportApi {
@@ -56,7 +67,8 @@ export interface PatchedBatchImportApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly state?: unknown | null
-    readonly created_by?: string
+    /** @nullable */
+    readonly created_by?: PatchedBatchImportApiCreatedBy
     status?: BatchImportStatusEnumApi
     /** @nullable */
     readonly display_status_message?: string | null

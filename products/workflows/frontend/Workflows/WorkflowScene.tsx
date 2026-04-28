@@ -2,7 +2,6 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock } from '@posthog/icons'
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -47,7 +46,6 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const editTemplateId = searchParams.editTemplateId as string | undefined
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
-    const { futureJobs } = useValues(batchJobsLogic)
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
     const { workflowLoading, originalWorkflow } = useValues(logic)
@@ -72,18 +70,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         },
 
         {
-            label: (
-                <div className="flex gap-2">
-                    Invocations
-                    {futureJobs.length > 0 ? (
-                        <span className="font-bold">
-                            <IconClock /> {futureJobs.length}
-                        </span>
-                    ) : (
-                        ''
-                    )}
-                </div>
-            ),
+            label: 'Invocations',
             key: 'logs',
             content: <WorkflowLogs id={workflowSceneProps.id!} />,
         },
@@ -108,7 +95,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     ]
 
     return (
-        <SceneContent className="h-full flex flex-col grow">
+        <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={{ id: props.id, tabId: props.tabId, templateId, editTemplateId }}>
                 <WorkflowSceneHeader {...props} />
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}

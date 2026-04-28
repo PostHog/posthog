@@ -1,8 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconClock } from '@posthog/icons'
-import { LemonCollapse, LemonSelect, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
@@ -31,12 +30,6 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
     failed: {
         name: 'Failure',
         description: 'Total number of events that had errors during processing',
-        color: getColorVar('danger'),
-    },
-    disabled_permanently: {
-        name: 'Disabled',
-        description:
-            'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
         color: getColorVar('danger'),
     },
     rate_limited: {
@@ -105,7 +98,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     )
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" data-attr="workflow-metrics">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
                 <div>
                     <LemonSelect
@@ -134,7 +127,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
-                        {['succeeded', 'failed', 'disabled_permanently'].map((key) => (
+                        {['succeeded', 'failed'].map((key) => (
                             <AppMetricSummary
                                 key={key}
                                 name={WORKFLOW_METRICS_INFO[key].name}
@@ -159,17 +152,12 @@ function BatchJobMetricsHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
         <div className="flex gap-2 w-full justify-between">
             <strong>{job.id}</strong>
             <div className="flex items-center gap-2">
-                {job.scheduled_at && (
-                    <Tooltip title="This job was scheduled to run in advance" placement="left">
-                        <div className="flex items-center gap-2 text-muted">
-                            <IconClock className="text-lg" />
-                            <TZLabel title="Scheduled at" time={job.scheduled_at} />
-                            {' ⋅ '}
-                        </div>
-                    </Tooltip>
-                )}
                 <TZLabel title="Created at" time={job.created_at} />
-                {job.created_by && <ProfilePicture user={{ email: job.created_by.email || '' }} showName size="sm" />}
+                {job.created_by ? (
+                    <ProfilePicture user={{ email: job.created_by.email || '' }} showName size="sm" />
+                ) : (
+                    <span className="text-muted text-sm">Scheduled run</span>
+                )}
             </div>
         </div>
     )
@@ -178,7 +166,7 @@ function BatchJobMetricsHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
 function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
     const logicKey = `hog-flow-metrics-batch-${job.id}`
 
-    const jobStart = dayjs(job.scheduled_at ?? job.created_at).subtract(1, 'hour')
+    const jobStart = dayjs(job.created_at).subtract(1, 'hour')
     const isFinished = job.status === 'completed' || job.status === 'cancelled' || job.status === 'failed'
     const jobEnd = isFinished ? dayjs(job.updated_at).add(1, 'hour') : dayjs()
 
@@ -267,7 +255,7 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
-                        {['succeeded', 'failed', 'disabled_permanently'].map((key) => (
+                        {['succeeded', 'failed'].map((key) => (
                             <AppMetricSummary
                                 key={key}
                                 name={WORKFLOW_METRICS_INFO[key].name}
@@ -288,7 +276,7 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
 }
 
 function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
-    const { pastJobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic(props))
+    const { jobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic(props))
 
     if (batchWorkflowJobsLoading) {
         return (
@@ -298,7 +286,7 @@ function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
         )
     }
 
-    if (!pastJobs.length) {
+    if (!jobs.length) {
         return (
             <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
                 <ListHog width="100" height="100" className="mb-4" />
@@ -313,7 +301,7 @@ function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <LemonCollapse
-                panels={pastJobs.map((job) => ({
+                panels={jobs.map((job) => ({
                     key: job.id,
                     header: <BatchJobMetricsHeader job={job} />,
                     content: <BatchJobMetrics job={job} />,
@@ -324,7 +312,15 @@ function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
 }
 
 export function WorkflowMetrics(props: WorkflowLogicProps): JSX.Element {
-    const { workflow } = useValues(workflowLogic(props))
+    const { workflow, workflowLoading } = useValues(workflowLogic(props))
+
+    if (workflowLoading) {
+        return (
+            <div className="flex justify-center">
+                <Spinner size="medium" />
+            </div>
+        )
+    }
 
     return workflow?.trigger?.type === 'batch' ? <WorkflowBatchMetrics {...props} /> : <WorkflowRunMetrics {...props} />
 }
