@@ -47,10 +47,34 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         db_table = "posthog_externaldatajob"
 
     def folder_path(self) -> str:
-        if self.schema:
-            return self.schema.folder_path()
-        else:
+        if not self.schema:
             raise ValueError("Job does not have a schema")
+        # `pipeline` and `schema.source` point at the same ExternalDataSource
+        # row. Reach `source_type` through the job's `pipeline` FK rather
+        # than the schema's `source` FK so we don't trigger a lazy DB lookup
+        # if the schema instance was rehydrated by `refresh_from_db()` during
+        # the sync — that lookup happens during exception unwinding and can
+        # exhaust the worker's pgbouncer pool.
+        return self.schema.folder_path(source_type=self._cached_source_type())
+
+    def _cached_source_type(self) -> str | None:
+        """Return source_type from the in-memory FK cache, or None.
+
+        Falls through to None when neither `pipeline` nor `schema.source`
+        is loaded — `ExternalDataSchema.folder_path` then handles the lazy
+        load itself for non-Temporal callers (admin, tests) where a fresh
+        DB connection is acceptable.
+        """
+        cache = getattr(self._state, "fields_cache", {})
+        pipeline = cache.get("pipeline")
+        if pipeline is not None:
+            return pipeline.source_type
+        if self.schema is not None:
+            schema_cache = getattr(self.schema._state, "fields_cache", {})
+            source = schema_cache.get("source")
+            if source is not None:
+                return source.source_type
+        return None
 
     def url_pattern_by_schema(self, schema: str) -> str:
         if settings.USE_LOCAL_SETUP:

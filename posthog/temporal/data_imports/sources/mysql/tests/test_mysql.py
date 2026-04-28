@@ -1,3 +1,4 @@
+import socket
 import datetime
 from contextlib import contextmanager
 
@@ -336,6 +337,17 @@ class TestIsBadPlanTimeout:
 
     def test_does_not_match_error_without_args(self):
         assert not _is_bad_plan_timeout(pymysql.err.OperationalError())
+
+    def test_matches_bare_timeout_error(self):
+        # pymysql can let a `read_timeout` socket timeout propagate as a bare
+        # TimeoutError instead of wrapping it in OperationalError(2013).
+        # `socket.timeout` is aliased to `TimeoutError` on Python 3.10+, so
+        # this single case covers both names.
+        assert socket.timeout is TimeoutError
+        assert _is_bad_plan_timeout(TimeoutError("timed out"))
+
+    def test_does_not_match_unrelated_value_error(self):
+        assert not _is_bad_plan_timeout(ValueError("nope"))
 
 
 class TestBuildQueryForceIndex:

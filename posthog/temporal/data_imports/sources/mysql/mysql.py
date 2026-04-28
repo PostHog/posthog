@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import math
+import socket
 import datetime
 import collections
 from collections.abc import Callable, Iterator
@@ -208,14 +209,37 @@ def _build_query(
 _LOST_CONNECTION_DURING_QUERY_CODE = 2013
 
 
-def _is_bad_plan_timeout(e: pymysql.err.OperationalError) -> bool:
+# Exceptions the bad-plan recovery path should handle in addition to the
+# wrapped `OperationalError(2013, ...)` form. Recent pymysql versions can
+# let the bare client-side `read_timeout` / socket timeout propagate without
+# wrapping it in an `OperationalError`, in which case `_is_bad_plan_timeout`
+# below still classifies it as recoverable.
+_BAD_PLAN_TIMEOUT_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    pymysql.err.OperationalError,
+    TimeoutError,
+    socket.timeout,
+)
+
+
+def _is_bad_plan_timeout(e: BaseException) -> bool:
     """Return True if the error suggests we hit a bad-plan-induced query timeout.
 
-    Narrowly matches `OperationalError(2013, ...)`. Other `OperationalError`s
-    (access denied, table missing, etc.) should propagate untouched.
+    Matches:
+      * `pymysql.err.OperationalError(2013, ...)` — the wrapped
+        "Lost connection to MySQL server during query" form pymysql normally
+        produces when the client read_timeout fires.
+      * Bare `TimeoutError` / `socket.timeout` — recent pymysql versions can
+        let the underlying socket timeout propagate without wrapping it.
+
+    Other `OperationalError`s (access denied, table missing, etc.) propagate
+    untouched.
     """
-    code = e.args[0] if e.args else None
-    return code == _LOST_CONNECTION_DURING_QUERY_CODE
+    if isinstance(e, pymysql.err.OperationalError):
+        code = e.args[0] if e.args else None
+        return code == _LOST_CONNECTION_DURING_QUERY_CODE
+    # `socket.timeout` is aliased to `TimeoutError` on Python 3.10+, so this
+    # branch covers both names.
+    return isinstance(e, (TimeoutError, socket.timeout))
 
 
 def _find_index_for_cursor(
@@ -844,18 +868,20 @@ def mysql_source(
                 yielded_any = True
                 yield chunk
             return
-        except pymysql.err.OperationalError as e:
+        except _BAD_PLAN_TIMEOUT_EXCEPTIONS as e:
             if not _is_bad_plan_timeout(e):
                 raise
+            err_label = (
+                f"error {e.args[0]}" if isinstance(e, pymysql.err.OperationalError) and e.args else type(e).__name__
+            )
             if yielded_any:
                 logger.warning(
-                    f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}) "
+                    f"Streaming query died with bad-plan timeout ({err_label}) "
                     f"after already yielding rows — skipping FORCE INDEX fallback to avoid duplicates."
                 )
                 raise
             logger.warning(
-                f"Streaming query died with bad-plan timeout (error {e.args[0] if e.args else '?'}). "
-                f"Attempting FORCE INDEX fallback."
+                f"Streaming query died with bad-plan timeout ({err_label}). Attempting FORCE INDEX fallback."
             )
             if not should_use_incremental_field or not incremental_field:
                 # Without an incremental field there's no cursor to force an index on.

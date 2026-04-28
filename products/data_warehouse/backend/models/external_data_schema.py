@@ -78,8 +78,17 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     class Meta:
         db_table = "posthog_externaldataschema"
 
-    def folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
+    def folder_path(self, source_type: str | None = None) -> str:
+        # Accept `source_type` explicitly so callers running inside Temporal
+        # activities can avoid the lazy `self.source` dereference. On a
+        # related-object cache miss (e.g. after `refresh_from_db()` clears
+        # the prefetched FK) Django opens a fresh DB connection here — and
+        # during exception unwinding under worker pgbouncer pressure that
+        # connection attempt fails with `max_client_conn`, masking the
+        # original sync error.
+        if source_type is None:
+            source_type = self.source.source_type
+        return f"team_{self.team_id}_{source_type}_{str(self.id)}".lower().replace("-", "_")
 
     @property
     def normalized_name(self):
