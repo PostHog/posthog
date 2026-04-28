@@ -891,7 +891,10 @@ def property_to_expr(
         is_visited_page_property = property.type == "recording" and property.key == "visited_page"
         if is_visited_page_property:
             # Use the all_urls array field to filter for pages visited during recording.
-            all_urls_field = ast.Field(chain=["all_urls"])
+            # all_urls is a SimpleAggregateFunction(groupUniqArrayArray, Array(String)) column on
+            # raw_session_replay_events — recording filters run in HAVING after GROUP BY session_id,
+            # so the column reference must be aggregated to be valid.
+            all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
 
         is_exception_string_array_property = property.type == "event" and property.key in [
             "$exception_types",

@@ -3076,6 +3076,74 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_three],
         )
 
+    def test_filter_for_recordings_by_visited_page_via_having_predicates(self):
+        # Regression: visited_page filters land in HAVING (either directly via
+        # having_predicates or via the properties→having routing in __init__),
+        # so the all_urls reference must be wrapped in groupUniqArrayArray to
+        # avoid `Column 's.all_urls' is not under aggregate function and not
+        # in GROUP BY keys`.
+        user = "test_visited_page_having-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        session_with_pricing = "having-session-pricing"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_with_pricing,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/pricing"],
+        )
+
+        session_with_billing = "having-session-billing"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_with_billing,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/billing"],
+        )
+
+        session_no_urls = "having-session-no-urls"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=session_no_urls,
+            team_id=self.team.id,
+            all_urls=[],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "visited_page", "value": ["https://example.com/pricing"], "operator": "exact", "type": "recording"}]'
+            },
+            [session_with_pricing],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "visited_page", "value": "billing", "operator": "icontains", "type": "recording"}]'
+            },
+            [session_with_billing],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "visited_page", "value": ["pricing", "billing"], "operator": "icontains", "type": "recording"}]'
+            },
+            [session_with_pricing, session_with_billing],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "visited_page", "value": null, "operator": "is_set", "type": "recording"}]'
+            },
+            [session_with_pricing, session_with_billing],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "having_predicates": '[{"key": "visited_page", "value": null, "operator": "is_not_set", "type": "recording"}]'
+            },
+            [session_no_urls],
+        )
+
     @also_test_with_materialized_columns(
         event_properties=["is_internal_user"],
         person_properties=["email"],
