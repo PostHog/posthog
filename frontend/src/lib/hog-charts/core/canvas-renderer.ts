@@ -39,15 +39,15 @@ interface Stroke {
 }
 
 /**
- * Splits the line into strokes based on `dashedFromIndex`/`dashedToIndex`. Each entry is a
- * contiguous index range drawn with a single dash pattern; adjacent strokes share their
- * boundary index so the visual seam between them is invisible.
+ * Splits the line into strokes based on `stroke.partial.fromIndex`/`stroke.partial.toIndex`.
+ * Each entry is a contiguous index range drawn with a single dash pattern; adjacent strokes
+ * share their boundary index so the visual seam between them is invisible.
  */
 function planLineStrokes(series: Series, length: number): Stroke[] {
-    const basePattern = series.dashPattern ?? []
-    const partialPattern = series.dashedPattern ?? [10, 10]
-    const from = resolveDashedFromIndex(series.dashedFromIndex, length)
-    const to = resolveDashedToIndex(series.dashedToIndex, length)
+    const basePattern = series.stroke?.pattern ?? []
+    const partialPattern = series.stroke?.partial?.pattern ?? [10, 10]
+    const from = resolvePartialIndex(series.stroke?.partial?.fromIndex, length)
+    const to = resolvePartialIndex(series.stroke?.partial?.toIndex, length)
 
     // No partial dashing — one stroke covering the whole line.
     if (from === null && to === null) {
@@ -84,6 +84,9 @@ function tracePath(drawCtx: DrawContext, data: number[], start: number, end: num
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x == null || !isFinite(y)) {
+            // Reset so the next valid point starts a fresh subpath rather than
+            // connecting straight across the NaN gap.
+            started = false
             continue
         }
         if (!started) {
@@ -95,84 +98,173 @@ function tracePath(drawCtx: DrawContext, data: number[], start: number, end: num
     }
 }
 
-/** Returns null when unset or past the end; otherwise rounds and clamps into [0, length-1]. */
-function resolveDashedFromIndex(idx: number | undefined, length: number): number | null {
-    if (idx == null) {
+/** Returns null when unset; otherwise rounds and clamps into [0, length-1]. */
+function resolvePartialIndex(idx: number | undefined, length: number): number | null {
+    if (idx == null || length === 0) {
         return null
     }
     const rounded = Math.round(idx)
-    if (rounded >= length) {
-        return null
-    }
-    return Math.max(0, rounded)
+    return Math.max(0, Math.min(length - 1, rounded))
 }
 
-/** Returns null when unset or before the start; otherwise rounds and clamps into [0, length-1]. */
-function resolveDashedToIndex(idx: number | undefined, length: number): number | null {
-    if (idx == null) {
-        return null
+const hatchPatternCache = new Map<string, CanvasPattern>()
+
+function getHatchPattern(ctx: CanvasRenderingContext2D, color: string): CanvasPattern | string {
+    const cached = hatchPatternCache.get(color)
+    if (cached) {
+        return cached
     }
-    const rounded = Math.round(idx)
-    if (rounded < 0) {
-        return null
+    const size = 14
+    const patCanvas = document.createElement('canvas')
+    patCanvas.width = size
+    patCanvas.height = size
+    const patCtx = patCanvas.getContext('2d')
+    if (!patCtx) {
+        return color
     }
-    return Math.min(length - 1, rounded)
+    patCtx.strokeStyle = color
+    patCtx.lineWidth = 4
+    patCtx.beginPath()
+    patCtx.moveTo(0, size)
+    patCtx.lineTo(size, 0)
+    patCtx.stroke()
+    patCtx.beginPath()
+    patCtx.moveTo(-size / 2, size / 2)
+    patCtx.lineTo(size / 2, -size / 2)
+    patCtx.stroke()
+    patCtx.beginPath()
+    patCtx.moveTo(size / 2, size + size / 2)
+    patCtx.lineTo(size + size / 2, size / 2)
+    patCtx.stroke()
+    const pattern = ctx.createPattern(patCanvas, 'repeat')
+    if (pattern) {
+        hatchPatternCache.set(color, pattern)
+        return pattern
+    }
+    return color
+}
+
+interface AreaPoint {
+    x: number
+    y: number
+    dataIndex: number
 }
 
 export function drawArea(drawCtx: DrawContext, series: Series, yValues?: number[], bottomValues?: number[]): void {
     const { ctx, xScale, yScale, labels, dimensions } = drawCtx
     const data = yValues ?? series.data
-    const opacity = series.fillOpacity ?? 0.5
+    const opacity = series.fill?.opacity ?? 0.5
     const baseline = dimensions.plotTop + dimensions.plotHeight
+    const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, data.length)
+    const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, data.length)
 
-    // Split into contiguous segments to handle data gaps consistently with drawLine
-    const segments: { top: { x: number; y: number }[]; bottom: { x: number; y: number }[] }[] = []
-    let currentTop: { x: number; y: number }[] = []
-    let currentBottom: { x: number; y: number }[] = []
-    for (let i = 0; i < data.length; i++) {
-        const x = xScale(labels[i])
-        const yTop = yScale(data[i])
-        if (x != null && isFinite(yTop)) {
-            currentTop.push({ x, y: yTop })
-            const yBot = bottomValues ? yScale(bottomValues[i]) : baseline
-            currentBottom.push({ x, y: isFinite(yBot) ? yBot : baseline })
-        } else if (currentTop.length > 0) {
+    const segments: { top: AreaPoint[]; bottom: AreaPoint[] }[] = []
+    let currentTop: AreaPoint[] = []
+    let currentBottom: AreaPoint[] = []
+    const breakSegment = (): void => {
+        if (currentTop.length > 0) {
             segments.push({ top: currentTop, bottom: currentBottom })
             currentTop = []
             currentBottom = []
         }
     }
-    if (currentTop.length > 0) {
-        segments.push({ top: currentTop, bottom: currentBottom })
+    for (let i = 0; i < data.length; i++) {
+        const x = xScale(labels[i])
+        const yTop = yScale(data[i])
+        if (x == null || !isFinite(yTop)) {
+            breakSegment()
+            continue
+        }
+        if (bottomValues) {
+            const rawBottom = bottomValues[i]
+            const yBot = rawBottom == null ? NaN : yScale(rawBottom)
+            if (!isFinite(yBot)) {
+                breakSegment()
+                continue
+            }
+            currentTop.push({ x, y: yTop, dataIndex: i })
+            currentBottom.push({ x, y: yBot, dataIndex: i })
+        } else {
+            currentTop.push({ x, y: yTop, dataIndex: i })
+            currentBottom.push({ x, y: baseline, dataIndex: i })
+        }
     }
+    breakSegment()
 
     ctx.globalAlpha = opacity
-    ctx.fillStyle = series.color
 
     for (const { top, bottom } of segments) {
         if (top.length < 2) {
             continue
         }
-        ctx.beginPath()
-        ctx.moveTo(top[0].x, top[0].y)
-        for (let i = 1; i < top.length; i++) {
-            ctx.lineTo(top[i].x, top[i].y)
+
+        if (dashedFrom === null && dashedTo === null) {
+            ctx.fillStyle = series.color
+            fillAreaPath(ctx, top, bottom)
+            continue
         }
-        // Close along bottom edge in reverse
-        for (let i = bottom.length - 1; i >= 0; i--) {
-            ctx.lineTo(bottom[i].x, bottom[i].y)
+
+        // First index in this segment that is part of the trailing dashed range (>= dashedFrom).
+        const fromSplit = dashedFrom === null ? -1 : top.findIndex((p) => p.dataIndex >= dashedFrom)
+        // First index in this segment that is past the leading dashed range (> dashedTo).
+        const toSplit = dashedTo === null ? -1 : top.findIndex((p) => p.dataIndex > dashedTo)
+        const wholeSegmentLeading = dashedTo !== null && toSplit === -1
+        const wholeSegmentTrailing = dashedFrom !== null && fromSplit === 0
+        const hatch = getHatchPattern(ctx, series.color)
+
+        if (wholeSegmentLeading || wholeSegmentTrailing) {
+            ctx.fillStyle = hatch
+            fillAreaPath(ctx, top, bottom)
+            continue
         }
-        ctx.closePath()
-        ctx.fill()
+
+        if (dashedTo !== null && toSplit > 0) {
+            const leadingEnd = Math.min(top.length, toSplit + 1)
+            ctx.fillStyle = hatch
+            fillAreaPath(ctx, top.slice(0, leadingEnd), bottom.slice(0, leadingEnd))
+        }
+
+        const solidStart = toSplit === -1 ? 0 : toSplit
+        const solidEnd = fromSplit === -1 ? top.length : fromSplit
+
+        if (solidEnd - solidStart >= 2) {
+            const trailingHatchPresent = dashedFrom !== null && fromSplit !== -1
+            const slicedEnd = trailingHatchPresent ? Math.min(top.length, solidEnd + 1) : solidEnd
+            ctx.fillStyle = series.color
+            fillAreaPath(ctx, top.slice(solidStart, slicedEnd), bottom.slice(solidStart, slicedEnd))
+        }
+
+        if (dashedFrom !== null && fromSplit > 0) {
+            const hatchStart = Math.max(0, fromSplit - 1)
+            ctx.fillStyle = hatch
+            fillAreaPath(ctx, top.slice(hatchStart), bottom.slice(hatchStart))
+        }
     }
 
     ctx.globalAlpha = 1
 }
 
+function fillAreaPath(
+    ctx: CanvasRenderingContext2D,
+    top: { x: number; y: number }[],
+    bottom: { x: number; y: number }[]
+): void {
+    ctx.beginPath()
+    ctx.moveTo(top[0].x, top[0].y)
+    for (let i = 1; i < top.length; i++) {
+        ctx.lineTo(top[i].x, top[i].y)
+    }
+    for (let i = bottom.length - 1; i >= 0; i--) {
+        ctx.lineTo(bottom[i].x, bottom[i].y)
+    }
+    ctx.closePath()
+    ctx.fill()
+}
+
 export function drawPoints(drawCtx: DrawContext, series: Series, yValues?: number[]): void {
     const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
-    const radius = series.pointRadius ?? 0
+    const radius = series.points?.radius ?? 0
 
     if (radius <= 0) {
         return

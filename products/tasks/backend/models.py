@@ -35,6 +35,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.metrics import observe_task_run_created
 from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
@@ -68,7 +69,7 @@ class Task(DeletedMetaFields, models.Model):
     title = models.CharField(max_length=255)
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
-    origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
+    origin_product = models.CharField(max_length=20, choices=OriginProduct)
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -223,6 +224,7 @@ class Task(DeletedMetaFields, models.Model):
             branch=branch,
         )
         task_run.publish_stream_state_event()
+        observe_task_run_created(task_run)
         self.capture_event(
             "task_run_created",
             {
@@ -283,8 +285,12 @@ class Task(DeletedMetaFields, models.Model):
 
         sandbox_env = None
         if sandbox_environment_id is not None:
-            sandbox_env = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=team).first()
-            if not sandbox_env:
+            sandbox_env = SandboxEnvironment.get_accessible_for_task(
+                environment_id=sandbox_environment_id,
+                team_id=team.id,
+                task_created_by_id=user_id,
+            )
+            if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
         task = Task.objects.create(
@@ -457,7 +463,7 @@ class TaskRun(models.Model):
 
     environment = models.CharField(
         max_length=10,
-        choices=Environment.choices,
+        choices=Environment,
         default=Environment.CLOUD,
         help_text="Execution environment",
     )
@@ -470,7 +476,7 @@ class TaskRun(models.Model):
         help_text="Current stage for this run (e.g., 'research', 'plan', 'build')",
     )
 
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.NOT_STARTED)
+    status = models.CharField(max_length=20, choices=Status, default=Status.NOT_STARTED)
 
     error_message = models.TextField(blank=True, null=True, help_text="Error message if execution failed")
 
@@ -521,14 +527,11 @@ class TaskRun(models.Model):
         env_id = (self.state or {}).get("sandbox_environment_id")
         if not env_id:
             return None
-        env = SandboxEnvironment.objects.filter(id=env_id, team_id=self.team_id).first()
-        if not env:
-            return None
-        if env.private:
-            task_user_id = self.task.created_by_id
-            if not task_user_id or env.created_by_id != task_user_id:
-                return None
-        return env
+        return SandboxEnvironment.get_accessible_for_task(
+            environment_id=env_id,
+            team_id=self.team_id,
+            task_created_by_id=self.task.created_by_id,
+        )
 
     def prepare_for_cloud_handoff(self) -> None:
         """
@@ -900,7 +903,7 @@ class SandboxSnapshot(UUIDModel):
 
     status = models.CharField(
         max_length=20,
-        choices=Status.choices,
+        choices=Status,
         default=Status.IN_PROGRESS,
     )
 
@@ -987,7 +990,7 @@ class SandboxEnvironment(UUIDModel):
 
     network_access_level = models.CharField(
         max_length=20,
-        choices=NetworkAccessLevel.choices,
+        choices=NetworkAccessLevel,
         default=NetworkAccessLevel.FULL,  # NOTE: Default should be TRUSTED once we have an egress proxy in place
     )
 
@@ -1035,6 +1038,29 @@ class SandboxEnvironment(UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_by"]),
         ]
+
+    def is_accessible_for_task_creator(self, task_created_by_id: int | None) -> bool:
+        if not self.private:
+            return True
+        return task_created_by_id is not None and self.created_by_id == task_created_by_id
+
+    @classmethod
+    def get_accessible_for_task(
+        cls,
+        *,
+        environment_id: str | uuid.UUID,
+        team_id: int,
+        task_created_by_id: int | None,
+    ) -> Optional["SandboxEnvironment"]:
+        try:
+            environment = cls.objects.filter(id=environment_id, team_id=team_id).first()
+        except (ValidationError, ValueError):
+            return None
+        if environment is None:
+            return None
+        if not environment.is_accessible_for_task_creator(task_created_by_id):
+            return None
+        return environment
 
     def __str__(self):
         return self.name

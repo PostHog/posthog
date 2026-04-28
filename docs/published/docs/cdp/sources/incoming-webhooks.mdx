@@ -1,0 +1,110 @@
+---
+title: Incoming webhooks
+sidebar: Docs
+showTitle: true
+availability:
+  free: full
+  selfServe: full
+  enterprise: full
+---
+
+import { ProductScreenshot } from 'components/ProductScreenshot'
+
+<CalloutBox icon="IconInfo" title="Feature preview" type="caution">
+
+Incoming webhook sources are experimental and available behind a [feature preview](https://us.posthog.com/settings/user-feature-previews#cdp-hog-sources). For most use cases, we recommend using a [workflow with a webhook trigger](/docs/workflows/workflow-builder#webhook-triggers) combined with a **capture event** action instead — it's more flexible, doesn't require code, and gives you access to delays, branching, and other workflow features.
+
+</CalloutBox>
+
+Incoming webhooks enable you to send data from external systems directly into PostHog. This is useful for integrating with custom applications, third-party services, or any system that can make HTTP requests.
+
+In general, we recommend using our [SDKs](/docs/libraries) or [capture API](/docs/api/capture) but this is useful when you don't have control over the sender format and need to perform some transformation to match PostHog's event format.
+
+## How it works
+
+When you create an incoming webhook source, PostHog generates a unique URL that you can use to send data from your external systems. The webhook accepts POST requests with any JSON payload or GET requests with query parameters, and you can configure how to parse and map the incoming data to PostHog events.
+
+### Webhook URL format
+
+Your webhook URL will look like this:
+
+```text
+https://webhooks.us.posthog.com/public/webhooks/<UUID>
+```
+
+### Payload size limits
+
+Incoming webhook requests have a maximum payload size of 500KB. Requests exceeding this limit receive a `413` status code with the message "Request entity too large".
+
+## Transforming the webhook payload
+
+We recommend starting from the default [HTTP incoming webhook template](/docs/hog#hog-by-example-webhook). For most use cases, you can transform the incoming webhook to the required properties simply using our [Hog templating language](/docs/hog).
+
+### The request object
+
+The request object is available for templating the inputs as well as the underlying Hog code. It contains the following properties:
+
+- `request.method`: The HTTP method of the request
+- `request.query`: The query parameters of the request parsed as a dictionary of strings
+- `request.body`: The body of the request parsed as JSON
+- `request.headers`: The headers of the request as a dictionary
+- `request.ip`: The IP address of the requester
+
+For example if you send a request with curl like so:
+
+```bash
+curl -X POST https://webhooks.<region>.posthog.com/public/webhooks/<UUID>?test=123 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "my example event",
+    "distinct_id": "webhook-test-123"
+  }'
+```
+
+Then the variables available to use will look like:
+
+```hog
+print(request.method)
+// Outputs: 'POST'
+print(request.query)
+// Outputs: { 'test': '123' }
+print(request.headers)
+// Outputs: { 'Content-Type': 'application/json' }
+print(request.body)
+// Outputs: { 'event': 'my example event', 'distinct_id': 'webhook-test-123' }
+print(request.ip)
+// Outputs: '127.0.0.1'
+```
+
+### Capturing a PostHog event
+
+If using the default template, you simply need to customize the inputs so that the required values `event` and `distinct_id` are set as well as the optional `properties` object.
+
+Under the hood, the code to capture an event is:
+
+```hog
+postHogCapture({
+    'event': input.event,
+    'distinct_id': input.distinct_id,
+    'properties': input.properties
+})
+```
+
+## (Advanced) HTTP requests and background processing
+
+Webhook sources can call `postHogCapture` to ingest events to PostHog. You can also do HTTP calls with `fetch`, but, in this case, the request is queued to a background task, a 201 Created response is returned, and the event is ingested asynchronously.
+
+## Troubleshooting
+
+### Testing your webhook
+
+You can test your webhook by sending a request to the webhook URL. You can use a tool like [curl](https://curl.se/) to send a request or use our built in testing tools when setting up the webhook. If you use `curl` or another tool, you can turn on the `Log payloads` switch in the `configuration` tab, and then check the `logs` tab to see the webhooks come in.
+
+Currently you have to save the webhook to test it as it directly hits the endpoint ensuring that the complete flow works.
+
+### Common issues
+
+- 401 Unauthorized - Check that your authorization header matches the configured value
+- 400 Bad Request - Verify that required fields (`event` and `distinct_id`) are provided
+- Timeout errors - Ensure your webhook processing completes within the time limit
+- 413 Request Entity Too Large - Your request payload exceeds the 500KB size limit. Reduce the payload size or split into multiple requests.

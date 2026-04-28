@@ -35,7 +35,8 @@ function DropdownMenuContent({
         <MenuPrimitive.Portal>
             <MenuPrimitive.Positioner
                 data-quill
-                className="isolate z-50 outline-none"
+                data-quill-portal="popover"
+                className="isolate outline-none"
                 align={align}
                 alignOffset={alignOffset}
                 side={side}
