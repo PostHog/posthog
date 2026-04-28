@@ -10,7 +10,7 @@ use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result as CoordResult;
-use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
+use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
@@ -28,32 +28,38 @@ use tracing_subscriber::EnvFilter;
 
 common_alloc::used!();
 
-/// Cutover handler for the router. When a partition handoff reaches the Ready
-/// phase, the routing table calls this to perform the traffic switch.
+/// Stash handler for the router. Reacts to handoff phase transitions:
 ///
-/// The `LeaderBackend` already reads from the shared routing table which is
-/// updated by the `RoutingTable`'s assignment watch. The cutover handler
-/// clears the cached gRPC client for the old owner so the next request
-/// reconnects to the new leader pod.
-struct RouterCutoverHandler {
+/// * `Freezing` -> `begin_stash`: would start buffering writes for the
+///   partition. This implementation is a stub — writes still flow straight
+///   through to whoever the routing table currently points at — so the
+///   freeze-ack is honest about routing but not about buffering. A
+///   follow-up change introduces a real per-partition stash queue.
+/// * `Complete` -> `drain_stash`: clear the cached gRPC client for the
+///   prior owner so the next request reconnects to the new leader pod.
+///   With no buffered writes there is nothing else to drain.
+struct RouterStashHandler {
     leader_backend: Arc<LeaderBackend>,
 }
 
 #[async_trait::async_trait]
-impl CutoverHandler for RouterCutoverHandler {
-    async fn execute_cutover(
-        &self,
-        partition: u32,
-        old_owner: &str,
-        new_owner: &str,
-    ) -> CoordResult<()> {
+impl StashHandler for RouterStashHandler {
+    async fn begin_stash(&self, partition: u32, new_owner: &str) -> CoordResult<()> {
         tracing::info!(
             partition,
-            old_owner,
             new_owner,
-            "executing cutover: clearing cached client for old owner"
+            "begin_stash (stub): no buffering, writes flow through current routing"
         );
-        self.leader_backend.clear_client_cache(old_owner);
+        Ok(())
+    }
+
+    async fn drain_stash(&self, partition: u32, new_owner: &str) -> CoordResult<()> {
+        tracing::info!(
+            partition,
+            new_owner,
+            "drain_stash (stub): clearing cached client for prior owner"
+        );
+        self.leader_backend.clear_client_cache(new_owner);
         Ok(())
     }
 }
@@ -227,7 +233,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.grpc_max_recv_message_size,
         ));
 
-        let cutover_handler: Arc<dyn CutoverHandler> = Arc::new(RouterCutoverHandler {
+        let stash_handler: Arc<dyn StashHandler> = Arc::new(RouterStashHandler {
             leader_backend: Arc::clone(&leader_backend),
         });
 
@@ -238,7 +244,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             let _guard = routing_table_handle.process_scope();
             if let Err(e) = coordination_routing_table
-                .run(routing_table_handle.shutdown_token(), cutover_handler)
+                .run(routing_table_handle.shutdown_token(), stash_handler)
                 .await
             {
                 routing_table_handle.signal_failure(format!("Routing table error: {e}"));
