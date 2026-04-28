@@ -15798,7 +15798,7 @@ export namespace Schemas {
       /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
       readonly trial_evals_remaining: number;
       /** Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits. */
-      readonly active_provider_key: LLMProviderKey;
+      readonly active_provider_key: LLMProviderKey | null;
       /** Timestamp when the evaluation config row was created. */
       readonly created_at: string;
       /** Timestamp when the evaluation config row was last modified. */

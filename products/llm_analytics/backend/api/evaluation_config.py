@@ -26,6 +26,7 @@ class EvaluationConfigSerializer(serializers.ModelSerializer):
     )
     active_provider_key = LLMProviderKeySerializer(
         read_only=True,
+        allow_null=True,
         help_text="Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits.",
     )
 
