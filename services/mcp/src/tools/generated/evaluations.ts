@@ -55,25 +55,6 @@ const evaluationConfigSetActiveKey = (): ToolBase<
     },
 })
 
-const EvaluationJudgeModelsSchema = LlmAnalyticsModelsRetrieveQueryParams
-
-const evaluationJudgeModels = (): ToolBase<typeof EvaluationJudgeModelsSchema, Schemas.LLMModelsListResponse> => ({
-    name: 'evaluation-judge-models',
-    schema: EvaluationJudgeModelsSchema,
-    handler: async (context: Context, params: z.infer<typeof EvaluationJudgeModelsSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LLMModelsListResponse>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/models/`,
-            query: {
-                key_id: params.key_id,
-                provider: params.provider,
-            },
-        })
-        return result
-    },
-})
-
 const EvaluationCreateSchema = EvaluationsCreateBody
 
 const evaluationCreate = (): ToolBase<typeof EvaluationCreateSchema, Schemas.Evaluation> => ({
@@ -147,6 +128,25 @@ const evaluationGet = (): ToolBase<typeof EvaluationGetSchema, Schemas.Evaluatio
         const result = await context.api.request<Schemas.Evaluation>({
             method: 'GET',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const EvaluationJudgeModelsSchema = LlmAnalyticsModelsRetrieveQueryParams
+
+const evaluationJudgeModels = (): ToolBase<typeof EvaluationJudgeModelsSchema, Schemas.LLMModelsListResponse> => ({
+    name: 'evaluation-judge-models',
+    schema: EvaluationJudgeModelsSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationJudgeModelsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LLMModelsListResponse>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/models/`,
+            query: {
+                key_id: params.key_id,
+                provider: params.provider,
+            },
         })
         return result
     },
@@ -288,10 +288,10 @@ const evaluationsGet = (): ToolBase<typeof EvaluationsGetSchema, Schemas.Paginat
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'evaluation-config-get': evaluationConfigGet,
     'evaluation-config-set-active-key': evaluationConfigSetActiveKey,
-    'evaluation-judge-models': evaluationJudgeModels,
     'evaluation-create': evaluationCreate,
     'evaluation-delete': evaluationDelete,
     'evaluation-get': evaluationGet,
+    'evaluation-judge-models': evaluationJudgeModels,
     'evaluation-run': evaluationRun,
     'evaluation-test-hog': evaluationTestHog,
     'evaluation-update': evaluationUpdate,

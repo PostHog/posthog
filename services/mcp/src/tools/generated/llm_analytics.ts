@@ -51,48 +51,6 @@ const llmAnalyticsClusteringJobsRetrieve = (): ToolBase<
     },
 })
 
-const LlmAnalyticsEvalConfigRetrieveSchema = z.object({})
-
-const llmAnalyticsEvalConfigRetrieve = (): ToolBase<
-    typeof LlmAnalyticsEvalConfigRetrieveSchema,
-    Schemas.EvaluationConfig
-> => ({
-    name: 'llm-analytics-eval-config-retrieve',
-    schema: LlmAnalyticsEvalConfigRetrieveSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsEvalConfigRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.EvaluationConfig>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_config/`,
-        })
-        return result
-    },
-})
-
-const LlmAnalyticsEvalConfigSetActiveKeyCreateSchema = LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody
-
-const llmAnalyticsEvalConfigSetActiveKeyCreate = (): ToolBase<
-    typeof LlmAnalyticsEvalConfigSetActiveKeyCreateSchema,
-    Schemas.EvaluationConfig
-> => ({
-    name: 'llm-analytics-eval-config-set-active-key-create',
-    schema: LlmAnalyticsEvalConfigSetActiveKeyCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmAnalyticsEvalConfigSetActiveKeyCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.key_id !== undefined) {
-            body['key_id'] = params.key_id
-        }
-        const result = await context.api.request<Schemas.EvaluationConfig>({
-            method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_config/set_active_key/`,
-            body,
-        })
-        return result
-    },
-})
-
 const LlmAnalyticsEvaluationSummaryCreateSchema = LlmAnalyticsEvaluationSummaryCreateBody
 
 const llmAnalyticsEvaluationSummaryCreate = (): ToolBase<
