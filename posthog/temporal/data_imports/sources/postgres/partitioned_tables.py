@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, LiteralString, Optional, cast
+from typing import Any, Literal, Optional
 
 import psycopg
 import pyarrow as pa
@@ -503,9 +503,9 @@ def build_partition_query(
     Targets the child relation directly so the planner skips the parent's Append and
     runs a single seq scan. Applies the incremental cutoff when present; on children
     whose lower bound is already past the cursor, the WHERE clause is no-op for the
-    planner and is kept for safety. ORDER BY is always added so the pipeline can
-    advance the incremental cursor per chunk via max() without risking data loss on
-    restart.
+    planner and is kept for safety. ORDER BY is added on the incremental path so the
+    pipeline can advance the incremental cursor per chunk via max() without risking
+    data loss on restart; the non-incremental branch returns a bare SELECT *.
     """
     if not should_use_incremental_field:
         return sql.SQL("SELECT * FROM {schema}.{table}").format(
@@ -519,15 +519,12 @@ def build_partition_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} > {last_value}").format(
+    return sql.SQL("SELECT * FROM {schema}.{table} WHERE {field} > {last_value} ORDER BY {field} ASC").format(
         schema=sql.Identifier(child_schema),
         table=sql.Identifier(child_name),
-        incremental_field=sql.Identifier(incremental_field),
+        field=sql.Identifier(incremental_field),
         last_value=sql.Literal(db_incremental_field_last_value),
     )
-
-    query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
-    return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
 def iterate_partitions(

@@ -49,7 +49,6 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     iterate_date_windows,
     iterate_partitions,
     list_child_partitions,
-    should_preserve_asc_sort,
 )
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
@@ -1547,9 +1546,12 @@ def postgres_source(
                         except Exception as e:
                             partition_strategy = None
                             logger.debug(f"Partition strategy detection failed: {e}")
-                        use_per_partition_chunking = should_preserve_asc_sort(
-                            partition_strategy, incremental_field
-                        ) and (partition_strategy is not None and partition_strategy.strategy == "r")
+                        use_per_partition_chunking = (
+                            partition_strategy is not None
+                            and partition_strategy.strategy == "r"
+                            and incremental_field is not None
+                            and incremental_field in partition_strategy.key_columns
+                        )
                     logger.debug(
                         f"Postgres read strategy: use_window_chunking={use_window_chunking}, "
                         f"use_per_partition_chunking={use_per_partition_chunking}, "
