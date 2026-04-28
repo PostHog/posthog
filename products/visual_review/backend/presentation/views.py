@@ -142,16 +142,14 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["get"], url_path=r"thumbnails/(?P<identifier>.+[^/])")
     def thumbnail(self, request: Request, pk: str, identifier: str, **kwargs) -> HttpResponse:
         """Serve a snapshot thumbnail by identifier. Returns WebP with ETag caching."""
-        from .. import logic
-
         try:
-            logic.get_repo(UUID(pk), team_id=self.team_id)
+            api.get_repo(UUID(pk), team_id=self.team_id)
         except api.RepoNotFoundError:
             resp = HttpResponse(status=404)
             patch_cache_control(resp, no_store=True)
             return resp
 
-        thumb_hash = logic.get_thumbnail_hash_for_identifier(UUID(pk), identifier)
+        thumb_hash = api.get_thumbnail_hash_for_identifier(UUID(pk), identifier)
         if thumb_hash is None:
             resp = HttpResponse(status=404)
             patch_cache_control(resp, no_store=True)
@@ -164,7 +162,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             patch_vary_headers(not_modified, ["Authorization", "Cookie"])
             return not_modified
 
-        thumb_bytes = logic.read_thumbnail_bytes(UUID(pk), thumb_hash)
+        thumb_bytes = api.read_thumbnail_bytes(UUID(pk), thumb_hash)
         if thumb_bytes is None:
             resp = HttpResponse(status=404)
             patch_cache_control(resp, no_store=True)
