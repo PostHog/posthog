@@ -358,6 +358,9 @@ def get_sandbox_github_token(
 
 
 def format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
+    if not domains:
+        return "no custom domains"
+
     preview = ", ".join(domains[:limit])
     remaining = len(domains) - limit
     if remaining > 0:

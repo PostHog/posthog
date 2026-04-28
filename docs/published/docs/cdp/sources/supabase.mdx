@@ -9,6 +9,40 @@ availability:
 sourceId: Supabase
 ---
 
-import SupabaseTutorial from '../../../tutorials/supabase-query.md'
+The Supabase connector can link your Supabase database tables to PostHog. Supabase is built on top of Postgres, so this connector uses the same underlying integration as the [Postgres source](/docs/cdp/sources/postgres).
 
-<SupabaseTutorial />
+To link Supabase:
+
+1. Go to the [Data pipeline page](https://app.posthog.com/data-management/sources) and the sources tab in PostHog
+2. Click **New source** and select Supabase
+3. Enter your Supabase connection details. You can find these in your Supabase project under **Project Settings** → **Database** → **Connection info**:
+   - **Host:** The hostname of your Supabase database like `db.abcdefghijklmno.supabase.co`.
+   - **Port:** The port your database is listening on. The default is `5432`.
+   - **Database:** The name of the database. Supabase defaults this to `postgres`.
+   - **User:** The database user with read access to the schemas and tables you want to sync.
+   - **Password:** The password for the user.
+   - **Schema:** The schema where your tables are located. Supabase defaults this to `public`.
+4. If you need to connect through an SSH tunnel, enable and configure it (optional):
+   - **Tunnel host:** The hostname of your SSH server.
+   - **Tunnel port:** The port your SSH server is listening on.
+   - **Authentication type:**
+     - For password authentication, enter your SSH username and password.
+     - For key-based authentication, enter your SSH username, private key, and optional passphrase.
+   - **Require TLS through tunnel?** - Whether to require TLS encryption through the SSH tunnel. Enabled by default. Disable if your database does not support TLS.
+5. Click **Link**
+
+The data warehouse then starts syncing your Supabase data. You can see details and progress in the [sources tab](https://app.posthog.com/data-management/sources).
+
+<CalloutBox icon="IconWarning" title="SSL/TLS required for new sources" type="caution">
+
+Supabase sources created after February 18, 2026 require SSL/TLS encryption for database connections. Supabase enforces SSL/TLS by default, so this is typically already in place. If you're connecting through an SSH tunnel, you can optionally disable TLS using the **Require TLS through tunnel?** toggle since the tunnel already encrypts the connection.
+
+</CalloutBox>
+
+> **Permissions** The Supabase source only requires read permissions on the schemas and tables you intend to sync. We recommend creating a dedicated read-only role in Supabase rather than using the default `postgres` superuser.
+
+import InboundIpAddresses from '../_snippets/inbound-ip-addresses.mdx'
+
+<InboundIpAddresses />
+
+> **Note:** We currently don't support connections using IPv6. Supabase databases use IPv6 by default, so you'll need to enable the IPv4 add-on in your Supabase project settings before linking.
