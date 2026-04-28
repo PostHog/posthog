@@ -956,7 +956,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         loadRemoteItemsSuccess: ({ remoteItems }) => {
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
         },
-        infiniteListResultsReceived: () => {
+        infiniteListResultsReceived: ({ results }) => {
             actions.reconcilePinnedRowState()
             const listGroupType = props.listGroupType
             if (!isTaxonomyTrackedListType(listGroupType)) {
@@ -964,7 +964,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             }
             const group = values.group
             const missing: { name: string; groupType: TaxonomicFilterGroupType }[] = []
-            for (const item of values.results) {
+            for (const item of results.results) {
                 if (isSkeletonItem(item) || isQuickFilterItem(item)) {
                     continue
                 }
