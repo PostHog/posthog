@@ -1,76 +1,219 @@
 {% extends "admin/change_form.html" %}
-{% load i18n %}
+{% load i18n admin_modify %}
+
+{% block extrastyle %}
+    {{ block.super }}
+    <style>
+        .partitioning-and-sync .partitioning-section {
+            padding: 18px 20px;
+        }
+        .partitioning-and-sync .partitioning-section + .partitioning-section {
+            border-top: 1px solid var(--hairline-color, #eee);
+        }
+        .partitioning-and-sync h3 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
+        }
+        .partitioning-and-sync .help {
+            color: var(--body-quiet-color, #666);
+            margin: 0 0 14px 0;
+            line-height: 1.5;
+            max-width: 720px;
+        }
+        .partitioning-and-sync .partitioning-info {
+            border-collapse: collapse;
+            width: 100%;
+            max-width: 720px;
+        }
+        .partitioning-and-sync .partitioning-info th,
+        .partitioning-and-sync .partitioning-info td {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--hairline-color, #eee);
+        }
+        .partitioning-and-sync .partitioning-info tr:last-child th,
+        .partitioning-and-sync .partitioning-info tr:last-child td {
+            border-bottom: 0;
+        }
+        .partitioning-and-sync .partitioning-info th {
+            text-align: left;
+            font-weight: 500;
+            width: 220px;
+            white-space: nowrap;
+        }
+        .partitioning-and-sync .partitioning-info td {
+            font-family: var(--font-family-monospace, monospace);
+        }
+        .partitioning-and-sync .partitioning-controls {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 12px;
+        }
+        .partitioning-and-sync .partitioning-controls label {
+            margin: 0;
+            font-weight: 500;
+        }
+        .partitioning-and-sync .partitioning-controls .checkbox-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: normal;
+        }
+        .partitioning-and-sync .partitioning-controls input[type="number"],
+        .partitioning-and-sync .partitioning-controls select {
+            min-width: 180px;
+        }
+        .partitioning-and-sync .partitioning-controls button {
+            margin-left: 4px;
+        }
+    </style>
+{% endblock %}
+
+{% block object-tools %}
+    {{ block.super }}
+    {# Hidden sibling forms for the partitioning + sync POST actions. They live #}
+    {# outside the main admin <form> so they don't nest (HTML5 disallows it — #}
+    {# nesting silently submits the outer form, which then trips on required #}
+    {# model fields). The visible inputs/buttons below target these via the #}
+    {# HTML5 `form="..."` attribute. #}
+    <form id="repartition-action-form" method="post" action="{{ repartition_url }}" style="display:none;">
+        {% csrf_token %}
+    </form>
+    <form id="trigger-sync-action-form" method="post" action="{{ trigger_sync_url }}" style="display:none;">
+        {% csrf_token %}
+    </form>
+{% endblock %}
 
 {% block after_field_sets %}
     {{ block.super }}
 
-    <fieldset class="module aligned">
+    {# Render the model save/delete row immediately above Partitioning & sync so #}
+    {# operators don't have to scroll to the bottom to save changes. The original #}
+    {# bottom submit_row still renders. #}
+    <div style="margin: 12px 0;">
+        {% submit_row %}
+    </div>
+
+    <fieldset class="module aligned partitioning-and-sync">
         <h2>Partitioning &amp; sync</h2>
 
-        <div class="form-row" style="padding: 10px;">
-            <h3 style="margin-top: 0;">Current settings</h3>
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px;">
-                <tr style="border-bottom: 1px solid #eee;">
-                    <th style="text-align: left; padding: 6px; width: 220px;">partitioning_enabled</th>
-                    <td style="padding: 6px; font-family: monospace;">{{ partitioning_enabled|default:"— (None)" }}</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #eee;">
-                    <th style="text-align: left; padding: 6px;">partition_format</th>
-                    <td style="padding: 6px; font-family: monospace;">{{ current_partition_format|default:"— (None)" }}</td>
-                </tr>
-                <tr style="border-bottom: 1px solid #eee;">
-                    <th style="text-align: left; padding: 6px;">partition_mode</th>
-                    <td style="padding: 6px; font-family: monospace;">{{ current_partition_mode|default:"— (None)" }}</td>
+        <div class="form-row partitioning-section">
+            <h3>Current settings</h3>
+            <table class="partitioning-info">
+                <tr>
+                    <th>partitioning_enabled</th>
+                    <td>{{ partitioning_enabled|default:"— (None)" }}</td>
                 </tr>
                 <tr>
-                    <th style="text-align: left; padding: 6px;">partitioning_keys</th>
-                    <td style="padding: 6px; font-family: monospace;">{{ current_partition_keys|default:"— (None)" }}</td>
+                    <th>partition_mode</th>
+                    <td>{{ current_partition_mode|default:"— (None — defaults to datetime)" }}</td>
+                </tr>
+                <tr>
+                    <th>partition_format</th>
+                    <td>{{ current_partition_format|default:"— (None)" }}</td>
+                </tr>
+                <tr>
+                    <th>partition_size</th>
+                    <td>{{ current_partition_size|default:"— (None)" }}</td>
+                </tr>
+                <tr>
+                    <th>partition_count</th>
+                    <td>{{ current_partition_count|default:"— (None)" }}</td>
+                </tr>
+                <tr>
+                    <th>partitioning_keys</th>
+                    <td>{{ current_partition_keys|default:"— (None)" }}</td>
                 </tr>
             </table>
         </div>
 
-        <div class="form-row" style="padding: 10px; border-top: 1px solid #eee;">
-            <h3 style="margin-top: 0;">Repartition</h3>
-            <p style="color: #666; margin-bottom: 8px;">
-                Updates <code>sync_type_config["partition_format"]</code>. Takes effect on the next run —
-                pair with a reset resync below to rebuild Delta files at the new granularity.
-            </p>
-            <form method="post" action="{{ repartition_url }}" style="display: inline;">
-                {% csrf_token %}
-                <label for="partition_format_select" style="margin-right: 8px;">New partition format:</label>
-                <select id="partition_format_select" name="partition_format" required>
-                    {% for choice in partition_format_choices %}
-                        <option value="{{ choice }}" {% if choice == current_partition_format %}selected{% endif %}>{{ choice }}</option>
-                    {% endfor %}
-                </select>
-                <button type="submit" class="default" style="margin-left: 8px;"
-                        onclick="return confirm('Update partition_format on this schema?');">
-                    Save partition format
-                </button>
-            </form>
+        <div class="form-row partitioning-section">
+            <h3>Repartition</h3>
+            {% if effective_partition_mode == "datetime" %}
+                <p class="help">
+                    Updates <code>sync_type_config["partition_format"]</code>. Takes effect on the next run —
+                    pair with a reset resync below to rebuild Delta files at the new granularity.
+                </p>
+                <div class="partitioning-controls">
+                    <label for="partition_format_select">New partition format:</label>
+                    <select id="partition_format_select" name="partition_format" form="repartition-action-form" required>
+                        {% for choice in partition_format_choices %}
+                            <option value="{{ choice }}" {% if choice == current_partition_format %}selected{% endif %}>{{ choice }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit" form="repartition-action-form" class="default"
+                            onclick="return confirm('Update partition_format on this schema?');">
+                        Save partition format
+                    </button>
+                </div>
+            {% elif effective_partition_mode == "numerical" %}
+                <p class="help">
+                    Updates <code>sync_type_config["partition_size"]</code> — rows per integer-id bucket.
+                    Takes effect on the next run; pair with a reset resync to rebuild buckets.
+                    Typical values: 1,000,000 to 10,000,000.
+                </p>
+                <div class="partitioning-controls">
+                    <label for="partition_size_input">New partition size:</label>
+                    <input id="partition_size_input" name="partition_size" form="repartition-action-form"
+                           type="number" min="1" step="1" required
+                           value="{{ current_partition_size|default_if_none:'' }}"
+                           placeholder="rows per bucket">
+                    <button type="submit" form="repartition-action-form" class="default"
+                            onclick="return confirm('Update partition_size on this schema?');">
+                        Save partition size
+                    </button>
+                </div>
+            {% elif effective_partition_mode == "md5" %}
+                <p class="help">
+                    Updates <code>sync_type_config["partition_count"]</code> — number of hash buckets.
+                    Takes effect on the next run; pair with a reset resync to redistribute rows.
+                    Typical values: 50 to 1,000.
+                </p>
+                <div class="partitioning-controls">
+                    <label for="partition_count_input">New partition count:</label>
+                    <input id="partition_count_input" name="partition_count" form="repartition-action-form"
+                           type="number" min="1" step="1" required
+                           value="{{ current_partition_count|default_if_none:'' }}"
+                           placeholder="number of buckets">
+                    <button type="submit" form="repartition-action-form" class="default"
+                            onclick="return confirm('Update partition_count on this schema?');">
+                        Save partition count
+                    </button>
+                </div>
+            {% else %}
+                <p class="help">
+                    Unsupported <code>partition_mode</code>: <code>{{ current_partition_mode }}</code>.
+                    Repartition controls are not available for this mode.
+                </p>
+            {% endif %}
         </div>
 
-        <div class="form-row" style="padding: 10px; border-top: 1px solid #eee;">
-            <h3 style="margin-top: 0;">Trigger sync</h3>
-            <p style="color: #666; margin-bottom: 8px;">
+        <div class="form-row partitioning-section">
+            <h3>Trigger sync</h3>
+            <p class="help">
                 Starts a one-off <code>external-data-job</code> workflow, bypassing the schedule.
                 Tick <strong>Reset pipeline</strong> to wipe Delta files and rebuild from scratch
-                (required after a partition format change). Leave <strong>Billable</strong> unchecked
+                (required after a partition change). Leave <strong>Billable</strong> unchecked
                 to avoid charging the customer.
             </p>
-            <form method="post" action="{{ trigger_sync_url }}" style="display: inline;">
-                {% csrf_token %}
-                <label style="margin-right: 12px;">
-                    <input type="checkbox" name="reset_pipeline"> Reset pipeline (re-sync from scratch)
+            <div class="partitioning-controls">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="reset_pipeline" form="trigger-sync-action-form">
+                    Reset pipeline (re-sync from scratch)
                 </label>
-                <label style="margin-right: 12px;">
-                    <input type="checkbox" name="billable"> Billable
+                <label class="checkbox-label">
+                    <input type="checkbox" name="billable" form="trigger-sync-action-form">
+                    Billable
                 </label>
-                <button type="submit" class="default"
+                <button type="submit" form="trigger-sync-action-form" class="default"
                         onclick="return confirm('Trigger a sync for this schema?');">
                     Trigger sync
                 </button>
-            </form>
+            </div>
         </div>
     </fieldset>
 
