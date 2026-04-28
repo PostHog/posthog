@@ -1856,9 +1856,11 @@ class TestExternalDataSource(APIBaseTest):
         assert analytics_schema.table is not None
 
         self.assertEqual(public_schema.table.name, "public.accounts")
+        assert public_schema.table.options is not None
         self.assertEqual(public_schema.table.options["direct_postgres_schema"], "public")
         self.assertEqual(public_schema.table.options["direct_postgres_table"], "accounts")
         self.assertEqual(analytics_schema.table.name, "analytics.accounts")
+        assert analytics_schema.table.options is not None
         self.assertEqual(analytics_schema.table.options["direct_postgres_schema"], "analytics")
         self.assertEqual(analytics_schema.table.options["direct_postgres_table"], "accounts")
         self.assertEqual(public_schema.sync_type_config["schema_metadata"]["source_schema"], "public")
@@ -3413,6 +3415,7 @@ class TestExternalDataSource(APIBaseTest):
         assert existing_schema.table_id == table.id
         assert table.deleted is False
         assert table.name == "events"
+        assert table.options is not None
         assert table.options["direct_postgres_schema"] == "posthog"
         assert table.options["direct_postgres_table"] == "events"
         assert [schema["name"] for schema in response.json()["schemas"]] == ["events"]

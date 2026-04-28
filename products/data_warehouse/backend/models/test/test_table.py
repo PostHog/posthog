@@ -715,6 +715,7 @@ class TestTable(BaseTest):
                 credential=credential,
             )
         # Simulate detection having found RFC 4180 quoting
+        assert table.options is not None
         table.options["csv_allow_double_quotes"] = True
         table.save_base(raw=True)
 
@@ -734,6 +735,7 @@ class TestTable(BaseTest):
                 credential=credential,
             )
         # Simulate detection having returned None (both failed)
+        assert table.options is not None
         table.options.pop("csv_allow_double_quotes", None)
         table.save_base(raw=True)
 

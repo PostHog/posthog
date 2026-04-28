@@ -154,7 +154,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     @property
     def csv_allow_double_quotes(self) -> bool | None:
-        return self.options.get("csv_allow_double_quotes")
+        return (self.options or {}).get("csv_allow_double_quotes")
 
     def soft_delete(self):
         from products.data_warehouse.backend.models.join import DataWarehouseJoin
@@ -476,19 +476,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             fields[column] = self._get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
 
         if self.external_data_source and self.external_data_source.is_direct_postgres:
+            options = self.options or {}
             postgres_catalog = (
-                self.options.get(DIRECT_POSTGRES_CATALOG_OPTION)
-                if isinstance(self.options.get(DIRECT_POSTGRES_CATALOG_OPTION), str)
+                options.get(DIRECT_POSTGRES_CATALOG_OPTION)
+                if isinstance(options.get(DIRECT_POSTGRES_CATALOG_OPTION), str)
                 else None
             )
             postgres_schema = (
-                self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION)
-                if isinstance(self.options.get(DIRECT_POSTGRES_SCHEMA_OPTION), str)
+                options.get(DIRECT_POSTGRES_SCHEMA_OPTION)
+                if isinstance(options.get(DIRECT_POSTGRES_SCHEMA_OPTION), str)
                 else (self.external_data_source.job_inputs or {}).get("schema", "public")
             )
             postgres_table_name = (
-                self.options.get(DIRECT_POSTGRES_TABLE_OPTION)
-                if isinstance(self.options.get(DIRECT_POSTGRES_TABLE_OPTION), str)
+                options.get(DIRECT_POSTGRES_TABLE_OPTION)
+                if isinstance(options.get(DIRECT_POSTGRES_TABLE_OPTION), str)
                 else self.name
             )
             return DirectPostgresTable(
