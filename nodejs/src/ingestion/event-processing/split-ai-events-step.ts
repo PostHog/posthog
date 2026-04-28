@@ -16,14 +16,17 @@ const LARGE_AI_PROPERTIES = new Set([
 
 export interface SplitAiEventsStepConfig {
     enabled: boolean
-    /** '*' for all teams, or a Set of enabled team IDs */
-    enabledTeams: Set<number> | '*'
+    /**
+     * '*' for all teams, or a small array of enabled team IDs.
+     * Hot-path lookup uses Array.includes; expected size is ~3–10, which beats Set in V8.
+     */
+    enabledTeams: number[] | '*'
     /**
      * Teams whose events copy should have heavy AI properties stripped — i.e. the post-migration final state
-     * where heavy columns live only in the AI events table. '*' for all teams, or a Set of team IDs.
+     * where heavy columns live only in the AI events table. '*' for all teams, or a small array of team IDs.
      * Teams not listed here keep double-writing the full event to both outputs.
      */
-    stripHeavyTeams: Set<number> | '*'
+    stripHeavyTeams: number[] | '*'
 }
 
 export interface SplitAiEventsStepInput {
@@ -76,16 +79,14 @@ function maybeStripAiProperties(
     ]
 }
 
-function parseTeamsList(teamsStr: string): Set<number> | '*' {
+function parseTeamsList(teamsStr: string): number[] | '*' {
     if (teamsStr === '*') {
         return '*'
     }
-    return new Set(
-        teamsStr
-            .split(',')
-            .map((s) => parseInt(s.trim(), 10))
-            .filter((n) => !isNaN(n))
-    )
+    return teamsStr
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !isNaN(n))
 }
 
 export function parseSplitAiEventsConfig(
@@ -104,11 +105,11 @@ export function createSplitAiEventsStep<T extends SplitAiEventsStepInput>(
     config: SplitAiEventsStepConfig
 ): ProcessingStep<T, T & SplitAiEventsStepOutput> {
     return function splitAiEventsStep(input) {
-        if (!config.enabled || (config.enabledTeams !== '*' && !config.enabledTeams.has(input.teamId))) {
+        if (!config.enabled || (config.enabledTeams !== '*' && !config.enabledTeams.includes(input.teamId))) {
             return Promise.resolve(ok(input))
         }
 
-        const stripHeavyForTeam = config.stripHeavyTeams === '*' || config.stripHeavyTeams.has(input.teamId)
+        const stripHeavyForTeam = config.stripHeavyTeams === '*' || config.stripHeavyTeams.includes(input.teamId)
 
         return Promise.resolve(
             ok({
