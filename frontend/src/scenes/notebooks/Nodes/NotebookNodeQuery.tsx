@@ -53,6 +53,9 @@ export const DEFAULT_QUERY: QuerySchema = {
     },
 }
 
+const NOTEBOOK_SQL_EDITOR_DEFAULT_HEIGHT = 500
+const NOTEBOOK_SQL_EDITOR_MIN_HEIGHT = 200
+
 const getNotebookSqlEditorTabId = (nodeId: string | null | undefined): string => `notebook-sql-${nodeId ?? 'new'}`
 
 const getSqlEditorSourceQuery = (query: QuerySchema): DataVisualizationNode | null => {
@@ -157,9 +160,13 @@ function NotebookSQLEditorSettings({
         return <></>
     }
 
+    const editorHeight = attributes.height ?? NOTEBOOK_SQL_EDITOR_DEFAULT_HEIGHT
+
     return (
         <div
-            className="h-96 min-h-72 overflow-hidden"
+            className="h-full min-h-0 overflow-hidden"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ height: editorHeight, minHeight: NOTEBOOK_SQL_EDITOR_MIN_HEIGHT }}
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={(event) => event.stopPropagation()}
         >
@@ -427,8 +434,8 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
     nodeType: NotebookNodeType.Query,
     titlePlaceholder: 'Query',
     Component,
-    heightEstimate: 500,
-    minHeight: 200,
+    heightEstimate: NOTEBOOK_SQL_EDITOR_DEFAULT_HEIGHT,
+    minHeight: NOTEBOOK_SQL_EDITOR_MIN_HEIGHT,
     resizeable: true,
     startExpanded: true,
     attributes: {
