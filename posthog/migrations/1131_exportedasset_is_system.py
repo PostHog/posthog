@@ -10,6 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="exportedasset",
             name="is_system",
-            field=models.BooleanField(null=True),
+            field=models.BooleanField(null=True, default=False),
         ),
     ]
