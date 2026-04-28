@@ -36,7 +36,8 @@ describe('query-error-tracking-issues-list', () => {
 
         const result = (await tool.handler(context, {})) as any
 
-        expect(runQuery.mock.calls[0]![0].query).toMatchObject({
+        const query = runQuery.mock.calls[0]![0].query
+        expect(query).toMatchObject({
             kind: 'ErrorTrackingQuery',
             dateRange: { date_from: '-7d' },
             status: 'active',
@@ -50,6 +51,7 @@ describe('query-error-tracking-issues-list', () => {
             withFirstEvent: false,
             withLastEvent: false,
         })
+        expect(query).not.toHaveProperty('filterGroup')
         expect(result).toEqual({
             results: [
                 {
@@ -89,18 +91,25 @@ describe('query-error-tracking-issues-list', () => {
 
         expect(query.personId).toBe('person-uuid')
         expect(query.searchQuery).toBe('alice@example.com "src/components/Checkout Button.tsx"')
-        expect(query.filterGroup).toEqual(
-            expect.arrayContaining([
-                { type: 'event', key: '$browser', operator: 'exact', value: ['Chrome'] },
-                { type: 'event', key: '$lib', operator: 'exact', value: ['posthog-js', 'posthog-node'] },
+        expect(query.filterGroup).toEqual({
+            type: 'AND',
+            values: [
                 {
-                    type: 'hogql',
-                    key: "arrayExists(r -> (r.1 = '2026.04.24\\'\\\\release' OR JSONExtractString(r.2, 'version') = '2026.04.24\\'\\\\release' OR JSONExtractString(JSONExtractRaw(r.2, 'metadata'), 'git', 'commit_id') = '2026.04.24\\'\\\\release'), JSONExtractKeysAndValuesRaw(ifNull(nullIf(JSONExtractRaw(properties, '$exception_releases'), ''), '{}')))",
+                    type: 'AND',
+                    values: expect.arrayContaining([
+                        { type: 'event', key: '$browser', operator: 'exact', value: ['Chrome'] },
+                        { type: 'event', key: '$lib', operator: 'exact', value: ['posthog-js', 'posthog-node'] },
+                        {
+                            type: 'hogql',
+                            key: "arrayExists(r -> (r.1 = '2026.04.24\\'\\\\release' OR JSONExtractString(r.2, 'version') = '2026.04.24\\'\\\\release' OR JSONExtractString(JSONExtractRaw(r.2, 'metadata'), 'git', 'commit_id') = '2026.04.24\\'\\\\release'), JSONExtractKeysAndValuesRaw(ifNull(nullIf(JSONExtractRaw(properties, '$exception_releases'), ''), '{}')))",
+                        },
+                        { type: 'event', key: '$exception_fingerprint', operator: 'exact', value: [fingerprint] },
+                        { type: 'event', key: '$current_url', operator: 'icontains', value: '/checkout' },
+                    ]),
                 },
-                { type: 'event', key: '$exception_fingerprint', operator: 'exact', value: [fingerprint] },
-                { type: 'event', key: '$current_url', operator: 'icontains', value: '/checkout' },
-            ])
-        )
+            ],
+        })
+        expect(query.filterGroup.values[0].values).toHaveLength(5)
     })
 
     it('trims limit-plus-one backend pages to the requested limit', async () => {

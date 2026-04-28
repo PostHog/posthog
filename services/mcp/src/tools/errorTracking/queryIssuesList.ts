@@ -66,6 +66,10 @@ const schema = z.object({
 })
 
 type Params = z.infer<typeof schema>
+type BackendFilterGroup = {
+    type: 'AND'
+    values: [{ type: 'AND'; values: PropertyFilter[] }]
+}
 
 const ISSUE_FIELDS = [
     'id',
@@ -121,6 +125,14 @@ function buildFilterGroup(params: Params): PropertyFilter[] {
     return filters
 }
 
+function toBackendFilterGroup(filters: PropertyFilter[]): BackendFilterGroup | undefined {
+    if (filters.length === 0) {
+        return undefined
+    }
+
+    return { type: 'AND', values: [{ type: 'AND', values: filters }] }
+}
+
 function searchTerm(value: string): string {
     const trimmed = value.trim().replace(/["']/g, ' ')
     return /\s/.test(trimmed) ? `"${trimmed}"` : trimmed
@@ -156,7 +168,7 @@ export const queryIssuesListHandler: ToolBase<typeof schema>['handler'] = async 
         assignee: params.assignee,
         filterTestAccounts: params.filterTestAccounts,
         searchQuery: buildSearchQuery(params),
-        filterGroup: filterGroup.length > 0 ? filterGroup : undefined,
+        filterGroup: toBackendFilterGroup(filterGroup),
         orderBy: params.orderBy,
         orderDirection: params.orderDirection,
         limit,
