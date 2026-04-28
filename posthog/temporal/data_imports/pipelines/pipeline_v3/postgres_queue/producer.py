@@ -16,12 +16,11 @@ import structlog
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
+from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BATCH_TABLE
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 
 logger = structlog.get_logger(__name__)
-
-SyncTypeLiteral = str
 
 
 class PostgresProducer:

@@ -36,9 +36,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     normalize_table_column_names,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
-
-# TODO: remove once Postgres producer is fully validated
-# from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka import KafkaBatchProducer, SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -77,7 +74,6 @@ class PipelineV3(Generic[ResumableData]):
     _batcher: Batcher
     _load_id: int
     _s3_batch_writer: S3BatchWriter
-    # _kafka_producer: KafkaBatchProducer  # TODO: remove once Postgres producer is fully validated
     _pg_producer: PostgresProducer
     _accumulated_pa_schema: pa.Schema | None
     _batch_results: list[BatchWriteResult]
@@ -134,26 +130,6 @@ class PipelineV3(Generic[ResumableData]):
         is_first_ever_sync = self._schema.table is None
 
         is_resume = resumable_source_manager is not None and resumable_source_manager.can_resume()
-
-        # TODO: remove Kafka producer once Postgres producer is fully validated
-        # self._kafka_producer = KafkaBatchProducer(
-        #     team_id=self._job.team_id,
-        #     job_id=str(self._job.id),
-        #     schema_id=str(self._schema.id),
-        #     source_id=str(self._schema.source_id),
-        #     resource_name=self._resource_name,
-        #     sync_type=sync_type,
-        #     run_uuid=self._s3_batch_writer.get_run_uuid(),
-        #     logger=self._logger,
-        #     primary_keys=self._resource.primary_keys,
-        #     is_resume=is_resume,
-        #     partition_count=partition_count,
-        #     partition_size=partition_size,
-        #     partition_keys=partition_keys,
-        #     partition_format=partition_format,
-        #     partition_mode=partition_mode,
-        #     is_first_ever_sync=is_first_ever_sync,
-        # )
 
         self._pg_producer = PostgresProducer(
             database_url=WAREHOUSE_SOURCES_DATABASE_URL,
@@ -232,7 +208,6 @@ class PipelineV3(Generic[ResumableData]):
 
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
             if is_fresh_sync:
-                # self._kafka_producer.is_first_ever_sync = True  # TODO: remove once Postgres producer is fully validated
                 self._pg_producer.is_first_ever_sync = True
 
             async for item in async_iterate(self._resource.items()):
@@ -312,7 +287,6 @@ class PipelineV3(Generic[ResumableData]):
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
             del self._s3_batch_writer
-            # del self._kafka_producer  # TODO: remove once Postgres producer is fully validated
             self._pg_producer.close()
             del self._pg_producer
 
@@ -334,10 +308,6 @@ class PipelineV3(Generic[ResumableData]):
 
         batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
         self._batch_results.append(batch_result)
-
-        # TODO: remove Kafka producer once Postgres producer is fully validated
-        # self._kafka_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
-        # self._kafka_producer.flush()
 
         self._pg_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
 
@@ -386,18 +356,6 @@ class PipelineV3(Generic[ResumableData]):
         schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
 
         final_batch = self._batch_results[-1]
-
-        # TODO: remove Kafka producer once Postgres producer is fully validated
-        # self._kafka_producer.send_batch_notification(
-        #     final_batch,
-        #     is_final_batch=True,
-        #     total_batches=total_batches,
-        #     total_rows=row_count,
-        #     data_folder=self._s3_batch_writer.get_data_folder(),
-        #     schema_path=schema_path,
-        #     cumulative_row_count=row_count,
-        # )
-        # self._kafka_producer.flush()
 
         self._pg_producer.send_batch_notification(
             final_batch,
