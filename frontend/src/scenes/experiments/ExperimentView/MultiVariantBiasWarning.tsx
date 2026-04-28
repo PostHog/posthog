@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
@@ -48,7 +48,13 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
                     <div className="mt-1">
                         We recommend using an <strong>even split</strong> and controlling exposure with the overall
                         rollout (uneven splits have further disadvantages). Alternatively use{' '}
-                        <strong>First seen</strong> handling.
+                        <Link
+                            to="https://posthog.com/docs/experiments/exposures#handling-multiple-exposures"
+                            target="_blank"
+                        >
+                            <strong>First seen</strong>
+                        </Link>{' '}
+                        handling.
                     </div>
                 </div>
                 <div className="flex gap-2 items-center flex-shrink-0">

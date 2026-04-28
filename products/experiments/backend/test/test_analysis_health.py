@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.schema import BiasRisk, MultipleVariantHandling
 
-from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD_PERCENT, evaluate_bias_risk
+from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
 
 UNEVEN_2WAY = [{"rollout_percentage": 80}, {"rollout_percentage": 20}]
 EVEN_2WAY = [{"rollout_percentage": 50}, {"rollout_percentage": 50}]
@@ -101,4 +101,4 @@ class TestEvaluateBiasRisk(TestCase):
             UNEVEN_2WAY, MultipleVariantHandling.EXCLUDE, {"control": 798, "test": 200, "$multiple": 2}
         )
         assert result is not None
-        self.assertGreater(result.multiple_variant_percentage, MULTIPLE_VARIANT_BIAS_THRESHOLD_PERCENT)
+        self.assertGreater(result.multiple_variant_percentage, MULTIPLE_VARIANT_BIAS_THRESHOLD)

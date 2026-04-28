@@ -14,7 +14,7 @@ MULTIPLE_VARIANT_KEY = "$multiple"
 
 # `$multiple` share above this triggers the warning. Below this, the asymmetric-
 # exclusion effect on arm means is too small to matter in practice.
-MULTIPLE_VARIANT_BIAS_THRESHOLD_PERCENT = 0.1
+MULTIPLE_VARIANT_BIAS_THRESHOLD = 0.1  # on the 0-100 scale (0.1 = 0.1%)
 
 
 def evaluate_bias_risk(
@@ -44,7 +44,7 @@ def evaluate_bias_risk(
 
     multiple_observed = total_exposures.get(MULTIPLE_VARIANT_KEY, 0)
     multiple_variant_percentage = (multiple_observed / total_observed) * 100
-    if multiple_variant_percentage <= MULTIPLE_VARIANT_BIAS_THRESHOLD_PERCENT:
+    if multiple_variant_percentage <= MULTIPLE_VARIANT_BIAS_THRESHOLD:
         return None
 
     return BiasRisk(multiple_variant_percentage=multiple_variant_percentage)
