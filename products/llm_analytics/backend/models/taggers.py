@@ -1,12 +1,12 @@
 from typing import Any
 
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 import structlog
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from posthog.models.utils import UUIDTModel
 
@@ -35,7 +35,7 @@ class TagDefinition(BaseModel):
 class LLMTaggerConfig(BaseModel):
     """Configuration for LLM-based taggers."""
 
-    prompt: str = Field(..., min_length=1, description="Prompt instructing the LLM how to tag")
+    prompt: str = Field(..., min_length=1, description="Prompt instructing the LLM how to tag generations")
     tags: list[TagDefinition] = Field(..., min_length=1, description="Available tags")
     min_tags: int = Field(default=0, ge=0, description="Minimum tags to apply")
     max_tags: int | None = Field(default=None, ge=1, description="Maximum tags to apply (null = no limit)")
@@ -54,6 +54,15 @@ class LLMTaggerConfig(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError("Tag names must be unique")
         return v
+
+    @model_validator(mode="after")
+    def validate_tag_count_bounds(self) -> "LLMTaggerConfig":
+        if self.max_tags is not None:
+            if self.min_tags > self.max_tags:
+                raise ValueError("min_tags cannot be greater than max_tags")
+            if self.max_tags > len(self.tags):
+                raise ValueError("max_tags cannot exceed the number of defined tags")
+        return self
 
 
 class HogTaggerConfig(BaseModel):
@@ -77,10 +86,6 @@ class HogTaggerConfig(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError("Tag names must be unique")
         return v
-
-
-# Keep TaggerConfig as alias for backwards compatibility with existing LLM taggers
-TaggerConfig = LLMTaggerConfig
 
 
 TAGGER_CONFIG_MODELS: dict[str, type[BaseModel]] = {
@@ -177,4 +182,6 @@ class Tagger(UUIDTModel):
 def tagger_saved(sender, instance, created, **kwargs):
     from posthog.plugins.plugin_server_api import reload_taggers_on_workers
 
-    reload_taggers_on_workers(team_id=instance.team_id, tagger_ids=[str(instance.id)])
+    # Defer the workers notification until the surrounding transaction commits.
+    # Otherwise a rolled-back create would tell workers to reload a tagger that never existed.
+    transaction.on_commit(lambda: reload_taggers_on_workers(team_id=instance.team_id, tagger_ids=[str(instance.id)]))

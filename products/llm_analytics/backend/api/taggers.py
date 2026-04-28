@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.monitoring import monitor
+from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -34,6 +34,18 @@ class TagDefinitionSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=100, help_text="Tag identifier")
     description = serializers.CharField(
         max_length=500, required=False, default="", allow_blank=True, help_text="Description to help the LLM classify"
+    )
+
+
+class TaggerConditionSerializer(serializers.Serializer):
+    id = serializers.CharField(max_length=100, help_text="Stable identifier for this condition")
+    rollout_percentage = serializers.IntegerField(
+        default=100, min_value=0, max_value=100, help_text="Percentage of matching events to apply this condition to"
+    )
+    properties = serializers.ListField(
+        child=serializers.DictField(),
+        default=list,
+        help_text="Property filters that scope when this condition fires",
     )
 
 
@@ -91,6 +103,9 @@ class TaggerSerializer(serializers.ModelSerializer):
     model_configuration = TaggerModelConfigurationSerializer(required=False, allow_null=True)
     tagger_config = serializers.JSONField(help_text="Tagger configuration (varies by tagger_type)")
     tagger_type = serializers.ChoiceField(choices=TaggerType.choices, default=TaggerType.LLM)
+    conditions = TaggerConditionSerializer(
+        many=True, required=False, default=list, help_text="Conditions that scope when the tagger runs"
+    )
 
     class Meta:
         model = Tagger
@@ -300,27 +315,27 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
             )
 
     @llma_track_latency("llma_taggers_list")
-    @monitor(feature=None, endpoint="llma_taggers_list", method="GET")
+    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> Response:
         return super().list(request, *args, **kwargs)
 
     @llma_track_latency("llma_taggers_retrieve")
-    @monitor(feature=None, endpoint="llma_taggers_retrieve", method="GET")
+    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_retrieve", method="GET")
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         return super().retrieve(request, *args, **kwargs)
 
     @llma_track_latency("llma_taggers_create")
-    @monitor(feature=None, endpoint="llma_taggers_create", method="POST")
+    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_create", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
         return super().create(request, *args, **kwargs)
 
     @llma_track_latency("llma_taggers_update")
-    @monitor(feature=None, endpoint="llma_taggers_update", method="PUT")
+    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_update", method="PUT")
     def update(self, request: Request, *args, **kwargs) -> Response:
         return super().update(request, *args, **kwargs)
 
     @llma_track_latency("llma_taggers_partial_update")
-    @monitor(feature=None, endpoint="llma_taggers_partial_update", method="PATCH")
+    @monitor(feature=Feature.LLM_ANALYTICS, endpoint="llma_taggers_partial_update", method="PATCH")
     def partial_update(self, request: Request, *args, **kwargs) -> Response:
         return super().partial_update(request, *args, **kwargs)
 
@@ -336,7 +351,16 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
         from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
         from posthog.temporal.llm_analytics.run_evaluation import extract_event_io
-        from posthog.temporal.llm_analytics.run_tagger import run_hog_tagger
+
+        # The Hog tagger workflow ships in the next PR of the stack. Surface a clean 503
+        # if /test_hog is hit before that PR is deployed, instead of a 500 from ImportError.
+        try:
+            from posthog.temporal.llm_analytics.run_tagger import run_hog_tagger
+        except ImportError:
+            return Response(
+                {"error": "Hog tagger runtime is not yet deployed in this environment."},
+                status=503,
+            )
 
         test_serializer = TestHogTaggerRequestSerializer(data=request.data)
         if not test_serializer.is_valid():
@@ -349,9 +373,9 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
 
         try:
             bytecode = compile_hog(source, "destination")
-        except (ValueError, SyntaxError):
+        except (ValueError, SyntaxError) as e:
             logger.exception("Compilation error in Hog source")
-            return Response({"error": "Compilation error"}, status=400)
+            return Response({"error": str(e)}, status=400)
         except Exception:
             logger.exception("Unexpected error compiling Hog source")
             return Response({"error": "Compilation failed due to an unexpected error"}, status=400)

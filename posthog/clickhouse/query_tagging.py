@@ -89,6 +89,7 @@ class Feature(StrEnum):
     QUOTA_LIMITING = "quota_limiting"
     MIGRATION = "migration"
     MANAGEMENT_COMMAND = "management_command"
+    LLM_ANALYTICS = "llm_analytics"
 
 
 class TemporalTags(BaseModel):

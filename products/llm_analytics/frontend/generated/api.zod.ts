@@ -1583,6 +1583,12 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
 export const taggersCreateBodyNameMax = 400
 
 export const taggersCreateBodyTaggerTypeDefault = `llm`
+export const taggersCreateBodyConditionsItemIdMax = 100
+
+export const taggersCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const taggersCreateBodyConditionsItemRolloutPercentageMin = 0
+export const taggersCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const taggersCreateBodyModelConfigurationOneModelMax = 100
 
 export const TaggersCreateBody = /* @__PURE__ */ zod.object({
@@ -1594,7 +1600,27 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         .describe('* `llm` - LLM\n* `hog` - Hog')
         .default(taggersCreateBodyTaggerTypeDefault),
     tagger_config: zod.unknown().describe('Tagger configuration (varies by tagger_type)'),
-    conditions: zod.unknown().optional(),
+    conditions: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(taggersCreateBodyConditionsItemIdMax)
+                    .describe('Stable identifier for this condition'),
+                rollout_percentage: zod
+                    .number()
+                    .min(taggersCreateBodyConditionsItemRolloutPercentageMin)
+                    .max(taggersCreateBodyConditionsItemRolloutPercentageMax)
+                    .default(taggersCreateBodyConditionsItemRolloutPercentageDefault)
+                    .describe('Percentage of matching events to apply this condition to'),
+                properties: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe('Property filters that scope when this condition fires'),
+            })
+        )
+        .optional()
+        .describe('Conditions that scope when the tagger runs'),
     model_configuration: zod
         .object({
             provider: zod
@@ -1617,6 +1643,12 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
 export const taggersTestHogCreateBodyNameMax = 400
 
 export const taggersTestHogCreateBodyTaggerTypeDefault = `llm`
+export const taggersTestHogCreateBodyConditionsItemIdMax = 100
+
+export const taggersTestHogCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const taggersTestHogCreateBodyConditionsItemRolloutPercentageMin = 0
+export const taggersTestHogCreateBodyConditionsItemRolloutPercentageMax = 100
+
 export const taggersTestHogCreateBodyModelConfigurationOneModelMax = 100
 
 export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
@@ -1628,7 +1660,27 @@ export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
         .describe('* `llm` - LLM\n* `hog` - Hog')
         .default(taggersTestHogCreateBodyTaggerTypeDefault),
     tagger_config: zod.unknown().describe('Tagger configuration (varies by tagger_type)'),
-    conditions: zod.unknown().optional(),
+    conditions: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(taggersTestHogCreateBodyConditionsItemIdMax)
+                    .describe('Stable identifier for this condition'),
+                rollout_percentage: zod
+                    .number()
+                    .min(taggersTestHogCreateBodyConditionsItemRolloutPercentageMin)
+                    .max(taggersTestHogCreateBodyConditionsItemRolloutPercentageMax)
+                    .default(taggersTestHogCreateBodyConditionsItemRolloutPercentageDefault)
+                    .describe('Percentage of matching events to apply this condition to'),
+                properties: zod
+                    .array(zod.record(zod.string(), zod.unknown()))
+                    .optional()
+                    .describe('Property filters that scope when this condition fires'),
+            })
+        )
+        .optional()
+        .describe('Conditions that scope when the tagger runs'),
     model_configuration: zod
         .object({
             provider: zod

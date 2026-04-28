@@ -3,12 +3,12 @@ from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 
-from products.llm_analytics.backend.models.taggers import TagDefinition, Tagger, TaggerConfig
+from products.llm_analytics.backend.models.taggers import LLMTaggerConfig, TagDefinition, Tagger
 
 
-class TestTaggerConfig(BaseTest):
+class TestLLMTaggerConfig(BaseTest):
     def test_valid_config(self):
-        config = TaggerConfig(
+        config = LLMTaggerConfig(
             prompt="Which features were discussed?",
             tags=[
                 TagDefinition(name="billing", description="Billing related"),
@@ -24,28 +24,28 @@ class TestTaggerConfig(BaseTest):
 
     def test_empty_prompt_rejected(self):
         with self.assertRaises(Exception):
-            TaggerConfig(
+            LLMTaggerConfig(
                 prompt="",
                 tags=[TagDefinition(name="billing")],
             )
 
     def test_whitespace_prompt_rejected(self):
         with self.assertRaises(Exception):
-            TaggerConfig(
+            LLMTaggerConfig(
                 prompt="   ",
                 tags=[TagDefinition(name="billing")],
             )
 
     def test_empty_tags_list_rejected(self):
         with self.assertRaises(Exception):
-            TaggerConfig(
+            LLMTaggerConfig(
                 prompt="Test prompt",
                 tags=[],
             )
 
     def test_duplicate_tag_names_rejected(self):
         with self.assertRaises(Exception):
-            TaggerConfig(
+            LLMTaggerConfig(
                 prompt="Test prompt",
                 tags=[
                     TagDefinition(name="billing"),
@@ -66,14 +66,14 @@ class TestTaggerConfig(BaseTest):
         assert tag.description == ""
 
     def test_min_tags_default_zero(self):
-        config = TaggerConfig(
+        config = LLMTaggerConfig(
             prompt="Test",
             tags=[TagDefinition(name="a")],
         )
         assert config.min_tags == 0
 
     def test_max_tags_default_none(self):
-        config = TaggerConfig(
+        config = LLMTaggerConfig(
             prompt="Test",
             tags=[TagDefinition(name="a")],
         )
@@ -263,31 +263,34 @@ class TestTaggerModel(BaseTest):
 
     @patch("posthog.plugins.plugin_server_api.reload_taggers_on_workers")
     def test_sends_reload_signal_on_save(self, mock_reload):
-        tagger = Tagger.objects.create(
-            team=self.team,
-            name="Test Tagger",
-            tagger_config=self._make_tagger_config(),
-            enabled=True,
-            created_by=self.user,
-            conditions=[],
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            tagger = Tagger.objects.create(
+                team=self.team,
+                name="Test Tagger",
+                tagger_config=self._make_tagger_config(),
+                enabled=True,
+                created_by=self.user,
+                conditions=[],
+            )
 
         mock_reload.assert_called_once_with(team_id=self.team.id, tagger_ids=[str(tagger.id)])
 
     @patch("posthog.plugins.plugin_server_api.reload_taggers_on_workers")
     def test_sends_reload_signal_on_update(self, mock_reload):
-        tagger = Tagger.objects.create(
-            team=self.team,
-            name="Original Name",
-            tagger_config=self._make_tagger_config(),
-            enabled=True,
-            created_by=self.user,
-            conditions=[],
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            tagger = Tagger.objects.create(
+                team=self.team,
+                name="Original Name",
+                tagger_config=self._make_tagger_config(),
+                enabled=True,
+                created_by=self.user,
+                conditions=[],
+            )
 
         mock_reload.reset_mock()
 
-        tagger.name = "Updated Name"
-        tagger.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            tagger.name = "Updated Name"
+            tagger.save()
 
         mock_reload.assert_called_once_with(team_id=self.team.id, tagger_ids=[str(tagger.id)])

@@ -24658,6 +24658,24 @@ export namespace Schemas {
       Hog: 'hog',
     } as const;
 
+    export type TaggerConditionPropertiesItem = {[key: string]: unknown};
+
+    export interface TaggerCondition {
+      /**
+       * Stable identifier for this condition
+       * @maxLength 100
+       */
+      id: string;
+      /**
+       * Percentage of matching events to apply this condition to
+       * @minimum 0
+       * @maximum 100
+       */
+      rollout_percentage?: number;
+      /** Property filters that scope when this condition fires */
+      properties?: TaggerConditionPropertiesItem[];
+    }
+
     /**
      * Nested serializer for model configuration.
      */
@@ -24680,7 +24698,8 @@ export namespace Schemas {
       tagger_type?: TaggerTypeEnum;
       /** Tagger configuration (varies by tagger_type) */
       tagger_config: unknown;
-      conditions?: unknown;
+      /** Conditions that scope when the tagger runs */
+      conditions?: TaggerCondition[];
       model_configuration?: TaggerModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
@@ -30053,7 +30072,8 @@ export namespace Schemas {
       tagger_type?: TaggerTypeEnum;
       /** Tagger configuration (varies by tagger_type) */
       tagger_config?: unknown;
-      conditions?: unknown;
+      /** Conditions that scope when the tagger runs */
+      conditions?: TaggerCondition[];
       model_configuration?: TaggerModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;

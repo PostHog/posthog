@@ -1939,6 +1939,24 @@ export const TaggerTypeEnumApi = {
     Hog: 'hog',
 } as const
 
+export type TaggerConditionApiPropertiesItem = { [key: string]: unknown }
+
+export interface TaggerConditionApi {
+    /**
+     * Stable identifier for this condition
+     * @maxLength 100
+     */
+    id: string
+    /**
+     * Percentage of matching events to apply this condition to
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage?: number
+    /** Property filters that scope when this condition fires */
+    properties?: TaggerConditionApiPropertiesItem[]
+}
+
 /**
  * Nested serializer for model configuration.
  */
@@ -1961,7 +1979,8 @@ export interface TaggerApi {
     tagger_type?: TaggerTypeEnumApi
     /** Tagger configuration (varies by tagger_type) */
     tagger_config: unknown
-    conditions?: unknown
+    /** Conditions that scope when the tagger runs */
+    conditions?: TaggerConditionApi[]
     model_configuration?: TaggerModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
