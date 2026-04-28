@@ -676,9 +676,12 @@ class OauthIntegration:
             # Marketplace-initiated installs land on /integrations/stripe/confirm-install
             # without any signal indicating live vs sandbox. If the live secret rejected
             # the code as "does not belong to you", it was minted by the sandbox app -
-            # retry with the sandbox secret.
+            # retry with the sandbox secret. Both sandbox client_id and secret must be
+            # configured: oauth_config_for_kind requires both, so guard on both here to
+            # avoid raising NotImplementedError over the original OAuth error.
             if (
                 res.status_code == 400
+                and settings.STRIPE_APP_SANDBOX_CLIENT_ID
                 and settings.STRIPE_APP_SANDBOX_SECRET_KEY
                 and "does not belong to you" in (res.text or "")
             ):

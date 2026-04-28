@@ -709,6 +709,34 @@ class TestOauthIntegrationModel(BaseTest):
 
         assert mock_post.call_count == 1
 
+    @patch("posthog.models.integration.requests.post")
+    def test_stripe_token_exchange_does_not_retry_when_only_sandbox_secret_set(self, mock_post):
+        # If the sandbox secret is set but the sandbox client_id is not, the retry guard
+        # must fail closed - oauth_config_for_kind would otherwise raise NotImplementedError
+        # and mask the original Stripe error.
+        first_response = MagicMock(
+            status_code=400,
+            text='{"error":"invalid_grant","error_description":"Authorization code provided does not belong to you"}',
+        )
+        first_response.json.return_value = {"error": "invalid_grant"}
+        mock_post.return_value = first_response
+
+        with self.settings(
+            STRIPE_APP_CLIENT_ID="ca_live_clientid",
+            STRIPE_APP_SANDBOX_CLIENT_ID="",
+            STRIPE_APP_SECRET_KEY="sk_live_secret",
+            STRIPE_APP_SANDBOX_SECRET_KEY="sk_test_sandbox_secret",
+        ):
+            with pytest.raises(Exception, match="Oauth error"):
+                OauthIntegration.integration_from_oauth_response(
+                    "stripe",
+                    self.team.id,
+                    self.user,
+                    {"code": "ac_some_code"},
+                )
+
+        assert mock_post.call_count == 1
+
     @patch("posthog.models.integration.reload_integrations_on_workers")
     @patch("posthog.models.integration.requests.post")
     def test_stripe_refresh_access_token_uses_apps_endpoint_and_basic_auth(self, mock_post, mock_reload):
