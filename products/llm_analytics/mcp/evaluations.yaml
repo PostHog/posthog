@@ -51,6 +51,77 @@ tools:
         description: >
             Get a specific LLM evaluation by its UUID. Returns the full evaluation configuration including type, config,
             output type, enabled status, and model configuration.
+    evaluation-report-generate:
+        operation: llm_analytics_evaluation_reports_generate_create
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Trigger evaluation report generation
+        description: >
+            Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow
+            that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns
+            202 on success. Duplicate requests within the same minute are coalesced — only one report is generated.
+            Rate-limited by daily_run_cap.
+    evaluation-report-get:
+        operation: llm_analytics_evaluation_reports_retrieve
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get evaluation report config
+        description: >
+            Get a specific evaluation report configuration by UUID. Returns the full config including frequency,
+            delivery targets, trigger thresholds, and schedule settings.
+    evaluation-report-runs-list:
+        operation: llm_analytics_evaluation_reports_runs_list
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List evaluation report runs
+        description: >
+            List the run history for a specific evaluation report config. Each run record includes the generated report
+            content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery
+            error details.
+    evaluation-report-update:
+        operation: llm_analytics_evaluation_reports_partial_update
+        enabled: true
+        scopes:
+            - llm_analytics:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update evaluation report config
+        description: >
+            Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email
+            or Slack), change frequency ('every_n' or 'scheduled'), set trigger_threshold and cooldown_minutes (min 60,
+            max 1440) for every_n mode, or set rrule/starts_at for scheduled mode. Set deleted=true to soft-delete the
+            config.
+    evaluation-reports-list:
+        operation: llm_analytics_evaluation_reports_list
+        enabled: true
+        scopes:
+            - llm_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List evaluation report configs
+        description: >
+            List all evaluation report configurations for the current project. Optionally filter by evaluation UUID
+            using the 'evaluation' query param. Each report config controls how and when evaluation summary reports are
+            generated and delivered (email or Slack).
     evaluation-run:
         operation: evaluation_runs_create
         enabled: true
@@ -66,24 +137,6 @@ tools:
             asynchronously executes the evaluation and stores the result as a '$ai_evaluation' event. Returns a
             workflow_id and status "started". Pair with execute-sql to query results: SELECT * FROM events WHERE event =
             '$ai_evaluation'.
-    evaluation-summarize-runs:
-        operation: llm_analytics_evaluation_summary_create
-        enabled: true
-        scopes:
-            - llm_analytics:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Summarize evaluation results
-        description: >
-            Generate an AI-powered summary of LLM evaluation results for a given evaluation config. Pass an
-            evaluation_id and an optional filter ("all", "pass", "fail", or "na") to scope which runs are analyzed.
-            Returns an overall assessment, pattern groups for passing, failing, and N/A runs (each with title,
-            description, frequency, and example generation IDs), actionable recommendations, and run statistics.
-            Optionally pass generation_ids to restrict the analysis to specific runs. Results are cached for one hour —
-            use force_refresh to recompute. Rate-limited; requires AI data processing approval for the organization.
-        requires_ai_consent: true
     evaluation-test-hog:
         operation: evaluations_test_hog_create
         enabled: true

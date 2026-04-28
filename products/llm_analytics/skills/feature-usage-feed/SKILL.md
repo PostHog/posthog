@@ -59,7 +59,7 @@ If `$session_id` is missing on either event type, file a backend fix before cont
 | `posthog:evaluation-create`                        | (**often unexposed** — UI fallback: LLM analytics → Evaluations → New) Create the LLM-judge eval (disabled at first)                                                                                                                                              |
 | `posthog:evaluation-run`                           | (**often unexposed** — UI fallback: the eval's detail page has a "Run on event" button) Dry-run the eval against specific generations during prompt iteration                                                                                                     |
 | `posthog:evaluation-update`                        | (**often unexposed** — UI fallback: edit the eval in LLM analytics → Evaluations) Tweak the prompt / enable when ready                                                                                                                                            |
-| `posthog:evaluation-summarize-runs`                | (**often unexposed** — UI fallback: the eval detail page has a "Summarize results" button) After the feed is running, get an AI summary of pass/N/A patterns to validate signal quality                                                                           |
+| `posthog:llm-analytics-evaluation-summary-create`  | (**often unexposed** — UI fallback: the eval detail page has a "Summarize results" button) After the feed is running, get an AI summary of pass/N/A patterns to validate signal quality                                                                           |
 | `posthog:workflows-list` / `posthog:workflows-get` | (**often unexposed** — UI: Data pipeline → Workflows) Browse existing workflow configs — useful for cloning an existing feed's structure when setting up a new one. Read-only; no create/update tool is exposed yet, so step 6's Slack workflow setup is UI-only. |
 
 Before starting, **check which of the `posthog:evaluation-*` tools are actually exposed in your agent's MCP tool set.** If they aren't loaded, treat steps 4-5 as UI walkthroughs rather than tool calls.
@@ -401,10 +401,10 @@ Key observation from setup: the `agent_mode` tag reflects the mode at turn-time,
 
 Once the feed has been running for a day or two, sanity-check the eval output at scale.
 
-**If `posthog:evaluation-summarize-runs` is exposed:**
+**If `posthog:llm-analytics-evaluation-summary-create` is exposed:**
 
 ```json
-posthog:evaluation-summarize-runs
+posthog:llm-analytics-evaluation-summary-create
 {
   "evaluation_id": "<uuid>",
   "filter": "fail"

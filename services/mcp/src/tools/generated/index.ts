@@ -6,7 +6,6 @@ import { GENERATED_TOOLS as alerts } from './alerts'
 import { GENERATED_TOOLS as annotations } from './annotations'
 import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templates'
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
-import { GENERATED_TOOLS as clustering } from './clustering'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
 import { GENERATED_TOOLS as conversations } from './conversations'
 import { GENERATED_TOOLS as core } from './core'
@@ -15,11 +14,11 @@ import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
 import { GENERATED_TOOLS as endpoints } from './endpoints'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
-import { GENERATED_TOOLS as evaluation_reports } from './evaluation_reports'
 import { GENERATED_TOOLS as evaluations } from './evaluations'
 import { GENERATED_TOOLS as experiments } from './experiments'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
 import { GENERATED_TOOLS as integrations } from './integrations'
+import { GENERATED_TOOLS as llm_analytics } from './llm_analytics'
 import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
 import { GENERATED_TOOLS as persons } from './persons'
@@ -32,7 +31,6 @@ import { GENERATED_TOOLS as replay } from './replay'
 import { GENERATED_TOOLS as sdk_doctor } from './sdk_doctor'
 import { GENERATED_TOOLS as skills } from './skills'
 import { GENERATED_TOOLS as surveys } from './surveys'
-import { GENERATED_TOOLS as trace_analysis } from './trace_analysis'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
@@ -42,7 +40,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...annotations,
     ...cdp_function_templates,
     ...cdp_functions,
-    ...clustering,
     ...cohorts,
     ...conversations,
     ...core,
@@ -51,11 +48,11 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...early_access_features,
     ...endpoints,
     ...error_tracking,
-    ...evaluation_reports,
     ...evaluations,
     ...experiments,
     ...feature_flags,
     ...integrations,
+    ...llm_analytics,
     ...logs,
     ...notebooks,
     ...persons,
@@ -68,7 +65,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...sdk_doctor,
     ...skills,
     ...surveys,
-    ...trace_analysis,
     ...web_analytics,
     ...workflows,
 }
