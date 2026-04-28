@@ -2463,7 +2463,9 @@ async def test_known_device_cookie_async_chain_with_project_secret_api_key():
     team = await setup_team_and_flag()
 
     asgi_app = get_asgi_application()
-    async with AsyncClient(transport=ASGITransport(app=asgi_app), base_url="http://testserver") as ac:
+    # httpx ASGITransport's `app` type spec is stricter than Django's ASGIHandler signature; the
+    # protocols are compatible at runtime, just disagree on dict/MutableMapping in the typing.
+    async with AsyncClient(transport=ASGITransport(app=asgi_app), base_url="http://testserver") as ac:  # type: ignore[arg-type]
         response = await ac.get(
             f"/api/projects/{team.id}/feature_flags/rc-async-test/remote_config",
             headers={"authorization": f"Bearer {team.secret_api_token}"},
