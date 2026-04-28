@@ -1,4 +1,5 @@
 import { BindLogic, useMountedLogic, useValues } from 'kea'
+import { useRef } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { Command } from 'lib/components/Command/Command'
@@ -74,6 +75,12 @@ function AppScene(): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const keepTabsMounted = !!featureFlags[FEATURE_FLAGS.KEEP_SCENE_TABS_MOUNTED]
 
+    // Tabs are mounted lazily on first activation, then kept mounted, so inactive tabs the user never visits don't fire API calls on first render.
+    const activatedTabIds = useRef<Set<string>>(new Set())
+    if (keepTabsMounted && activeTabId) {
+        activatedTabIds.current.add(activeTabId)
+    }
+
     // Highlight any relevant element after navigation from the quick start guide
     useSetupHighlight()
 
@@ -111,15 +118,17 @@ function AppScene(): JSX.Element | null {
         const hasActiveLoadedScene = !!activeExportedScene?.component
         wrappedSceneElement = (
             <>
-                {tabs.map((tab: SceneTab) => (
-                    <MountedSceneTab
-                        key={tab.id}
-                        tab={tab}
-                        isActive={tab.id === activeTabId}
-                        exportedScene={tab.sceneId ? exportedScenes[tab.sceneId] : undefined}
-                        user={user}
-                    />
-                ))}
+                {tabs.map((tab: SceneTab) =>
+                    activatedTabIds.current.has(tab.id) ? (
+                        <MountedSceneTab
+                            key={tab.id}
+                            tab={tab}
+                            isActive={tab.id === activeTabId}
+                            exportedScene={tab.sceneId ? exportedScenes[tab.sceneId] : undefined}
+                            user={user}
+                        />
+                    ) : null
+                )}
                 {!hasActiveLoadedScene && <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />}
             </>
         )
@@ -203,7 +212,7 @@ function MountedSceneTab({ tab, isActive, exportedScene, user }: MountedSceneTab
     const sceneElement = <SceneComponent user={user} {...componentProps} />
 
     return (
-        <div hidden={!isActive} className="contents" data-tab-id={tab.id} aria-hidden={!isActive}>
+        <div className={isActive ? 'contents' : 'hidden'} data-tab-id={tab.id} aria-hidden={!isActive}>
             <ErrorBoundary exceptionProps={{ feature: tab.sceneId }}>
                 {exportedScene.logic ? (
                     <BindLogic logic={exportedScene.logic} props={logicProps}>
