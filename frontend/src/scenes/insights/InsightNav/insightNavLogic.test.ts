@@ -8,7 +8,15 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, InsightVizNode, NodeKind, TrendsQuery, Node } from '~/queries/schema/schema-general'
+import {
+    EventsQuery,
+    FunnelsQuery,
+    InsightVizNode,
+    NodeKind,
+    Node,
+    ProductKey,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,
@@ -22,6 +30,8 @@ import {
     QueryBasedInsightModel,
     StepOrderValue,
 } from '~/types'
+
+import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import { insightDataLogic } from '../insightDataLogic'
 
@@ -67,7 +77,12 @@ describe('insightNavLogic', () => {
             }).toMatchValues({
                 query: {
                     kind: NodeKind.InsightVizNode,
-                    source: { ...nodeKindToDefaultQuery[NodeKind.TrendsQuery], filterTestAccounts: true, version: 2 },
+                    source: {
+                        ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
+                        filterTestAccounts: true,
+                        version: 2,
+                        tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
+                    },
                 },
             })
         })
@@ -88,9 +103,19 @@ describe('insightNavLogic', () => {
                                 name: 'Pageview',
                             },
                         ],
+                        tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                 },
             })
+        })
+
+        it('tags queries with product_analytics productKey', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                logic.actions.setActiveView(InsightType.TRENDS)
+            })
+
+            const query = builtInsightDataLogic.values.query as InsightVizNode
+            expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
         })
 
         it('can set active view to QUERY', async () => {
@@ -257,6 +282,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
                             filterTestAccounts: true,
                             lifecycleFilter: { showValuesOnSeries: true },
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -468,6 +494,7 @@ describe('insightNavLogic', () => {
                             filterTestAccounts: true,
                             interval: 'hour',
                             lifecycleFilter: { showValuesOnSeries: true },
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -507,6 +534,7 @@ describe('insightNavLogic', () => {
                                 breakdown_group_type_index: undefined,
                                 breakdown_normalize_url: undefined,
                             },
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -547,6 +575,7 @@ describe('insightNavLogic', () => {
                                     { property: '$device_type', type: 'event' },
                                 ],
                             },
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -586,6 +615,7 @@ describe('insightNavLogic', () => {
                                 breakdown_group_type_index: 0,
                                 breakdown_normalize_url: true,
                             },
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -639,6 +669,7 @@ describe('insightNavLogic', () => {
                             funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
                             interval: 'hour',
+                            tags: PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS,
                         },
                     } as Node),
                 ])
@@ -1305,6 +1336,147 @@ describe('insightNavLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: expectedSource,
                 })
+            })
+
+            const dataTableSeedingCases: {
+                label: string
+                source: Partial<EventsQuery>
+                targetView: InsightType
+                expectedSource: Record<string, any>
+            }[] = [
+                {
+                    label: 'single event + date range + properties',
+                    source: {
+                        event: '$pageview',
+                        after: '-180d',
+                        properties: [
+                            {
+                                key: 'email',
+                                value: 'test@example.com',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                    },
+                    targetView: InsightType.TRENDS,
+                    expectedSource: {
+                        kind: NodeKind.TrendsQuery,
+                        dateRange: { date_from: '-180d' },
+                        properties: [
+                            {
+                                key: 'email',
+                                value: 'test@example.com',
+                                operator: PropertyOperator.Exact,
+                                type: PropertyFilterType.Event,
+                            },
+                        ],
+                        series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+                    },
+                },
+                {
+                    label: 'events[] seeds multi-series',
+                    source: { events: ['$pageview', '$autocapture'] },
+                    targetView: InsightType.TRENDS,
+                    expectedSource: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                            { kind: NodeKind.EventsNode, event: '$autocapture', name: '$autocapture' },
+                        ],
+                    },
+                },
+                {
+                    label: 'before-only seeds date_to',
+                    source: { before: '2026-01-01T00:00:00Z' },
+                    targetView: InsightType.TRENDS,
+                    expectedSource: { dateRange: { date_to: '2026-01-01T00:00:00Z' } },
+                },
+            ]
+
+            it.each(dataTableSeedingCases)(
+                'seeds cache from DataTable EventsQuery: $label',
+                async ({ source, targetView, expectedSource }) => {
+                    const dataTableQuery: Node = {
+                        kind: NodeKind.DataTableNode,
+                        source: { kind: NodeKind.EventsQuery, select: ['*'], ...source },
+                    } as Node
+
+                    await expectLogic(logic, () => {
+                        builtInsightDataLogic.actions.setQuery(dataTableQuery)
+                    }).toFinishAllListeners()
+
+                    await expectLogic(builtInsightDataLogic, () => {
+                        logic.actions.setActiveView(targetView)
+                    }).toFinishAllListeners()
+
+                    expect(builtInsightDataLogic.values.query).toMatchObject({
+                        kind: NodeKind.InsightVizNode,
+                        source: expectedSource,
+                    })
+                }
+            )
+
+            it('cleans seeded series through the funnels capability cleaner', async () => {
+                const dataTableQuery: Node = {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        select: ['*'],
+                        event: '$pageview',
+                    },
+                } as Node
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(dataTableQuery)
+                }).toFinishAllListeners()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }],
+                    },
+                })
+            })
+
+            it('is a no-op when DataTable EventsQuery has no filters', async () => {
+                const dataTableQuery: Node = {
+                    kind: NodeKind.DataTableNode,
+                    source: { kind: NodeKind.EventsQuery, select: ['*'] },
+                } as Node
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(dataTableQuery)
+                }).toFinishAllListeners()
+
+                // Subsequent tab switch should not blow up and should not carry any filters
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+
+                const trendsSource = (builtInsightDataLogic.values.query as InsightVizNode).source as TrendsQuery
+                expect(trendsSource.dateRange).toBeUndefined()
+                expect(trendsSource.properties).toBeUndefined()
+            })
+
+            it('does not seed cache when DataTable source is not an EventsQuery', async () => {
+                const cacheBefore = logic.values.queryPropertyCache
+                const dataTableQuery: Node = {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'SELECT * FROM events',
+                    },
+                } as Node
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(dataTableQuery)
+                }).toFinishAllListeners()
+
+                expect(logic.values.queryPropertyCache).toEqual(cacheBefore)
             })
         })
     })

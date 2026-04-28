@@ -196,9 +196,9 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
     const { placement, dashboard, dashboardMode, hasVariables, dashboardFiltersEnabled } = useValues(dashboardLogic)
 
     return (
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="@container/dashboard-filters flex min-w-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap gap-x-2 gap-y-2 justify-between items-start">
-                <div className="flex min-w-0 flex-1 flex-col gap-2 md:flex-row md:justify-between items-start lg:items-center">
+                <div className="flex min-w-0 flex-1 flex-col gap-2 @2xl/dashboard-filters:flex-row @2xl/dashboard-filters:justify-between items-start @4xl/dashboard-filters:items-center">
                     <div className="flex min-w-0 flex-1 flex-wrap gap-x-2 gap-y-2 items-center">
                         {![
                             DashboardPlacement.Public,
@@ -216,8 +216,8 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                     <div
                         className={clsx(
-                            'flex flex-col lg:flex-row items-end lg:items-center gap-4 dashoard-items-actions',
-                            'min-w-0 max-lg:basis-full max-lg:w-full max-lg:ml-0 shrink-0 lg:ml-auto',
+                            'flex flex-col @4xl/dashboard-filters:flex-row items-end @4xl/dashboard-filters:items-center gap-4 dashoard-items-actions',
+                            'min-w-0 @max-4xl/dashboard-filters:basis-full @max-4xl/dashboard-filters:w-full @max-4xl/dashboard-filters:ml-0 shrink-0 @4xl/dashboard-filters:ml-auto',
                             {
                                 'mt-7': hasVariables,
                             }

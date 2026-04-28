@@ -128,6 +128,14 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         response = self.client.post("/api/personal_api_keys/", {"label": "test", "scopes": ["insight:invalid"]})
         assert response.status_code == 400
 
+    def test_rejects_internal_scope_objects(self):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "test", "scopes": ["clickhouse_test_cluster_perf:read"]},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Invalid scope: clickhouse_test_cluster_perf:read"
+
     def test_delete_personal_api_key(self):
         key = PersonalAPIKey.objects.create(
             label="Test",
@@ -409,6 +417,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
     def test_header_resilient(self):
         key_before = PersonalAPIKey.objects.get(id=self.key.id).secure_value
+        assert key_before is not None
         self.assertTrue(key_before.startswith("sha256$"))
 
         response = self.client.get(
@@ -422,6 +431,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
     def test_header_alternative_iteration_count(self):
         key_before = PersonalAPIKey.objects.get(id=self.key_390000.id).secure_value
+        assert key_before is not None
         self.assertTrue(key_before.startswith("pbkdf2_sha256$390000$"))
 
         response = self.client.get(

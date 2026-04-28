@@ -104,15 +104,19 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             }
         },
         createSharedMetric: async () => {
-            const response = await api.create(
-                `api/projects/${values.currentProjectId}/experiment_saved_metrics/`,
-                values.sharedMetric
-            )
-            if (response.id) {
-                lemonToast.success('Shared metric created successfully')
-                actions.reportExperimentSharedMetricCreated(response as SharedMetric)
-                actions.loadSharedMetrics()
-                router.actions.push('/experiments?tab=shared-metrics')
+            try {
+                const response = await api.create(
+                    `api/projects/${values.currentProjectId}/experiment_saved_metrics/`,
+                    values.sharedMetric
+                )
+                if (response.id) {
+                    lemonToast.success('Shared metric created successfully')
+                    actions.reportExperimentSharedMetricCreated(response as SharedMetric)
+                    actions.loadSharedMetrics()
+                    router.actions.push('/experiments?tab=shared-metrics')
+                }
+            } catch (error: any) {
+                lemonToast.error(error.detail || error.data?.name?.[0] || 'Failed to create shared metric')
             }
         },
         updateSharedMetric: async ({ redirect = true }: { redirect?: boolean } = {}) => {
@@ -203,8 +207,8 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
 
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
-                if (parsedId === 'new' && !values.sharedMetric?.query) {
-                    actions.setSharedMetric({ ...values.newSharedMetric, query: getDefaultFunnelMetric() })
+                if (parsedId === 'new') {
+                    actions.setSharedMetric({ ...values.newSharedMetric })
                 }
 
                 if (parsedId !== 'new' && parsedId === values.sharedMetricId) {

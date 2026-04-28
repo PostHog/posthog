@@ -9,12 +9,16 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BulkUpdateTagsRequestApi,
+    BulkUpdateTagsResponseApi,
     EnterpriseEventDefinitionApi,
-    EventDefinitionApi,
+    EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
+    EventDefinitionsPromotedPropertiesRetrieveParams,
     PaginatedEnterpriseEventDefinitionListApi,
     PatchedEnterpriseEventDefinitionApi,
+    PromotedPropertiesResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -156,6 +160,34 @@ export const eventDefinitionsMetricsRetrieve = async (
 }
 
 /**
+ * Bulk update tags on multiple objects.
+
+Accepts:
+- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+
+Actions:
+- "add": Add tags to existing tags on each object
+- "remove": Remove specific tags from each object
+- "set": Replace all tags on each object with the provided list
+ */
+export const getEventDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/event_definitions/bulk_update_tags/`
+}
+
+export const eventDefinitionsBulkUpdateTagsCreate = async (
+    projectId: string,
+    bulkUpdateTagsRequestApi: BulkUpdateTagsRequestApi,
+    options?: RequestInit
+): Promise<BulkUpdateTagsResponseApi> => {
+    return apiMutator<BulkUpdateTagsResponseApi>(getEventDefinitionsBulkUpdateTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUpdateTagsRequestApi),
+    })
+}
+
+/**
  * Get event definition by exact name
  */
 export const getEventDefinitionsByNameRetrieveUrl = (
@@ -181,8 +213,8 @@ export const eventDefinitionsByNameRetrieve = async (
     projectId: string,
     params: EventDefinitionsByNameRetrieveParams,
     options?: RequestInit
-): Promise<EventDefinitionApi> => {
-    return apiMutator<EventDefinitionApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
+): Promise<EventDefinitionRecordApi> => {
+    return apiMutator<EventDefinitionRecordApi>(getEventDefinitionsByNameRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -197,6 +229,46 @@ export const eventDefinitionsGolangRetrieve = async (projectId: string, options?
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * Resolve team-configured promoted properties for event definitions.
+
+The response only contains entries where a non-null promoted_property is set on the
+EventDefinition. Callers should fall back to the core taxonomy defaults client-side
+for names not present in the response.
+ */
+export const getEventDefinitionsPromotedPropertiesRetrieveUrl = (
+    projectId: string,
+    params?: EventDefinitionsPromotedPropertiesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_definitions/promoted_properties/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/promoted_properties/`
+}
+
+export const eventDefinitionsPromotedPropertiesRetrieve = async (
+    projectId: string,
+    params?: EventDefinitionsPromotedPropertiesRetrieveParams,
+    options?: RequestInit
+): Promise<PromotedPropertiesResponseApi> => {
+    return apiMutator<PromotedPropertiesResponseApi>(
+        getEventDefinitionsPromotedPropertiesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getEventDefinitionsPythonRetrieveUrl = (projectId: string) => {
