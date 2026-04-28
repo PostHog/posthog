@@ -4,7 +4,7 @@ import { TAGS_TO_IGNORE } from 'lib/actionUtils'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
-import { TOOLBAR_ID, elementIsVisible, getParent } from '~/toolbar/utils'
+import { TOOLBAR_ID, elementIsVisible, getParent, isStableAttrValue } from '~/toolbar/utils'
 
 export interface SelectorGroup {
     cardinality: number
@@ -56,8 +56,8 @@ export const DEFAULT_INFERENCE_CONFIG: InferenceConfig = {
     ],
     inferenceAttributeFilters: {
         // exclude IDs that end in digits, likely auto-generated
-        id: [(value) => !/\d$/.test(value)],
-        'data-id': [(value) => !/\d$/.test(value)],
+        id: [isStableAttrValue],
+        'data-id': [isStableAttrValue],
     },
     inferenceClassNameFilters: [
         // exclude classnames that are probably css-in-js

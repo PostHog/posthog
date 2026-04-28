@@ -122,6 +122,18 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
     return result
 }
 
+/**
+ * Reject values that look auto-generated and so are unlikely to be stable
+ * across renders (e.g. row keys like `60026`, surrogate database ids).
+ *
+ * Mirrors the filter in `~/toolbar/product-tours/elementInference.ts` so the
+ * toolbar's selector generation and the runtime tour matching agree on which
+ * data attributes are safe to anchor on.
+ */
+export function isStableAttrValue(value: string): boolean {
+    return !!value && !/\d$/.test(value)
+}
+
 function computeElementQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
     for (const { name, value } of Array.from(element.attributes)) {
         if (!dataAttributes.includes(name)) {
@@ -144,17 +156,59 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
             // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
             seedMinLength: 5,
-            attr: (name) => {
+            attr: (name, value) => {
                 // preference to data attributes if they exist
                 // that aren't in the PostHog preferred list - they were returned early above
-                return name.startsWith('data-')
+                // skip values that look auto-generated, since these change between renders
+                // and produce selectors that fail validation (`Can't select any node ...`)
+                return name.startsWith('data-') && isStableAttrValue(value)
             },
         })
         return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {
         toolbarLogger.warn('element_selector', 'Error while trying to find a selector for element')
         captureToolbarException(error, 'element_selector_computation')
-        return undefined
+        return structuralFallbackSelector(element)
+    }
+}
+
+/**
+ * When `finder` cannot produce a unique selector (e.g. only unstable
+ * `data-*` values are available), return the element's tag plus an
+ * `nth-of-type` chain so the caller still gets a usable selector instead
+ * of `undefined`. The selector is not guaranteed to remain stable across
+ * page changes, but it does not throw and does not silently break the
+ * surrounding flow (preview, hover, action capture).
+ */
+function structuralFallbackSelector(element: HTMLElement): string | undefined {
+    try {
+        const parts: string[] = []
+        let current: HTMLElement | null = element
+        while (current && current !== document.body && current !== document.documentElement) {
+            const tag = current.tagName.toLowerCase()
+            if (TAGS_TO_IGNORE.includes(tag)) {
+                break
+            }
+            const node: HTMLElement = current
+            const parent: HTMLElement | null = node.parentElement
+            if (!parent) {
+                parts.unshift(tag)
+                break
+            }
+            const sameTagSiblings = Array.from(parent.children).filter(
+                (child) => (child as HTMLElement).tagName === node.tagName
+            )
+            if (sameTagSiblings.length > 1) {
+                const index = sameTagSiblings.indexOf(node) + 1
+                parts.unshift(`${tag}:nth-of-type(${index})`)
+            } else {
+                parts.unshift(tag)
+            }
+            current = parent
+        }
+        return parts.length > 0 ? parts.join(' > ') : element.tagName.toLowerCase()
+    } catch {
+        return element.tagName?.toLowerCase()
     }
 }
 

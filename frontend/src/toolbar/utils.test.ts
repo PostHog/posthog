@@ -1,4 +1,4 @@
-import { joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { isStableAttrValue, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
 
 describe('utils', () => {
     describe('joinWithUiHost', () => {
@@ -43,6 +43,25 @@ describe('utils', () => {
         testCases.forEach(({ uiHost, path, expected }) => {
             it(`joins "${uiHost}" + "${path}"`, () => {
                 expect(joinWithUiHost(uiHost, path)).toBe(expected)
+            })
+        })
+    })
+
+    describe('isStableAttrValue', () => {
+        const testCases: Array<{ value: string; expected: boolean; description: string }> = [
+            { value: '', expected: false, description: 'empty string' },
+            { value: '60026', expected: false, description: 'purely numeric (auto-generated row id)' },
+            { value: 'row-12', expected: false, description: 'trailing digits' },
+            { value: 'item-1', expected: false, description: 'trailing single digit' },
+            { value: 'submit-button', expected: true, description: 'word-like value' },
+            { value: '__check__', expected: true, description: 'underscore-wrapped sentinel' },
+            { value: 'tab-2-content', expected: true, description: 'digits in middle but ends in letter' },
+            { value: 'role-admin', expected: true, description: 'kebab-case identifier' },
+        ]
+
+        testCases.forEach(({ value, expected, description }) => {
+            it(`returns ${expected} for "${value}" (${description})`, () => {
+                expect(isStableAttrValue(value)).toBe(expected)
             })
         })
     })
