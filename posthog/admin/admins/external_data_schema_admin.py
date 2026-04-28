@@ -68,12 +68,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path(
-                "<path:schema_id>/repartition/",
+                "<uuid:schema_id>/repartition/",
                 self.admin_site.admin_view(self.repartition_view),
                 name="external_data_schema_repartition",
             ),
             path(
-                "<path:schema_id>/trigger-sync/",
+                "<uuid:schema_id>/trigger-sync/",
                 self.admin_site.admin_view(self.trigger_sync_view),
                 name="external_data_schema_trigger_sync",
             ),
@@ -186,7 +186,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             external_data_source_id=schema.source.id,
             external_data_schema_id=schema.id,
             billable=billable,
-            reset_pipeline=reset_pipeline if reset_pipeline else None,
+            reset_pipeline=reset_pipeline or None,
         )
         workflow_id = f"{schema.id}-admin-resync-{int(time.time())}"
         try:
