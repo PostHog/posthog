@@ -80,6 +80,21 @@ pub fn register_components(manager: &mut Manager) -> LifecycleHandles {
     }
 }
 
+impl LifecycleHandles {
+    /// Surface an init-time error to the lifecycle manager as a `Failure` on the http
+    /// component (so the trigger log reads `trigger_reason="failure" reason="…"` instead
+    /// of a misleading `Died { tag: "http-server" }`), and pre-complete the unstarted
+    /// monitor handles so their drops don't fan out "died during shutdown" warnings in
+    /// Phase 2. Call before each early `return` from `serve()`.
+    fn fail_init(&self, reason: impl Into<String>) {
+        self.http.signal_failure(reason);
+        self.http.work_completed();
+        self.db_monitor.work_completed();
+        self.cohort_cache_monitor.work_completed();
+        self.tokio_monitor.work_completed();
+    }
+}
+
 pub async fn serve(
     config: Config,
     listener: TcpListener,
@@ -113,6 +128,7 @@ pub async fn serve(
     )
     .await
     else {
+        handles.fail_init("shared redis init failed");
         return;
     };
 
@@ -147,6 +163,7 @@ pub async fn serve(
                 error = %e,
                 "Failed to create database pools"
             );
+            handles.fail_init(format!("database pools init failed: {e}"));
             return;
         }
     };
@@ -159,6 +176,7 @@ pub async fn serve(
                 config.get_maxmind_db_path().display(),
                 e
             );
+            handles.fail_init(format!("geoip init failed: {e}"));
             return;
         }
     };
@@ -204,6 +222,7 @@ pub async fn serve(
         Ok(limiter) => limiter,
         Err(e) => {
             tracing::error!("Failed to create feature flags billing limiter: {}", e);
+            handles.fail_init(format!("feature flags billing limiter init failed: {e}"));
             return;
         }
     };
@@ -217,6 +236,7 @@ pub async fn serve(
         Ok(limiter) => limiter,
         Err(e) => {
             tracing::error!("Failed to create session replay billing limiter: {}", e);
+            handles.fail_init(format!("session replay billing limiter init failed: {e}"));
             return;
         }
     };
@@ -231,6 +251,7 @@ pub async fn serve(
     )
     .await
     else {
+        handles.fail_init("cookieless redis init failed");
         return;
     };
 
@@ -264,6 +285,7 @@ pub async fn serve(
             }
             Err(e) => {
                 tracing::error!("Failed to create flags HyperCacheReader: {:?}", e);
+                handles.fail_init(format!("flags hypercache init failed: {e:?}"));
                 return;
             }
         };
@@ -294,6 +316,7 @@ pub async fn serve(
             }
             Err(e) => {
                 tracing::error!("Failed to create team HyperCacheReader: {:?}", e);
+                handles.fail_init(format!("team hypercache init failed: {e:?}"));
                 return;
             }
         };
@@ -326,6 +349,7 @@ pub async fn serve(
                     "Failed to create flags with cohorts HyperCacheReader: {:?}",
                     e
                 );
+                handles.fail_init(format!("flags with cohorts hypercache init failed: {e:?}"));
                 return;
             }
         };
@@ -357,6 +381,7 @@ pub async fn serve(
             }
             Err(e) => {
                 tracing::error!("Failed to create config HyperCacheReader: {:?}", e);
+                handles.fail_init(format!("config hypercache init failed: {e:?}"));
                 return;
             }
         };
@@ -418,10 +443,9 @@ pub async fn serve(
 
     let service_mode = config.service_mode.clone();
 
-    // Spawn monitor tasks only after all fallible init succeeds. An earlier return
-    // above drops the unused handles in `handles`, each of which sends `Died` to
-    // the manager (since shutdown hasn't been requested) and triggers a clean
-    // global shutdown — no orphan tasks.
+    // Spawn monitor tasks only after all fallible init succeeds. If an early return
+    // fired above, the manager has already seen the real `Failure` reason and the
+    // unstarted monitors are pre-completed.
     let LifecycleHandles {
         http: http_handle,
         db_monitor: db_monitor_handle,
@@ -492,6 +516,10 @@ pub async fn serve(
         Err(e) => {
             tracing::error!("HTTP server error: {e}");
             http_handle.signal_failure(e.to_string());
+            // Mark completed so HandleInner::Drop emits WorkCompleted instead of
+            // racing the manager's processing of the Failure event and emitting
+            // a duplicate Died (which oncall would read as a second failure).
+            http_handle.work_completed();
         }
     }
 }
@@ -731,6 +759,38 @@ pub async fn create_redis_client(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lifecycle::LifecycleError;
+
+    /// Locks in the contract that drives the early-return paths in `serve()`:
+    /// `fail_init` must surface a `ComponentFailure { tag: "http-server", reason }` —
+    /// not a misleading `ComponentDied { tag: "http-server" }` from the http handle's
+    /// drop, which is the easy regression mode if a future component is added to
+    /// `LifecycleHandles` without being wired into `fail_init`.
+    #[tokio::test]
+    async fn fail_init_reports_failure_not_died() {
+        let mut manager = Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_global_shutdown_timeout(Duration::from_secs(5))
+            .build();
+        let handles = register_components(&mut manager);
+        let guard = manager.monitor_background();
+
+        handles.fail_init("redis init failed");
+        drop(handles);
+
+        let result = tokio::time::timeout(Duration::from_secs(3), guard.wait())
+            .await
+            .expect("monitor did not finish within timeout");
+        assert!(
+            matches!(
+                &result,
+                Err(LifecycleError::ComponentFailure { tag, reason })
+                    if tag == "http-server" && reason == "redis init failed"
+            ),
+            "expected ComponentFailure {{ tag: \"http-server\", reason: \"redis init failed\" }}, got {result:?}"
+        );
+    }
 
     #[tokio::test]
     async fn test_create_dedicated_readwrite_client_no_config() {
