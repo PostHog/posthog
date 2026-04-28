@@ -111,6 +111,13 @@ class Subscription(models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
 
+    # Whether this subscription is currently active. Auto-set to False when the
+    # subscription's delivery prerequisite has become permanently invalid (e.g.
+    # the team disconnected the Slack integration this subscription depends on).
+    # Distinct from `deleted`: `enabled=False` is reversible by the user, while
+    # `deleted=True` removes the subscription from the UI entirely.
+    enabled = models.BooleanField(default=True)
+
     summary_enabled = models.BooleanField(default=False)
     summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
 
