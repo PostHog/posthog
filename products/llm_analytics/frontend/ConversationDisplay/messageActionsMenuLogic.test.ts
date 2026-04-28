@@ -248,7 +248,10 @@ describe('messageActionsMenuLogic', () => {
             })
 
             it('returns false when organization has not approved AI data processing', async () => {
-                initKeaTests(true, undefined, undefined, MOCK_DEFAULT_ORGANIZATION)
+                initKeaTests(true, undefined, undefined, {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: false,
+                })
 
                 const logic = messageActionsMenuLogic({ content: mockContent })
                 logic.mount()
@@ -323,7 +326,10 @@ describe('messageActionsMenuLogic', () => {
             })
 
             it('throws error when data processing not accepted', async () => {
-                initKeaTests(true, undefined, undefined, MOCK_DEFAULT_ORGANIZATION)
+                initKeaTests(true, undefined, undefined, {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: false,
+                })
 
                 const logic = messageActionsMenuLogic({ content: mockContent })
                 logic.mount()
