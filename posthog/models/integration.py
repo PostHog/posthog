@@ -2348,8 +2348,6 @@ class GitHubIntegration:
         if reset_at is not None:
             github_api_rate_limit_reset_timestamp_gauge.labels(integration_id, resource).set(reset_at)
 
-        raise_if_github_rate_limited(response)
-
     def _record_github_api_exception(self, method: str, endpoint: str) -> None:
         github_api_request_counter.labels(str(self.integration.id), method, endpoint, "exception").inc()
 
@@ -2454,7 +2452,10 @@ class GitHubIntegration:
         """Return a valid installation access token, refreshing it if expired."""
         if self.access_token_expired():
             self.refresh_access_token()
-        return self.integration.sensitive_config.get("access_token") or ""
+        token = self.integration.sensitive_config.get("access_token")
+        if not token:
+            raise GitHubIntegrationError("Access token unavailable after refresh")
+        return token
 
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
@@ -2492,8 +2493,6 @@ class GitHubIntegration:
                     return None
                 response = fetch()
             return response
-        except GitHubRateLimitError:
-            raise
         except Exception:
             logger.warning("GitHubIntegration: installation GET failed", url=url, exc_info=True)
             return None
