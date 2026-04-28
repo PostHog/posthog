@@ -29,10 +29,9 @@ tools:
             Recipe — deliver an insight alert to Slack or a webhook (canonical reference; alert-create / alert-update
             point here):
 
-            1. Pick the integration. For Slack, ask the user for the integration id (visible in PostHog at
-               /settings/integrations — integrations-list does not return Slack via API key) and call
-               integrations-channels-retrieve with that id to list channels. For a webhook, the user provides the
-               destination URL directly.
+            1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration
+               id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user
+               provides the destination URL directly.
 
             2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the
                response now includes filters. Look for an existing function whose filters.properties contains a value

@@ -570,12 +570,20 @@ class TestIntegrationAPIKeyAccess:
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["kind"] == "github"
 
-    def test_list_integrations_only_shows_github_for_api_keys_and_hides_slack(self, client: HttpClient):
+    @patch(
+        "posthog.models.integration.get_instance_settings",
+        return_value={
+            "SLACK_APP_CLIENT_ID": "test-client-id",
+            "SLACK_APP_CLIENT_SECRET": "test-client-secret",
+            "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
+        },
+    )
+    def test_list_integrations_shows_github_and_slack_for_api_keys(self, _mock_settings, client: HttpClient):
         Integration.objects.create(
             team=self.team,
             kind="slack",
             integration_id="T_LIST",
-            config={"authed_user": {"id": "test_user_id"}},
+            config={"authed_user": {"id": "test_user_id"}, "team": {"name": "Test Workspace"}},
             sensitive_config={"access_token": "test-token"},
             created_by=self.user,
         )
@@ -596,7 +604,11 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         kinds = {integration["kind"] for integration in results}
-        assert kinds == {"github"}
+        assert kinds == {"github", "slack"}
+        # twilio_integration is created in the fixture but should remain hidden from API-key callers.
+        assert "twilio" not in kinds
+        # Sensitive credentials never round-trip via the list serializer.
+        assert all("sensitive_config" not in integration for integration in results)
 
     def test_retrieve_github_integration_with_scope_succeeds(self, client: HttpClient):
         key_value = "test_key_123"
@@ -630,6 +642,43 @@ class TestIntegrationAPIKeyAccess:
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch(
+        "posthog.models.integration.get_instance_settings",
+        return_value={
+            "SLACK_APP_CLIENT_ID": "test-client-id",
+            "SLACK_APP_CLIENT_SECRET": "test-client-secret",
+            "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
+        },
+    )
+    def test_retrieve_slack_integration_with_scope_succeeds(self, _mock_settings, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_RETRIEVE",
+            config={"authed_user": {"id": "test_user_id"}, "team": {"name": "Test Workspace"}},
+            sensitive_config={"access_token": "test-token"},
+            created_by=self.user,
+        )
+
+        key_value = "test_key_retrieve_slack"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["kind"] == "slack"
+        # Sensitive credentials never round-trip via the retrieve serializer.
+        assert "sensitive_config" not in body
 
     @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
@@ -867,9 +916,10 @@ class TestIntegrationAPIKeyAccess:
             ("slack", "integration:read", status.HTTP_200_OK, None),
             ("slack-posthog-code", "integration:read", status.HTTP_200_OK, None),
             ("slack", "feature_flag:read", status.HTTP_403_FORBIDDEN, "integration:read"),
-            # github + twilio integrations exist for this team but the channels-action queryset
-            # only resolves Slack kinds for API-key callers — so they 404 before the action runs.
-            ("github", "integration:read", status.HTTP_404_NOT_FOUND, None),
+            # GitHub passes the queryset filter (it's a read-allowed kind) but the channels
+            # action's kind guard rejects it with a 400 before SlackIntegration is constructed.
+            ("github", "integration:read", status.HTTP_400_BAD_REQUEST, "Slack"),
+            # Twilio is filtered out of the queryset entirely for API-key callers — 404.
             ("twilio", "integration:read", status.HTTP_404_NOT_FOUND, None),
         ],
     )

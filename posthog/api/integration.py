@@ -464,9 +464,6 @@ class IntegrationViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "integration"
-    # NOTE: Each entry here also needs to be reflected in `safely_get_queryset` below if it
-    # should resolve a non-GitHub Integration via personal API key / OAuth — the queryset
-    # filters by kind regardless of which action is allowed at the scope layer.
     scope_object_read_actions = [
         "list",
         "retrieve",
@@ -511,12 +508,12 @@ class IntegrationViewSet(
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
             self.request.successful_authenticator, OAuthAccessTokenAuthentication
         ):
-            # The channels action is Slack-only and exists specifically for downstream HogFunction
-            # wiring (e.g. alert delivery). Permit the lookup for both Slack variants without
-            # broadening list / retrieve to expose Slack metadata to every API-key caller.
-            if self.action == "channels":
-                return defer_repository_cache_fields(queryset.filter(kind__in=["slack", "slack-posthog-code"]))
-            return defer_repository_cache_fields(queryset.filter(kind="github"))
+            # GitHub and Slack integrations are exposed via API-key / OAuth. The serializer
+            # only returns id, kind, config, errors, and display metadata — access tokens stay
+            # in sensitive_config and are never serialized. The channels action's kind guard
+            # (see `channels` below) is the actual gate against running Slack-only code on a
+            # non-Slack integration.
+            return defer_repository_cache_fields(queryset.filter(kind__in=["github", "slack", "slack-posthog-code"]))
         return queryset
 
     @action(methods=["GET"], detail=False)
