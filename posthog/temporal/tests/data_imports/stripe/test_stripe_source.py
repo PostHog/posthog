@@ -13,7 +13,9 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
 )
+from posthog.temporal.data_imports.sources.stripe.settings import WEBHOOK_ONLY_ENDPOINTS
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
@@ -24,6 +26,7 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeValidationError,
     _build_resources,
     _clean_stripe_error_message,
+    get_rows,
     validate_credentials,
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
@@ -240,6 +243,7 @@ def test_validate_credentials():
     mock_client.subscriptions.list = mock.MagicMock()
     mock_client.refunds.list = mock.MagicMock()
     mock_client.credit_notes.list = mock.MagicMock()
+    mock_client.coupons.list = mock.MagicMock()
 
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
         result = validate_credentials("api_key")
@@ -259,6 +263,7 @@ def test_validate_credentials():
         mock_client.subscriptions.list.assert_called_once_with(params={"limit": 1})
         mock_client.refunds.list.assert_called_once_with(params={"limit": 1})
         mock_client.credit_notes.list.assert_called_once_with(params={"limit": 1})
+        mock_client.coupons.list.assert_called_once_with(params={"limit": 1})
 
 
 def test_validate_credentials_with_table_name():
@@ -278,6 +283,7 @@ def test_validate_credentials_with_table_name():
     mock_client.subscriptions.list = mock.MagicMock()
     mock_client.refunds.list = mock.MagicMock()
     mock_client.credit_notes.list = mock.MagicMock()
+    mock_client.coupons.list = mock.MagicMock()
 
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
         result = validate_credentials("api_key", ACCOUNT_RESOURCE_NAME)
@@ -300,6 +306,88 @@ def test_validate_credentials_with_table_name():
         mock_client.subscriptions.list.assert_not_called()
         mock_client.refunds.list.assert_not_called()
         mock_client.credit_notes.list.assert_not_called()
+        mock_client.coupons.list.assert_not_called()
+
+
+def test_subscription_list_uses_expand_for_discounts():
+    """Subscription list call must expand discounts so coupon details ride inline.
+
+    Without `expand=data.discounts` Stripe returns an array of discount IDs, which is
+    insufficient for revenue projection — customers need amount_off / percent_off /
+    duration. Item-level discounts (`items.data.discounts`) need the same treatment.
+    """
+    mock_client = mock.MagicMock()
+
+    # Empty page response — we only care about how the list method was invoked.
+    empty_page = mock.MagicMock()
+    empty_page.auto_paging_iter.return_value = iter([])
+    mock_client.subscriptions.list.return_value = empty_page
+
+    resumable_manager = mock.MagicMock()
+    resumable_manager.can_resume.return_value = False
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        # Drain the generator so the list call actually happens.
+        list(
+            get_rows(
+                api_key="api_key",
+                endpoint=SUBSCRIPTION_RESOURCE_NAME,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=mock.MagicMock(),
+                resumable_source_manager=resumable_manager,
+                should_use_incremental_field=False,
+            )
+        )
+
+    mock_client.subscriptions.list.assert_called_once()
+    call_params = mock_client.subscriptions.list.call_args.kwargs["params"]
+    assert call_params["status"] == "all"
+    assert call_params["expand[]"] == ["data.discounts", "data.items.data.discounts"]
+
+
+@pytest.mark.parametrize("endpoint", WEBHOOK_ONLY_ENDPOINTS)
+def test_webhook_only_endpoint_yields_no_rows(endpoint):
+    """Webhook-only resources have no API list endpoint; get_rows must short-circuit
+    cleanly so the initial sync completes and the webhook source manager can take over."""
+    mock_client = mock.MagicMock()
+    resumable_manager = mock.MagicMock()
+    resumable_manager.can_resume.return_value = False
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        rows = list(
+            get_rows(
+                api_key="api_key",
+                endpoint=endpoint,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=mock.MagicMock(),
+                resumable_source_manager=resumable_manager,
+                should_use_incremental_field=False,
+            )
+        )
+
+    assert rows == []
+    # No Stripe list endpoint should be hit for a webhook-only resource.
+    mock_client.subscriptions.list.assert_not_called()
+    mock_client.coupons.list.assert_not_called()
+
+
+@pytest.mark.parametrize("endpoint", WEBHOOK_ONLY_ENDPOINTS)
+def test_validate_credentials_skips_webhook_only_resource(endpoint):
+    """Webhook-only resources have no list endpoint, so validation should short-circuit
+    and not hit Stripe."""
+    mock_client = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("api_key", endpoint)
+
+    assert result is True
+    # No list method should be called when validating a webhook-only resource.
+    mock_client.coupons.list.assert_not_called()
+    mock_client.subscriptions.list.assert_not_called()
 
 
 def test_validate_credentials_authentication_error_short_circuits():
@@ -522,6 +610,7 @@ def test_validate_credentials_with_missing_table_name():
     mock_client.subscriptions.list = mock.MagicMock()
     mock_client.refunds.list = mock.MagicMock()
     mock_client.credit_notes.list = mock.MagicMock()
+    mock_client.coupons.list = mock.MagicMock()
 
     with (
         mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client),
@@ -543,6 +632,7 @@ def test_validate_credentials_with_missing_table_name():
     mock_client.subscriptions.list.assert_not_called()
     mock_client.refunds.list.assert_not_called()
     mock_client.credit_notes.list.assert_not_called()
+    mock_client.coupons.list.assert_not_called()
 
     assert "bad_table" in str(e)
 

@@ -13,6 +13,8 @@ SUBSCRIPTION_RESOURCE_NAME = "Subscription"
 CREDIT_NOTE_RESOURCE_NAME = "CreditNote"
 CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME = "CustomerBalanceTransaction"
 CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME = "CustomerPaymentMethod"
+COUPON_RESOURCE_NAME = "Coupon"
+DISCOUNT_RESOURCE_NAME = "Discount"
 
 # Maps PostHog resource name -> Stripe API object type (as it appears in webhook data.object.object)
 RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
@@ -31,6 +33,8 @@ RESOURCE_TO_STRIPE_OBJECT_TYPE: dict[str, str] = {
     CREDIT_NOTE_RESOURCE_NAME: "credit_note",
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: "customer_balance_transaction",
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: "payment_method",
+    COUPON_RESOURCE_NAME: "coupon",
+    DISCOUNT_RESOURCE_NAME: "discount",
 }
 
 RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
@@ -49,4 +53,6 @@ RESOURCE_TO_STRIPE_WEBHOOK_EVENT: dict[str, str] = {
     CREDIT_NOTE_RESOURCE_NAME: "credit_note",
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: "billing",
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME: "payment_method",
+    COUPON_RESOURCE_NAME: "coupon",
+    DISCOUNT_RESOURCE_NAME: "customer.discount",
 }
