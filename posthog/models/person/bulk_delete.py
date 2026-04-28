@@ -35,12 +35,12 @@ def resolve_persons_for_deletion(
 ) -> builtins.list[Person]:
     """Materialize Persons matching either uuids or distinct_ids (or both)."""
     if uuids:
-        persons_queryset = Person.get_queryset().filter(uuid__in=uuids, team_id=team_id).defer("properties")
+        persons_queryset = Person.objects.filter(uuid__in=uuids, team_id=team_id).defer("properties")
     if distinct_ids:
         person_ids = PersonDistinctId.objects.filter(team_id=team_id, distinct_id__in=distinct_ids).values_list(
             "person_id", flat=True
         )
-        persons_queryset = Person.get_queryset().filter(id__in=person_ids, team_id=team_id).defer("properties")
+        persons_queryset = Person.objects.filter(id__in=person_ids, team_id=team_id).defer("properties")
     return list(persons_queryset)
 
 
