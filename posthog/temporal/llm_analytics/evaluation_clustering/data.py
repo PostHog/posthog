@@ -25,6 +25,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
 from posthog.models.team import Team
 from posthog.temporal.llm_analytics.evaluation_clustering.constants import (
     LLMA_EVALUATION_DOCUMENT_TYPE,
@@ -370,15 +371,19 @@ def fetch_generation_contents(
 
     ids_tuple = ast.Tuple(exprs=[ast.Constant(value=gid) for gid in generation_ids])
     has_window = window_start is not None and window_end is not None
+    # Read from `posthog.ai_events` so the heavy `input` / `output_choices`
+    # columns survive the strip; the resolver re-runs against the shared
+    # `events` table when ai_events returns zero rows (rollout window /
+    # kill-switch off).
     if has_window:
         query = parse_select(
             """
             SELECT
                 toString(uuid) as generation_id,
-                properties.$ai_model as model,
-                properties.$ai_input as input_raw,
-                properties.$ai_output_choices as output_raw
-            FROM events
+                model,
+                input as input_raw,
+                output_choices as output_raw
+            FROM posthog.ai_events AS ai_events
             WHERE event = '$ai_generation'
                 AND timestamp >= {start_dt}
                 AND timestamp < {end_dt}
@@ -391,10 +396,10 @@ def fetch_generation_contents(
             """
             SELECT
                 toString(uuid) as generation_id,
-                properties.$ai_model as model,
-                properties.$ai_input as input_raw,
-                properties.$ai_output_choices as output_raw
-            FROM events
+                model,
+                input as input_raw,
+                output_choices as output_raw
+            FROM posthog.ai_events AS ai_events
             WHERE event = '$ai_generation'
                 AND toString(uuid) IN {ids}
             LIMIT {limit}
@@ -410,11 +415,11 @@ def fetch_generation_contents(
         placeholders["end_dt"] = ast.Constant(value=window_end)
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
-        result = execute_hogql_query(
-            query_type="GenerationContentsForLabeling",
+        result = execute_with_ai_events_fallback(
             query=query,
             placeholders=placeholders,
             team=team,
+            query_type="GenerationContentsForLabeling",
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 
