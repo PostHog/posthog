@@ -14,7 +14,6 @@ tracing-subscriber = { workspace = true }
 sqlx = { workspace = true }
 futures = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
-time = { workspace = true }
 axum = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
 metrics = { workspace = true }

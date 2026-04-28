@@ -162,12 +162,15 @@ pub async fn update_producer_loop(
     let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     loop {
-        if handle.is_shutting_down() {
-            info!("Producer loop shutting down");
-            return;
-        }
+        let recv_result = tokio::select! {
+            _ = handle.shutdown_recv() => {
+                info!("Producer loop shutting down");
+                return;
+            }
+            r = consumer.json_recv() => r,
+        };
 
-        let (event, offset): (Event, _) = match consumer.json_recv().await {
+        let (event, offset): (Event, _) = match recv_result {
             Ok(r) => r,
             Err(RecvErr::Empty) => {
                 warn!("Received empty event");
@@ -253,9 +256,9 @@ pub async fn update_producer_loop(
                     Err(TrySendError::Full(update)) => {
                         warn!("Worker blocked");
                         metrics::counter!(WORKER_BLOCKED).increment(1);
-                        // Workers should just die if the channel is dropped, since that indicates
-                        // the main loop is dead.
-                        channel.send(update).await.unwrap();
+                        if channel.send(update).await.is_err() {
+                            return;
+                        }
                     }
                     Err(e) => {
                         warn!("Coordinator send failed: {:?}", e);
