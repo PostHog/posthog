@@ -11,6 +11,20 @@ can't be expressed structurally:
 - Joins with data-warehouse tables.
 - Custom aggregations like `quantile`, `arrayJoin`, regex extraction.
 
+## HogQL insights
+
+For saved insights with `query.kind === "HogQLQuery"`, the playbook routing is shape-based
+rather than kind-based. Read the SQL and pick the closest playbook:
+
+- `count(...) GROUP BY toStartOfDay(...)` or similar count-over-time → trend playbook.
+- Multi-step `windowFunnel` or sequential filtering → funnel playbook.
+- Cohort-keyed return aggregates → retention playbook.
+
+Run the insight's SQL through `posthog:execute-sql` to get the data, then follow the
+chosen playbook's steps using the typed tools where they fit. Drop back to
+`execute-sql` for the breakdown / drilldown variants when the original SQL has shape
+the typed schema can't express.
+
 ## HogQL quantile template
 
 For per-bucket distribution stats with a segment dimension (box plots can't take
@@ -40,6 +54,34 @@ breaking down. The `query.kind` field selects:
 - `event_properties` with `event_name` — properties on a specific event.
 - `entity_properties` with `entity: "person"` — person properties.
 - `event_property_values` with `event_name` + `property_name` — sample values.
+
+## Related-metrics sweep
+
+Before going deep on one metric, run the same anomaly-window query on 2–3 adjacent
+metrics — upstream funnel steps, sibling events, total event volume, parent-event
+counts. If they all moved together, the cause is broader than the specific metric
+(ingestion gap, cohort shift, tracking regression). If only the target metric moved,
+the investigation is correctly scoped.
+
+Use when the metric sits inside a larger pipeline (a funnel step, a retention activity
+event, a derived rate) and you want to rule out an upstream cause cheaply.
+
+```json
+posthog:query-trends
+{
+  "kind": "TrendsQuery",
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day",
+  "series": [
+    { "kind": "EventsNode", "event": "$pageview", "math": "total" },
+    { "kind": "EventsNode", "event": "user signed up", "math": "total" },
+    { "kind": "EventsNode", "event": "first team event ingested", "math": "total" }
+  ]
+}
+```
+
+A single multi-series query is cheaper than three breakdowns and the visual alignment
+(or lack of it) answers the question immediately.
 
 ## Breakdown dimensions
 

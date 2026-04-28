@@ -67,10 +67,16 @@ Read `query.kind` from the source the user pointed at:
 | `StickinessQuery` | [stickiness-playbook.md](./references/stickiness-playbook.md) |
 | `LifecycleQuery`  | [lifecycle-playbook.md](./references/lifecycle-playbook.md)   |
 | `PathsQuery`      | [paths-playbook.md](./references/paths-playbook.md)           |
+| `HogQLQuery`      | route by what the SQL aggregates (see below)                  |
 
 If `kind === "TrendsQuery"` and `trendsFilter.display === "BoxPlot"`, use
 [box-plot-playbook.md](./references/box-plot-playbook.md) — distribution metric, no
 breakdowns.
+
+For `HogQLQuery` insights, classify by the SQL's shape: count over time → trend
+playbook, multi-step conversion → funnel playbook, cohort return → retention playbook.
+Run the SQL through `posthog:execute-sql` to get the data, then follow the closest
+playbook's steps. See **HogQL insights** in shared-patterns.md.
 
 If the user's question spans multiple kinds, run the playbooks in sequence.
 
@@ -128,6 +134,8 @@ cause is found and no annotation marks it, offer `posthog:annotation-create`. Se
 
 <one sentence>
 
+**Confidence**: low | medium | high — <one-line reason>
+
 **Evidence**
 
 - <query result>
@@ -150,6 +158,15 @@ cause is found and no annotation marks it, offer `posthog:annotation-create`. Se
 - <concrete next action>
 - <offer to save chart / create annotation>
 ```
+
+**Confidence** rule of thumb:
+
+- **high** — multiple independent signals corroborate (e.g. a segment isolates the
+  delta _and_ a flag/version aligns _and_ an error or annotation matches).
+- **medium** — one corroborating signal, or strong pattern-match without a
+  cross-check.
+- **low** — pattern matches a known cause but no corroboration, or the data only
+  rules things _out_.
 
 Link insights and dashboards inline: `[Name](/insights/short_id)`.
 
