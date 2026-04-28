@@ -136,6 +136,10 @@ def slo_operation(
         outcome = SloOutcome.SUCCESS
         try:
             yield handle
+            # outcome_override wins both ways: succeed-then-no-raise stays SUCCESS,
+            # fail-then-no-raise reports FAILURE, succeed-then-raise reports SUCCESS,
+            # fail-then-raise reports FAILURE. Lets callers express "this was actually a
+            # success, we just need to propagate the exception" or vice versa.
             outcome = handle.outcome_override or SloOutcome.SUCCESS
         except Exception as exc:
             handle.completion_properties.setdefault("error_type", type(exc).__name__)

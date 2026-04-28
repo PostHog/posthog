@@ -219,6 +219,7 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         with patch("posthog.hogql_queries.query_runner.posthoganalytics.capture") as mock_capture:
             runner.run(execution_mode)
 
+        mock_capture.assert_called()
         slo_started_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"]
         assert len(slo_started_calls) == 1
         captured_props = slo_started_calls[0].kwargs["properties"]

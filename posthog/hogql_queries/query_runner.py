@@ -1240,10 +1240,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.user = user
         start_time = perf_counter()
         cache_key = self.get_cache_key()
+        # Resolve per-call state before observability so SLO + analytics agree on the values.
+        self.query_id = query_id or self.query_id
+        self._cache_age_override = cache_age_seconds
 
         with posthoganalytics.new_context():
             query_type = getattr(self.query, "kind", "Other")
-            distinct_id = str(user.distinct_id) if user else str(self.team.id)
+            distinct_id = str(user.distinct_id) if user else str(self.team.uuid)
 
             posthoganalytics.tag("cache_key", cache_key)
             posthoganalytics.tag("query_type", query_type)
@@ -1316,8 +1319,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                     trigger: str | None = get_query_tag_value("trigger")
 
-                    self.query_id = query_id or self.query_id
-                    self._cache_age_override = cache_age_seconds
                     CachedResponse: type[CR] = self.cached_response_type
                     cache_manager = get_query_cache_manager(
                         team=self.team,
@@ -1327,8 +1328,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
-                        # We should always kick off async calculation and disregard the cache
-                        slo.tag(execution_path="async_dispatched", cache_hit=False)
+                        # We should always kick off async calculation and disregard the cache.
+                        # cache_hit is left unset on this path because the cache wasn't consulted.
+                        slo.tag(execution_path="async_dispatched")
                         return QueryStatusResponse(
                             query_status=self.enqueue_async_calculation(
                                 refresh_requested=True,
@@ -1393,7 +1395,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
                             return results
 
-                    slo.tag(execution_path="blocking", cache_hit=False, calculation_trigger=trigger)
+                    # cache_hit is left unset on this path: either the caller passed
+                    # CALCULATE_BLOCKING_ALWAYS (cache skipped) or the cache returned nothing.
+                    slo.tag(execution_path="blocking", calculation_trigger=trigger)
                     return self._execute_and_cache_blocking(
                         cache_key=cache_key,
                         cache_manager=cache_manager,
@@ -1406,9 +1410,24 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         analytics_props=analytics_props,
                     )
                 except Exception as exc:
-                    error_category = classify_query_error(exc)
-                    # User errors and rate limits should not burn SLO error budget
-                    if error_category in (QueryErrorCategory.USER_ERROR, QueryErrorCategory.RATE_LIMITED):
+                    # UserAccessControlError isn't recognised by classify_query_error, but a 403
+                    # is the user's input, not a service failure — map it to USER_ERROR locally.
+                    if isinstance(exc, UserAccessControlError):
+                        error_category = QueryErrorCategory.USER_ERROR
+                    else:
+                        error_category = classify_query_error(exc)
+                    # USER_ERROR, RATE_LIMITED, and CANCELLED should not consume SLO error budget:
+                    # they reflect user input, abuse, or normal interaction (cancel on navigate-away),
+                    # not platform reliability. The completed event still emits with outcome=success
+                    # plus an error_category tag so dashboards can slice by it. QUERY_PERFORMANCE_ERROR
+                    # is intentionally treated as a failure: timeouts and OOM are the dominant case at
+                    # scale; the user-input limits inside it (EstimatedQueryExecutionTimeTooLong,
+                    # QuerySizeExceeded) are a minority worth living with for now.
+                    if error_category in (
+                        QueryErrorCategory.USER_ERROR,
+                        QueryErrorCategory.RATE_LIMITED,
+                        QueryErrorCategory.CANCELLED,
+                    ):
                         slo.succeed(execution_path="error", error_category=error_category.value)
                     else:
                         slo.fail(execution_path="error", error_category=error_category.value)
