@@ -17,18 +17,10 @@ export async function execHog(
     execResult?: ExecResult
     error?: any
     durationMs: number
-    waitedForThreadRelief: boolean
 }> {
     return await semaphore.run(async () => {
         return await instrumentFn(`hog-exec`, async () => {
-            const waitedForInitialRelief = await yieldEventLoopIfNeeded('hog-exec')
-            const result = execHogImmediate(bytecode, options)
-            const waitedForFinalRelief = await yieldEventLoopIfNeeded('hog-exec')
-
-            return {
-                ...result,
-                waitedForThreadRelief: waitedForInitialRelief || waitedForFinalRelief,
-            }
+            return await yieldEventLoopIfNeeded('hog-exec', () => execHogImmediate(bytecode, options))
         })
     })
 }

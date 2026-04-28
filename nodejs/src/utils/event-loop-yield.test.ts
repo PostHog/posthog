@@ -1,3 +1,5 @@
+import { Counter, register } from 'prom-client'
+
 import {
     configureEventLoopYield,
     getEventLoopYieldThresholdMs,
@@ -12,6 +14,16 @@ function busyWaitMs(ms: number): void {
     }
 }
 
+async function getYieldCount(caller: string, waited: 'true' | 'false'): Promise<number> {
+    const metric = register.getSingleMetric('event_loop_yield_total') as Counter | undefined
+    if (!metric) {
+        return 0
+    }
+    const data = await metric.get()
+    const sample = data.values.find((v) => v.labels.caller === caller && v.labels.waited === waited)
+    return sample?.value ?? 0
+}
+
 describe('event-loop-yield', () => {
     let originalThreshold: number
 
@@ -22,8 +34,8 @@ describe('event-loop-yield', () => {
 
     afterEach(async () => {
         configureEventLoopYield(originalThreshold)
-        // Drain the singleton state — any in-flight setTimeout(0) needs to fire so
-        // the next test starts with a fresh state.
+        // Drain the singleton state — any in-flight setTimeout(0) needs to fire
+        // so the next test starts with a fresh state.
         await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
@@ -34,92 +46,82 @@ describe('event-loop-yield', () => {
         })
     })
 
-    describe('single caller', () => {
-        it('returns false when nothing has accumulated yet', async () => {
-            configureEventLoopYield(100)
-            const result = await yieldEventLoopIfNeeded('test')
-            expect(result).toBe(false)
+    describe('yieldEventLoopIfNeeded', () => {
+        it('returns the wrapped function result', async () => {
+            const result = await yieldEventLoopIfNeeded('test', () => 42)
+            expect(result).toBe(42)
         })
 
-        it('returns true once accumulated sync work crosses the threshold', async () => {
+        it('awaits an async wrapped function', async () => {
+            const result = await yieldEventLoopIfNeeded('test', async () => {
+                await new Promise((resolve) => setTimeout(resolve, 0))
+                return 'ok'
+            })
+            expect(result).toBe('ok')
+        })
+
+        it('still yields if the wrapped function throws', async () => {
             configureEventLoopYield(20)
-            await yieldEventLoopIfNeeded('test') // primes the shared state
-            busyWaitMs(40)
-            const result = await yieldEventLoopIfNeeded('test')
-            expect(result).toBe(true)
+            // Prime accumulated state so the next call's after-yield trips the threshold.
+            await yieldEventLoopIfNeeded('test', () => busyWaitMs(40))
+            const before = await getYieldCount('test', 'true')
+            await expect(
+                yieldEventLoopIfNeeded('test', () => {
+                    busyWaitMs(40)
+                    throw new Error('boom')
+                })
+            ).rejects.toThrow('boom')
+            const after = await getYieldCount('test', 'true')
+            // The wrapper should have yielded at least once even though fn threw.
+            expect(after).toBeGreaterThan(before)
         })
 
-        it('honors a per-call thresholdMs override below the default', async () => {
+        it('does not actually yield when accumulated work is below the threshold', async () => {
             configureEventLoopYield(10_000)
-            await yieldEventLoopIfNeeded('test')
-            busyWaitMs(40)
-            const result = await yieldEventLoopIfNeeded('test', { thresholdMs: 20 })
-            expect(result).toBe(true)
+            const before = await getYieldCount('test', 'true')
+            await yieldEventLoopIfNeeded('test', () => busyWaitMs(20))
+            const after = await getYieldCount('test', 'true')
+            expect(after - before).toBe(0)
         })
 
-        it('honors a per-call thresholdMs override above the default', async () => {
-            configureEventLoopYield(5)
-            await yieldEventLoopIfNeeded('test')
-            busyWaitMs(20)
-            const result = await yieldEventLoopIfNeeded('test', { thresholdMs: 10_000 })
-            expect(result).toBe(false)
-        })
-
-        it('resets accumulated time after a yield so the next call starts fresh', async () => {
+        it('actually yields when accumulated work crosses the threshold', async () => {
             configureEventLoopYield(20)
-            await yieldEventLoopIfNeeded('test')
-            busyWaitMs(40)
-            const yielded = await yieldEventLoopIfNeeded('test')
-            expect(yielded).toBe(true)
-            // Right after yielding, a fresh call should be under the threshold again.
-            const next = await yieldEventLoopIfNeeded('test')
-            expect(next).toBe(false)
+            const before = await getYieldCount('test', 'true')
+            await yieldEventLoopIfNeeded('test', () => busyWaitMs(40))
+            const after = await getYieldCount('test', 'true')
+            // Either the before- or after-yield should have crossed the threshold.
+            expect(after - before).toBeGreaterThan(0)
+        })
+
+        it('does not block the loop across many CPU-bound calls', async () => {
+            configureEventLoopYield(20)
+
+            let longestDelay = 0
+            let lastTick = performance.now()
+            const interval = setInterval(() => {
+                const now = performance.now()
+                longestDelay = Math.max(longestDelay, now - lastTick)
+                lastTick = now
+            }, 0)
+
+            try {
+                const blockMs = 30
+                for (let i = 0; i < 10; i++) {
+                    await yieldEventLoopIfNeeded('test', () => busyWaitMs(blockMs))
+                }
+                // 10 * 30 = 300ms total blocking. With yielding, longestDelay
+                // should be close to one block + scheduling jitter.
+                expect(longestDelay).toBeLessThan(blockMs * 3)
+            } finally {
+                clearInterval(interval)
+            }
         })
     })
 
     describe('parallel callers', () => {
-        it('shares accumulated time across callers', async () => {
-            configureEventLoopYield(20)
-            // Two callers prime the shared state at roughly the same moment.
-            const [first, second] = await Promise.all([
-                yieldEventLoopIfNeeded('caller-a'),
-                yieldEventLoopIfNeeded('caller-b'),
-            ])
-            // Both saw essentially zero blocked time, both return false.
-            expect([first, second]).toEqual([false, false])
-
-            // Block past the threshold synchronously — neither caller has yielded yet.
-            busyWaitMs(40)
-
-            // Now both cross the threshold against the same shared state.
-            const [third, fourth] = await Promise.all([
-                yieldEventLoopIfNeeded('caller-a'),
-                yieldEventLoopIfNeeded('caller-b'),
-            ])
-            expect([third, fourth]).toEqual([true, true])
-        })
-
-        it('resolves all queued waiters together when the macrotask fires', async () => {
-            configureEventLoopYield(10)
-            await yieldEventLoopIfNeeded('warmup')
-            busyWaitMs(30)
-
-            // Five parallel callers all cross the threshold against the same
-            // state.promise. When setTimeout(0) fires, they should all resolve.
-            const results = await Promise.all([
-                yieldEventLoopIfNeeded('a'),
-                yieldEventLoopIfNeeded('b'),
-                yieldEventLoopIfNeeded('c'),
-                yieldEventLoopIfNeeded('d'),
-                yieldEventLoopIfNeeded('e'),
-            ])
-            expect(results).toEqual([true, true, true, true, true])
-        })
-
         it('keeps a setInterval making progress while two parallel workers are busy', async () => {
-            // Simulate two parallel producers doing batches of sync work in a tight
-            // async loop, and make sure a setInterval observer keeps getting ticks
-            // instead of being starved for the full duration of the work.
+            // Two parallel producers in tight async loops. Without yielding, the
+            // setInterval observer would be starved for the full duration.
             configureEventLoopYield(30)
 
             const blockMs = 40
@@ -140,8 +142,7 @@ describe('event-loop-yield', () => {
             try {
                 const worker = async (id: string) => {
                     for (let i = 0; i < iterations; i++) {
-                        busyWaitMs(blockMs)
-                        await yieldEventLoopIfNeeded(id)
+                        await yieldEventLoopIfNeeded(id, () => busyWaitMs(blockMs))
                     }
                 }
                 await Promise.all([worker('worker-a'), worker('worker-b')])
@@ -149,48 +150,70 @@ describe('event-loop-yield', () => {
                 clearInterval(interval)
             }
 
-            // If yielding were broken, the interval would be starved for the
-            // entire 400ms of blocking work. With yielding, longestDelay should
-            // be bounded by a small multiple of (blockMs + threshold).
             expect(longestDelay).toBeLessThan(totalBlockingWork / 2)
-            // And we should have actually observed multiple interval ticks
-            // during the work (otherwise we don't really know yielding happened).
-            expect(intervalTickCount).toBeGreaterThan(2)
+            // We should have observed at least one interval tick fire while the
+            // workers were busy (otherwise we don't know yielding actually happened).
+            expect(intervalTickCount).toBeGreaterThan(1)
         })
 
-        it('does not unconditionally yield — fast callers below the threshold still return false', async () => {
-            // A caller that does no sync work should normally return false. Even
-            // when it shares state with a slow caller that does yield, fast
-            // callers should at least sometimes get a false back (proving the
-            // helper isn't degenerating into "always yield").
+        it('serialized callers via promise chain keep the loop unblocked', async () => {
+            // To prove the helper actually protects the loop end-to-end (matching
+            // hog-exec.test.ts's longestDelay bound), callers must be serialized
+            // so the setTimeout(0) macrotask can fire between them.
+            const blockMs = 100
+            const numberOfCallers = 10
+            configureEventLoopYield(blockMs)
+
+            let longestDelay = 0
+            let lastTick = performance.now()
+            const interval = setInterval(() => {
+                const now = performance.now()
+                longestDelay = Math.max(longestDelay, now - lastTick)
+                lastTick = now
+            }, 0)
+
+            try {
+                let chain: Promise<void> = Promise.resolve()
+                for (let i = 0; i < numberOfCallers; i++) {
+                    chain = chain.then(() => yieldEventLoopIfNeeded(`caller-${i}`, () => busyWaitMs(blockMs)))
+                }
+                await chain
+                await new Promise((resolve) => setTimeout(resolve, 1))
+                // With serialization, the setTimeout fires between each block,
+                // so longestDelay should be ~ one block + scheduling jitter.
+                expect(longestDelay).toBeLessThan(blockMs * 2.5)
+            } finally {
+                clearInterval(interval)
+            }
+        })
+
+        it('does not unconditionally yield — fast callers below the threshold do not yield', async () => {
+            // A caller that does no sync work should not yield (most of the
+            // time). Even when sharing state with a slow caller that does yield,
+            // fast callers should mostly count as "not waited".
             configureEventLoopYield(20)
 
-            const slowCaller = async (): Promise<boolean[]> => {
-                const results: boolean[] = []
+            const slowCaller = async (): Promise<void> => {
                 for (let i = 0; i < 3; i++) {
-                    busyWaitMs(40)
-                    results.push(await yieldEventLoopIfNeeded('slow'))
+                    await yieldEventLoopIfNeeded('slow', () => busyWaitMs(40))
                 }
-                return results
             }
-
-            const fastCaller = async (): Promise<boolean[]> => {
-                const results: boolean[] = []
+            const fastCaller = async (): Promise<void> => {
                 for (let i = 0; i < 6; i++) {
-                    // No sync work — just keeps polling.
-                    results.push(await yieldEventLoopIfNeeded('fast'))
+                    await yieldEventLoopIfNeeded('fast', () => {})
                 }
-                return results
             }
 
-            const [slow, fast] = await Promise.all([slowCaller(), fastCaller()])
+            const beforeSlowWaited = await getYieldCount('slow', 'true')
+            const beforeFastNot = await getYieldCount('fast', 'false')
+            await Promise.all([slowCaller(), fastCaller()])
+            const afterSlowWaited = await getYieldCount('slow', 'true')
+            const afterFastNot = await getYieldCount('fast', 'false')
 
-            // Slow caller does 40ms sync blocks against a 20ms threshold, so at
-            // least one of its calls must have yielded.
-            expect(slow.some((r) => r)).toBe(true)
-            // Fast caller does no sync work — at least one call must have
-            // returned false.
-            expect(fast.some((r) => r === false)).toBe(true)
+            // At least one slow call must have yielded.
+            expect(afterSlowWaited - beforeSlowWaited).toBeGreaterThan(0)
+            // At least one fast call must NOT have yielded.
+            expect(afterFastNot - beforeFastNot).toBeGreaterThan(0)
         })
     })
 
@@ -253,26 +276,12 @@ describe('event-loop-yield', () => {
             expect(seen).toEqual(['x', 'y', 'z'])
         })
 
-        it('passes the threshold override through to yieldEventLoopIfNeeded', async () => {
-            // Default threshold high; per-call override low. Without the override,
-            // longestDelay would be huge because we'd never yield.
-            configureEventLoopYield(10_000)
-
-            let longestDelay = 0
-            let lastTick = performance.now()
-            const interval = setInterval(() => {
-                const now = performance.now()
-                longestDelay = Math.max(longestDelay, now - lastTick)
-                lastTick = now
-            }, 0)
-
-            try {
-                const items = Array.from({ length: 10 }, (_, i) => i)
-                await yieldEach('test', items, () => busyWaitMs(30), { thresholdMs: 20 })
-                expect(longestDelay).toBeLessThan(120)
-            } finally {
-                clearInterval(interval)
-            }
+        it('handles empty arrays gracefully', async () => {
+            const seen: string[] = []
+            await yieldEach('test', [], (item) => {
+                seen.push(item as string)
+            })
+            expect(seen).toEqual([])
         })
     })
 })

@@ -37,9 +37,7 @@ export function getEventLoopYieldThresholdMs(): number {
     return defaultThresholdMs
 }
 
-export async function yieldEventLoopIfNeeded(caller: string, options?: { thresholdMs?: number }): Promise<boolean> {
-    const threshold = options?.thresholdMs ?? defaultThresholdMs
-
+async function yieldIfNeeded(caller: string): Promise<void> {
     if (!state) {
         state = {
             startedAt: performance.now(),
@@ -53,9 +51,9 @@ export async function yieldEventLoopIfNeeded(caller: string, options?: { thresho
     }
 
     const blockedFor = performance.now() - state.startedAt
-    if (blockedFor < threshold) {
+    if (blockedFor < defaultThresholdMs) {
         eventLoopYieldCounter.inc({ caller, waited: 'false' })
-        return false
+        return
     }
 
     eventLoopYieldBlockedMs.observe({ caller }, blockedFor)
@@ -64,22 +62,38 @@ export async function yieldEventLoopIfNeeded(caller: string, options?: { thresho
     await state.promise
     eventLoopYieldWaitMs.observe({ caller }, performance.now() - awaitStartedAt)
     eventLoopYieldCounter.inc({ caller, waited: 'true' })
-    return true
 }
 
 /**
- * Iterate `items`, calling `fn(item, index)` for each, with a
- * `yieldEventLoopIfNeeded` between iterations. Use this anywhere you'd write a
- * `for ... of` over a CPU-bound batch.
+ * Run `fn` with event-loop protection: yields before `fn` to ensure any
+ * accumulated sync work from earlier callers is accounted for, and yields
+ * after `fn` (regardless of whether it resolved or threw). The before-yield
+ * also primes the shared state so `fn`'s own runtime accumulates into it.
+ */
+export async function yieldEventLoopIfNeeded<T>(caller: string, fn: () => T | Promise<T>): Promise<T> {
+    await yieldIfNeeded(caller)
+    try {
+        return await fn()
+    } finally {
+        await yieldIfNeeded(caller)
+    }
+}
+
+/**
+ * Iterate `items`, calling `fn(item, index)` for each, with a yield between
+ * iterations. Use this anywhere you'd write a `for ... of` over a CPU-bound batch.
  */
 export async function yieldEach<T>(
     caller: string,
     items: ArrayLike<T>,
-    fn: (item: T, index: number) => void | Promise<void>,
-    options?: { thresholdMs?: number }
+    fn: (item: T, index: number) => void | Promise<void>
 ): Promise<void> {
+    if (items.length === 0) {
+        return
+    }
+    await yieldIfNeeded(caller)
     for (let i = 0; i < items.length; i++) {
         await fn(items[i], i)
-        await yieldEventLoopIfNeeded(caller, options)
+        await yieldIfNeeded(caller)
     }
 }
