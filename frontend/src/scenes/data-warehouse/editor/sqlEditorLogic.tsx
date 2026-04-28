@@ -53,6 +53,7 @@ import {
     DatabaseSchemaViewTable,
     FileSystemIconType,
     HogLanguage,
+    HogQLFilters,
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLQuery,
@@ -152,6 +153,47 @@ type LegacyDataVisualizationNode = DataVisualizationNode & {
     connectionId?: string
 }
 
+function hasOwnProperty(object: Record<string, any>, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(object, key)
+}
+
+function normalizeFiltersForUrl(filters: HogQLFilters | null | undefined): HogQLFilters | undefined {
+    const normalizedFilters: HogQLFilters = {}
+
+    if (filters?.properties?.length) {
+        normalizedFilters.properties = filters.properties
+    }
+
+    if (filters?.dateRange?.date_from || filters?.dateRange?.date_to) {
+        normalizedFilters.dateRange = filters.dateRange
+    }
+
+    if (filters?.filterTestAccounts) {
+        normalizedFilters.filterTestAccounts = true
+    }
+
+    return Object.keys(normalizedFilters).length ? normalizedFilters : undefined
+}
+
+function parseFiltersFromUrl(filters: unknown): HogQLFilters | undefined {
+    if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
+        return undefined
+    }
+
+    return normalizeFiltersForUrl(filters as HogQLFilters)
+}
+
+function setFiltersHashParam(url: URL, filters: HogQLFilters | null | undefined): void {
+    const normalizedFilters = normalizeFiltersForUrl(filters)
+    if (!normalizedFilters) {
+        return
+    }
+
+    const hashParams = new URLSearchParams(url.hash ? url.hash.slice(1) : '')
+    hashParams.set('filters', JSON.stringify(normalizedFilters))
+    url.hash = hashParams.toString()
+}
+
 function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     return {
         ...source,
@@ -216,6 +258,10 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
         if (values.sourceQuery?.source.sendRawQuery) {
             hash['raw'] = '1'
         }
+    }
+    const filters = normalizeFiltersForUrl(values.sourceQuery?.source.filters)
+    if (filters) {
+        hash['filters'] = filters
     }
     if (values.activeTab?.view) {
         hash['view'] = values.activeTab.view.id
@@ -760,6 +806,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             shareUrl.searchParams.set('open_query', values.queryInput ?? '')
                         }
                     }
+                    setFiltersHashParam(shareUrl, values.sourceQuery.source.filters)
 
                     void copyToClipboard(shareUrl.toString(), 'share link')
                 } else if (currentTab.view) {
@@ -770,12 +817,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (values.queryInput != currentTab.view.query?.query) {
                         shareUrl.searchParams.set('open_query', values.queryInput ?? '')
                     }
+                    setFiltersHashParam(shareUrl, values.sourceQuery.source.filters)
 
                     void copyToClipboard(shareUrl.toString(), 'share link')
                 } else {
                     const currentUrl = new URL(window.location.href)
                     const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
                     shareUrl.searchParams.set('open_query', values.queryInput ?? '')
+                    setFiltersHashParam(shareUrl, values.sourceQuery.source.filters)
 
                     void copyToClipboard(shareUrl.toString(), 'share link')
                 }
@@ -1822,8 +1871,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 actions.setSelectedQueryTablesAndColumns(result)
             }, 200)
         },
-        showLegacyFilters: (showLegacyFilters: boolean) => {
-            if (showLegacyFilters) {
+        hasFiltersPlaceholder: (hasFiltersPlaceholder: boolean) => {
+            if (hasFiltersPlaceholder) {
                 if (typeof values.sourceQuery.source.filters !== 'object') {
                     actions.setSourceQuery({
                         ...values.sourceQuery,
@@ -1833,16 +1882,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         },
                     })
                 }
-            } else {
-                if (values.sourceQuery.source.filters !== undefined) {
-                    actions.setSourceQuery({
-                        ...values.sourceQuery,
-                        source: {
-                            ...values.sourceQuery.source,
-                            filters: undefined,
-                        },
-                    })
-                }
+            }
+        },
+        sourceQuery: (sourceQuery: DataVisualizationNode, previousSourceQuery: DataVisualizationNode | undefined) => {
+            if (values.isEmbeddedMode || !values.activeTab) {
+                return
+            }
+
+            const filters = normalizeFiltersForUrl(sourceQuery.source.filters)
+            const previousFilters = normalizeFiltersForUrl(previousSourceQuery?.source.filters)
+            if (!isEqual(filters ?? {}, previousFilters ?? {})) {
+                actions.syncUrlWithQuery()
             }
         },
         editingView: (editingView) => {
@@ -2007,7 +2057,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 )
             },
         ],
-        showLegacyFilters: [
+        hasFiltersPlaceholder: [
             (s) => [s.queryInput],
             (queryInput) => {
                 return queryInput && (queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1)
@@ -2258,6 +2308,30 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             const outputTabFromUrl = parseOutputTab(searchParams.output_tab ?? hashParams.output_tab)
+            const draftIdFromUrl = searchParams.open_draft || hashParams.draft
+            const viewIdFromUrl = searchParams.open_view || hashParams.view
+            const insightShortIdFromUrl = searchParams.open_insight || hashParams.insight
+            const hasFiltersHashParam = hasOwnProperty(hashParams, 'filters')
+            const shouldApplyFiltersFromUrl =
+                hasFiltersHashParam ||
+                (!!(searchParams.open_query || hashParams.q) &&
+                    !draftIdFromUrl &&
+                    !viewIdFromUrl &&
+                    !insightShortIdFromUrl)
+            const filtersFromUrl = hasFiltersHashParam ? parseFiltersFromUrl(hashParams.filters) : undefined
+            const applyFiltersFromUrl = (sourceQuery: DataVisualizationNode): DataVisualizationNode => {
+                if (!shouldApplyFiltersFromUrl) {
+                    return sourceQuery
+                }
+
+                return {
+                    ...sourceQuery,
+                    source: {
+                        ...sourceQuery.source,
+                        filters: filtersFromUrl ?? {},
+                    },
+                }
+            }
             const expectedDatabaseConnectionId = values.selectedConnectionId ?? null
             const shouldSyncDatabaseConnection =
                 values.databaseConnectionId !== expectedDatabaseConnectionId || !values.database
@@ -2271,6 +2345,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !hashParams.q &&
                 !hashParams.c &&
                 !hashParams.raw &&
+                !hasFiltersHashParam &&
                 !hashParams.view &&
                 !hashParams.insight &&
                 !hashParams.draft &&
@@ -2296,14 +2371,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 String(hashParams.raw) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
+            const filtersForSourceQuery = applyFiltersFromUrl(values.sourceQuery).source.filters
+            const shouldSyncFilters =
+                shouldApplyFiltersFromUrl &&
+                !isEqual(
+                    normalizeFiltersForUrl(filtersForSourceQuery) ?? {},
+                    normalizeFiltersForUrl(values.sourceQuery.source.filters) ?? {}
+                )
 
-            if (connectionIdFromHash !== currentConnectionId || sendRawQueryFromHash !== currentSendRawQuery) {
+            if (
+                connectionIdFromHash !== currentConnectionId ||
+                sendRawQueryFromHash !== currentSendRawQuery ||
+                shouldSyncFilters
+            ) {
                 actions.setSourceQuery({
                     ...values.sourceQuery,
                     source: {
                         ...values.sourceQuery.source,
                         connectionId: connectionIdFromHash,
                         sendRawQuery: sendRawQueryFromHash || undefined,
+                        filters: filtersForSourceQuery,
                     },
                 })
             }
@@ -2314,9 +2401,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (outputTabFromUrl && values.outputActiveTab !== outputTabFromUrl) {
                     actions.setActiveTab(outputTabFromUrl)
                 }
-                const draftIdFromUrl = searchParams.open_draft || hashParams.draft
-                const viewIdFromUrl = searchParams.open_view || hashParams.view
-                const insightShortIdFromUrl = searchParams.open_insight || hashParams.insight
 
                 if (
                     draftIdFromUrl &&
@@ -2436,7 +2520,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
                     if (insightVisualizationQuery) {
-                        actions.setSourceQuery(insightVisualizationQuery)
+                        actions.setSourceQuery(applyFiltersFromUrl(insightVisualizationQuery))
                     }
                     actions.editInsight(queryToOpen, insight)
                     if (!outputTabFromUrl) {

@@ -19,7 +19,6 @@ env:
     SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
     WORKFLOW_FAILURE_STREAK_THRESHOLD: '5'
     COMMIT_FAILURE_STREAK_THRESHOLD: '10'
-    RATE_LIMIT_THRESHOLD_PERCENT: '10'
     # Keep in sync with ci-master-status.yml watched workflows
     WATCHED_WORKFLOWS: 'ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml'
     CRITICAL_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml,ci-e2e-playwright.yml'
@@ -227,57 +226,6 @@ jobs:
                           text:
                             type: "mrkdwn"
                             text: ":large_green_circle: *Master stable again* (streak ended after ${{ steps.check.outputs.commit_failure_streak_last_count }} consecutive red commits)"
-
-            # ============ RATE LIMIT: CREATE ============
-
-            - name: Post rate limit alert to Slack
-              if: steps.check.outputs.rate_limit_action == 'create'
-              id: slack_rate_limit
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
-              with:
-                  method: chat.postMessage
-                  token: ${{ secrets.SLACK_BOT_TOKEN }}
-                  errors: true
-                  payload: |
-                      channel: "${{ env.SLACK_CHANNEL }}"
-                      text: ":warning: GitHub API rate limit critically low (${{ steps.check.outputs.rate_limit_remaining }}/${{ steps.check.outputs.rate_limit_limit }} remaining, resets in ~${{ steps.check.outputs.rate_limit_reset_mins }} min)"
-                      blocks:
-                        - type: "section"
-                          text:
-                            type: "mrkdwn"
-                            text: ":warning: *GitHub API rate limit critically low*\n${{ steps.check.outputs.rate_limit_remaining }}/${{ steps.check.outputs.rate_limit_limit }} remaining — resets in ~${{ steps.check.outputs.rate_limit_reset_mins }} min\nCI monitoring may be blind — workflow status checks could fail silently."
-
-            - name: Save rate limit Slack info to state
-              if: steps.check.outputs.rate_limit_action == 'create'
-              env:
-                  SLACK_CHANNEL_ID: ${{ steps.slack_rate_limit.outputs.channel_id }}
-                  SLACK_TS: ${{ steps.slack_rate_limit.outputs.ts }}
-              run: |
-                  jq \
-                    --arg channel "$SLACK_CHANNEL_ID" \
-                    --arg ts "$SLACK_TS" \
-                    '. + {rate_limit_slack_channel: $channel, rate_limit_slack_ts: $ts}' \
-                    .alerts-devex > .alerts-devex.tmp
-                  mv .alerts-devex.tmp .alerts-devex
-
-            # ============ RATE LIMIT: RESOLVE ============
-
-            - name: Update rate limit alert to resolved
-              if: steps.check.outputs.rate_limit_action == 'resolve'
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
-              with:
-                  method: chat.update
-                  token: ${{ secrets.SLACK_BOT_TOKEN }}
-                  errors: true
-                  payload: |
-                      channel: "${{ steps.check.outputs.rate_limit_slack_channel }}"
-                      ts: "${{ steps.check.outputs.rate_limit_slack_ts }}"
-                      text: "GitHub API rate limit recovered :v:"
-                      blocks:
-                        - type: "section"
-                          text:
-                            type: "mrkdwn"
-                            text: "*GitHub API rate limit recovered* :v:"
 
             # ============ CACHE ============
 
