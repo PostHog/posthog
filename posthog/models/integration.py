@@ -2112,6 +2112,17 @@ def raise_if_github_rate_limited(response: requests.Response) -> None:
     )
 
 
+@dataclass(frozen=True)
+class GitHubInstallationAccess:
+    """Installation-level access token response for a GitHub App installation."""
+
+    installation_id: str
+    installation_info: dict[str, Any]
+    access_token: str
+    token_expires_at: str  # ISO datetime returned by GitHub, e.g. "2024-01-01T14:00:00Z"
+    repository_selection: str
+
+
 class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
 

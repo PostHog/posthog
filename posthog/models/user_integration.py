@@ -1,8 +1,13 @@
 import time
-from typing import Any
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import models
+
+if TYPE_CHECKING:
+    from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization
+    from posthog.models.user import User
 
 import requests
 import structlog
@@ -256,3 +261,60 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             self.integration.delete()
         except Exception:
             logger.warning("UserGitHubIntegration: failed to delete unusable integration", exc_info=True)
+
+
+def user_github_integration_from_installation(
+    user: "User",
+    installation: "GitHubInstallationAccess",
+    authorization: "GitHubUserAuthorization",
+) -> UserIntegration:
+    """Create or update the user-scoped GitHub integration for an installation + authorization pair.
+
+    Uses ``update_or_create`` keyed on ``(user, kind, integration_id)`` so that
+    re-authorizing the same installation refreshes the stored tokens rather than
+    creating a duplicate row.
+    """
+    from posthog.models.integration import dot_get
+
+    now = int(time.time())
+    try:
+        expires_in = datetime.fromisoformat(installation.token_expires_at).timestamp() - now
+    except (ValueError, AttributeError):
+        expires_in = 3600
+
+    config: dict[str, Any] = {
+        "installation_id": installation.installation_id,
+        "expires_in": expires_in,
+        "refreshed_at": now,
+        "repository_selection": installation.repository_selection,
+        "account": {
+            "type": dot_get(installation.installation_info, "account.type", None),
+            "name": dot_get(installation.installation_info, "account.login", installation.installation_id),
+        },
+        "github_user": {
+            "login": authorization.gh_login,
+            "id": authorization.gh_id,
+        },
+        "user_token_refreshed_at": now,
+    }
+    if authorization.access_token_expires_in is not None:
+        config["user_access_token_expires_at"] = now + authorization.access_token_expires_in
+    if authorization.refresh_token_expires_in is not None:
+        config["user_refresh_token_expires_at"] = now + authorization.refresh_token_expires_in
+
+    sensitive_config = {
+        "access_token": installation.access_token,
+        "user_access_token": authorization.access_token,
+        "user_refresh_token": authorization.refresh_token,
+    }
+
+    integration, _ = UserIntegration.objects.update_or_create(
+        user=user,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        integration_id=installation.installation_id,
+        defaults={
+            "config": config,
+            "sensitive_config": sensitive_config,
+        },
+    )
+    return integration
