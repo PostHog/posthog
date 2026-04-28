@@ -1921,15 +1921,16 @@ export namespace Schemas {
 
 
     export const MultipleBreakdownType = {
-      Cohort: 'cohort',
       Person: 'person',
       Event: 'event',
       EventMetadata: 'event_metadata',
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
+      Cohort: 'cohort',
       RevenueAnalytics: 'revenue_analytics',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
     } as const;
 
     export interface Breakdown {
@@ -6957,6 +6958,8 @@ export namespace Schemas {
       event_filters?: (EventPropFilter | HogQLFilter)[] | null;
       /** @nullable */
       explicit_datetime?: string | null;
+      /** @nullable */
+      explicit_datetime_to?: string | null;
     }
 
     export interface BlastRadius {
@@ -8714,6 +8717,8 @@ export namespace Schemas {
       target_project_ids: number[];
       /** Whether to also copy scheduled changes for this flag */
       copy_schedule?: boolean;
+      /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
+      disable_copied_flag?: boolean;
     }
 
     export interface CopyFlagsSuccessItem {
@@ -15077,6 +15082,12 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -15931,6 +15942,12 @@ export namespace Schemas {
       readonly last_updated_at: string;
       tags?: unknown[];
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -20360,75 +20377,77 @@ export namespace Schemas {
     }
 
     /**
-     * * `slack` - Slack
-    * `slack-posthog-code` - Slack Posthog Code
-    * `salesforce` - Salesforce
-    * `hubspot` - Hubspot
-    * `google-pubsub` - Google Pubsub
-    * `google-cloud-storage` - Google Cloud Storage
-    * `google-ads` - Google Ads
-    * `google-sheets` - Google Sheets
-    * `google-cloud-service-account` - Google Cloud Service Account
-    * `snapchat` - Snapchat
-    * `linkedin-ads` - Linkedin Ads
-    * `reddit-ads` - Reddit Ads
-    * `tiktok-ads` - Tiktok Ads
+     * * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
-    * `intercom` - Intercom
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
     * `email` - Email
-    * `linear` - Linear
+    * `firebase` - Firebase
     * `github` - Github
     * `gitlab` - Gitlab
-    * `meta-ads` - Meta Ads
-    * `twilio` - Twilio
-    * `clickup` - Clickup
-    * `vercel` - Vercel
-    * `databricks` - Databricks
-    * `azure-blob` - Azure Blob
-    * `firebase` - Firebase
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
     * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
     * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
     * `stripe` - Stripe
-    * `customerio-app` - Customerio App
-    * `customerio-webhook` - Customerio Webhook
-    * `customerio-track` - Customerio Track
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
 
     export const IntegrationKindEnum = {
-      Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
-      Salesforce: 'salesforce',
-      Hubspot: 'hubspot',
-      GooglePubsub: 'google-pubsub',
-      GoogleCloudStorage: 'google-cloud-storage',
-      GoogleAds: 'google-ads',
-      GoogleSheets: 'google-sheets',
-      GoogleCloudServiceAccount: 'google-cloud-service-account',
-      Snapchat: 'snapchat',
-      LinkedinAds: 'linkedin-ads',
-      RedditAds: 'reddit-ads',
-      TiktokAds: 'tiktok-ads',
+      AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
-      Intercom: 'intercom',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
       Email: 'email',
-      Linear: 'linear',
+      Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
-      MetaAds: 'meta-ads',
-      Twilio: 'twilio',
-      Clickup: 'clickup',
-      Vercel: 'vercel',
-      Databricks: 'databricks',
-      AzureBlob: 'azure-blob',
-      Firebase: 'firebase',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
       Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
       PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
       Stripe: 'stripe',
-      CustomerioApp: 'customerio-app',
-      CustomerioWebhook: 'customerio-webhook',
-      CustomerioTrack: 'customerio-track',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
     } as const;
 
     /**
@@ -21442,6 +21461,8 @@ export namespace Schemas {
       /** @nullable */
       readonly template_id: string | null;
       readonly name: string;
+      /** Lowercase key from the linked template for brand icons. Empty if custom install (no template). */
+      readonly icon_key: string;
       /** @maxLength 200 */
       display_name?: string;
       /** @maxLength 2048 */
@@ -21856,6 +21877,11 @@ export namespace Schemas {
       text_content?: string;
       /** Updated notebook title. */
       title?: string;
+      /**
+       * ProseMirror cursor head position after applying steps.
+       * @nullable
+       */
+      cursor_head?: number | null;
     }
 
     export interface NotebookMinimal {
@@ -23750,6 +23776,8 @@ export namespace Schemas {
        * @nullable
        */
       end_date?: string | null;
+      /** @nullable */
+      readonly timezone: string | null;
     }
 
     export interface PaginatedScheduledChangeList {
@@ -26470,6 +26498,12 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action?: boolean;
       readonly action_id?: number;
       readonly is_calculating?: boolean;
@@ -29062,6 +29096,8 @@ export namespace Schemas {
        * @nullable
        */
       end_date?: string | null;
+      /** @nullable */
+      readonly timezone?: string | null;
     }
 
     export interface PatchedSchemaPropertyGroup {
@@ -29219,6 +29255,14 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
       _create_in_folder?: string;
+    }
+
+    export interface PatchedSessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -31587,6 +31631,16 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    /**
+     * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
+     */
+    export type PromotedPropertiesResponsePromotedProperties = {[key: string]: string};
+
+    export interface PromotedPropertiesResponse {
+      /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
+      promoted_properties: PromotedPropertiesResponsePromotedProperties;
     }
 
     /**
@@ -34970,6 +35024,14 @@ export namespace Schemas {
       focus_area?: string;
     }
 
+    export interface SessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
+    }
+
     /**
      * * `trace` - trace
     * `debug` - debug
@@ -37013,10 +37075,6 @@ export namespace Schemas {
     checks_offset?: number;
     };
 
-    export type EnvironmentsAppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type EnvironmentsAppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
-
     export type EnvironmentsBatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -38178,7 +38236,47 @@ export namespace Schemas {
      * Return basic insight metadata only (no results, faster).
      */
     basic?: boolean;
+    /**
+     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
+     */
+    created_by?: string;
+    /**
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
+     */
+    created_date_from?: string;
+    /**
+     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
+     */
+    created_date_to?: string;
+    /**
+     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
+     */
+    dashboards?: string;
+    /**
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     */
+    date_from?: string;
+    /**
+     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
+     */
+    date_to?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
+     */
+    favorited?: boolean;
     format?: EnvironmentsInsightsListFormat;
+    /**
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     */
+    insight?: EnvironmentsInsightsListInsight;
+    /**
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_from?: string;
+    /**
+     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_to?: string;
     /**
      * Number of results to return per page.
      */
@@ -38199,7 +38297,23 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: EnvironmentsInsightsListRefresh;
+    /**
+     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
+     */
+    saved?: boolean;
+    /**
+     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     */
+    search?: string;
     short_id?: string;
+    /**
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     */
+    tags?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
+     */
+    user?: boolean;
     };
 
     export type EnvironmentsInsightsListFormat = typeof EnvironmentsInsightsListFormat[keyof typeof EnvironmentsInsightsListFormat];
@@ -38208,6 +38322,20 @@ export namespace Schemas {
     export const EnvironmentsInsightsListFormat = {
       Csv: 'csv',
       Json: 'json',
+    } as const;
+
+    export type EnvironmentsInsightsListInsight = typeof EnvironmentsInsightsListInsight[keyof typeof EnvironmentsInsightsListInsight];
+
+
+    export const EnvironmentsInsightsListInsight = {
+      Funnels: 'FUNNELS',
+      Json: 'JSON',
+      Lifecycle: 'LIFECYCLE',
+      Paths: 'PATHS',
+      Retention: 'RETENTION',
+      Sql: 'SQL',
+      Stickiness: 'STICKINESS',
+      Trends: 'TRENDS',
     } as const;
 
     export type EnvironmentsInsightsListRefresh = typeof EnvironmentsInsightsListRefresh[keyof typeof EnvironmentsInsightsListRefresh];
@@ -40775,10 +40903,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type AppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type AppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
-
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -41452,6 +41576,13 @@ export namespace Schemas {
      * The exact event name to look up
      */
     name: string;
+    };
+
+    export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+    /**
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     */
+    names?: string[];
     };
 
     export type EventSchemasListParams = {
@@ -42375,7 +42506,47 @@ export namespace Schemas {
      * Return basic insight metadata only (no results, faster).
      */
     basic?: boolean;
+    /**
+     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
+     */
+    created_by?: string;
+    /**
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
+     */
+    created_date_from?: string;
+    /**
+     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
+     */
+    created_date_to?: string;
+    /**
+     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
+     */
+    dashboards?: string;
+    /**
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     */
+    date_from?: string;
+    /**
+     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
+     */
+    date_to?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
+     */
+    favorited?: boolean;
     format?: InsightsListFormat;
+    /**
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     */
+    insight?: InsightsListInsight;
+    /**
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_from?: string;
+    /**
+     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_to?: string;
     /**
      * Number of results to return per page.
      */
@@ -42396,7 +42567,23 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: InsightsListRefresh;
+    /**
+     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
+     */
+    saved?: boolean;
+    /**
+     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     */
+    search?: string;
     short_id?: string;
+    /**
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     */
+    tags?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
+     */
+    user?: boolean;
     };
 
     export type InsightsListFormat = typeof InsightsListFormat[keyof typeof InsightsListFormat];
@@ -42405,6 +42592,20 @@ export namespace Schemas {
     export const InsightsListFormat = {
       Csv: 'csv',
       Json: 'json',
+    } as const;
+
+    export type InsightsListInsight = typeof InsightsListInsight[keyof typeof InsightsListInsight];
+
+
+    export const InsightsListInsight = {
+      Funnels: 'FUNNELS',
+      Json: 'JSON',
+      Lifecycle: 'LIFECYCLE',
+      Paths: 'PATHS',
+      Retention: 'RETENTION',
+      Sql: 'SQL',
+      Stickiness: 'STICKINESS',
+      Trends: 'TRENDS',
     } as const;
 
     export type InsightsListRefresh = typeof InsightsListRefresh[keyof typeof InsightsListRefresh];
