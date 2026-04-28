@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -216,6 +217,7 @@ class DebugCHQueries(viewsets.ViewSet):
         elif experiment_id:
             filter_key, filter_value = "experiment_id", experiment_id
 
+        tag_queries(product=Product.INTERNAL, feature=Feature.QUERY)
         queries = self.queries(request, filter_key, filter_value)
         response = {"queries": queries}
         if filter_key and filter_value:
@@ -337,6 +339,7 @@ class DebugCHQueries(viewsets.ViewSet):
             raise exceptions.ValidationError("hours must be an integer.")
         hours = max(1, min(hours, 168))  # clamp to 1h–7d
 
+        tag_queries(product=Product.INTERNAL, feature=Feature.QUERY)
         response = sync_execute(
             """
             SELECT
