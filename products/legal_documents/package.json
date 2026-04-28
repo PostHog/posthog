@@ -16,7 +16,7 @@
         "@storybook/react": "*",
         "@storybook/testing-library": "*",
         "@types/react": "*",
-        "posthog-js": "*",
+        "posthog-js": "catalog:",
         "react": "*"
     }
 }
