@@ -249,18 +249,26 @@ const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinn
 
     const storedTabs = storedPinned.tabs ?? []
 
+    // sceneParams is intentionally stripped during persistence (see tabToPersistableSnapshot) because it
+    // can be deep/cyclic. When merging back from storage we must NOT lose the in-memory sceneParams,
+    // otherwise the active scene's `paramsToProps` runs against an empty params bag — which silently
+    // dropped numeric route ids to NaN and stranded scenes like the dashboard on a stuck NotFound.
     const activeById = new Map<string, boolean>()
+    const sceneParamsById = new Map<string, SceneParams | undefined>()
     for (const tab of fallbackPinned) {
         activeById.set(tab.id, tab.active)
+        sceneParamsById.set(tab.id, tab.sceneParams)
     }
 
     const normalized = storedTabs.map((tab) => {
         const id = tab.id || generateTabId()
+        const inMemorySceneParams = sceneParamsById.get(id)
         return {
             ...tab,
             id,
             pinned: true,
             active: activeById.get(id) ?? false,
+            sceneParams: inMemorySceneParams ?? tab.sceneParams,
         }
     })
 
@@ -1672,6 +1680,11 @@ export const sceneLogic = kea<sceneLogicType>([
             syncPinnedTabsFromStorage()
             window.addEventListener('storage', onStorage)
             return () => window.removeEventListener('storage', onStorage)
-        }, 'pinnedTabsStorageListener')
+            // pauseOnPageHidden=false: kea-disposables otherwise tears this down on visibilitychange
+            // hidden and re-runs the setup on visible — re-firing syncPinnedTabsFromStorage() on every
+            // browser-tab return. That sync used to clobber in-memory sceneParams (now also fixed in
+            // mergePinnedTabs); even with the merge fixed there's no benefit to re-running it here, only
+            // unnecessary work and a regression footgun. The listener is a passive event subscription.
+        }, 'pinnedTabsStorageListener', { pauseOnPageHidden: false })
     }),
 ])
