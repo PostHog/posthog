@@ -332,7 +332,7 @@ pub async fn phase_concurrent_reads_writes(
                 let result = sqlx::query(
                     "SELECT person_uuid, distinct_ids, properties \
                      FROM flags_person_lookup \
-                     WHERE team_id = $1 AND $2 = ANY(distinct_ids) \
+                     WHERE team_id = $1 AND distinct_ids @> ARRAY[$2]::text[] \
                      LIMIT 1",
                 )
                 .bind(team_id)
@@ -400,7 +400,7 @@ async fn check_read_query_plan(pool: &PgPool, data: &BenchmarkData) -> QueryPlan
         "EXPLAIN (ANALYZE, BUFFERS) \
          SELECT person_uuid, distinct_ids, properties \
          FROM flags_person_lookup \
-         WHERE team_id = $1 AND $2 = ANY(distinct_ids) \
+         WHERE team_id = $1 AND distinct_ids @> ARRAY[$2]::text[] \
          LIMIT 1",
     )
     .bind(team_id)
@@ -415,7 +415,11 @@ async fn check_read_query_plan(pool: &PgPool, data: &BenchmarkData) -> QueryPlan
                 .map(|(line,)| line)
                 .collect::<Vec<_>>()
                 .join("\n");
-            let gin_index_used = plan_text.contains("idx_flags_person_gin");
+            // The migration names the parent GIN index `idx_flags_person_gin`,
+            // but Postgres auto-names partition-local indexes as
+            // `<partition>_team_id_distinct_ids_idx`, so we match either form.
+            let gin_index_used = plan_text.contains("idx_flags_person_gin")
+                || plan_text.contains("team_id_distinct_ids_idx");
             tracing::info!(gin_index_used, "Phase 5 read query plan:\n{plan_text}");
             QueryPlanInfo {
                 gin_index_used,
