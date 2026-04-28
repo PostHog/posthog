@@ -54,6 +54,7 @@ Make sure to grant the following read permissions:
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="plainApiKey_...",
+                        secret=True,
                     ),
                 ],
             ),

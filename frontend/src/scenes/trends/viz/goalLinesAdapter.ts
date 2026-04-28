@@ -7,7 +7,7 @@ import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general
 export function computeSeriesNonZeroMax(series: Series[]): number {
     let max = Number.NEGATIVE_INFINITY
     for (const s of series) {
-        if (s.hidden) {
+        if (s.visibility?.excluded) {
             continue
         }
         for (const raw of s.data) {

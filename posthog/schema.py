@@ -278,14 +278,15 @@ class OrderDirection(StrEnum):
 
 
 class AssistantEventMultipleBreakdownFilterType(StrEnum):
-    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
     SESSION = "session"
     HOGQL = "hogql"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    COHORT = "cohort"
     REVENUE_ANALYTICS = "revenue_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
 class AssistantEventType(StrEnum):
@@ -1305,19 +1306,6 @@ class DataWarehouseSavedQueryOrigin(StrEnum):
     MANAGED_VIEWSET = "managed_viewset"
 
 
-class DataWarehouseSyncInterval(StrEnum):
-    FIELD_1MIN = "1min"
-    FIELD_5MIN = "5min"
-    FIELD_15MIN = "15min"
-    FIELD_30MIN = "30min"
-    FIELD_1HOUR = "1hour"
-    FIELD_6HOUR = "6hour"
-    FIELD_12HOUR = "12hour"
-    FIELD_24HOUR = "24hour"
-    FIELD_7DAY = "7day"
-    FIELD_30DAY = "30day"
-
-
 class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_CHARGE = "revenue_analytics_charge"
     REVENUE_ANALYTICS_CUSTOMER = "revenue_analytics_customer"
@@ -2124,6 +2112,7 @@ class ExternalDataSourceType(StrEnum):
     CONVEX = "Convex"
     CLICK_HOUSE = "ClickHouse"
     PLAIN = "Plain"
+    RESEND = "Resend"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3370,15 +3359,16 @@ class MultiQuestionFormQuestionType(StrEnum):
 
 
 class MultipleBreakdownType(StrEnum):
-    COHORT = "cohort"
     PERSON = "person"
     EVENT = "event"
     EVENT_METADATA = "event_metadata"
     GROUP = "group"
     SESSION = "session"
     HOGQL = "hogql"
-    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    COHORT = "cohort"
     REVENUE_ANALYTICS = "revenue_analytics"
+    DATA_WAREHOUSE = "data_warehouse"
+    DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
 
 
 class NativeMarketingSource(StrEnum):
@@ -8223,6 +8213,15 @@ class SourceFieldInputConfig(BaseModel):
     name: str
     placeholder: str
     required: bool
+    secret: bool = Field(
+        ...,
+        description=(
+            "Marks this field as containing sensitive data. The value is stripped from"
+            " API responses regardless of the rendering `type` (so a multi-line PEM"
+            " blob can use `textarea` and still be redacted). Required: source authors"
+            " must explicitly classify every field."
+        ),
+    )
     type: SourceFieldInputConfigType
 
 
@@ -21147,7 +21146,12 @@ class EndpointRequest(BaseModel):
             " Keys are column names, values are bucket keys (hour, day, week, month)."
         ),
     )
-    cache_age_seconds: float | None = None
+    data_freshness_seconds: int | None = Field(
+        default=None,
+        description=(
+            "How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency."
+        ),
+    )
     deleted: bool | None = Field(default=None, description="Set to true to soft-delete this endpoint")
     derived_from_insight: str | None = None
     description: str | None = None
@@ -21159,10 +21163,6 @@ class EndpointRequest(BaseModel):
     name: str | None = None
     query: HogQLQuery | TrendsQuery | RetentionQuery | LifecycleQuery | WebStatsTableQuery | WebOverviewQuery | None = (
         None
-    )
-    sync_frequency: DataWarehouseSyncInterval | None = Field(
-        default=None,
-        description="How frequently should the underlying materialized view be updated",
     )
     version: int | None = Field(
         default=None,
