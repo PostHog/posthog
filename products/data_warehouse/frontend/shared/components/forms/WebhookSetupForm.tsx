@@ -40,6 +40,7 @@ export function WebhookSetupForm({
     formKey,
 }: WebhookSetupFormProps): JSX.Element {
     const webhookFields = sourceConfig?.webhookFields ?? []
+    const manualOnly = sourceConfig?.webhookManualOnly ?? false
 
     const webhookTablesList =
         webhookTables && webhookTables.length > 0 ? (
@@ -63,8 +64,9 @@ export function WebhookSetupForm({
                 </p>
                 {webhookTablesList}
                 <LemonBanner type="info">
-                    We'll automatically register the webhook on your {sourceName} account. No manual configuration is
-                    needed.
+                    {manualOnly
+                        ? `We'll generate a webhook URL — you'll need to register it manually in your ${sourceName} app settings.`
+                        : `We'll automatically register the webhook on your ${sourceName} account. No manual configuration is needed.`}
                 </LemonBanner>
                 {sourceConfig?.docsUrl && (
                     <p className="text-sm text-muted">
@@ -76,7 +78,7 @@ export function WebhookSetupForm({
                     </p>
                 )}
                 <LemonButton type="primary" onClick={onCreateWebhook}>
-                    Create webhook
+                    {manualOnly ? 'Generate webhook URL' : 'Create webhook'}
                 </LemonButton>
             </WebhookSetupCard>
         )
@@ -89,7 +91,11 @@ export function WebhookSetupForm({
                 {webhookTablesList}
                 <div className="flex flex-col items-center justify-center py-8 gap-4">
                     <Spinner className="text-3xl" />
-                    <p className="text-muted">Registering webhook on your {sourceName} account...</p>
+                    <p className="text-muted">
+                        {manualOnly
+                            ? 'Generating webhook URL...'
+                            : `Registering webhook on your ${sourceName} account...`}
+                    </p>
                 </div>
             </WebhookSetupCard>
         )
@@ -111,16 +117,21 @@ export function WebhookSetupForm({
     return (
         <WebhookSetupCard>
             <h3 className="text-lg font-semibold">Manual webhook setup for {sourceName}</h3>
-            <LemonBanner type="warning">
-                {webhookResult?.error || 'Could not create the webhook automatically.'}
-            </LemonBanner>
+            {!manualOnly && (
+                <LemonBanner type="warning">
+                    {webhookResult?.error || 'Could not create the webhook automatically.'}
+                </LemonBanner>
+            )}
             <p>
-                You'll need to manually configure the webhook in your {sourceName} account. Copy the URL below and add
-                it as a webhook endpoint in your {sourceName} settings.
+                {manualOnly
+                    ? `Copy the URL below and register it as a webhook endpoint in your ${sourceName} app settings.`
+                    : `You'll need to manually configure the webhook in your ${sourceName} account. Copy the URL below and add it as a webhook endpoint in your ${sourceName} settings.`}
             </p>
             {webhookResult?.webhook_url && <WebhookUrlDisplay url={webhookResult.webhook_url} />}
             {sourceConfig?.webhookSetupCaption && (
-                <LemonMarkdown className="text-sm">{sourceConfig.webhookSetupCaption}</LemonMarkdown>
+                <LemonMarkdown className="text-sm">
+                    {sourceConfig.webhookSetupCaption.replace('{webhook_url}', webhookResult?.webhook_url ?? '')}
+                </LemonMarkdown>
             )}
             {webhookFields.length > 0 && sourceConfig && formLogic && formKey && (
                 <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
