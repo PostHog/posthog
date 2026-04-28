@@ -648,7 +648,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
-            elif postgres_schema_changed and isinstance(source, PostgresSource):
+            elif postgres_schema_changed:
                 # Re-discover for the metadata rewrite below.
                 discovered_schemas = source.get_schemas(source_config, instance.team_id)
 
