@@ -31,7 +31,7 @@ class SessionGroupSummaryInputs:
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
     local_reads_prod: bool = False
-    video_validation_enabled: bool | Literal["full"] | None = None
+    video_based: bool = False
     trigger_session_id: str | None = None
 
 

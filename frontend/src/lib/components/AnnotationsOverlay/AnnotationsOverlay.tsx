@@ -26,6 +26,9 @@ import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotat
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
 
 const MIN_BADGE_SPACING_PX = 24
+/** Clusters anchor on their starting badge (leftPx) so a chain of near-adjacent badges
+ *  can't keep absorbing each other into one oversized cluster spanning a wide date range. */
+const MAX_CLUSTER_WIDTH_PX = 17
 const EMPTY_ANNOTATIONS: DatedAnnotationType[] = []
 
 const GROUPING_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -141,7 +144,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
         const out: AnnotationBadgeCluster[] = []
         for (const badge of positioned) {
             const last = out[out.length - 1]
-            if (last && badge.leftPx - last.rightPx < MIN_BADGE_SPACING_PX) {
+            if (last && badge.leftPx - last.leftPx < MAX_CLUSTER_WIDTH_PX) {
                 last.annotations = [...last.annotations, ...badge.annotations]
                 last.dateRange = [last.dateRange[0], badge.date]
                 last.rightPx = badge.leftPx

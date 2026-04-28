@@ -566,7 +566,7 @@ class OutreachSourceConfig(config.Config):
 
 @config.config
 class PaddleSourceConfig(config.Config):
-    pass
+    paddle_api_key: str
 
 
 @config.config
@@ -603,6 +603,11 @@ class PipedriveSourceConfig(config.Config):
 @config.config
 class PlaidSourceConfig(config.Config):
     pass
+
+
+@config.config
+class PlainSourceConfig(config.Config):
+    api_key: str
 
 
 @config.config
@@ -663,6 +668,11 @@ class RedshiftSourceConfig(config.Config):
     port: int = config.value(converter=int)
     connection_string: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class ResendSourceConfig(config.Config):
+    api_key: str
 
 
 @config.config
@@ -977,6 +987,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PINTERESTADS: PinterestAdsSourceConfig,
         ExternalDataSourceType.PIPEDRIVE: PipedriveSourceConfig,
         ExternalDataSourceType.PLAID: PlaidSourceConfig,
+        ExternalDataSourceType.PLAIN: PlainSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POSTGRES: PostgresSourceConfig,
         ExternalDataSourceType.POSTMARK: PostmarkSourceConfig,
@@ -986,6 +997,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.RECURLY: RecurlySourceConfig,
         ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
+        ExternalDataSourceType.RESEND: ResendSourceConfig,
         ExternalDataSourceType.REVENUECAT: RevenueCatSourceConfig,
         ExternalDataSourceType.RINGCENTRAL: RingCentralSourceConfig,
         ExternalDataSourceType.SFTP: SFTPSourceConfig,

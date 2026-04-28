@@ -18,3 +18,62 @@ message CheckCohortMembershipRequest {
 message CohortMembershipResponse {
   repeated CohortMembership memberships = 1;
 }
+
+// CountCohortMembers returns the total member count across the given cohort IDs.
+// Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+message CountCohortMembersRequest {
+  repeated int64 cohort_ids = 1;
+  ReadOptions read_options = 2;
+}
+
+message CountCohortMembersResponse {
+  int64 count = 1;
+}
+
+// DeleteCohortMember removes a single person from a cohort.
+// Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+message DeleteCohortMemberRequest {
+  int64 cohort_id = 1;
+  int64 person_id = 2;
+}
+
+message DeleteCohortMemberResponse {
+  bool deleted = 1;
+}
+
+// DeleteCohortMembersBulk removes members for the given cohort IDs in batches.
+// Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+message DeleteCohortMembersBulkRequest {
+  repeated int64 cohort_ids = 1;
+  int32 batch_size = 2;
+}
+
+message DeleteCohortMembersBulkResponse {
+  int64 deleted_count = 1;
+}
+
+// InsertCohortMembers adds persons to a static cohort.
+// Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+message InsertCohortMembersRequest {
+  int64 cohort_id = 1;
+  repeated int64 person_ids = 2;
+  optional int32 version = 3;
+}
+
+message InsertCohortMembersResponse {
+  int64 inserted_count = 1;
+}
+
+// ListCohortMemberIds returns person IDs for a cohort with keyset pagination.
+// Caller is responsible for team-level isolation (cohortpeople has no team_id column).
+message ListCohortMemberIdsRequest {
+  int64 cohort_id = 1;
+  int64 cursor = 2;
+  int32 limit = 3;
+  ReadOptions read_options = 4;
+}
+
+message ListCohortMemberIdsResponse {
+  repeated int64 person_ids = 1;
+  int64 next_cursor = 2;
+}

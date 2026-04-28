@@ -2,8 +2,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useRef, useState } from 'react'
-import { Transition } from 'react-transition-group'
-import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
 
 import {
@@ -24,12 +22,12 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonTag, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS, SESSION_SUMMARY_FEEDBACK_SURVEY_ID } from 'lib/constants'
+import { SESSION_SUMMARY_FEEDBACK_SURVEY_ID } from 'lib/constants'
+import { useAnimatedPresence } from 'lib/hooks/useAnimatedPresence'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -347,6 +345,7 @@ function SessionSegmentCollapse({
 }: SessionSegmentCollapseProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
+    const { rendered, shown } = useAnimatedPresence(isExpanded, 200)
 
     return (
         <div className={clsx('LemonCollapse', className)}>
@@ -365,26 +364,18 @@ function SessionSegmentCollapse({
                 >
                     {header}
                 </LemonButton>
-                <Transition in={isExpanded} timeout={200} mountOnEnter unmountOnExit>
-                    {(status) => (
-                        <div
-                            className="LemonCollapsePanel__body"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={
-                                status === ENTERING || status === ENTERED
-                                    ? {
-                                          height: contentHeight,
-                                      }
-                                    : undefined
-                            }
-                            aria-busy={status.endsWith('ing')}
-                        >
-                            <div className="LemonCollapsePanel__content" ref={contentRef}>
-                                {content}
-                            </div>
+                {rendered && (
+                    <div
+                        className="LemonCollapsePanel__body"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: shown ? contentHeight : 0 }}
+                        aria-busy={rendered !== shown}
+                    >
+                        <div className="LemonCollapsePanel__content" ref={contentRef}>
+                            {content}
                         </div>
-                    )}
-                </Transition>
+                    </div>
+                )}
             </div>
         </div>
     )
@@ -799,9 +790,6 @@ function SessionSummaryFeedback(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { summaryHasHadFeedback, showFeedbackSurvey } = useValues(playerMetaLogic(logicProps))
     const { sessionSummaryFeedback, setShowFeedbackSurvey } = useActions(playerMetaLogic(logicProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const showSurveyFlag = !!featureFlags[FEATURE_FLAGS.SHOW_SESSION_SUMMARY_FEEDBACK_SURVEY]
 
     return (
         <div className="mb-2 mt-4">
@@ -824,16 +812,12 @@ function SessionSummaryFeedback(): JSX.Element {
                         disabledReason={summaryHasHadFeedback ? 'Thanks for your feedback!' : undefined}
                         onClick={() => {
                             sessionSummaryFeedback('bad')
-                            if (showSurveyFlag) {
-                                setShowFeedbackSurvey(true)
-                            }
+                            setShowFeedbackSurvey(true)
                         }}
                     />
                 </div>
             </div>
-            {showSurveyFlag && showFeedbackSurvey && SESSION_SUMMARY_FEEDBACK_SURVEY_ID && (
-                <SessionSummaryFeedbackSurvey />
-            )}
+            {showFeedbackSurvey && SESSION_SUMMARY_FEEDBACK_SURVEY_ID && <SessionSummaryFeedbackSurvey />}
         </div>
     )
 }

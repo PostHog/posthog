@@ -72,7 +72,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
                 "help_text": "Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000."
             },
             "cooldown_minutes": {
-                "help_text": "Minimum minutes between reports in every_n mode to prevent spam. Min 60."
+                "help_text": "Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours)."
             },
             "daily_run_cap": {"help_text": "Max reports generated per day. Defaults to 3."},
         }
@@ -128,6 +128,10 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             if cooldown < EvaluationReport.COOLDOWN_MINUTES_MIN:
                 raise serializers.ValidationError(
                     {"cooldown_minutes": f"Minimum is {EvaluationReport.COOLDOWN_MINUTES_MIN} minutes."}
+                )
+            if cooldown > EvaluationReport.COOLDOWN_MINUTES_MAX:
+                raise serializers.ValidationError(
+                    {"cooldown_minutes": f"Maximum is {EvaluationReport.COOLDOWN_MINUTES_MAX} minutes."}
                 )
         elif frequency == EvaluationReport.Frequency.SCHEDULED:
             rrule_str = attrs.get("rrule") if "rrule" in attrs else (self.instance.rrule if self.instance else "")
@@ -186,6 +190,35 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+class EvaluationReportListSerializer(EvaluationReportSerializer):
+    """Slim list serializer for MCP callers — drops heavy per-item fields to save tokens.
+
+    Gated on the ``X-PostHog-Client: mcp`` header so the web UI keeps the full shape
+    it relies on for draft seeding and schedule editing (see
+    `EvaluationReportViewSet.get_serializer_class`).
+    """
+
+    class Meta(EvaluationReportSerializer.Meta):
+        fields = [
+            f
+            for f in EvaluationReportSerializer.Meta.fields
+            if f
+            not in (
+                "rrule",
+                "starts_at",
+                "timezone_name",
+                "delivery_targets",
+                "max_sample_size",
+                "deleted",
+                "report_prompt_guidance",
+                "cooldown_minutes",
+                "daily_run_cap",
+                "created_by",
+            )
+        ]
+        read_only_fields = [f for f in EvaluationReportSerializer.Meta.read_only_fields if f != "created_by"]
+
+
 class EvaluationReportRunSerializer(serializers.ModelSerializer):
     class Meta:
         model = EvaluationReportRun
@@ -221,6 +254,15 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     permission_classes = [AccessControlPermission]
     serializer_class = EvaluationReportSerializer
     queryset = EvaluationReport.objects.all()
+
+    @staticmethod
+    def _is_mcp_request(request: Request) -> bool:
+        return request.META.get("HTTP_X_POSTHOG_CLIENT") == "mcp"
+
+    def get_serializer_class(self):
+        if self.action == "list" and self._is_mcp_request(self.request):
+            return EvaluationReportListSerializer
+        return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[EvaluationReport]) -> QuerySet[EvaluationReport]:
         queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")

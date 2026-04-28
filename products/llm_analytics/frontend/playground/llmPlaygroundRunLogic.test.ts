@@ -1,12 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
-import { appendToolCallChunk, llmPlaygroundRunLogic, mergeUsage } from './llmPlaygroundRunLogic'
+import { appendToolCallChunk, describeError, llmPlaygroundRunLogic, mergeUsage } from './llmPlaygroundRunLogic'
 
 describe('llmPlaygroundRunLogic', () => {
     beforeEach(() => {
@@ -87,5 +88,126 @@ describe('llmPlaygroundRunLogic', () => {
 
         logic.unmount()
         streamSpy.mockRestore()
+    })
+
+    it('surfaces backend error message and captures exception when stream fails with ApiError', async () => {
+        const apiError = new ApiError('fallback message', 400, undefined, {
+            error: 'Thinking is not supported for this model',
+        })
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
+            options.onError?.(apiError)
+        })
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        const items = llmPlaygroundRunLogic.values.comparisonItems
+        expect(items).toHaveLength(1)
+        expect(items[0].error).toBe(true)
+        expect(items[0].response).toContain('**Error:** Thinking is not supported for this model')
+        expect(items[0].response).not.toContain('Stream Connection Error')
+        expect(captureExceptionSpy).toHaveBeenCalledWith(
+            apiError,
+            expect.objectContaining({ tag: 'llma-playground-prompt-run', status: 400 })
+        )
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
+    })
+
+    it('labels non-ApiError stream failures as connection errors and captures them', async () => {
+        const connectionError = new Error('network down')
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async (_url, options: any) => {
+            options.onError?.(connectionError)
+        })
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        const items = llmPlaygroundRunLogic.values.comparisonItems
+        expect(items).toHaveLength(1)
+        expect(items[0].error).toBe(true)
+        expect(items[0].response).toContain('**Stream Connection Error:** network down')
+        expect(captureExceptionSpy).toHaveBeenCalledWith(
+            connectionError,
+            expect.objectContaining({ tag: 'llma-playground-prompt-run', status: undefined })
+        )
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
+    })
+
+    it('captures exceptions thrown before the stream opens', async () => {
+        const thrownError = new ApiError('fallback message', 400, undefined, {
+            error: 'Invalid provider key configuration',
+        })
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {
+            throw thrownError
+        })
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        const items = llmPlaygroundRunLogic.values.comparisonItems
+        expect(items).toHaveLength(1)
+        expect(items[0].error).toBe(true)
+        expect(items[0].response).toContain('**Error:** Invalid provider key configuration')
+        expect(captureExceptionSpy).toHaveBeenCalledWith(
+            thrownError,
+            expect.objectContaining({ tag: 'llma-playground-prompt-submit', status: 400 })
+        )
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
+    })
+
+    describe('describeError', () => {
+        it('prefers structured backend error string over detail and message', () => {
+            const err = new ApiError('fallback', 400, undefined, { error: 'backend says no' })
+            expect(describeError(err, 'fallback2')).toEqual({ message: 'backend says no', status: 400 })
+        })
+
+        it('ignores non-string data.error payloads and falls back to detail', () => {
+            const err = new ApiError('fallback', 400, undefined, {
+                error: { field: ['is required'] },
+                detail: 'validation failed',
+            })
+            expect(describeError(err, 'fallback2')).toEqual({ message: 'validation failed', status: 400 })
+        })
+
+        it('uses err.message for plain Error instances without a status', () => {
+            expect(describeError(new Error('boom'), 'fallback')).toEqual({ message: 'boom' })
+        })
+
+        it('returns the fallback for non-Error values', () => {
+            expect(describeError('nope', 'fallback')).toEqual({ message: 'fallback' })
+        })
     })
 })

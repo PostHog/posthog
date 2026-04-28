@@ -30,9 +30,13 @@ export interface ReportConfigDraft {
     slackChannelValue: string
     reportPromptGuidance: string
     triggerThreshold: number
+    cooldownHours: number
 }
 
 export const TRIGGER_THRESHOLD_DEFAULT = 100
+export const COOLDOWN_HOURS_DEFAULT = 1
+export const COOLDOWN_HOURS_MIN = 1
+export const COOLDOWN_HOURS_MAX = 24
 export const DEFAULT_RRULE = 'FREQ=DAILY'
 export const DEFAULT_TIMEZONE = 'UTC'
 
@@ -47,6 +51,7 @@ const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
     slackChannelValue: '',
     reportPromptGuidance: '',
     triggerThreshold: TRIGGER_THRESHOLD_DEFAULT,
+    cooldownHours: COOLDOWN_HOURS_DEFAULT,
 }
 
 function draftFromReport(report: EvaluationReport): ReportConfigDraft {
@@ -66,6 +71,7 @@ function draftFromReport(report: EvaluationReport): ReportConfigDraft {
         slackChannelValue: slackTarget?.channel ?? '',
         reportPromptGuidance: report.report_prompt_guidance ?? '',
         triggerThreshold: report.trigger_threshold ?? TRIGGER_THRESHOLD_DEFAULT,
+        cooldownHours: Math.max(1, Math.round((report.cooldown_minutes ?? COOLDOWN_HOURS_DEFAULT * 60) / 60)),
     }
 }
 
@@ -83,6 +89,98 @@ export function buildDeliveryTargets(draft: ReportConfigDraft): EvaluationReport
         })
     }
     return targets
+}
+
+function buildReportUpdatePayload(
+    draft: ReportConfigDraft,
+    activeReport: EvaluationReport,
+    targets: EvaluationReportDeliveryTarget[]
+): Record<string, unknown> {
+    const data: Record<string, unknown> = {
+        frequency: draft.frequency,
+        delivery_targets: targets,
+        report_prompt_guidance: draft.reportPromptGuidance,
+    }
+    if (draft.frequency === 'scheduled') {
+        data.rrule = draft.rrule
+        data.starts_at = draft.startsAt
+        data.timezone_name = draft.timezoneName
+    }
+    if (draft.frequency === 'every_n') {
+        data.trigger_threshold = draft.triggerThreshold
+        // Only write cooldown_minutes back when the user changed it — the draft rounds
+        // minutes to hours for display, so unconditionally writing (hours * 60) would
+        // silently clobber sub-hour values set via the API (e.g. 89 min → 60 min).
+        const seededCooldownHours = Math.max(1, Math.round((activeReport.cooldown_minutes ?? 60) / 60))
+        if (draft.cooldownHours !== seededCooldownHours) {
+            data.cooldown_minutes = draft.cooldownHours * 60
+        }
+    }
+    return data
+}
+
+function buildReportCreatePayload(
+    draft: ReportConfigDraft,
+    evaluationId: string,
+    targets: EvaluationReportDeliveryTarget[]
+): Record<string, unknown> {
+    const body: Record<string, unknown> = {
+        evaluation: evaluationId,
+        frequency: draft.frequency,
+        delivery_targets: targets,
+        report_prompt_guidance: draft.reportPromptGuidance,
+        enabled: true,
+    }
+    if (draft.frequency === 'scheduled') {
+        body.rrule = draft.rrule
+        body.starts_at = draft.startsAt
+        body.timezone_name = draft.timezoneName
+    }
+    if (draft.frequency === 'every_n') {
+        body.trigger_threshold = draft.triggerThreshold
+        body.cooldown_minutes = draft.cooldownHours * 60
+    }
+    return body
+}
+
+/** Inline persistor used by the parent evaluation save flow so the single
+ * "Save changes" button at the top of the page commits both the evaluation
+ * and the (optional) scheduled report. Mirrors the saveDraft listener but
+ * bypasses the loader plumbing so callers can await the network write.
+ *
+ * Returns true if a network write was performed. */
+export async function persistReportDraft(
+    teamId: number,
+    evaluationId: string,
+    draft: ReportConfigDraft,
+    activeReport: EvaluationReport | null
+): Promise<boolean> {
+    const targets = buildDeliveryTargets(draft)
+    if (activeReport) {
+        // Match the inner Save button's validation so the main Save flow
+        // doesn't silently clear all delivery targets on an existing report.
+        if (targets.length === 0) {
+            lemonToast.warning('Scheduled report not saved — add at least one delivery target.')
+            return false
+        }
+        await api.update(
+            `api/environments/${teamId}/llm_analytics/evaluation_reports/${activeReport.id}/`,
+            buildReportUpdatePayload(draft, activeReport, targets)
+        )
+        return true
+    }
+    // No active report yet — create only if the draft has savable content.
+    if (!draft.enabled) {
+        return false
+    }
+    if (targets.length === 0 && draft.reportPromptGuidance.trim().length === 0) {
+        return false
+    }
+    await api.create(
+        `api/environments/${teamId}/llm_analytics/evaluation_reports/`,
+        buildReportCreatePayload(draft, evaluationId, targets)
+    )
+    return true
 }
 
 export const evaluationReportLogic = kea<evaluationReportLogicType>([
@@ -104,6 +202,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         setDraftSlackChannelValue: (channelValue: string) => ({ channelValue }),
         setDraftReportPromptGuidance: (reportPromptGuidance: string) => ({ reportPromptGuidance }),
         setDraftTriggerThreshold: (triggerThreshold: number) => ({ triggerThreshold }),
+        setDraftCooldownHours: (cooldownHours: number) => ({ cooldownHours }),
         seedDraftFromReport: (report: EvaluationReport) => ({ report }),
         resetDraft: true,
 
@@ -149,6 +248,10 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     ...state,
                     triggerThreshold,
                 }),
+                setDraftCooldownHours: (state, { cooldownHours }) => ({
+                    ...state,
+                    cooldownHours,
+                }),
                 seedDraftFromReport: (_, { report }) => draftFromReport(report),
                 resetDraft: () => DEFAULT_CONFIG_DRAFT,
             },
@@ -183,6 +286,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     delivery_targets: EvaluationReportDeliveryTarget[]
                     report_prompt_guidance?: string
                     trigger_threshold?: number | null
+                    cooldown_minutes?: number | null
                 }) => {
                     const body: Record<string, unknown> = {
                         evaluation: params.evaluationId,
@@ -198,6 +302,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     }
                     if (params.frequency === 'every_n' && params.trigger_threshold != null) {
                         body.trigger_threshold = params.trigger_threshold
+                    }
+                    if (params.frequency === 'every_n' && params.cooldown_minutes != null) {
+                        body.cooldown_minutes = params.cooldown_minutes
                     }
                     const report = await api.create(
                         `api/environments/${values.currentTeamId}/llm_analytics/evaluation_reports/`,
@@ -275,6 +382,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     baseline.slackChannelValue !== draft.slackChannelValue ||
                     baseline.reportPromptGuidance !== draft.reportPromptGuidance ||
                     (draft.frequency === 'every_n' && baseline.triggerThreshold !== draft.triggerThreshold) ||
+                    (draft.frequency === 'every_n' && baseline.cooldownHours !== draft.cooldownHours) ||
                     scheduleDirty
                 )
             },
@@ -308,20 +416,10 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
             const { configDraft, activeReport } = values
             const targets = buildDeliveryTargets(configDraft)
             if (activeReport) {
-                const data: Record<string, unknown> = {
-                    frequency: configDraft.frequency,
-                    delivery_targets: targets,
-                    report_prompt_guidance: configDraft.reportPromptGuidance,
-                }
-                if (configDraft.frequency === 'scheduled') {
-                    data.rrule = configDraft.rrule
-                    data.starts_at = configDraft.startsAt
-                    data.timezone_name = configDraft.timezoneName
-                }
-                if (configDraft.frequency === 'every_n') {
-                    data.trigger_threshold = configDraft.triggerThreshold
-                }
-                actions.updateReport({ reportId: activeReport.id, data })
+                actions.updateReport({
+                    reportId: activeReport.id,
+                    data: buildReportUpdatePayload(configDraft, activeReport, targets),
+                })
             } else {
                 actions.createReport({
                     evaluationId: props.evaluationId,
@@ -332,6 +430,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     delivery_targets: targets,
                     report_prompt_guidance: configDraft.reportPromptGuidance,
                     trigger_threshold: configDraft.frequency === 'every_n' ? configDraft.triggerThreshold : null,
+                    cooldown_minutes: configDraft.frequency === 'every_n' ? configDraft.cooldownHours * 60 : null,
                 })
             }
         },

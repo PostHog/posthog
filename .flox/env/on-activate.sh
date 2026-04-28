@@ -354,7 +354,7 @@ fi
 # Clean old flox log files (>7 days). Fire-and-forget after activation.
 (
   if [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" && -f "$FLOX_ENV_PROJECT/bin/hogli" ]]; then
-    PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    POSTHOG_TELEMETRY_OPT_OUT=1 PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
       -m hogli.core doctor:disk --area=flox-logs --yes >/dev/null 2>&1
   else
     find "$FLOX_ENV_PROJECT/.flox/log" -name "*.log" -type f -mtime +7 -delete 2>/dev/null

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, NoReturn, cast
 from uuid import UUID
@@ -14,8 +15,8 @@ import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import request, response, serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework import request, response, serializers, status, viewsets
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
@@ -28,6 +29,8 @@ from posthog.helpers.full_text_search import build_rank
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_organization_from_view
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.user_permissions import UserPermissions
 from posthog.utils import str_to_bool
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
@@ -252,6 +255,50 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             self._handle_integrity_error(exc)
 
 
+class CopyDashboardTemplateSerializer(serializers.Serializer):
+    source_template_id = serializers.UUIDField(
+        help_text="UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint."
+    )
+
+
+def _iter_copy_name_candidates(base_name: str) -> Iterator[str]:
+    yield base_name
+    yield f"{base_name} (copy)"
+    n = 2
+    while True:
+        yield f"{base_name} (copy {n})"
+        n += 1
+
+
+def _pick_unique_template_name_for_copy(*, team_id: int, base_name: str) -> str:
+    """Resolves `template_name` collisions on the target team by suffixing `(copy)`, `(copy 2)`, …"""
+    max_attempts = 50
+    candidates = _iter_copy_name_candidates(base_name)
+    for _ in range(max_attempts):
+        name = next(candidates)
+        if not DashboardTemplate.objects.filter(team_id=team_id, template_name=name).exists():
+            return name
+    raise ValidationError(
+        detail="Could not find an available template name after multiple attempts. Rename the source template and try again.",
+        code="template_name_exhausted",
+    )
+
+
+def _assert_user_can_read_source_for_copy(*, user: User, source_team: Team) -> None:
+    if user.is_staff:
+        return
+    up = UserPermissions(user=user)
+    if source_team.id not in up.team_ids_visible_for_user:
+        raise NotFound()
+    uac = UserAccessControl(
+        user=user,
+        team=source_team,
+        organization_id=str(source_team.organization_id),
+    )
+    if not uac.check_access_level_for_resource("dashboard_template", "viewer"):
+        raise NotFound()
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -325,6 +372,102 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
     def json_schema(self, request: request.Request, **kwargs) -> response.Response:
         # Could switch from this being a static file to being dynamically generated from the serializer
         return response.Response(dashboard_template_schema)
+
+    @extend_schema(
+        request=CopyDashboardTemplateSerializer,
+        responses={status.HTTP_201_CREATED: DashboardTemplateSerializer},
+        summary="Copy a team template to this project",
+        description=(
+            "Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template "
+            "in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible "
+            "sources return 404. Source and destination projects must differ (400 if equal). "
+            "Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …"
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="copy_between_projects")
+    def copy_between_projects(self, request: Request, **kwargs) -> response.Response:
+        body = CopyDashboardTemplateSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        source_template_id = cast(UUID, body.validated_data["source_template_id"])
+
+        target_team = self.team
+        target_team_id = target_team.id
+        target_org_id = cast(UUID, target_team.organization_id)
+
+        source = DashboardTemplate.objects_including_soft_deleted.filter(id=source_template_id).first()
+        if source is None or source.deleted:
+            raise NotFound()
+
+        if source.scope == DashboardTemplate.Scope.GLOBAL:
+            raise ValidationError(
+                {"source_template_id": ["Only project-scoped templates can be copied to another project."]}
+            )
+        if source.scope == DashboardTemplate.Scope.FEATURE_FLAG:
+            raise ValidationError(
+                {"source_template_id": ["Feature-flag templates cannot be copied with this endpoint."]}
+            )
+        if source.scope != DashboardTemplate.Scope.ONLY_TEAM or source.team_id is None:
+            raise ValidationError(
+                {"source_template_id": ["Only project-scoped templates can be copied to another project."]}
+            )
+
+        if source.team_id == target_team_id:
+            raise ValidationError({"source_template_id": ["Source and destination must be different projects."]})
+
+        source_team = Team.objects.filter(pk=source.team_id).first()
+        if source_team is None:
+            raise NotFound()
+        if source_team.organization_id != target_org_id:
+            raise NotFound()
+
+        user = cast(User, request.user)
+        _assert_user_can_read_source_for_copy(user=user, source_team=source_team)
+
+        enforce_organization_dashboard_template_limit(organization_id=target_org_id)
+
+        base_name = (source.template_name or "").strip() or "Untitled template"
+        unique_name = _pick_unique_template_name_for_copy(team_id=target_team_id, base_name=base_name)
+
+        new_instance = DashboardTemplate.objects.create(
+            team_id=target_team_id,
+            template_name=unique_name,
+            dashboard_description=source.dashboard_description,
+            # TODO(analytics-platform): dashboard_filters and variables are copied verbatim; both can embed
+            # project-scoped references (e.g. cohort IDs in filter properties; variable defaults for events,
+            # actions, or properties) that do not exist or differ on the target project. Tile queries have the
+            # same class of issue. Consider validation and/or ID rewriting (cf. resource_transfer visitors).
+            dashboard_filters=source.dashboard_filters,
+            tiles=source.tiles or [],
+            variables=source.variables,
+            tags=source.tags or [],
+            scope=DashboardTemplate.Scope.ONLY_TEAM,
+            is_featured=False,
+            image_url=None,
+            github_url=None,
+            availability_contexts=None,
+            deleted=False,
+            created_by=user if user.is_authenticated else None,
+        )
+
+        report_user_action(
+            user,
+            "dashboard project template copied between projects",
+            properties={
+                "source_template_id": str(source.id),
+                "new_template_id": str(new_instance.id),
+                "source_team_id": source.team_id,
+                "target_team_id": target_team_id,
+                "organization_id": str(self.organization_id),
+                "template_name": unique_name,
+                "tile_count": len(new_instance.tiles or []),
+                "variable_count": len(new_instance.variables or []),
+            },
+            team=self.team,
+            organization=self.organization,
+        )
+
+        serializer = DashboardTemplateSerializer(new_instance, context=self.get_serializer_context())
+        return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def dangerously_get_queryset(self):
         # NOTE: we use the dangerous version as we want to bypass the team/org scoping and do it here instead depending on the scope

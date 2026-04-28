@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.utils import (
     estimate_tokens_from_strings,
     get_column_index,
@@ -105,7 +105,7 @@ def test_serialize_to_sse_event(event_label: str, event_data: str, expected: str
 def test_estimate_tokens_from_strings():
     """Test exact token estimation for strings."""
     # Empty input returns 0
-    assert estimate_tokens_from_strings(strings=[], model=SESSION_SUMMARIES_SYNC_MODEL) == 0
+    assert estimate_tokens_from_strings(strings=[], model=SESSION_SUMMARIES_MODEL) == 0
     # Test with exact token count for o3 model
-    result = estimate_tokens_from_strings(strings=["Hello world", "Test content"], model=SESSION_SUMMARIES_SYNC_MODEL)
+    result = estimate_tokens_from_strings(strings=["Hello world", "Test content"], model=SESSION_SUMMARIES_MODEL)
     assert result == 4  # Exact token count for these strings with o3 model

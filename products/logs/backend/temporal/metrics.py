@@ -118,6 +118,25 @@ def record_alerts_active(count: int) -> None:
     gauge.set(count)
 
 
+def record_checkpoint_lag(now: dt.datetime, checkpoint: dt.datetime) -> None:
+    meter = get_metric_meter()
+    gauge = meter.create_gauge(
+        "logs_alerting_ingestion_checkpoint_lag_seconds",
+        "Wall-clock age of the logs-ingestion checkpoint used to anchor alert windows",
+    )
+    lag_seconds = max(0, int((now - checkpoint).total_seconds()))
+    gauge.set(lag_seconds)
+
+
+def increment_checkpoint_unavailable() -> None:
+    meter = get_metric_meter()
+    counter = meter.create_counter(
+        "logs_alerting_checkpoint_unavailable_total",
+        "Cycles where the logs-ingestion checkpoint could not be resolved (no alerts due, or fetch failure)",
+    )
+    counter.add(1)
+
+
 def record_check_duration(duration_ms: int) -> None:
     _record_histogram("logs_alerting_check_duration_ms", "Per-alert evaluation duration", duration_ms)
 

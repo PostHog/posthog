@@ -65,7 +65,6 @@ from posthog.auth import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -73,6 +72,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -97,9 +97,9 @@ from posthog.temporal.session_replay.session_summary.summarize_session import ex
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.output_data import OutcomeSerializer
-from ee.hogai.session_summaries.session.stream import stream_recording_summary
 from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 from ee.hogai.session_summaries.utils import serialize_to_sse_event
+from ee.models.team_session_summaries_config import TeamSessionSummariesConfig
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -264,6 +264,9 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     activity_score = serializers.SerializerMethodField()
     has_summary = serializers.SerializerMethodField()
     summary_outcome = serializers.SerializerMethodField()
+    # Dynamic attrs set on the model instance — not Django fields, so declare explicitly
+    expiry_time = serializers.DateTimeField(read_only=True, allow_null=True)
+    recording_ttl = serializers.IntegerField(read_only=True, allow_null=True)
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -581,27 +584,17 @@ def listing_rates() -> dict[str, dict[str, str]]:
 
 LISTING_RATES = listing_rates()
 
-_ENTERPRISE_FEATURE_KEYS = {AvailableFeature.SAML, AvailableFeature.SCIM}
-
-
-def org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
-    if not features:
-        return "free"
-    feature_keys = {f.get("key") for f in features if isinstance(f, dict)}
-    if feature_keys.intersection(_ENTERPRISE_FEATURE_KEYS):
-        return "enterprise"
-    return "paid"
-
 
 def get_cached_org_tier(team_id: int) -> str:
-    cache_key = f"replay_org_tier_{team_id}"
+    # v2 cache key: classifier was widened to the full ENTERPRISE_FEATURES - SCALE_FEATURES
+    # set plus ACCESS_CONTROL; keyed separately so stale pre-migration values don't serve.
+    cache_key = f"replay_org_tier_v2_{team_id}"
     tier = cache.get(cache_key)
     if tier is not None:
         return tier
 
-    features = Organization.objects.filter(team=team_id).values_list("available_product_features", flat=True).first()
-
-    tier = org_tier_from_features(features)
+    organization = Organization.objects.filter(team=team_id).first()
+    tier = organization.get_plan_tier() if organization is not None else SNAPSHOT_DEFAULT_TIER
     cache.set(cache_key, tier, REPLAY_TIER_CACHE_TTL_SECONDS)
     return tier
 
@@ -1385,20 +1378,12 @@ class SessionRecordingViewSet(
         except:
             return "unknown"
 
-    def _determine_video_based_summarization_enabled(self, user: User) -> bool:
-        """Check if video-based summarization is enabled (uses video as base instead of events)."""
-        return (
-            posthoganalytics.feature_enabled(
-                "max-session-summarization-video-as-base",
-                str(user.distinct_id),
-                groups={"organization": str(self.team.organization_id)},
-                group_properties={"organization": {"id": str(self.team.organization_id)}},
-                send_feature_flag_events=False,
-            )
-            or False
-        )
-
-    async def _generate_video_based_summary(self, session_id: str, user: User) -> AsyncGenerator[str, None]:
+    async def _generate_video_based_summary(
+        self,
+        session_id: str,
+        user: User,
+        product_context: str | None = None,
+    ) -> AsyncGenerator[str, None]:
         """Stream video-based summarization progress events and final summary to the client.
 
         Progress events (``session-summary-progress``) carry the workflow's
@@ -1415,6 +1400,7 @@ class SessionRecordingViewSet(
                 session_id=session_id,
                 user=user,
                 team=self.team,
+                product_context=product_context,
             ):
                 yield chunk
         except Exception as e:
@@ -1423,6 +1409,11 @@ class SessionRecordingViewSet(
                 event_label="session-summary-error",
                 event_data="Something went wrong while generating the summary. Please try again.",
             )
+
+    def _load_team_product_context(self) -> str | None:
+        team_config = get_or_create_team_extension(self.team, TeamSessionSummariesConfig)
+        product_context = (team_config.product_context or "").strip()
+        return product_context or None
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=True)
@@ -1449,9 +1440,7 @@ class SessionRecordingViewSet(
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
         if not posthoganalytics.feature_enabled(
-            "ai-session-summary", str(user.distinct_id)
-        ) and not posthoganalytics.feature_enabled(
-            "max-session-summarization",
+            "replay-video-based-summarization",
             str(user.distinct_id),
             groups={"organization": str(self.team.organization_id)},
             group_properties={"organization": {"id": str(self.team.organization_id)}},
@@ -1460,42 +1449,24 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
         tracking_id = generate_tracking_id()
-        video_based_summarization_enabled = self._determine_video_based_summarization_enabled(user)
+        product_context = self._load_team_product_context()
 
-        if video_based_summarization_enabled:
-            # Use non-streaming workflow for video-based summarization
-            capture_session_summary_started(
-                user=user,
-                team=self.team,
-                tracking_id=tracking_id,
-                summary_source="api",
-                summary_type="single",
-                is_streaming=False,
-                session_ids=[session_id],
-                video_validation_enabled="full",
-            )
-            return StreamingHttpResponse(
-                self._generate_video_based_summary(session_id, user),
-                content_type=ServerSentEventRenderer.media_type,
-            )
-        else:
-            # Use existing streaming workflow for event-based summarization
-            capture_session_summary_started(
-                user=user,
-                team=self.team,
-                tracking_id=tracking_id,
-                summary_source="api",
-                summary_type="single",
-                is_streaming=True,
-                session_ids=[session_id],
-                video_validation_enabled=None,
-            )
-            # If you want to test sessions locally - override `session_id` and `self.team.pk`
-            # with session/team ids of your choice and set `local_reads_prod` to True
-            return StreamingHttpResponse(
-                stream_recording_summary(session_id=session_id, user=user, team=self.team),
-                content_type=ServerSentEventRenderer.media_type,
-            )
+        capture_session_summary_started(
+            user=user,
+            team=self.team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            session_ids=[session_id],
+            video_based=True,
+        )
+        response = StreamingHttpResponse(
+            self._generate_video_based_summary(session_id, user, product_context),
+            content_type=ServerSentEventRenderer.media_type,
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
 
     async def _stream_lts_blob_v2_to_client_async(
         self,

@@ -148,7 +148,6 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
         isNotificationFormSubmitting,
         selectedSlackIntegration,
         hasSlackIntegration,
-        canNotifyOnPartialResponses,
         templateGlobals,
         submitDisabledReason,
         notificationSubmissionError,
@@ -171,7 +170,7 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
             isOpen={isOpen}
             onClose={closeDialog}
             title="Add survey notification"
-            description="Send survey responses to Slack, Discord, Microsoft Teams, or a webhook."
+            description="Send survey updates to Slack, Discord, Microsoft Teams, or a webhook."
             width={720}
             footer={
                 <>
@@ -223,22 +222,10 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                             <div className="text-xs text-muted">
                                 {destinationDeliveryDescription(notificationForm.destination)}
                             </div>
-                            {canNotifyOnPartialResponses ? (
-                                <>
-                                    <Field name="onlyCompletedResponses">
-                                        {({ value, onChange }) => (
-                                            <LemonSwitch
-                                                checked={value}
-                                                onChange={onChange}
-                                                label="Only notify for full responses"
-                                            />
-                                        )}
-                                    </Field>
-                                    <div className="text-xs text-muted">
-                                        Turn this off if partial responses matter for this survey.
-                                    </div>
-                                </>
-                            ) : null}
+                            <div className="text-xs text-muted">
+                                Notifications send when a survey is completed or dismissed after at least one response.
+                                If someone closes it without answering or leaves it open forever, nothing is sent.
+                            </div>
                         </div>
 
                         {notificationForm.destination === 'slack' ? (
@@ -406,8 +393,8 @@ export function SurveyNotificationModal({ surveyId }: { surveyId: string }): JSX
                                     <div className="space-y-1">
                                         <div className="text-sm font-medium text-default">Webhook request body</div>
                                         <div className="text-xs text-muted">
-                                            Survey webhooks send the survey metadata, person context, and one answer
-                                            field per question.
+                                            Survey webhooks send the trigger status, survey metadata, person context,
+                                            and one answer field per question.
                                         </div>
                                     </div>
                                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-4">
