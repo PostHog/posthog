@@ -408,6 +408,12 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub cohort_cache_monitor_interval_secs: u64,
 
+    // How often to report flag definitions cache metrics (seconds)
+    // - Decrease for more granular monitoring (e.g., 10-15)
+    // - Increase to reduce metric volume (e.g., 60-120)
+    #[envconfig(from = "FLAG_DEFINITIONS_CACHE_MONITOR_INTERVAL_SECS", default = "30")]
+    pub flag_definitions_cache_monitor_interval_secs: u64,
+
     // Pool utilization percentage that triggers warnings (0.0-1.0)
     // - Lower values (e.g., 0.7) provide earlier warnings
     // - Higher values (e.g., 0.9) reduce alert noise
@@ -838,6 +844,7 @@ impl Config {
             writer_statement_timeout_ms: 3000,
             db_monitor_interval_secs: 30,
             cohort_cache_monitor_interval_secs: 30,
+            flag_definitions_cache_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
             health_check_interval_secs: 30,

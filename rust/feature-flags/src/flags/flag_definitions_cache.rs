@@ -24,6 +24,10 @@ use crate::metrics::consts::{
 /// the entry with single-stage `EvaluationMetadata` for the rest of the TTL
 /// window even though Django's full transitive-dep payload is still indexed
 /// under the same etag.
+///
+/// Concurrent first-misses don't coalesce: `try_get_with` requires `E: Clone`
+/// and `FlagError` carries non-`Clone` payloads. Each task compiles its own
+/// value; last `insert` wins, post-storm reads hit.
 pub struct FlagDefinitionsCache {
     cache: Cache<(TeamId, String), Arc<PreparedFlagDefinitions>>,
 }
@@ -468,13 +472,11 @@ mod tests {
         );
     }
 
-    /// Concurrent first-request misses don't coalesce — each task may
-    /// compile its own value — but every caller eventually shares the
-    /// canonical cached `Arc` and the loader runs at most once per task.
-    /// Multi-thread runtime so tasks actually race across cores instead
-    /// of serializing at `.await` points.
+    /// Storm tasks may each compile their own Arc (no coalescing).
+    /// Post-storm reads must hit and ptr_eq, and every storm Arc must
+    /// carry a compiled regex regardless of identity.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn test_concurrent_callers_eventually_share_arc() {
+    async fn test_concurrent_first_misses_settle_to_canonical_arc() {
         let cache = Arc::new(FlagDefinitionsCache::new(None, None));
         let w = make_test_wrapper(vec![make_flag_with_regex(1, r"^t@.*$")]);
         let etag = Some("coalesce-etag".to_string());
@@ -500,28 +502,47 @@ mod tests {
             results.push(h.await.unwrap());
         }
 
-        // A `get` after the storm returns the cached Arc, which serves as
-        // the canonical pointer to compare every task's result against.
-        let (canonical, _) = cache
-            .get_or_load(42, Some("coalesce-etag".to_string()), loader_for(w))
+        // counting_loader on the post-storm reads pins "loader did not run".
+        let post_counter = Arc::new(AtomicUsize::new(0));
+        let (canonical_a, _) = cache
+            .get_or_load(
+                42,
+                etag.clone(),
+                counting_loader(w.clone(), Arc::clone(&post_counter)),
+            )
             .await
             .unwrap();
-        let canonical_match_count = results
-            .iter()
-            .filter(|(r, _)| Arc::ptr_eq(r, &canonical))
-            .count();
-        assert!(
-            canonical_match_count >= 1,
-            "at least one task must have produced the canonical cached Arc",
-        );
-        let runs = counter.load(Ordering::SeqCst);
-        assert!(
-            runs <= n,
-            "loader must run at most once per task (n={n}), ran {runs} times",
+        let (canonical_b, _) = cache
+            .get_or_load(42, etag, counting_loader(w, Arc::clone(&post_counter)))
+            .await
+            .unwrap();
+        assert_eq!(
+            post_counter.load(Ordering::SeqCst),
+            0,
+            "post-storm reads must hit, not invoke the loader",
         );
         assert!(
-            runs >= 1,
-            "at least one loader run must happen on cold cache"
+            Arc::ptr_eq(&canonical_a, &canonical_b),
+            "cache must settle to a single canonical Arc",
+        );
+
+        for (i, (arc, _)) in results.iter().enumerate() {
+            let compiled =
+                &arc.flags[0].filters.groups[0].properties.as_ref().unwrap()[0].compiled_regex;
+            assert!(
+                matches!(
+                    compiled,
+                    Some(crate::properties::property_models::CompiledRegex::Compiled(
+                        _
+                    ))
+                ),
+                "storm result {i} must carry a compiled regex",
+            );
+        }
+
+        assert!(
+            counter.load(Ordering::SeqCst) >= 1,
+            "at least one cold load must happen",
         );
     }
 

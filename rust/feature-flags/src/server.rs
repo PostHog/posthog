@@ -181,8 +181,11 @@ pub async fn serve<F>(
 
     // Start flag definitions cache monitoring
     let flag_defs_cache_clone = flag_definitions_cache.clone();
+    let flag_defs_cache_monitor_interval = config.flag_definitions_cache_monitor_interval_secs;
     tokio::spawn(async move {
-        flag_defs_cache_clone.start_monitoring(30).await;
+        flag_defs_cache_clone
+            .start_monitoring(flag_defs_cache_monitor_interval)
+            .await;
     });
 
     // Start Tokio runtime monitoring
