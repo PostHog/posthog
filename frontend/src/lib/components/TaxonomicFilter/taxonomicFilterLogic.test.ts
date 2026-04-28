@@ -570,9 +570,10 @@ describe('taxonomicFilterLogic', () => {
                 ],
             },
             {
-                description: 'SuggestedFilters has empty options when eventNames does not include $autocapture',
+                description:
+                    "SuggestedFilters surfaces the event's taxonomy-default promoted property when eventNames=['$pageview']",
                 eventNames: ['$pageview'],
-                expectedOptions: [],
+                expectedOptions: [{ name: '$pathname', group: TaxonomicFilterGroupType.EventProperties }],
             },
             {
                 description: 'SuggestedFilters has empty options when eventNames is empty',

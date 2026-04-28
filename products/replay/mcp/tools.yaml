@@ -12,29 +12,6 @@ ui_apps:
         type: detail
         view_prop: recording
 tools:
-    session-recordings-list:
-        operation: session_recordings_list
-        enabled: false
-    session-recording-get:
-        operation: session_recordings_retrieve
-        enabled: true
-        scopes:
-            - session_recording:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        ui_app: session-recording
-        enrich_url: '{id}'
-        title: Get session recording
-        description: >
-            Get a specific session recording by ID. Returns full recording metadata including
-            duration, interaction counts, console log counts, person info, and viewing status.
-            Session recordings are reachable from events, errors, and persons via the `$session_id`
-            property on events. Any `$session_id` value from an event can be passed as the `id`
-            parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording
-            exists — session replay may not be enabled for that project or session. A 404 means no
-            recording was captured.
     session-recording-delete:
         operation: session_recordings_destroy
         enabled: true
@@ -46,13 +23,88 @@ tools:
             idempotent: true
         title: Delete session recording
         description: >
-            Delete a session recording by ID. This permanently removes the recording data.
-            Use for privacy or compliance workflows.
-    session-recordings-update:
-        operation: session_recordings_update
-        enabled: false
-    session-recordings-partial-update:
-        operation: session_recordings_partial_update
+            Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance
+            workflows.
+    session-recording-get:
+        operation: session_recordings_retrieve
+        enabled: true
+        scopes:
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get session recording
+        description: >
+            Get a specific session recording by ID. Returns full recording metadata including duration, interaction
+            counts, console log counts, person info, and viewing status. Session recordings are reachable from events,
+            errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be
+            passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording
+            exists — session replay may not be enabled for that project or session. A 404 means no recording was
+            captured.
+        ui_app: session-recording
+    session-recording-playlist-create:
+        operation: session_recording_playlists_create
+        enabled: true
+        scopes:
+            - session_recording_playlist:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create session recording playlist
+        description: >
+            Create a new session recording playlist. Set type to 'collection' for a manually curated list or 'filters'
+            for a saved filter view. Collections cannot have filters, and filter playlists must include at least one
+            filter criterion.
+        exclude_params:
+            - created_at
+            - created_by
+            - last_modified_at
+            - last_modified_by
+            - recordings_counts
+            - is_synthetic
+            - _create_in_folder
+    session-recording-playlist-get:
+        operation: session_recording_playlists_retrieve
+        enabled: true
+        scopes:
+            - session_recording_playlist:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get session recording playlist
+        description: >
+            Get a specific session recording playlist by short_id. Returns full playlist metadata including name,
+            description, filters, type, and recording counts.
+    session-recording-playlist-update:
+        operation: session_recording_playlists_partial_update
+        enabled: true
+        scopes:
+            - session_recording_playlist:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update session recording playlist
+        description: >
+            Update an existing session recording playlist by short_id. Can update name, description, pinned status, and
+            filters. Set deleted to true to soft-delete. The type field cannot be changed after creation. When updating
+            a filters-type playlist, you must include the existing filters alongside other field changes, otherwise the
+            update will fail.
+        exclude_params:
+            - created_at
+            - created_by
+            - last_modified_at
+            - last_modified_by
+            - recordings_counts
+            - is_synthetic
+            - _create_in_folder
+            - type
+    session-recording-playlists-destroy:
+        operation: session_recording_playlists_destroy
         enabled: false
     session-recording-playlists-list:
         operation: session_recording_playlists_list
@@ -66,82 +118,28 @@ tools:
         list: true
         title: List session recording playlists
         description: >
-            List session recording playlists in the project. Returns both user-created and
-            synthetic (system-generated) playlists with their metadata and recording counts.
-    session-recording-playlist-get:
-        operation: session_recording_playlists_retrieve
-        enabled: true
-        scopes:
-            - session_recording_playlist:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get session recording playlist
-        description: >
-            Get a specific session recording playlist by short_id. Returns full playlist
-            metadata including name, description, filters, type, and recording counts.
-    session-recording-playlist-create:
-        operation: session_recording_playlists_create
-        enabled: true
-        scopes:
-            - session_recording_playlist:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create session recording playlist
-        description: >
-            Create a new session recording playlist. Set type to 'collection' for a manually
-            curated list or 'filters' for a saved filter view. Collections cannot have filters,
-            and filter playlists must include at least one filter criterion.
-        exclude_params:
-            - created_at
-            - created_by
-            - last_modified_at
-            - last_modified_by
-            - recordings_counts
-            - is_synthetic
-            - _create_in_folder
-    session-recording-playlist-update:
-        operation: session_recording_playlists_partial_update
-        enabled: true
-        scopes:
-            - session_recording_playlist:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update session recording playlist
-        description: >
-            Update an existing session recording playlist by short_id. Can update name,
-            description, pinned status, and filters. Set deleted to true to soft-delete.
-            The type field cannot be changed after creation. When updating a filters-type
-            playlist, you must include the existing filters alongside other field changes,
-            otherwise the update will fail.
-        exclude_params:
-            - created_at
-            - created_by
-            - last_modified_at
-            - last_modified_by
-            - recordings_counts
-            - is_synthetic
-            - _create_in_folder
-            - type
-    session-recording-playlists-update:
-        operation: session_recording_playlists_update
-        enabled: false
-    session-recording-playlists-destroy:
-        operation: session_recording_playlists_destroy
-        enabled: false
-    session-recording-playlists-recordings-retrieve:
-        operation: session_recording_playlists_recordings_retrieve
-        enabled: false
+            List session recording playlists in the project. Returns both user-created and synthetic (system-generated)
+            playlists with their metadata and recording counts.
     session-recording-playlists-recordings-create:
         operation: session_recording_playlists_recordings_create
         enabled: false
     session-recording-playlists-recordings-destroy:
         operation: session_recording_playlists_recordings_destroy
+        enabled: false
+    session-recording-playlists-recordings-retrieve:
+        operation: session_recording_playlists_recordings_retrieve
+        enabled: false
+    session-recording-playlists-update:
+        operation: session_recording_playlists_update
+        enabled: false
+    session-recordings-list:
+        operation: session_recordings_list
+        enabled: false
+    session-recordings-partial-update:
+        operation: session_recordings_partial_update
+        enabled: false
+    session-recordings-update:
+        operation: session_recordings_update
         enabled: false
 wrappers:
     query-session-recordings-list:
@@ -157,7 +155,7 @@ wrappers:
         title: List session recordings
         description_file: ./prompts/query-session-recordings-list.md
         system_prompt_hint: Session replay metadata and activity
-        url_prefix: /replay
         exclude_properties:
             - response
             - modifiers
+        url_prefix: /replay
