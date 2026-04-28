@@ -13,7 +13,10 @@ def _find_repo_root() -> Path:
     """Find repo root by walking up from cwd looking for hogli.yaml."""
     # Check env var first
     if env_manifest := os.environ.get("HOGLI_MANIFEST"):
-        return Path(env_manifest).parent
+        p = Path(env_manifest).resolve()
+        if not p.is_file():
+            raise ValueError(f"HOGLI_MANIFEST={env_manifest!r} does not point to an existing file")
+        return p.parent
 
     # Walk up from cwd looking for hogli.yaml
     current = Path.cwd().resolve()
@@ -29,7 +32,10 @@ def _find_manifest_file(repo_root: Path) -> Path:
     """Find manifest file location."""
     # Env var takes precedence
     if env_manifest := os.environ.get("HOGLI_MANIFEST"):
-        return Path(env_manifest)
+        p = Path(env_manifest).resolve()
+        if not p.is_file():
+            raise ValueError(f"HOGLI_MANIFEST={env_manifest!r} does not point to an existing file")
+        return p
 
     return repo_root / "hogli.yaml"
 
@@ -138,7 +144,11 @@ class Manifest:
         """
         configured = self.config.get("commands_dir")
         if configured:
-            path = REPO_ROOT / configured
+            path = (REPO_ROOT / configured).resolve()
+            try:
+                path.relative_to(REPO_ROOT.resolve())
+            except ValueError:
+                raise ValueError(f"config.commands_dir '{configured}' resolves outside the repo root")
             if path.exists():
                 return path
         # Default: hogli/ next to manifest
@@ -159,7 +169,12 @@ class Manifest:
         """
         configured = self.config.get("scripts_dir")
         if configured:
-            return REPO_ROOT / configured
+            path = (REPO_ROOT / configured).resolve()
+            try:
+                path.relative_to(REPO_ROOT.resolve())
+            except ValueError:
+                raise ValueError(f"config.scripts_dir '{configured}' resolves outside the repo root")
+            return path
         return REPO_ROOT / "bin"
 
     def get_category_for_command(self, command_name: str) -> str:
