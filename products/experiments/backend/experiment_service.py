@@ -956,7 +956,6 @@ class ExperimentService:
     # Unarchive
     # ------------------------------------------------------------------
 
-    @transaction.atomic
     def unarchive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
         """Unarchive an archived experiment: validate it is archived, set archived=False."""
         if not experiment.archived:
