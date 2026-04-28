@@ -61,7 +61,7 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_queries
-from posthog.ducklake.common import get_duckgres_server_for_team
+from posthog.ducklake.common import get_duckgres_server_for_organization
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -1989,7 +1989,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         if not ff_result:
             return False
 
-        server = get_duckgres_server_for_team(self.team_id)
+        server = get_duckgres_server_for_organization(str(self.team.organization_id))
         if server is None:
             logger.info("Ducklake skip: no duckgres server", endpoint_name=endpoint.name, team_id=self.team_id)
         return server is not None
@@ -2003,7 +2003,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         from posthog.ducklake.client import execute_ducklake_query
 
         try:
-            result = execute_ducklake_query(self.team_id, query=HogQLQuery(query=query["query"]))
+            result = execute_ducklake_query(
+                self.team_id,
+                query=HogQLQuery(query=query["query"]),
+                organization_id=str(self.team.organization_id),
+            )
             response_data: dict = {
                 "results": result.results,
                 "columns": result.columns,

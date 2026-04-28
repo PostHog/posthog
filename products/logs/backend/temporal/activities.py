@@ -1,6 +1,7 @@
 """Temporal activities for logs alerting."""
 
 import time
+import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
 
@@ -35,6 +36,7 @@ from products.logs.backend.alert_state_machine import (
 from products.logs.backend.alert_utils import advance_next_check_at
 from products.logs.backend.logs_url_params import build_logs_url_params
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.temporal.constants import MAX_CONCURRENT_ALERT_EVALS
 from products.logs.backend.temporal.metrics import (
     increment_check_errors,
     increment_checkpoint_unavailable,
@@ -93,12 +95,50 @@ class CheckAlertsOutput:
 
 @temporalio.activity.defn
 async def check_alerts_activity(input: CheckAlertsInput) -> CheckAlertsOutput:
-    """Find all due alerts and evaluate them sequentially."""
-    return await database_sync_to_async_pool(_check_alerts_sync)()
+    """Find all due alerts and evaluate them with bounded concurrency."""
+    now, all_alerts, checkpoint = await database_sync_to_async_pool(_load_alerts_and_checkpoint)()
+
+    semaphore = asyncio.Semaphore(MAX_CONCURRENT_ALERT_EVALS)
+    eval_async = database_sync_to_async_pool(_evaluate_single_alert)
+
+    async def _bounded_eval(alert: LogsAlertConfiguration) -> dict[str, int]:
+        async with semaphore:
+            local_stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+            try:
+                await eval_async(alert, now, local_stats, checkpoint=checkpoint)
+            except Exception:
+                logger.exception(
+                    "Unexpected error evaluating alert",
+                    alert_id=str(alert.id),
+                    alert_name=alert.name,
+                    team_id=alert.team_id,
+                )
+                local_stats["errored"] += 1
+            return local_stats
+
+    tasks: list[asyncio.Task[dict[str, int]]] = []
+    async with asyncio.TaskGroup() as tg:
+        for alert in all_alerts:
+            tasks.append(tg.create_task(_bounded_eval(alert)))
+
+    aggregated = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+    for task in tasks:
+        for k, v in task.result().items():
+            aggregated[k] += v
+
+    if aggregated["checked"] > 0:
+        logger.info("Alert check cycle complete", **aggregated)
+
+    return CheckAlertsOutput(
+        alerts_checked=aggregated["checked"],
+        alerts_fired=aggregated["fired"],
+        alerts_resolved=aggregated["resolved"],
+        alerts_errored=aggregated["errored"],
+    )
 
 
-def _check_alerts_sync() -> CheckAlertsOutput:
-    """Synchronous alert checking — runs in a thread."""
+def _load_alerts_and_checkpoint() -> tuple[datetime, list[LogsAlertConfiguration], datetime | None]:
+    """Sync setup: pin `now`, load due alerts, fetch ingestion checkpoint, emit cycle metrics."""
     now = datetime.now(UTC)
 
     all_alerts = list(
@@ -131,10 +171,15 @@ def _check_alerts_sync() -> CheckAlertsOutput:
     except Exception:
         logger.exception("Failed to record checkpoint metric")
 
-    stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
+    return now, all_alerts, checkpoint
 
-    # Sequential for now. TODO, stagger
-    # or cap concurrency to avoid bursting all ClickHouse queries at :00 each minute.
+
+def _check_alerts_sync() -> CheckAlertsOutput:
+    """Synchronous variant kept for unit tests. Production runs through
+    `check_alerts_activity` (async + bounded concurrency)."""
+    now, all_alerts, checkpoint = _load_alerts_and_checkpoint()
+
+    stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
     for alert in all_alerts:
         try:
             _evaluate_single_alert(alert, now, stats, checkpoint=checkpoint)
@@ -148,10 +193,7 @@ def _check_alerts_sync() -> CheckAlertsOutput:
             stats["errored"] += 1
 
     if stats["checked"] > 0:
-        logger.info(
-            "Alert check cycle complete",
-            **stats,
-        )
+        logger.info("Alert check cycle complete", **stats)
 
     return CheckAlertsOutput(
         alerts_checked=stats["checked"],

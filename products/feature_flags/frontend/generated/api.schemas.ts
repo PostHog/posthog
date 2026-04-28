@@ -19,6 +19,8 @@ export interface CopyFlagsRequestApi {
     target_project_ids: number[]
     /** Whether to also copy scheduled changes for this flag */
     copy_schedule?: boolean
+    /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
+    disable_copied_flag?: boolean
 }
 
 export interface CopyFlagsSuccessItemApi {
@@ -1018,6 +1020,8 @@ export interface ScheduledChangeApi {
      * @nullable
      */
     end_date?: string | null
+    /** @nullable */
+    readonly timezone: string | null
 }
 
 export interface PaginatedScheduledChangeListApi {
@@ -1076,6 +1080,8 @@ export interface PatchedScheduledChangeApi {
      * @nullable
      */
     end_date?: string | null
+    /** @nullable */
+    readonly timezone?: string | null
 }
 
 export type FeatureFlagsListParams = {
