@@ -21,15 +21,29 @@ concurrency:
 jobs:
     pre-merge-check:
         name: Pre-merge check
-        runs-on: depot-ubuntu-latest
+        # GitHub-hosted, not depot. This is a sub-2-minute lint job — depot's
+        # faster compute doesn't pay off, and ubuntu-latest avoids the per-min
+        # depot charge for a job that runs many times per PR.
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
-            - uses: actions/checkout@v6
+            - name: Checkout PR head (not GitHub's auto-merge ref)
+              # We deliberately check out the PR head SHA — overriding
+              # actions/checkout's default-for-pull_request behaviour of
+              # checking out refs/pull/N/merge — so we can perform an explicit
+              # `git merge origin/master` in the next step. This gives:
+              #   1. A clear error message on textual merge conflicts.
+              #   2. Master fetched at job-start, slightly fresher than
+              #      GitHub's pre-computed merge ref (which is created at PR
+              #      push time and can lag if master moves before the runner
+              #      picks up the job).
+              # fetch-depth: 0 is needed so `git merge` can find the common
+              # ancestor with master.
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
-                  # Full history so we can merge master into PR head locally.
                   fetch-depth: 0
-                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
 
             - name: Merge current master into PR head
               run: |
