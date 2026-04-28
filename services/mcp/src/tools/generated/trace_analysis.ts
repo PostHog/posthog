@@ -1,8 +1,8 @@
-// AUTO-GENERATED from products/llm_analytics/mcp/summarization.yaml + OpenAPI — do not edit
+// AUTO-GENERATED from products/llm_analytics/mcp/trace_analysis.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { LlmAnalyticsSentimentCreateBody, LlmAnalyticsSummarizationCreateBody } from '@/generated/summarization/api'
+import { LlmAnalyticsSentimentCreateBody, LlmAnalyticsSummarizationCreateBody } from '@/generated/trace_analysis/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SentimentAnalyzeSchema = LlmAnalyticsSentimentCreateBody
