@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_mate
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     EmptyPropertyFilter,
@@ -911,6 +912,23 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "cohort", "key": "id", "value": cohort.pk}, self.team),
             self._parse_expr(f"person_id IN COHORT {cohort.pk}"),
         )
+
+    def test_cohort_filter_with_null_value_is_dropped(self):
+        # A persisted CohortPropertyFilter with no cohort id (e.g. a saved insight whose cohort
+        # was deleted) used to raise ValidationError and turn into a 500 for the customer. The
+        # filter should now no-op so the surrounding insight still renders.
+        self.assertEqual(
+            self._property_to_expr({"type": "cohort", "key": "id", "value": None}, self.team),
+            self._parse_expr("1"),
+        )
+
+    def test_cohort_filter_with_null_value_raises_when_strict(self):
+        with self.assertRaises(ValidationError):
+            property_to_expr(
+                {"type": "cohort", "key": "id", "value": None},
+                team=self.team,
+                strict=True,
+            )
 
     def test_person_scope(self):
         self.assertEqual(

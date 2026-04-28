@@ -6353,7 +6353,7 @@ class CohortPropertyFilter(BaseModel):
     label: str | None = None
     operator: PropertyOperator | None = PropertyOperator.IN_
     type: Literal["cohort"] = "cohort"
-    value: int
+    value: int | None = None
 
 
 class CustomChannelCondition(BaseModel):

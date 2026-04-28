@@ -1065,8 +1065,11 @@ export interface SessionPropertyFilter extends BasePropertyFilter {
 export interface CohortPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Cohort
     key: 'id'
-    /**  @asType integer */
-    value: number
+    /**
+     * @asType integer
+     * @nullable
+     */
+    value: number | null
     /** @default 'in' */
     operator: PropertyOperator
     cohort_name?: string

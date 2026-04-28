@@ -1433,7 +1433,7 @@ const schema26 = {
         label: { type: 'string' },
         operator: { $ref: '#/definitions/PropertyOperator', default: 'in' },
         type: { const: 'cohort', type: 'string' },
-        value: { type: 'integer' },
+        value: { type: ['integer', 'null'] },
     },
     required: ['key', 'operator', 'type', 'value'],
     type: 'object',
@@ -1667,15 +1667,16 @@ function validate28(data, { instancePath = '', parentData, parentDataProperty, r
                                                     !(data5 % 1) &&
                                                     !isNaN(data5) &&
                                                     isFinite(data5)
-                                                )
+                                                ) &&
+                                                data5 !== null
                                             ) {
                                                 validate28.errors = [
                                                     {
                                                         instancePath: instancePath + '/value',
                                                         schemaPath: '#/properties/value/type',
                                                         keyword: 'type',
-                                                        params: { type: 'integer' },
-                                                        message: 'must be integer',
+                                                        params: { type: schema26.properties.value.type },
+                                                        message: 'must be integer,null',
                                                     },
                                                 ]
                                                 return false

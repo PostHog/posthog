@@ -16,6 +16,7 @@ from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
+    CohortPropertyFilter,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -145,6 +146,26 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
         self.assertEqual(len(runner.calculate().results), 2)
+
+    def test_actors_query_with_null_cohort_filter_does_not_raise(self):
+        # Saved insights can persist a CohortPropertyFilter without a cohort id (e.g. the cohort
+        # was deleted, or the filter was added before a value was picked). The pydantic model
+        # must accept the null value (no 500 from request validation), and the runner must
+        # treat the broken filter as a no-op rather than blowing up the entire query.
+        cohort_filter = CohortPropertyFilter.model_validate(
+            {"type": "cohort", "key": "id", "value": None, "operator": "in"}
+        )
+        self.assertIsNone(cohort_filter.value)
+
+        with freeze_time("2021-01-03T12:00:00Z"):
+            source_query = TrendsQuery(
+                dateRange=DateRange(date_from="-7d"),
+                series=[EventsNode(event="$pageview", fixedProperties=[cohort_filter])],
+            )
+            runner = self._create_runner(
+                ActorsQuery(source=InsightActorsQuery(source=source_query, day="2021-01-02T00:00:00Z"))
+            )
+            runner.validate()
 
     def test_persons_query_search_email(self):
         self.random_uuid = self._create_random_persons()

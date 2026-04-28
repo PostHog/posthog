@@ -55,6 +55,8 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
                 continue
 
             cohort_id = prop.value
+            if cohort_id is None:
+                continue
             is_negated = prop.operator == PropertyOperator.NOT_IN
 
             try:

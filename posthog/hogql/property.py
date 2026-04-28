@@ -1109,6 +1109,13 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
+        # A persisted CohortPropertyFilter with a missing/null value (e.g. a saved insight whose cohort was
+        # deleted or never set) should not blow up the entire query. Treat it as a no-op filter so the rest
+        # of the insight still renders; users can re-pick a cohort to restore the intended filter.
+        if property.value is None or (isinstance(property.value, str) and property.value == ""):
+            if strict:
+                raise ValidationError("Cohort property value must be a cohort ID")
+            return ast.Constant(value=1)
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
         cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)

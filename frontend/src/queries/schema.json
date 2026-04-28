@@ -10199,7 +10199,7 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "integer"
+                    "type": ["integer", "null"]
                 }
             },
             "required": ["key", "operator", "type", "value"],
