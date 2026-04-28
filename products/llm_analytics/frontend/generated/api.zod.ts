@@ -469,54 +469,69 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
         .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')
         .optional()
         .describe(
-            "'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
         ),
-    rrule: zod.string().optional().describe("RFC 5545 recurrence rule string. Required when frequency is 'scheduled'."),
+    rrule: zod
+        .string()
+        .optional()
+        .describe(
+            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
+        ),
     starts_at: zod.iso
         .datetime({})
         .nullish()
-        .describe("Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'."),
+        .describe(
+            "Anchor datetime for the rrule (ISO 8601). Required when frequency is 'scheduled'; ignored otherwise."
+        ),
     timezone_name: zod
         .string()
         .max(llmAnalyticsEvaluationReportsCreateBodyTimezoneNameMax)
         .optional()
-        .describe("IANA timezone name for scheduled delivery (e.g. 'America/New_York')."),
+        .describe(
+            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+        ),
     delivery_targets: zod
         .unknown()
         .optional()
         .describe(
-            "List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}."
+            "List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team."
         ),
     max_sample_size: zod
         .number()
         .min(llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMin)
         .max(llmAnalyticsEvaluationReportsCreateBodyMaxSampleSizeMax)
         .optional()
-        .describe('Max number of evaluation runs included in each report. Defaults to 100.'),
-    enabled: zod.boolean().optional().describe('Whether report delivery is active.'),
+        .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
+    enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
-        .describe('Optional custom instructions injected into the AI report prompt to focus analysis.'),
+        .describe(
+            'Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt.'
+        ),
     trigger_threshold: zod
         .number()
         .min(llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMin)
         .max(llmAnalyticsEvaluationReportsCreateBodyTriggerThresholdMax)
         .nullish()
-        .describe('Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.'),
+        .describe(
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+        ),
     cooldown_minutes: zod
         .number()
         .min(llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMin)
         .max(llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMax)
         .optional()
-        .describe('Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).'),
+        .describe(
+            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.'
+        ),
     daily_run_cap: zod
         .number()
         .min(llmAnalyticsEvaluationReportsCreateBodyDailyRunCapMin)
         .max(llmAnalyticsEvaluationReportsCreateBodyDailyRunCapMax)
         .optional()
-        .describe('Max reports generated per day. Defaults to 3.'),
+        .describe('Maximum count-triggered report runs per calendar day (UTC). Defaults to 10.'),
 })
 
 /**
@@ -543,54 +558,69 @@ export const LlmAnalyticsEvaluationReportsUpdateBody = /* @__PURE__ */ zod.objec
         .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')
         .optional()
         .describe(
-            "'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
         ),
-    rrule: zod.string().optional().describe("RFC 5545 recurrence rule string. Required when frequency is 'scheduled'."),
+    rrule: zod
+        .string()
+        .optional()
+        .describe(
+            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
+        ),
     starts_at: zod.iso
         .datetime({})
         .nullish()
-        .describe("Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'."),
+        .describe(
+            "Anchor datetime for the rrule (ISO 8601). Required when frequency is 'scheduled'; ignored otherwise."
+        ),
     timezone_name: zod
         .string()
         .max(llmAnalyticsEvaluationReportsUpdateBodyTimezoneNameMax)
         .optional()
-        .describe("IANA timezone name for scheduled delivery (e.g. 'America/New_York')."),
+        .describe(
+            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+        ),
     delivery_targets: zod
         .unknown()
         .optional()
         .describe(
-            "List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}."
+            "List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team."
         ),
     max_sample_size: zod
         .number()
         .min(llmAnalyticsEvaluationReportsUpdateBodyMaxSampleSizeMin)
         .max(llmAnalyticsEvaluationReportsUpdateBodyMaxSampleSizeMax)
         .optional()
-        .describe('Max number of evaluation runs included in each report. Defaults to 100.'),
-    enabled: zod.boolean().optional().describe('Whether report delivery is active.'),
+        .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
+    enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
-        .describe('Optional custom instructions injected into the AI report prompt to focus analysis.'),
+        .describe(
+            'Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt.'
+        ),
     trigger_threshold: zod
         .number()
         .min(llmAnalyticsEvaluationReportsUpdateBodyTriggerThresholdMin)
         .max(llmAnalyticsEvaluationReportsUpdateBodyTriggerThresholdMax)
         .nullish()
-        .describe('Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.'),
+        .describe(
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+        ),
     cooldown_minutes: zod
         .number()
         .min(llmAnalyticsEvaluationReportsUpdateBodyCooldownMinutesMin)
         .max(llmAnalyticsEvaluationReportsUpdateBodyCooldownMinutesMax)
         .optional()
-        .describe('Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).'),
+        .describe(
+            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.'
+        ),
     daily_run_cap: zod
         .number()
         .min(llmAnalyticsEvaluationReportsUpdateBodyDailyRunCapMin)
         .max(llmAnalyticsEvaluationReportsUpdateBodyDailyRunCapMax)
         .optional()
-        .describe('Max reports generated per day. Defaults to 3.'),
+        .describe('Maximum count-triggered report runs per calendar day (UTC). Defaults to 10.'),
 })
 
 /**
@@ -617,54 +647,69 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
         .describe('* `scheduled` - Scheduled\n* `every_n` - Every N')
         .optional()
         .describe(
-            "'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
+            "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N"
         ),
-    rrule: zod.string().optional().describe("RFC 5545 recurrence rule string. Required when frequency is 'scheduled'."),
+    rrule: zod
+        .string()
+        .optional()
+        .describe(
+            "RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise."
+        ),
     starts_at: zod.iso
         .datetime({})
         .nullish()
-        .describe("Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'."),
+        .describe(
+            "Anchor datetime for the rrule (ISO 8601). Required when frequency is 'scheduled'; ignored otherwise."
+        ),
     timezone_name: zod
         .string()
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTimezoneNameMax)
         .optional()
-        .describe("IANA timezone name for scheduled delivery (e.g. 'America/New_York')."),
+        .describe(
+            "IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'."
+        ),
     delivery_targets: zod
         .unknown()
         .optional()
         .describe(
-            "List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}."
+            "List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team."
         ),
     max_sample_size: zod
         .number()
         .min(llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMin)
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyMaxSampleSizeMax)
         .optional()
-        .describe('Max number of evaluation runs included in each report. Defaults to 100.'),
-    enabled: zod.boolean().optional().describe('Whether report delivery is active.'),
+        .describe('Maximum number of evaluation runs included in each report. Defaults to 200.'),
+    enabled: zod.boolean().optional().describe('Whether report delivery is active. Disabled configs do not fire.'),
     deleted: zod.boolean().optional().describe('Set to true to soft-delete this report config.'),
     report_prompt_guidance: zod
         .string()
         .optional()
-        .describe('Optional custom instructions injected into the AI report prompt to focus analysis.'),
+        .describe(
+            'Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt.'
+        ),
     trigger_threshold: zod
         .number()
         .min(llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMin)
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyTriggerThresholdMax)
         .nullish()
-        .describe('Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.'),
+        .describe(
+            "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
+        ),
     cooldown_minutes: zod
         .number()
         .min(llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMin)
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax)
         .optional()
-        .describe('Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).'),
+        .describe(
+            'Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.'
+        ),
     daily_run_cap: zod
         .number()
         .min(llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMin)
         .max(llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax)
         .optional()
-        .describe('Max reports generated per day. Defaults to 3.'),
+        .describe('Maximum count-triggered report runs per calendar day (UTC). Defaults to 10.'),
 })
 
 /**

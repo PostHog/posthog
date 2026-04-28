@@ -13,10 +13,6 @@
             "minimum": -2147483648,
             "type": "number"
         },
-        "deleted": {
-            "description": "Set to true to soft-delete this report config.",
-            "type": "boolean"
-        },
         "delivery_targets": {
             "description": "List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team."
         },
@@ -31,10 +27,6 @@
         "frequency": {
             "description": "How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.\n\n* `scheduled` - Scheduled\n* `every_n` - Every N",
             "enum": ["scheduled", "every_n"],
-            "type": "string"
-        },
-        "id": {
-            "description": "A UUID string identifying this evaluation report.",
             "type": "string"
         },
         "max_sample_size": {
@@ -83,6 +75,6 @@
             "description": "Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'."
         }
     },
-    "required": ["id"],
+    "required": ["evaluation"],
     "type": "object"
 }
