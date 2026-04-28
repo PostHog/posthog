@@ -14,7 +14,6 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
-    
     dataset-items-create:
         operation: dataset_items_create
         enabled: false
