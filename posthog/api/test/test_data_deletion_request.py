@@ -199,7 +199,7 @@ class TestDataDeletionRequestAPI(APIBaseTest):
             created_by=self.user,
         )
         response = self.client.delete(self._url(f"/{instance.pk}"))
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_409_CONFLICT
         assert DataDeletionRequest.objects.filter(pk=instance.pk).exists()
 
     # --- Preview -------------------------------------------------------------

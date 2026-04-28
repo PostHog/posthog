@@ -83,4 +83,18 @@ describe('dataDeletionLogic', () => {
         logic.actions.setNewRequestValue('properties', ['$browser'])
         expect(logic.values.previewScoped).toBe(true)
     })
+
+    it('materializes "through now" end_time into the form when preview runs', async () => {
+        expect(logic.values.newRequest.end_time_through_now).toBe(true)
+        expect(logic.values.newRequest.end_time).toBeNull()
+
+        logic.actions.setNewRequestValue('start_time', '2026-01-01T00:00:00Z')
+        logic.actions.setNewRequestValue('events', ['$pageview'])
+        logic.actions.runPreview()
+        await expectLogic(logic).toDispatchActions(['refreshPreviewSuccess']).toFinishAllListeners()
+
+        expect(logic.values.newRequest.end_time_through_now).toBe(false)
+        expect(logic.values.newRequest.end_time).not.toBeNull()
+        expect(logic.values.previewIsFresh).toBe(true)
+    })
 })

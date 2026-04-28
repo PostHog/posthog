@@ -105,13 +105,6 @@ function previewInputsMatch(a: NewRequestFormValues | null, b: NewRequestFormVal
     )
 }
 
-function resolveEndTime(values: NewRequestFormValues): string | null {
-    if (values.end_time_through_now) {
-        return dayjs().toISOString()
-    }
-    return values.end_time
-}
-
 function formIsSufficientlyScoped(values: NewRequestFormValues): boolean {
     if (!values.start_time) {
         return false
@@ -186,7 +179,7 @@ export const dataDeletionLogic = kea<dataDeletionLogicType>([
                     const payload = {
                         request_type: snapshot.request_type,
                         start_time: snapshot.start_time,
-                        end_time: resolveEndTime(snapshot),
+                        end_time: snapshot.end_time,
                         events: snapshot.events,
                         delete_all_events: snapshot.delete_all_events,
                         hogql_predicate: snapshot.hogql_predicate,
@@ -237,7 +230,7 @@ export const dataDeletionLogic = kea<dataDeletionLogicType>([
                 const payload = {
                     request_type: form.request_type,
                     start_time: form.start_time,
-                    end_time: resolveEndTime(form),
+                    end_time: form.end_time,
                     events: form.events,
                     delete_all_events: form.delete_all_events,
                     hogql_predicate: form.hogql_predicate,
@@ -251,7 +244,6 @@ export const dataDeletionLogic = kea<dataDeletionLogicType>([
                 lemonToast.success('Deletion request submitted for review')
                 actions.resetNewRequest()
                 actions.clearPreview()
-                actions.loadDeletionRequests()
                 actions.setActiveTab('history')
             },
         },
@@ -266,7 +258,7 @@ export const dataDeletionLogic = kea<dataDeletionLogicType>([
                 form: NewRequestFormValues
             ): boolean => !!preview && previewInputsMatch(previewedFor, form),
         ],
-        pendingCount: [
+        activeCount: [
             (s) => [s.deletionRequests],
             (requests: DataDeletionRequest[]): number =>
                 requests.filter((r) => ['pending', 'approved', 'in_progress', 'queued'].includes(r.status)).length,
@@ -277,10 +269,26 @@ export const dataDeletionLogic = kea<dataDeletionLogicType>([
             if (!formIsSufficientlyScoped(values.newRequest)) {
                 return
             }
+            // Materialize "through now" once at preview time so the submitted deletion
+            // covers the same time range that was previewed — otherwise preview at T1 and
+            // submit at T2 would silently delete more than was shown.
+            let formValues = values.newRequest
+            if (formValues.end_time_through_now) {
+                const resolvedEndTime = dayjs().toISOString()
+                actions.setNewRequestValues({
+                    end_time_through_now: false,
+                    end_time: resolvedEndTime,
+                })
+                formValues = {
+                    ...formValues,
+                    end_time_through_now: false,
+                    end_time: resolvedEndTime,
+                }
+            }
             const snapshot = {
-                ...values.newRequest,
-                events: [...values.newRequest.events],
-                properties: [...values.newRequest.properties],
+                ...formValues,
+                events: [...formValues.events],
+                properties: [...formValues.properties],
             }
             actions.markPreviewedFor(snapshot)
             actions.refreshPreview({ snapshot })

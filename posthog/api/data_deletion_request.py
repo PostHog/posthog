@@ -9,7 +9,7 @@ from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -20,6 +20,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
+from posthog.exceptions import Conflict
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
@@ -202,6 +203,7 @@ def _run_preview(team_id: int, payload: dict) -> dict:
     sample_rows: list[dict[str, Any]] = []
     truncated = False
     if total:
+        # nosemgrep: clickhouse-fstring-param-audit (extra_filter is built from internal helpers, not user input; LIMIT is a hard-coded constant)
         sample_sql = f"""
             SELECT
                 uuid,
@@ -217,7 +219,6 @@ def _run_preview(team_id: int, payload: dict) -> dict:
             ORDER BY timestamp DESC
             LIMIT {PREVIEW_SAMPLE_LIMIT + 1}
         """
-        # Hard-coded LIMIT and column list prevent untrusted-parameter interpolation.
         with tags_context(
             product=Product.INTERNAL,
             feature=Feature.DATA_DELETION,
@@ -296,7 +297,7 @@ class DataDeletionRequestViewSet(
 
     def perform_destroy(self, instance: DataDeletionRequest) -> None:
         if instance.status != RequestStatus.PENDING:
-            raise PermissionDenied(
+            raise Conflict(
                 "Only pending requests can be cancelled. Contact PostHog support to cancel an approved request."
             )
         log_activity(

@@ -73,7 +73,7 @@ export function DataDeletionNewRequest(): JSX.Element {
                             </LemonField>
                             <span className="text-secondary">and</span>
                             {newRequest.end_time_through_now ? (
-                                <span className="text-secondary italic">now (resolved at submission)</span>
+                                <span className="text-secondary italic">now (resolved when you preview)</span>
                             ) : (
                                 <LemonField name="end_time" inline>
                                     <LemonCalendarSelectInput

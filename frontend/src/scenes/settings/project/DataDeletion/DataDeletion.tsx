@@ -7,7 +7,7 @@ import { dataDeletionLogic } from './dataDeletionLogic'
 import { DataDeletionNewRequest } from './DataDeletionNewRequest'
 
 export function DataDeletion(): JSX.Element {
-    const { activeTab, pendingCount } = useValues(dataDeletionLogic)
+    const { activeTab, activeCount } = useValues(dataDeletionLogic)
     const { setActiveTab } = useActions(dataDeletionLogic)
 
     return (
@@ -23,7 +23,7 @@ export function DataDeletion(): JSX.Element {
                     },
                     {
                         key: 'history',
-                        label: pendingCount > 0 ? `History (${pendingCount} pending)` : 'History',
+                        label: activeCount > 0 ? `History (${activeCount} active)` : 'History',
                         content: <DataDeletionHistory />,
                     },
                 ]}
