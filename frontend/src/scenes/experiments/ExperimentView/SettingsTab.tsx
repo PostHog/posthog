@@ -12,12 +12,13 @@ import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/t
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { CupedModal } from './CupedModal'
 import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
     const { updateExperiment } = useActions(experimentLogic)
-    const { openStatsEngineModal } = useActions(modalsLogic)
+    const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const isBayesian = statsMethod === ExperimentStatsMethod.Bayesian
@@ -25,6 +26,10 @@ export function SettingsTab(): JSX.Element {
     const confidenceDisplay = isBayesian
         ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
         : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`
+
+    const cupedEnabled = experiment.stats_config?.cuped?.enabled ?? false
+    const cupedLookbackDays = experiment.stats_config?.cuped?.lookback_days ?? 14
+    const cupedDisplay = cupedEnabled ? `Enabled / ${cupedLookbackDays} day lookback` : 'Disabled'
 
     const returnTo = urls.experiment(experiment.id)
 
@@ -43,6 +48,17 @@ export function SettingsTab(): JSX.Element {
                     <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openStatsEngineModal} />
                 </div>
                 <StatsMethodModal />
+            </div>
+            <div>
+                <h2 className="font-semibold text-lg">CUPED</h2>
+                <div className="flex items-center gap-2">
+                    <span>{cupedDisplay}</span>
+                    <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openCupedModal} />
+                </div>
+                <p className="text-muted text-xs mt-1">
+                    Reduce variance using pre-experiment data as a covariate. Currently supported for mean metrics.
+                </p>
+                <CupedModal />
             </div>
             <div>
                 <h2 className="font-semibold text-lg">Conversion windows</h2>
