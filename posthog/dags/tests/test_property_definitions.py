@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
+import pytest
+
 import dagster
 
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
@@ -15,6 +17,8 @@ from posthog.dags.property_definitions import (
 )
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
+pytestmark = pytest.mark.truncate_clickhouse_reset
 
 
 @dataclass

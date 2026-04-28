@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
+import pytest
+
 import dagster
 from clickhouse_driver import Client
 
@@ -16,6 +18,8 @@ from posthog.dags.person_overrides import (
     squash_person_overrides,
     wait_for_overrides_delete_mutations,
 )
+
+pytestmark = pytest.mark.truncate_clickhouse_reset
 
 
 def test_full_job(cluster: ClickhouseCluster):

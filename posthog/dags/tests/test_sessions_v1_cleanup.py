@@ -10,6 +10,8 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.dags.sessions_v1_cleanup import sessions_v1_cleanup_job
 from posthog.models.sessions.sql import ALLOWED_TEAM_IDS, SESSIONS_DATA_TABLE
 
+pytestmark = pytest.mark.truncate_clickhouse_reset
+
 
 def generate_test_prefix() -> str:
     """Generate a unique prefix for test session IDs to avoid conflicts."""

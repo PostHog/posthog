@@ -20,6 +20,8 @@ from posthog.dags.backfill_materialized_column import (
     run_materialize_mutations,
 )
 
+pytestmark = pytest.mark.truncate_clickhouse_reset
+
 
 def test_join_mappings():
     assert join_mappings({}) == {}

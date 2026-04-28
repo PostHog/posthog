@@ -39,6 +39,8 @@ from posthog.dags.person_property_reconciliation import (
     update_person_with_version_check,
 )
 
+pytestmark = pytest.mark.truncate_clickhouse_reset
+
 
 class TestClickHouseResultParsing:
     """Test that ClickHouse query results are correctly parsed into PersonPropertyDiffs objects."""

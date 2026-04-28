@@ -604,6 +604,7 @@ class MutationNotFound(Exception):
 class MutationWaiter:
     table: str
     mutation_ids: Set[str]
+    poll_interval: float = field(default=15.0, kw_only=True)
 
     def __call__(self, client: Client) -> None:
         return self.wait(client)
@@ -634,7 +635,7 @@ class MutationWaiter:
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
-            time.sleep(15.0)
+            time.sleep(self.poll_interval)
 
 
 @dataclass
@@ -643,6 +644,7 @@ class MutationRunner(abc.ABC):
     parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
     force: bool = field(default=False, kw_only=True)  # whether to force the mutation to run even if it already exists
+    poll_interval: float = field(default_factory=lambda: 0.1 if settings.TEST else 15.0, kw_only=True)
 
     @abc.abstractmethod
     def get_all_commands(self) -> Set[str]:
@@ -677,7 +679,7 @@ class MutationRunner(abc.ABC):
 
         commands_to_enqueue = expected_commands - mutations_running.keys()
         if not commands_to_enqueue:
-            return MutationWaiter(self.table, set(mutations_running.values()))
+            return MutationWaiter(self.table, set(mutations_running.values()), poll_interval=self.poll_interval)
 
         client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
 
@@ -686,7 +688,7 @@ class MutationRunner(abc.ABC):
         for _ in range(5):
             mutations_running = self.find_existing_mutations(client, expected_commands)
             if mutations_running.keys() == expected_commands:
-                return MutationWaiter(self.table, set(mutations_running.values()))
+                return MutationWaiter(self.table, set(mutations_running.values()), poll_interval=self.poll_interval)
             time.sleep(1.0)
 
         raise Exception(

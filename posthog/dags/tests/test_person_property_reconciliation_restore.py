@@ -22,6 +22,8 @@ from posthog.dags.person_property_reconciliation_restore import (
 from posthog.models import Organization, Person, Team
 from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 
+pytestmark = pytest.mark.truncate_clickhouse_reset
+
 
 def create_backup_entry(
     cursor,

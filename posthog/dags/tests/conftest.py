@@ -1,8 +1,3 @@
-# explicit fixture import is needed as autodiscovery doesn't work due to package layout
-from posthog.conftest import django_db_setup
-
-__all__ = ["django_db_setup"]
-
 from collections.abc import Iterator
 
 import pytest
@@ -10,6 +5,7 @@ from posthog.test.base import reset_clickhouse_database
 from unittest.mock import patch
 
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
+from posthog.conftest import reset_clickhouse_tables
 
 # Import the shared Dagster PostgreSQL fixtures so they apply to all tests
 # in this directory. Direct import (rather than pytest_plugins) is required
@@ -18,6 +14,26 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _dagster_postgres_instance,
     _use_postgres_dagster_instance,
 )
+
+TRUNCATE_CLICKHOUSE_RESET_MARKER = "truncate_clickhouse_reset"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _reset_clickhouse_schema_for_truncate_cluster_tests(request: pytest.FixtureRequest) -> Iterator[None]:
+    module_items = getattr(request.node, "items", [])
+    if not any(
+        "cluster" in item.fixturenames and item.get_closest_marker(TRUNCATE_CLICKHOUSE_RESET_MARKER)
+        for item in module_items
+    ):
+        yield
+        return
+
+    request.getfixturevalue("django_db_setup")
+    reset_clickhouse_database()
+    try:
+        yield
+    finally:
+        reset_clickhouse_database()
 
 
 def _patched_get_cluster_hosts(self, client, cluster, retry_policy=None):
@@ -40,12 +56,17 @@ def _patched_get_cluster_hosts(self, client, cluster, retry_policy=None):
 
 
 @pytest.fixture
-def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
+def cluster(request: pytest.FixtureRequest, django_db_setup) -> Iterator[ClickhouseCluster]:
     """
     Cluster fixture with macOS Docker-compatible hostname resolution.
     Patches ClickhouseCluster to use host_name instead of host_address.
     """
-    reset_clickhouse_database()
+    reset_clickhouse = (
+        reset_clickhouse_tables
+        if request.node.get_closest_marker(TRUNCATE_CLICKHOUSE_RESET_MARKER)
+        else reset_clickhouse_database
+    )
+    reset_clickhouse()
     try:
         with patch.object(
             ClickhouseCluster,
@@ -54,4 +75,4 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
         ):
             yield get_cluster()
     finally:
-        reset_clickhouse_database()
+        reset_clickhouse()

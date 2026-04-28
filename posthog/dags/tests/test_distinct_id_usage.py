@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+import pytest
 from unittest import mock
 
 import dagster
@@ -18,6 +19,8 @@ from posthog.dags.distinct_id_usage import (
     truncate_distinct_id,
 )
 from posthog.models.distinct_id_usage.sql import DATA_TABLE_NAME
+
+pytestmark = pytest.mark.truncate_clickhouse_reset
 
 
 class TestTruncateDistinctId:

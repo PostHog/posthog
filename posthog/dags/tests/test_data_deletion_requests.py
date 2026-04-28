@@ -24,6 +24,8 @@ from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionM
 
 TEAM_ID = 99999
 
+pytestmark = pytest.mark.truncate_clickhouse_reset
+
 
 def _insert_events(events: list[tuple], client: Client) -> None:
     client.execute(
