@@ -4005,6 +4005,81 @@
             "readOnlyHint": false
         }
     },
+    "usage-metrics-create": {
+        "description": "Create a new usage metric for the project. The metric will surface on both group and person Customer Analytics profile pages — usage metrics are not scoped to a specific group type. `filters` takes the same shape as HogFunction filters (a dict with an `events` list and optional `properties` list). When `math` is `sum`, `math_property` is required; when `math` is `count`, `math_property` must be empty. Pass `group_type_index: 0`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create usage metric",
+        "title": "Create usage metric",
+        "required_scopes": ["usage_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "usage-metrics-destroy": {
+        "description": "Permanently delete a usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete usage metric",
+        "title": "Delete usage metric",
+        "required_scopes": ["usage_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "usage-metrics-list": {
+        "description": "List usage metrics defined for the project. Usage metrics apply to both groups and persons on Customer Analytics profile pages — they are NOT scoped to a specific group type despite the legacy URL shape. Returns each metric's id, name, format, interval (days), display mode, math aggregation, and filter definition. Pass `group_type_index: 0`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List usage metrics",
+        "title": "List usage metrics",
+        "required_scopes": ["usage_metric:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "usage-metrics-partial-update": {
+        "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update usage metric",
+        "title": "Update usage metric",
+        "required_scopes": ["usage_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "usage-metrics-retrieve": {
+        "description": "Fetch a single usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get usage metric",
+        "title": "Get usage metric",
+        "required_scopes": ["usage_metric:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "user-get": {
         "description": "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff callers may only access their own account.",
         "category": "Core",
