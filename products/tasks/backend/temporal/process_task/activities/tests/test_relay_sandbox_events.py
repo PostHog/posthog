@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import AsyncMock
 
 import httpx
+import httpx_sse
 from parameterized import parameterized
 
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
@@ -230,7 +231,19 @@ class TestRelaySandboxEventsCancellation:
 
 
 class TestRelaySandboxEventsErrorHandling:
-    async def test_relay_loop_retries_transport_terminated_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @parameterized.expand(
+        [
+            ("read_error", httpx.ReadError),
+            ("connect_error", httpx.ConnectError),
+            ("remote_protocol_error", httpx.RemoteProtocolError),
+            ("sse_error", httpx_sse.SSEError),
+        ],
+    )
+    async def test_relay_loop_retries_retryable_stream_errors(
+        self,
+        _name: str,
+        exception_class: type[Exception],
+    ) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
             mark_complete=AsyncMock(),
@@ -244,7 +257,7 @@ class TestRelaySandboxEventsErrorHandling:
 
         class FailingEventSource:
             async def __aenter__(self) -> "FailingEventSource":
-                raise httpx.ReadError("terminated")
+                raise exception_class("terminated")
 
             async def __aexit__(self, *_args: object) -> None:
                 return None
@@ -271,18 +284,19 @@ class TestRelaySandboxEventsErrorHandling:
         async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
             return None
 
-        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
-        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "sleep", sleep_mock)
-        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+            monkeypatch.setattr(relay_sandbox_events_module.asyncio, "sleep", sleep_mock)
+            monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
 
-        await _relay_loop(
-            events_url="https://sandbox.example/events",
-            headers={"Authorization": "Bearer token"},
-            params={},
-            redis_stream=cast(TaskRunRedisStream, redis_stream),
-            run_id="run-id",
-            task_id="task-id",
-        )
+            await _relay_loop(
+                events_url="https://sandbox.example/events",
+                headers={"Authorization": "Bearer token"},
+                params={},
+                redis_stream=cast(TaskRunRedisStream, redis_stream),
+                run_id="run-id",
+                task_id="task-id",
+            )
 
         assert connect_attempts == 2
         sleep_mock.assert_awaited_once_with(2)
