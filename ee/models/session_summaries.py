@@ -68,6 +68,12 @@ class SessionSummaryPage:
     results: list["SingleSessionSummary"]
 
 
+def _normalize_context(ctx: ExtraSummaryContext | None) -> dict | None:
+    if ctx is None:
+        return None
+    return {k: v for k, v in asdict(ctx).items() if v is not None}
+
+
 class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
     """Manager for SingleSessionSummary with utility methods."""
 
@@ -91,7 +97,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         if extra_summary_context is None:
             return summary
         # Summary found, context to match
-        if summary.extra_summary_context != asdict(extra_summary_context):
+        if summary.extra_summary_context != _normalize_context(extra_summary_context):
             return None
         return summary
 
@@ -110,7 +116,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         created_by: User | None = None,
     ) -> "SingleSessionSummary":
         """Store a new session summary"""
-        extra_summary_context_dict = asdict(extra_summary_context) if extra_summary_context else None
+        extra_summary_context_dict = _normalize_context(extra_summary_context)
         run_metadata_dict = asdict(run_metadata) if run_metadata else None
         # No constraints of adding the summary for the same session.
         # It should be impossible, but we get the latest version anyways, even if it happens miracously.
@@ -160,7 +166,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         if extra_summary_context is not None:
             # Post-filtering could return 0 summaries (if context not matched),
             # but has_next is calculated on DB-level-results, so the pagination would work properly
-            extra_summary_context_dict = asdict(extra_summary_context)
+            extra_summary_context_dict = _normalize_context(extra_summary_context)
             filtered_summaries = [s for s in db_results if s.extra_summary_context == extra_summary_context_dict]
         else:
             filtered_summaries = db_results
@@ -191,7 +197,7 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
         queryset = queryset.order_by("session_id", "-created_at").distinct("session_id")
         # Need to fetch context to verify exact match
         if extra_summary_context is not None:
-            extra_summary_context_dict = asdict(extra_summary_context)
+            extra_summary_context_dict = _normalize_context(extra_summary_context)
             existing_summaries = queryset.values_list("session_id", "extra_summary_context")
             for session_id, context in existing_summaries:
                 if context == extra_summary_context_dict:
