@@ -92,8 +92,13 @@ def register_all_admin():
     from products.links.backend.models import Link
     from products.mcp_store.backend.admin import MCPServerTemplateAdmin
     from products.mcp_store.backend.models import MCPServerTemplate
-    from products.signals.backend.admin import SignalReportAdmin
-    from products.signals.backend.models import SignalReport
+    from products.signals.backend.admin import (
+        SignalAgentConfigAdmin,
+        SignalAgentRunAdmin,
+        SignalMemoryAdmin,
+        SignalReportAdmin,
+    )
+    from products.signals.backend.models import SignalAgentConfig, SignalAgentRun, SignalMemory, SignalReport
     from products.surveys.backend.models import Survey
     from products.tasks.backend.admin import (
         CodeInviteAdmin,
@@ -168,6 +173,9 @@ def register_all_admin():
     admin.site.register(EndpointVersion, EndpointVersionAdmin)
 
     admin.site.register(SignalReport, SignalReportAdmin)
+    admin.site.register(SignalAgentConfig, SignalAgentConfigAdmin)
+    admin.site.register(SignalAgentRun, SignalAgentRunAdmin)
+    admin.site.register(SignalMemory, SignalMemoryAdmin)
 
     admin.site.register(UserProductList, UserProductListAdmin)
 
