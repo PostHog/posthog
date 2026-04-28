@@ -644,6 +644,15 @@ describe('llmPlaygroundLogic', () => {
                 },
             ])
         })
+
+        it('should ignore empty responses so the action cannot add blank assistant turns', () => {
+            const original = [{ role: 'user' as const, content: 'Hello' }]
+            llmPlaygroundPromptsLogic.actions.setMessages(original)
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('')
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual(original)
+        })
     })
 
     describe('effectiveModelOptions', () => {
