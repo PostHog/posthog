@@ -910,6 +910,9 @@ def break_part(
 
         ssh: paramiko.SSHClient | None = None
         freeze_name: str | None = None
+        # Track source-table side effects so the except block can surface incomplete state.
+        attach_partition_from_succeeded = False
+        original_part_dropped = False
 
         try:
             # -- Step 2: Pre-flight checks --
@@ -1107,6 +1110,7 @@ def break_part(
                 f"ALTER TABLE {database}.{source_table} "
                 f"ATTACH PARTITION '{partition_id}' FROM {database}.{staging_target}"
             )
+            attach_partition_from_succeeded = True
 
             # -- Step 9: Verify row delta matches staging target row count.
             # Source row delta must be >= staging row count (concurrent inserts
@@ -1175,6 +1179,7 @@ def break_part(
                         settings={"max_partition_size_to_drop": "0"},
                     )
                     context.log.info(f"Dropped {current_part_name}")
+                    original_part_dropped = True
                 except Exception as drop_err:
                     if "not a leader" not in str(drop_err):
                         raise
@@ -1192,12 +1197,14 @@ def break_part(
                         workload=Workload.ONLINE,
                     ).result()
                     context.log.info(f"Dropped {current_part_name} (via leader replica)")
+                    original_part_dropped = True
             else:
                 context.log.warning(
                     f"Original oversized part (prefix {old_part_prefix}) not found in "
                     f"{source_table} partition {partition_id} — "
                     f"it may have been merged or dropped already. Skipping DROP PART."
                 )
+                original_part_dropped = True  # Already gone — nothing to reconcile.
 
             # Use the verified staging target stats from Step 7 — these reflect exactly
             # what we created, not the whole partition which includes unrelated parts.
@@ -1219,6 +1226,15 @@ def break_part(
         except Exception:
             # Clean up on failure to avoid leaking shadow disk space and staging data
             context.log.warning("Error during part break — cleaning up")
+
+            # ATTACH succeeded but DROP didn't → reconciliation needed (see runbook).
+            if attach_partition_from_succeeded and not original_part_dropped:
+                context.log.exception(
+                    f"Incomplete part break in {database}.{source_table} partition "
+                    f"{partition_id} (shard {part.shard_num}, original part "
+                    f"{part.part_name}). See runbooks."
+                )
+
             if freeze_name is not None:
                 try:
                     client.execute(f"SYSTEM UNFREEZE WITH NAME '{freeze_name}'")
