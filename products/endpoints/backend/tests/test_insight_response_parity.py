@@ -18,7 +18,6 @@ from posthog.schema import (
     Breakdown,
     BreakdownFilter,
     BreakdownType,
-    DataWarehouseSyncInterval,
     EventsNode,
     HogQLQueryResponse,
     LifecycleQuery,
@@ -77,7 +76,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         """Enable materialization and set up a completed saved query with table."""
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()

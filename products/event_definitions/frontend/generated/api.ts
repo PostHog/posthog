@@ -15,8 +15,10 @@ import type {
     EventDefinitionRecordApi,
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
+    EventDefinitionsPromotedPropertiesRetrieveParams,
     PaginatedEnterpriseEventDefinitionListApi,
     PatchedEnterpriseEventDefinitionApi,
+    PromotedPropertiesResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -227,6 +229,46 @@ export const eventDefinitionsGolangRetrieve = async (projectId: string, options?
         ...options,
         method: 'GET',
     })
+}
+
+/**
+ * Resolve team-configured promoted properties for event definitions.
+
+The response only contains entries where a non-null promoted_property is set on the
+EventDefinition. Callers should fall back to the core taxonomy defaults client-side
+for names not present in the response.
+ */
+export const getEventDefinitionsPromotedPropertiesRetrieveUrl = (
+    projectId: string,
+    params?: EventDefinitionsPromotedPropertiesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_definitions/promoted_properties/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/promoted_properties/`
+}
+
+export const eventDefinitionsPromotedPropertiesRetrieve = async (
+    projectId: string,
+    params?: EventDefinitionsPromotedPropertiesRetrieveParams,
+    options?: RequestInit
+): Promise<PromotedPropertiesResponseApi> => {
+    return apiMutator<PromotedPropertiesResponseApi>(
+        getEventDefinitionsPromotedPropertiesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getEventDefinitionsPythonRetrieveUrl = (projectId: string) => {

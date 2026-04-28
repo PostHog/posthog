@@ -409,7 +409,9 @@ export default function SchemaForm(): JSX.Element {
                                                     type="secondary"
                                                     onClick={() => openSyncMethodModal(schema)}
                                                     disabledReason={
-                                                        !schema.incremental_available && !schema.append_available
+                                                        !schema.incremental_available &&
+                                                        !schema.append_available &&
+                                                        !schema.supports_webhooks
                                                             ? 'Full refresh is the only supported sync method for this table'
                                                             : undefined
                                                     }

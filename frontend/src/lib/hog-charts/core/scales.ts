@@ -38,7 +38,7 @@ export function createYScale(
             .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
     }
 
-    const filteredSeries = series.filter((s) => !s.hidden)
+    const filteredSeries = series.filter((s) => !s.visibility?.excluded)
     const allValues = filteredSeries.flatMap((s) => s.data).filter((v) => v != null && isFinite(v))
 
     if (allValues.length === 0) {
@@ -94,7 +94,7 @@ export function createScales(
 ): ScaleSet {
     const x = createXScale(labels, dimensions)
 
-    const axisIds = new Set(series.filter((s) => !s.hidden).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
+    const axisIds = new Set(series.filter((s) => !s.visibility?.excluded).map((s) => s.yAxisId ?? DEFAULT_Y_AXIS_ID))
     const hasMultipleAxes = axisIds.size > 1
 
     if (!hasMultipleAxes) {
@@ -114,7 +114,7 @@ export function createScales(
 
     const yAxes: Record<string, { scale: D3YScale; position: 'left' | 'right' }> = {}
     orderedAxisIds.forEach((axisId, axisIndex) => {
-        const axisSeries = series.filter((s) => !s.hidden && (s.yAxisId ?? DEFAULT_Y_AXIS_ID) === axisId)
+        const axisSeries = series.filter((s) => !s.visibility?.excluded && (s.yAxisId ?? DEFAULT_Y_AXIS_ID) === axisId)
         const scale = createYScale(axisSeries, dimensions, {
             scaleType: options.scaleType,
             percentStack: options.percentStack,
@@ -137,7 +137,9 @@ function buildStackData(
     labels: string[],
     offset?: typeof d3.stackOffsetNone
 ): Map<string, StackedBand> {
-    const visibleSeries = series.filter((s) => !s.hidden && !s.fillBetweenData && !s.excludeFromStack)
+    const visibleSeries = series.filter(
+        (s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.visibility?.fromStack
+    )
     if (visibleSeries.length === 0) {
         return new Map()
     }

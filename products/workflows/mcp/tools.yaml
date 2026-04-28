@@ -15,11 +15,20 @@ ui_apps:
         type: list
         detail_tool: workflows-get
 tools:
+    hog-flow-templates-create:
+        operation: hog_flow_templates_create
+        enabled: false
+    hog-flow-templates-destroy:
+        operation: hog_flow_templates_destroy
+        enabled: false
     hog-flow-templates-list:
         operation: hog_flow_templates_list
         enabled: false
-    hog-flow-templates-create:
-        operation: hog_flow_templates_create
+    hog-flow-templates-logs-retrieve:
+        operation: hog_flow_templates_logs_retrieve
+        enabled: false
+    hog-flow-templates-partial-update:
+        operation: hog_flow_templates_partial_update
         enabled: false
     hog-flow-templates-retrieve:
         operation: hog_flow_templates_retrieve
@@ -27,17 +36,26 @@ tools:
     hog-flow-templates-update:
         operation: hog_flow_templates_update
         enabled: false
-    hog-flow-templates-partial-update:
-        operation: hog_flow_templates_partial_update
+    hog-flows-batch-jobs-create:
+        operation: hog_flows_batch_jobs_create
         enabled: false
-    hog-flow-templates-destroy:
-        operation: hog_flow_templates_destroy
+    hog-flows-batch-jobs-retrieve:
+        operation: hog_flows_batch_jobs_retrieve
         enabled: false
-    hog-flow-templates-logs-retrieve:
-        operation: hog_flow_templates_logs_retrieve
+    hog-flows-bulk-delete-create:
+        operation: hog_flows_bulk_delete_create
         enabled: false
-    workflows-list:
-        operation: hog_flows_list
+    hog-flows-create:
+        operation: hog_flows_create
+        enabled: false
+    hog-flows-destroy:
+        operation: hog_flows_destroy
+        enabled: false
+    hog-flows-invocations-create:
+        operation: hog_flows_invocations_create
+        enabled: false
+    hog-flows-logs-retrieve:
+        operation: hog_flows_logs_retrieve
         enabled: true
         scopes:
             - hog_flow:read
@@ -45,14 +63,49 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        list: true
-        title: List workflows
+        title: Get workflow logs
         description: >
-            List all workflows in the project. Returns workflows with their name, description, status
-            (draft/active/archived), version, trigger configuration, and timestamps.
-        ui_app: workflow-list
-    hog-flows-create:
-        operation: hog_flows_create
+            Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG,
+            LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected
+            results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.
+    hog-flows-metrics-retrieve:
+        operation: hog_flows_metrics_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get workflow metrics
+        description: >
+            Retrieve execution metrics for a specific workflow by ID. Returns time-series data showing success and
+            failure counts over a configurable interval (hour, day, or week). Use to understand workflow health,
+            identify failure spikes, and monitor execution reliability. Supports breakdown by metric kind
+            (success/failure) or name, and time range filtering.
+    hog-flows-metrics-totals-retrieve:
+        operation: hog_flows_metrics_totals_retrieve
+        enabled: false
+    hog-flows-partial-update:
+        operation: hog_flows_partial_update
+        enabled: false
+    hog-flows-schedules-create:
+        operation: hog_flows_schedules_create
+        enabled: false
+    hog-flows-schedules-destroy:
+        operation: hog_flows_schedules_destroy
+        enabled: false
+    hog-flows-schedules-list:
+        operation: hog_flows_schedules_list
+        enabled: false
+    hog-flows-schedules-partial-update:
+        operation: hog_flows_schedules_partial_update
+        enabled: false
+    hog-flows-update:
+        operation: hog_flows_update
+        enabled: false
+    hog-flows-user-blast-radius-create:
+        operation: hog_flows_user_blast_radius_create
         enabled: false
     workflows-get:
         operation: hog_flows_retrieve
@@ -69,26 +122,8 @@ tools:
             Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
             condition, and variables.
         ui_app: workflow
-    hog-flows-update:
-        operation: hog_flows_update
-        enabled: false
-    hog-flows-partial-update:
-        operation: hog_flows_partial_update
-        enabled: false
-    hog-flows-destroy:
-        operation: hog_flows_destroy
-        enabled: false
-    hog-flows-batch-jobs-retrieve:
-        operation: hog_flows_batch_jobs_retrieve
-        enabled: false
-    hog-flows-batch-jobs-create:
-        operation: hog_flows_batch_jobs_create
-        enabled: false
-    hog-flows-invocations-create:
-        operation: hog_flows_invocations_create
-        enabled: false
-    hog-flows-logs-retrieve:
-        operation: hog_flows_logs_retrieve
+    workflows-list:
+        operation: hog_flows_list
         enabled: true
         scopes:
             - hog_flow:read
@@ -96,45 +131,9 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: Get workflow logs
+        list: true
+        title: List workflows
         description: >
-            Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp,
-            level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing
-            or not producing expected results. Supports filtering by log level, text search, time range
-            (after/before), and pagination via limit.
-    hog-flows-metrics-retrieve:
-        operation: hog_flows_metrics_retrieve
-        enabled: true
-        scopes:
-            - hog_flow:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get workflow metrics
-        description: >
-            Retrieve execution metrics for a specific workflow by ID. Returns time-series data showing
-            success and failure counts over a configurable interval (hour, day, or week). Use to understand
-            workflow health, identify failure spikes, and monitor execution reliability. Supports breakdown
-            by metric kind (success/failure) or name, and time range filtering.
-    hog-flows-metrics-totals-retrieve:
-        operation: hog_flows_metrics_totals_retrieve
-        enabled: false
-    hog-flows-bulk-delete-create:
-        operation: hog_flows_bulk_delete_create
-        enabled: false
-    hog-flows-user-blast-radius-create:
-        operation: hog_flows_user_blast_radius_create
-        enabled: false
-    hog-flows-schedules-list:
-        operation: hog_flows_schedules_list
-        enabled: false
-    hog-flows-schedules-create:
-        operation: hog_flows_schedules_create
-        enabled: false
-    hog-flows-schedules-partial-update:
-        operation: hog_flows_schedules_partial_update
-        enabled: false
-    hog-flows-schedules-destroy:
-        operation: hog_flows_schedules_destroy
-        enabled: false
+            List all workflows in the project. Returns workflows with their name, description, status
+            (draft/active/archived), version, trigger configuration, and timestamps.
+        ui_app: workflow-list

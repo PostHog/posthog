@@ -16,6 +16,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    Breakdown,
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
@@ -26,6 +27,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     EventsNode,
+    MultipleBreakdownType,
     PropertyOperator,
     TrendsFilter,
     TrendsQuery,
@@ -271,6 +273,41 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         assert response.results[3][1] == [0, 0, 0, 1, 0, 0, 0]
         assert response.results[3][2] == "d"
+
+    def test_trends_single_item_multi_breakdown(self):
+        table_name = self.setup_data_warehouse()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdowns=[Breakdown(property="prop_1", type=MultipleBreakdownType.DATA_WAREHOUSE)],
+            ),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert len(response.results) == 4
+        # `breakdown_value` is a list under multi-breakdown, even when there's only one entry —
+        # this exercises the list-vs-string handling in `build_series_response`/`format_results`.
+        breakdown_results = sorted(response.results, key=lambda r: r["breakdown_value"])
+        assert [r["breakdown_value"] for r in breakdown_results] == [["a"], ["b"], ["c"], ["d"]]
+        assert [r["data"] for r in breakdown_results] == [
+            [1, 0, 0, 0, 0, 0, 0],
+            [0, 1, 0, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 0, 0],
+            [0, 0, 0, 1, 0, 0, 0],
+        ]
 
     def test_trends_breakdown_with_event_property(self):
         table_name = self.setup_data_warehouse()

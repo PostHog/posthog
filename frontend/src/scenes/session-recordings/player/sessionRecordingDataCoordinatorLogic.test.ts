@@ -206,7 +206,10 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                 .toDispatchActions(['loadRecordingMetaSuccess', 'loadEvents'])
                 .toFinishAllListeners()
 
-            expect(api.create).toHaveBeenCalledTimes(2)
+            // Two HogQL session/related-events queries plus a third query that fetches full
+            // properties for events with a promoted property (e.g. $pageview's $pathname)
+            // — see preloadableEvents in sessionEventsDataLogic.
+            expect(api.create).toHaveBeenCalledTimes(3)
 
             const queries = (api.create as jest.MockedFunction<typeof api.create>).mock.calls.map(
                 (call) => (call[1] as { query: HogQLQueryResponse })?.query?.query
