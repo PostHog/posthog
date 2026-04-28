@@ -20,6 +20,10 @@ export const SKILLS_PER_PAGE = 30
 // Hard upper bound for "group by prefix" mode — grouping is a client-side aggregation,
 // so we fetch the full list once instead of paging.
 export const SKILLS_GROUP_LIMIT = 500
+// Cap on hierarchical nesting depth. Pathological chains like a-b-c-d-e-f-g-h would
+// otherwise push content infinitely right; remaining segments below this depth render
+// as leaves of the deepest allowed group.
+export const SKILLS_GROUP_MAX_DEPTH = 4
 export const LLM_SKILLS_FORCE_RELOAD_PARAM = 'llm_skills_force_reload'
 
 export interface SkillFilters {
@@ -102,7 +106,11 @@ function buildGroupTree(skills: LLMSkillListApi[], depth: number, pathPrefix: st
             continue
         }
         const newPrefix = pathPrefix ? `${pathPrefix}-${segment}` : segment
-        const sub = buildGroupTree(items, depth + 1, newPrefix)
+        // At max depth, stop recursing — collapse all remaining items into leaves of this group.
+        const sub: SkillGroupTree =
+            depth + 1 >= SKILLS_GROUP_MAX_DEPTH
+                ? { groups: [], ungrouped: [...items].sort((a, b) => a.name.localeCompare(b.name)) }
+                : buildGroupTree(items, depth + 1, newPrefix)
         groups.push({
             prefix: newPrefix,
             segment,
