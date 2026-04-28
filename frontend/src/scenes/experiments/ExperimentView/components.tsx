@@ -659,12 +659,21 @@ export function FinishExperimentModal(): JSX.Element {
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
 
     useEffect(() => {
-        if (experiment.parameters?.feature_flag_variants?.length > 1) {
+        const variants = experiment.parameters?.feature_flag_variants
+        if (!variants?.length) {
+            return
+        }
+        if (experiment.conclusion === ExperimentConclusion.Lost) {
+            // The test variant(s) underperformed, so default to keeping the control
+            const controlVariant = variants.find((v) => v.key === 'control') ?? variants[0]
+            setSelectedVariantKey(controlVariant.key)
+        } else if (variants.length > 1) {
             // First test variant selected by default
-            setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
+            setSelectedVariantKey(variants[1].key)
         }
     }, [
         experiment.id,
+        experiment.conclusion,
         experiment.parameters?.feature_flag_variants?.length,
         experiment.parameters?.feature_flag_variants,
     ])
