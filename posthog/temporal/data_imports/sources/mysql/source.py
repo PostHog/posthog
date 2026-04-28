@@ -53,6 +53,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="localhost",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -60,6 +61,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="3306",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -67,6 +69,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="mysql",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="user",
@@ -74,6 +77,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="mysql",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -81,6 +85,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -88,6 +93,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="public",
+                        secret=False,
                     ),
                     SourceFieldSelectConfig(
                         name="using_ssl",

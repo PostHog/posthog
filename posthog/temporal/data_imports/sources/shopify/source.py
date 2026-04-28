@@ -47,6 +47,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="my-store-id",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="shopify_client_id",
@@ -54,6 +55,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="client-id",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="shopify_client_secret",
@@ -61,6 +63,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="shpss_...",
+                        secret=True,
                     ),
                 ],
             ),

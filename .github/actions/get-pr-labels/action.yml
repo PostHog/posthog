@@ -14,7 +14,7 @@ runs:
     steps:
         - name: Get PR associated with the last commit
           id: pr-info
-          uses: octokit/request-action@05a2312de9f8207044c4c9e41fe19703986acc13 # v2.x
+          uses: octokit/request-action@b91aabaa861c777dcdb14e2387e30eddf04619ae # v3.0.0
           with:
               route: GET /repos/${{ github.repository }}/commits/${{ github.sha }}/pulls
           env:

@@ -23,9 +23,9 @@ from temporalio.client import (
 from posthog.hogql_queries.ai.vector_search_query_runner import LATEST_ACTIONS_EMBEDDING_VERSION
 from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
-from posthog.temporal.ai.video_segment_clustering.schedule import create_video_segment_clustering_coordinator_schedule
+from posthog.temporal.alerts.schedule import create_schedule_due_alert_checks_schedule
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.data_imports.signals.conversations_schedule import (
     create_conversations_signals_coordinator_schedule,
 )
@@ -62,6 +62,9 @@ from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichment
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
+from posthog.temporal.session_replay.summarization_sweep.reconciler import (
+    create_summarization_sweep_reconciler_schedule,
+)
 from posthog.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
@@ -474,6 +477,17 @@ async def create_replay_count_metrics_schedule(client: Client):
         )
 
 
+async def cleanup_legacy_session_summarization_schedules(client: Client):
+    """Delete legacy schedules. Any in-flight runs die on their own execution_timeout."""
+    legacy_schedule_ids = [
+        "video-segment-clustering-coordinator-schedule",
+        "session-summarization-sweep-schedule",
+    ]
+    for schedule_id in legacy_schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
 async def create_count_all_playlists_schedule(client: Client):
     """Create or update the schedule for the playlist counting workflow.
 
@@ -527,7 +541,8 @@ schedules = [
     create_count_trigger_schedule,
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
-    create_video_segment_clustering_coordinator_schedule,
+    cleanup_legacy_session_summarization_schedules,
+    create_summarization_sweep_reconciler_schedule,
     create_ducklake_compaction_schedule,
     create_purge_deleted_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
@@ -538,6 +553,7 @@ schedules = [
     create_conversations_signals_coordinator_schedule,
     create_wa_weekly_digest_schedule,
     create_logs_alert_check_schedule,
+    create_schedule_due_alert_checks_schedule,
 ]
 
 if settings.EE_AVAILABLE:

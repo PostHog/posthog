@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconBook, IconChevronDown, IconDownload, IconX } from '@posthog/icons'
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -251,6 +252,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         saveAsMenuItems,
         isSourceQueryLastRun,
         isMultiQuery,
+        featureFlags,
     } = useValues(sqlEditorLogic)
     const {
         updateView,
@@ -421,11 +423,15 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                             disabledReason: saveAsDisabledReason,
                                                             onClick: () => saveAsView(),
                                                         },
-                                                        {
-                                                            label: 'Save as endpoint...',
-                                                            disabledReason: saveAsDisabledReason,
-                                                            onClick: () => saveAsEndpoint(),
-                                                        },
+                                                        ...(featureFlags[FEATURE_FLAGS.ENDPOINTS]
+                                                            ? [
+                                                                  {
+                                                                      label: 'Save as endpoint...',
+                                                                      disabledReason: saveAsDisabledReason,
+                                                                      onClick: () => saveAsEndpoint(),
+                                                                  },
+                                                              ]
+                                                            : []),
                                                     ]}
                                                 />
                                             ),
@@ -474,11 +480,15 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                             disabledReason: saveAsDisabledReason,
                                                             onClick: () => saveAsView(),
                                                         },
-                                                        {
-                                                            label: 'Save as endpoint...',
-                                                            disabledReason: saveAsDisabledReason,
-                                                            onClick: () => saveAsEndpoint(),
-                                                        },
+                                                        ...(featureFlags[FEATURE_FLAGS.ENDPOINTS]
+                                                            ? [
+                                                                  {
+                                                                      label: 'Save as endpoint...',
+                                                                      disabledReason: saveAsDisabledReason,
+                                                                      onClick: () => saveAsEndpoint(),
+                                                                  },
+                                                              ]
+                                                            : []),
                                                     ]}
                                                 />
                                             ),

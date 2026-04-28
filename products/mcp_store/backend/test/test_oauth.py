@@ -508,6 +508,39 @@ class TestResolveInstallationOauthContext(BaseTest):
         assert client_id == "template-client"
         assert client_secret == "template-secret"
 
+    def test_dcr_template_backed_install_returns_per_installation_metadata_and_creds(self):
+        # DCR templates carry no shared client_id AND no trusted metadata —
+        # both were discovered + minted at install time and cached on the
+        # installation (never written back to the template). The resolver
+        # must read both from the installation, matching the custom-install
+        # path.
+        template = MCPServerTemplate.objects.create(
+            name="DCR Template",
+            url="https://mcp.dcr-template.example.com/mcp",
+            auth_type="oauth",
+            oauth_metadata={},
+            oauth_credentials={},
+            created_by=self.user,
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=template.url,
+            auth_type="oauth",
+            oauth_metadata={"token_endpoint": "https://auth.dcr-template.example.com/token"},
+            sensitive_configuration={
+                "dcr_client_id": "minted-for-user",
+                "access_token": "tok",
+            },
+        )
+
+        metadata, client_id, client_secret = resolve_installation_oauth_context(installation)
+
+        assert metadata["token_endpoint"] == "https://auth.dcr-template.example.com/token"
+        assert client_id == "minted-for-user"
+        assert client_secret is None
+
     def test_custom_install_returns_per_installation_dcr_creds(self):
         installation = MCPServerInstallation.objects.create(
             team=self.team,

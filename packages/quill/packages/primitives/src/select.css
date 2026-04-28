@@ -52,7 +52,7 @@
     /* Content popup — shares menu look */
     .quill-select__content {
         position: relative;
-        z-index: 50;
+        z-index: var(--quill-z-popover, 50);
         width: var(--anchor-width);
         min-width: 8rem;
         max-height: var(--available-height);

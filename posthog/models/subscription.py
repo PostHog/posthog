@@ -86,15 +86,15 @@ class Subscription(models.Model):
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
-    target_type = models.CharField(max_length=10, choices=SubscriptionTarget.choices)
+    target_type = models.CharField(max_length=10, choices=SubscriptionTarget)
     target_value = models.TextField()
 
     # Subscription delivery (related to rrule)
-    frequency = models.CharField(max_length=10, choices=SubscriptionFrequency.choices)
+    frequency = models.CharField(max_length=10, choices=SubscriptionFrequency)
     interval = models.IntegerField(default=1)
     count = models.IntegerField(null=True)
     byweekday: ArrayField = ArrayField(
-        models.CharField(max_length=10, choices=SubscriptionByWeekDay.choices),
+        models.CharField(max_length=10, choices=SubscriptionByWeekDay),
         null=True,
         blank=True,
         default=None,
@@ -291,7 +291,7 @@ class SubscriptionDelivery(UUIDModel):
 
     # Overall status and error (null when no error)
     # Shape: {"message": str, "type": str, ...} — extensible for stack traces, codes, etc.
-    status = models.CharField(max_length=24, choices=Status.choices, default=Status.STARTING)
+    status = models.CharField(max_length=24, choices=Status, default=Status.STARTING)
     error = models.JSONField(null=True, blank=True)
 
     # Timestamps

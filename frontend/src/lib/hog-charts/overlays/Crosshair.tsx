@@ -1,13 +1,14 @@
 import React from 'react'
 
-import { useChart } from '../core/chart-context'
+import { useChartHover, useChartLayout } from '../core/chart-context'
 
 interface CrosshairProps {
     color?: string
 }
 
 export function Crosshair({ color = 'rgba(0, 0, 0, 0.2)' }: CrosshairProps): React.ReactElement | null {
-    const { scales, dimensions, labels, hoverIndex } = useChart()
+    const { scales, dimensions, labels } = useChartLayout()
+    const { hoverIndex } = useChartHover()
 
     if (hoverIndex < 0) {
         return null

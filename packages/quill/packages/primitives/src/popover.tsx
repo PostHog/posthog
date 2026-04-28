@@ -25,11 +25,12 @@ function PopoverContent({
         <PopoverPrimitive.Portal>
             <PopoverPrimitive.Positioner
                 data-quill
+                data-quill-portal="popover"
                 align={align}
                 alignOffset={alignOffset}
                 side={side}
                 sideOffset={sideOffset}
-                className="isolate z-50"
+                className="isolate"
             >
                 <PopoverPrimitive.Popup
                     data-slot="popover-content"
