@@ -13,7 +13,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 sqlx = { workspace = true }
 futures = { workspace = true }
-health = { path = "../common/health" }
+lifecycle = { path = "../common/lifecycle" }
 time = { workspace = true }
 axum = { workspace = true }
 serve-metrics = { path = "../common/serve_metrics" }
