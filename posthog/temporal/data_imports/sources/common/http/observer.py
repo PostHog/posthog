@@ -55,10 +55,14 @@ def _request_size(request: PreparedRequest) -> int:
         return 0
     if isinstance(body, str):
         return len(body.encode("utf-8", errors="ignore"))
-    if isinstance(body, bytes | bytearray):
+    # `requests` types `body` as `str | bytes | None` but at runtime a
+    # caller can hand it a bytearray, file-like, or generator. Anything
+    # we can `len()` directly is fine; anything else (file/generator)
+    # would force the stream into memory, so we report 0 instead.
+    try:
         return len(body)
-    # File-like / generator bodies — we can't measure without consuming.
-    return 0
+    except TypeError:
+        return 0
 
 
 def _response_size(response: Response | None) -> int:

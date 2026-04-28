@@ -46,17 +46,17 @@ def test_status_class(code: int | None, expected: str):
 
 def test_null_counter_is_no_op():
     c = _NullCounter()
-    # None of these should raise; return value is None.
-    assert c.add(1) is None
-    assert c.add(0, {"host": "x"}) is None
-    assert c.add(99, None) is None
+    # None of these should raise. (Return type is None — tested by mypy.)
+    c.add(1)
+    c.add(0, {"host": "x"})
+    c.add(99, None)
 
 
 def test_null_histogram_is_no_op():
     h = _NullHistogram()
-    assert h.record(0) is None
-    assert h.record(123, {"host": "x"}) is None
-    assert h.record(0, None) is None
+    h.record(0)
+    h.record(123, {"host": "x"})
+    h.record(0, None)
 
 
 def test_get_counter_outside_workflow_returns_null():

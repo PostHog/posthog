@@ -51,6 +51,7 @@ def test_make_tracked_session_mounts_tracked_adapter_for_both_schemes():
 def test_make_tracked_session_uses_default_retry():
     session = make_tracked_session()
     adapter = session.get_adapter("https://example.com/")
+    assert isinstance(adapter, TrackedHTTPAdapter)
 
     assert adapter.max_retries.total == DEFAULT_RETRY.total
     assert adapter.max_retries.backoff_factor == DEFAULT_RETRY.backoff_factor
@@ -61,6 +62,7 @@ def test_make_tracked_session_honors_custom_retry():
     custom = Retry(total=7, backoff_factor=2.0, status_forcelist=(418,))
     session = make_tracked_session(retry=custom)
     adapter = session.get_adapter("https://example.com/")
+    assert isinstance(adapter, TrackedHTTPAdapter)
 
     assert adapter.max_retries.total == 7
     assert adapter.max_retries.backoff_factor == 2.0

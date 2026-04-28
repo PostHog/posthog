@@ -112,11 +112,13 @@ def test_scoped_job_context_resets_on_exception():
 def test_scoped_job_context_nesting_restores_outer_context():
     with scoped_job_context(**_make_kwargs(team_id=1, source_type="outer")) as outer:
         with scoped_job_context(**_make_kwargs(team_id=2, source_type="inner")) as inner:
-            assert current_job_context() is inner
-            assert current_job_context().team_id == 2
+            inside = current_job_context()
+            assert inside is inner
+            assert inside is not None and inside.team_id == 2
         # After inner exits, outer should be restored
-        assert current_job_context() is outer
-        assert current_job_context().team_id == 1
+        outside = current_job_context()
+        assert outside is outer
+        assert outside is not None and outside.team_id == 1
 
 
 def test_context_propagates_across_threadpool_via_copy_context():

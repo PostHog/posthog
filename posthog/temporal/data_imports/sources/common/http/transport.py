@@ -15,9 +15,11 @@ want the metering — they only need to mount the tracked adapter:
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from typing import Any
 
 import requests
+from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -40,12 +42,27 @@ class TrackedHTTPAdapter(HTTPAdapter):
     no SDK-specific framing on top.
     """
 
-    def send(self, request, **kwargs):  # type: ignore[no-untyped-def]
+    def send(
+        self,
+        request: PreparedRequest,
+        stream: bool = False,
+        timeout: float | tuple[float, float] | tuple[float, None] | None = None,
+        verify: bool | str = True,
+        cert: bytes | str | tuple[bytes | str, bytes | str] | None = None,
+        proxies: Mapping[str, str] | None = None,
+    ) -> Response:
         started = time.monotonic()
-        response = None
+        response: Response | None = None
         exception: BaseException | None = None
         try:
-            response = super().send(request, **kwargs)
+            response = super().send(
+                request,
+                stream=stream,
+                timeout=timeout,
+                verify=verify,
+                cert=cert,
+                proxies=proxies,
+            )
             return response
         except BaseException as exc:
             exception = exc
