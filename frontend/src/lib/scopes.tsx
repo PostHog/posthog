@@ -101,6 +101,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
     { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
+    { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
     {
         key: 'user',

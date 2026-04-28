@@ -31,6 +31,8 @@ python manage.py setup_local_api_key --add-scopes tracing:read
 # or --scopes "*" for full access (local DEBUG only)
 ```
 
+**UI:** Personal API keys list scopes from `API_SCOPES` in `frontend/src/lib/scopes.tsx` (includes **Tracing**). Edit your key (e.g. `mcp_key`) and enable **Tracing → Read** for MCP, then reconnect the MCP client.
+
 Also ensure the MCP binary matches a build whose OpenAPI includes tracing (`hogli build:openapi` and MCP generate per `services/mcp/CONTRIBUTING.md`), then restart the MCP process.
 
 **OAuth MCP (`read_only` preset):** tokens minted via the MCP OAuth flow include the same style of read scopes as `posthog.temporal.oauth.MCP_READ_SCOPES` (includes `tracing:read` alongside `logs:read`). If tracing tools are missing on cloud, re-authorize after scope list updates or use a custom scope list that includes `tracing:read`.
