@@ -533,6 +533,16 @@ from = [
     "products.tracing",
 ]
 
+[[interfaces]]
+expose = [
+    "backend\\.admin.*",
+    "backend\\.models.*",
+    "backend\\.presentation\\.webhook.*",
+]
+from = [
+    "products.legal_documents",
+]
+
 [[modules]]
 path = "products.legal_documents"
 depends_on = [
