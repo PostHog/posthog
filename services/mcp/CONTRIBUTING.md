@@ -345,6 +345,20 @@ pnpm run deploy
 
 ## Troubleshooting
 
+### Tracing (or other) MCP tools missing while logs tools work
+
+The server only registers a tool if the active personal API key (or OAuth token) satisfies `required_scopes` for that tool. Tracing tools need `tracing:read`; logs tools need `logs:read`. They are independent — a key with only `logs:read` will never expose `tracing-spans-*`.
+
+**Local personal API key:** grant scopes and reconnect the MCP client (Cursor reloads the tool list on reconnect):
+
+```bash
+python manage.py setup_local_api_key --add-scopes tracing:read
+```
+
+Use `--scopes '*'` for an all-access dev key, or combine scopes you need (e.g. `--add-scopes logs:read tracing:read query:read`).
+
+**Cloud OAuth MCP:** the `read_only` scope preset includes `tracing:read` (same idea as `logs:read`); if a tool still does not appear, confirm the MCP server build includes the tool and that your token was minted after tracing scopes were added to the preset.
+
 ### "No loader configured for .html files"
 
 The HTML import only works with wrangler's Text rule. If you see this error during `tsup` build, ensure:

@@ -33,6 +33,8 @@ python manage.py setup_local_api_key --add-scopes tracing:read
 
 Also ensure the MCP binary matches a build whose OpenAPI includes tracing (`hogli build:openapi` and MCP generate per `services/mcp/CONTRIBUTING.md`), then restart the MCP process.
 
+**OAuth MCP (`read_only` preset):** tokens minted via the MCP OAuth flow include the same style of read scopes as `posthog.temporal.oauth.MCP_READ_SCOPES` (includes `tracing:read` alongside `logs:read`). If tracing tools are missing on cloud, re-authorize after scope list updates or use a custom scope list that includes `tracing:read`.
+
 **Tool name prefixes:** Some hosts document `posthog:tracing-spans-query-create`. **Cursor’s local PostHog MCP** lists tools as **`tracing-spans-query-create`** (no `posthog:` prefix). Use the names your client actually exposes.
 
 ## Available tools

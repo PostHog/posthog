@@ -30,6 +30,7 @@ MCP_READ_SCOPES: list[str] = [
     "llm_prompt:read",
     "logs:read",
     "organization:read",
+    "tracing:read",
     "project:read",
     "property_definition:read",
     "query:read",
