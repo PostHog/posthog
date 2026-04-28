@@ -15,8 +15,9 @@ jobs:
     review:
         # Write access is required to apply the stamphog label, so no
         # additional author_association check is needed.
-        # On `synchronize` we only run when decide-delta classified the
-        # delta as non-trivial — otherwise the prior approval is retained.
+        # Triggers: explicit `stamphog` label, ready_for_review with the
+        # label already present, or `synchronize` where decide-delta
+        # asked for re-review (or itself failed — fail closed for safety).
         needs: [decide-delta, dismiss]
         if: >-
             always()
@@ -25,6 +26,7 @@ jobs:
               github.event.label.name == 'stamphog'
               || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
               || needs.decide-delta.outputs.action == 'dismiss'
+              || needs.decide-delta.result == 'failure'
             )
         runs-on: ubuntu-latest
         timeout-minutes: 10
@@ -158,12 +160,10 @@ jobs:
               id: decide
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_TOKEN }}
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   BASE_REF: origin/${{ github.event.pull_request.base.ref }}
-                  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
               run: |
                   set -euo pipefail
                   decision=$(uv run tools/pr-approval-agent/dismiss_check.py)
@@ -185,7 +185,15 @@ jobs:
 
     dismiss:
         needs: decide-delta
-        if: needs.decide-delta.outputs.action == 'dismiss'
+        # Fail closed: if decide-delta itself failed (uv install timeout,
+        # checkout failure, etc.) we still dismiss. The review job's same
+        # failure-fallback covers the re-review.
+        if: >-
+            always()
+            && (
+              needs.decide-delta.outputs.action == 'dismiss'
+              || needs.decide-delta.result == 'failure'
+            )
         runs-on: ubuntu-latest
         timeout-minutes: 5
 
@@ -196,7 +204,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   PR: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
-                  REASON: ${{ needs.decide-delta.outputs.reason }}
+                  REASON: ${{ needs.decide-delta.outputs.reason || 'decide_delta_failed' }}
               run: |
                   set -euo pipefail
 

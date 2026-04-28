@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import dismiss_check
-from dismiss_check import decide, evaluate_delta
+from dismiss_check import decide, evaluate_delta, select_last_bot_approval
 from gates import is_trivial_at_dismiss_time
 
 _GIT_ENV = {
@@ -324,3 +324,88 @@ def test_decide_returns_last_approved_sha(monkeypatch: pytest.MonkeyPatch, repo:
     result = decide("PostHog/posthog", 1, _head(repo), repo)
     assert result["action"] == "retain"
     assert result["last_approved_sha"] == base
+
+
+def test_decide_dismiss_path_includes_last_approved_sha(monkeypatch: pytest.MonkeyPatch, repo: Path) -> None:
+    base = _head(repo)
+    _write(repo, "frontend/src/foo.ts", "export const x = 1")
+    _commit(repo, "prod")
+
+    monkeypatch.setattr(dismiss_check, "find_last_approved_sha", lambda *_: base)
+    result = decide("PostHog/posthog", 1, _head(repo), repo)
+    assert result["action"] == "dismiss"
+    assert result["reason"] == "non_trivial_delta"
+    assert result["last_approved_sha"] == base
+
+
+# ── select_last_bot_approval (filter + sort) ─────────────────────
+
+
+def _review(login: str, state: str, commit_id: str, submitted_at: str) -> dict:
+    return {
+        "user": {"login": login},
+        "state": state,
+        "commit_id": commit_id,
+        "submitted_at": submitted_at,
+    }
+
+
+def test_select_last_bot_approval_empty_list() -> None:
+    assert select_last_bot_approval([]) is None
+
+
+def test_select_last_bot_approval_no_bot_reviews() -> None:
+    reviews = [_review("alice", "APPROVED", "sha1", "2026-01-01T00:00:00Z")]
+    assert select_last_bot_approval(reviews) is None
+
+
+def test_select_last_bot_approval_no_approved_state() -> None:
+    reviews = [
+        _review("github-actions[bot]", "COMMENTED", "sha1", "2026-01-01T00:00:00Z"),
+        _review("github-actions[bot]", "CHANGES_REQUESTED", "sha2", "2026-01-02T00:00:00Z"),
+    ]
+    assert select_last_bot_approval(reviews) is None
+
+
+def test_select_last_bot_approval_picks_latest() -> None:
+    reviews = [
+        _review("github-actions[bot]", "APPROVED", "sha-old", "2026-01-01T00:00:00Z"),
+        _review("github-actions[bot]", "APPROVED", "sha-new", "2026-02-01T00:00:00Z"),
+        _review("github-actions[bot]", "APPROVED", "sha-mid", "2026-01-15T00:00:00Z"),
+    ]
+    assert select_last_bot_approval(reviews) == "sha-new"
+
+
+def test_select_last_bot_approval_ignores_human_approvals() -> None:
+    reviews = [
+        _review("github-actions[bot]", "APPROVED", "sha-bot", "2026-01-01T00:00:00Z"),
+        _review("alice", "APPROVED", "sha-human", "2026-02-01T00:00:00Z"),
+    ]
+    assert select_last_bot_approval(reviews) == "sha-bot"
+
+
+def test_select_last_bot_approval_ignores_bot_non_approval_states() -> None:
+    reviews = [
+        _review("github-actions[bot]", "APPROVED", "sha-approved", "2026-01-01T00:00:00Z"),
+        _review("github-actions[bot]", "CHANGES_REQUESTED", "sha-changes", "2026-02-01T00:00:00Z"),
+    ]
+    assert select_last_bot_approval(reviews) == "sha-approved"
+
+
+# ── main() error path ────────────────────────────────────────────
+
+
+def test_main_missing_env_emits_dismiss(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    # REPO is the first env var read in main(); leaving it unset triggers KeyError.
+    for key in ("REPO", "PR_NUMBER", "HEAD_SHA"):
+        monkeypatch.delenv(key, raising=False)
+
+    dismiss_check.main()
+    out = capsys.readouterr().out.strip()
+
+    import json as _json
+
+    decision = _json.loads(out)
+    assert decision["action"] == "dismiss"
+    assert decision["reason"].startswith("error:")
+    assert decision["last_approved_sha"] is None
