@@ -219,8 +219,8 @@ tools:
         enrich_url: traces/{trace_id}
         title: Create review queue item
         description: >
-            Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id.
-            Fails if the trace already has an active review or is already pending in any review queue.
+            Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if
+            the trace already has an active review or is already pending in any review queue.
     llm-analytics-review-queue-items-destroy:
         operation: llm_analytics_review_queue_items_destroy
         enabled: true
@@ -232,8 +232,8 @@ tools:
             idempotent: true
         title: Delete review queue item
         description: >
-            Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the
-            trace can be queued again later if needed.
+            Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace
+            can be queued again later if needed.
     llm-analytics-review-queue-items-list:
         operation: llm_analytics_review_queue_items_list
         enabled: true
@@ -243,13 +243,13 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 1
         enrich_url: traces/{trace_id}
         list: true
         title: List review queue items
         description: >
             List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id,
             trace_id__in, search, and ordering so agents can find traces that are still queued for review.
+        mcp_version: 1
     llm-analytics-review-queue-items-partial-update:
         operation: llm_analytics_review_queue_items_partial_update
         enabled: true
@@ -262,8 +262,8 @@ tools:
         enrich_url: traces/{trace_id}
         title: Update review queue item
         description: >
-            Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the
-            trace has already been reviewed and can no longer stay queued.
+            Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace
+            has already been reviewed and can no longer stay queued.
     llm-analytics-review-queue-items-retrieve:
         operation: llm_analytics_review_queue_items_retrieve
         enabled: true
@@ -273,12 +273,12 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 1
         enrich_url: traces/{trace_id}
         title: Get review queue item
         description: >
-            Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator,
-            and timestamps for the pending review task.
+            Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and
+            timestamps for the pending review task.
+        mcp_version: 1
     llm-analytics-review-queues-create:
         operation: llm_analytics_review_queues_create
         enabled: true
@@ -315,13 +315,13 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 1
         enrich_url: reviews?queue_id={id}
         list: true
         title: List review queues
         description: >
             List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and
             timestamps. Supports queue-name search and ordering.
+        mcp_version: 1
     llm-analytics-review-queues-partial-update:
         operation: llm_analytics_review_queues_partial_update
         enabled: true
@@ -333,7 +333,7 @@ tools:
             idempotent: true
         enrich_url: reviews?queue_id={id}
         title: Update review queue
-        description: >
+        description: |
             Rename an existing review queue. The updated name must stay unique among active queues in the project.
     llm-analytics-review-queues-retrieve:
         operation: llm_analytics_review_queues_retrieve
@@ -344,11 +344,11 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 1
         enrich_url: reviews?queue_id={id}
         title: Get review queue
-        description: >
+        description: |
             Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.
+        mcp_version: 1
     llm-analytics-score-definitions-create:
         operation: llm_analytics_score_definitions_create
         enabled: false
@@ -425,8 +425,8 @@ tools:
             idempotent: true
         title: Delete trace review
         description: >
-            Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later
-            if needed.
+            Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later if
+            needed.
     llm-analytics-trace-reviews-list:
         operation: llm_analytics_trace_reviews_list
         enabled: true
@@ -436,13 +436,13 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 1
         enrich_url: traces/{trace_id}
         list: true
         title: List trace reviews
         description: >
             List saved trace reviews. Supports filtering by trace_id, definition_id, search, and ordering. Returns
             comments, scores, reviewers, and timestamps.
+        mcp_version: 1
     llm-analytics-trace-reviews-partial-update:
         operation: llm_analytics_trace_reviews_partial_update
         enabled: true
@@ -466,12 +466,12 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        mcp_version: 1
         enrich_url: traces/{trace_id}
         title: Get trace review
         description: >
             Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and
             timestamps.
+        mcp_version: 1
     llm-analytics-translate-create:
         operation: llm_analytics_translate_create
         enabled: false
