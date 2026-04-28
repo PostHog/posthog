@@ -6,6 +6,7 @@ author:
 tags:
   - data warehouse
 ---
+
 Combining your database and analytics data is a powerful way to understand your users. [Supabase](https://supabase.com/) is a popular choice for handling that app data, as it provides a database, auth, storage, and more all-in-one.
 
 Thanks to modern advances in <RainbowText>enterprise synergy</RainbowText>™, we can link and query your Supabase data in PostHog using our data warehouse. This tutorial shows you how to do that and provides some example insights you can create with the data afterward.
@@ -30,8 +31,8 @@ To start, you need both a Supabase and PostHog account. Once you have those, hea
 
 4. Copy the Supabase connection string shown.
 5. Paste the value into the PostHog data warehouse `Connection string` field.
-    1. Supabase **will not** include your password in the connection string. You will need to replace their password placeholder manually.
-    2. If you've forgotten your Supabase database password, you can [reset it](https://supabase.com/docs/guides/troubleshooting/how-do-i-reset-my-supabase-database-password-oTs5sB).
+   1. Supabase **will not** include your password in the connection string. You will need to replace their password placeholder manually.
+   2. If you've forgotten your Supabase database password, you can [reset it](https://supabase.com/docs/guides/troubleshooting/how-do-i-reset-my-supabase-database-password-oTs5sB).
 6. Fill in the schema name that you want to sync. Typically, this is just `public`.
 7. Click **Next**.
 8. Select the tables you want to include, how you want to sync them, and click **Import** to start syncing.
@@ -73,8 +74,8 @@ Linking your Supabase `user` table (under the `auth` schema) enables you to get 
 To create this overview, create a new SQL insight that:
 
 - Gets `email`, `last_sign_in_at`, `created_at` from Supabase's `user` table
-- A count of events from PostHog's  `event` table
-- Join the tables using  `email` and `distinct_id`
+- A count of events from PostHog's `event` table
+- Join the tables using `email` and `distinct_id`
 
 Altogether, this looks like this:
 
@@ -126,7 +127,7 @@ Supabase also captures observability data we can query if you link the `pg_state
 An example of a query you could get from this is p95 total execution time along with the median rows read:
 
 ```sql
-SELECT 
+SELECT
     quantile(0.95)(total_exec_time) AS p95_exec_time,
     median(rows) AS median_rows_read
 FROM sb_stats_postgres_pg_stat_statements
@@ -135,7 +136,7 @@ FROM sb_stats_postgres_pg_stat_statements
 Another example is the most time-consuming queries:
 
 ```sql
-SELECT 
+SELECT
     query,
     total_exec_time,
     calls,
@@ -148,7 +149,7 @@ LIMIT 10
 One more for good luck, this gets queries with high variability:
 
 ```sql
-SELECT 
+SELECT
     query,
     stddev_exec_time,
     mean_exec_time,
@@ -166,5 +167,3 @@ LIMIT 20
 - [How to set up Google Ads reports](/tutorials/google-ads-reports)
 
 <NewsletterForm />
-
-
