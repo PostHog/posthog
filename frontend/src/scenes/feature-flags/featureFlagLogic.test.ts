@@ -380,10 +380,13 @@ describe('featureFlagLogic', () => {
 
         it('tracks changes when the whole form is replaced via setFeatureFlagValues', async () => {
             await expectLogic(logic, () => {
+                // Form `defaults` narrow `ensure_experience_continuity` to `boolean`, but
+                // FeatureFlagType allows `boolean | null`. The runtime accepts either —
+                // the cast bridges the form-vs-entity type gap that kea-typegen surfaces.
                 logic.actions.setFeatureFlagValues({
                     ...logic.values.featureFlag,
                     name: 'Bulk edit',
-                })
+                } as Parameters<typeof logic.actions.setFeatureFlagValues>[0])
             }).toMatchValues({ hasUnsavedChanges: true })
         })
     })
