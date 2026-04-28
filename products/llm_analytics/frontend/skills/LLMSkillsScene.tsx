@@ -6,6 +6,7 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -314,6 +315,16 @@ export function LLMSkillsScene(): JSX.Element {
                         data-attr="skills-group-by-prefix-toggle"
                     />
                     <div className="text-muted-alt">{skillCountLabel}</div>
+                    <div className="flex-1" />
+                    <span>
+                        <b>Created by</b>
+                    </span>
+                    <MemberSelect
+                        defaultLabel="Any user"
+                        value={filters.created_by_id ?? null}
+                        size="xsmall"
+                        onChange={(user) => setFilters({ created_by_id: user?.id, page: 1 })}
+                    />
                 </div>
 
                 {filters.group_by_prefix ? (

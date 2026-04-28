@@ -16,7 +16,7 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { AUTOCAPTURE_INTERACTIONS } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
 import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { SelectItemMeta, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
 import {
     DataWarehousePopoverField,
@@ -317,7 +317,8 @@ interface InfiniteListRowProps {
     selectItem: (
         group: TaxonomicFilterGroup,
         value: string | number | null,
-        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true }
+        item: TaxonomicDefinitionTypes | { name: string; isNonCaptured: true },
+        meta?: SelectItemMeta
     ) => void
     setHighlightedItemElement: (element: HTMLDivElement | null) => void
 }
@@ -422,7 +423,12 @@ export const InfiniteListRow = ({
 
     if (showNonCapturedEventOption && rowIndex === 0) {
         const selectNonCapturedEvent = (): void => {
-            selectItem(itemGroup, trimmedSearchQuery, { name: trimmedSearchQuery, isNonCaptured: true })
+            selectItem(
+                itemGroup,
+                trimmedSearchQuery,
+                { name: trimmedSearchQuery, isNonCaptured: true },
+                { position: rowIndex }
+            )
         }
 
         return (
@@ -527,7 +533,7 @@ export const InfiniteListRow = ({
                         return
                     }
                     if (canSelectItem(listGroupType, dataWarehousePopoverFields)) {
-                        return selectItem(itemGroup, itemValue ?? null, item)
+                        return selectItem(itemGroup, itemValue ?? null, item, { position: rowIndex })
                     }
                     onToggleRowPin(rowIndex)
                 }}

@@ -31,6 +31,7 @@ export interface SkillFilters {
     search: string
     order_by: string
     group_by_prefix: boolean
+    created_by_id?: number
 }
 
 function parseBoolean(value: unknown): boolean {
@@ -49,6 +50,7 @@ function cleanFilters(values: Partial<SkillFilters>): SkillFilters {
         search: String(values.search || ''),
         order_by: values.order_by || '-created_at',
         group_by_prefix: parseBoolean(values.group_by_prefix),
+        created_by_id: values.created_by_id ? Number(values.created_by_id) : undefined,
     }
 }
 
@@ -58,6 +60,7 @@ function cleanFilterUrlParams(filters: SkillFilters): Record<string, unknown> {
         search: filters.search || undefined,
         order_by: filters.order_by === '-created_at' ? undefined : filters.order_by,
         group_by_prefix: filters.group_by_prefix ? 'true' : undefined,
+        created_by_id: filters.created_by_id,
     }
 }
 
@@ -180,12 +183,14 @@ export const llmSkillsLogic = kea<llmSkillsLogicType>([
                               order_by: filters.order_by,
                               offset: 0,
                               limit: SKILLS_GROUP_LIMIT,
+                              created_by_id: filters.created_by_id,
                           }
                         : {
                               search: filters.search,
                               order_by: filters.order_by,
                               offset: Math.max(0, (filters.page - 1) * SKILLS_PER_PAGE),
                               limit: SKILLS_PER_PAGE,
+                              created_by_id: filters.created_by_id,
                           }
 
                     if (
