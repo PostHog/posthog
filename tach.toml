@@ -488,6 +488,7 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
     "backend\\.max_tools.*",

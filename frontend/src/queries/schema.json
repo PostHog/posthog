@@ -4017,6 +4017,18 @@
             ],
             "type": "string"
         },
+        "BiasRisk": {
+            "additionalProperties": false,
+            "description": "Empirically observed multi-variant exclusion bias risk: uneven split + `EXCLUDE` handling + observed `$multiple` share above the threshold. Present on the response only when the experiment is currently at risk.",
+            "properties": {
+                "multiple_variant_percentage": {
+                    "description": "Observed share of users assigned to `$multiple`, as a percentage (0-100).",
+                    "type": "number"
+                }
+            },
+            "required": ["multiple_variant_percentage"],
+            "type": "object"
+        },
         "BillingSpendResponseBreakdownType": {
             "enum": ["type", "team", "multiple"],
             "type": "string"
@@ -5448,6 +5460,9 @@
         "CachedExperimentExposureQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "bias_risk": {
+                    "$ref": "#/definitions/BiasRisk"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -16674,6 +16689,9 @@
         "ExperimentExposureQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "bias_risk": {
+                    "$ref": "#/definitions/BiasRisk"
+                },
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -17645,6 +17663,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17656,9 +17677,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17697,6 +17715,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17708,9 +17729,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
@@ -17915,6 +17933,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -17934,9 +17955,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "method": {
                     "const": "bayesian",
@@ -17996,6 +18014,9 @@
                 "covariate_sum": {
                     "type": "number"
                 },
+                "covariate_sum_product": {
+                    "type": "number"
+                },
                 "covariate_sum_squares": {
                     "type": "number"
                 },
@@ -18007,9 +18028,6 @@
                 },
                 "key": {
                     "type": "string"
-                },
-                "main_covariate_sum_product": {
-                    "type": "number"
                 },
                 "method": {
                     "const": "frequentist",
@@ -28179,6 +28197,9 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "bias_risk": {
+                            "$ref": "#/definitions/BiasRisk"
+                        },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
                         },

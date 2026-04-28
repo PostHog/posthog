@@ -3335,11 +3335,14 @@ dependencies = [
  "anyhow",
  "assert-json-diff",
  "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
  "axum 0.7.9",
  "axum-client-ip",
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "clap",
  "common-alloc",
  "common-cache",
  "common-compression",
@@ -10775,29 +10778,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa7760aed19e106de2c7c0b581b509f2f25d3dacaf737cb82ac61bc6d760b0e"
 dependencies = [
  "try-lock",
-]
-
-[[package]]
-name = "warm-flags-cache"
-version = "0.1.0"
-dependencies = [
- "aws-config",
- "aws-sdk-s3",
- "clap",
- "common-alloc",
- "common-database",
- "common-hypercache",
- "common-redis",
- "common-s3",
- "common-types",
- "envconfig",
- "feature-flags",
- "rand 0.8.5",
- "serde_json",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

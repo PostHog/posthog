@@ -3207,9 +3207,9 @@ snapshots:
     posthog-3000-keyboard-shortcut--default--light:
         hash: v1.k794b7964.a114c09c62922c6e330d8e37e97a37d96b2c59cf81a9b3ef7b14d9f9bdea0104.Z9e-Xts5MKG-FFi5BzbjfIM5Nybv_0F3lRkHp87KMQs
     posthog-3000-keyboard-shortcut--within-tooltip--dark:
-        hash: v1.k794b7964.16bf9ae85ff75e876f7912ba9ad59d1d54ce7f955e078a2478d516fa18cca072.PlNkVp0flMpMU8n8MLAVw-svE_aUHmoy0_79Re2tDiw
+        hash: v1.k794b7964.a435847cc6f3bc73fd9c4b7ae0775002284262fb4f753530cfd01d1173b0a428.ZKW7zpcoHpagc0l2H75r8dLQ7_EEXZgEttsH1D0yO8s
     posthog-3000-keyboard-shortcut--within-tooltip--light:
-        hash: v1.k794b7964.492adfc8c1a7c065853ecc227d3494c5bdf17daa002bfc82b2e3297a22b63b82.RZL_f46t7-ztJlLTBwlGMKFSMo_OB9kLTVswG41Oq0M
+        hash: v1.k794b7964.831707ce7321443acb5f1c3a42fa011208a5835f2bd1da7adb4d1e633c01d80e.iKluOVcanJt9x8LmC_3_gpnNJrUWm1JDWcZX3-GRKvc
     products-workflows-customerioimportmodal--all-steps-completed--dark:
         hash: v1.k794b7964.679720cf72d72cd35bb4c4a2e86094627df27ff2798b4244c5d29a6a767f3861.AvZ-0V3qNglzE2ZWUOcEjHFnSe9Qs68t-u03-ytn7VI
     products-workflows-customerioimportmodal--all-steps-completed--light:
@@ -3787,9 +3787,9 @@ snapshots:
     scenes-app-data-warehouse-editor-upstream-graph--with-graph--light:
         hash: v1.k794b7964.3fe5d6bd03f992da9c2dd13af16f53ffaae17590db416f9b963c2fc838551b54.ULQER6t0lWp3L-BLATI0B64TJgjhJr2sNtyvwnXpeFY
     scenes-app-data-warehouse-settings-schemas--default--dark:
-        hash: v1.k794b7964.9c1ce52e785aad14ba67d8b1177fadc0c0ede9bd2b876e9aa6fd6ac904e66409.9t1r-qaL4u5SHlx5z_1qSQ2Nvdqmb7gKcQthBzekz9M
+        hash: v1.k794b7964.8a77e7a0171fcd435c6595297bf027b8f0a241439ee5921ba1e98ac8989fde19.heCouatVYmHaFYRqmD6XBpq_K1abbgOOnCJSBR9O1ok
     scenes-app-data-warehouse-settings-schemas--default--light:
-        hash: v1.k794b7964.68a373e9edc4e0947d4885592e665909911b1f250dafc8c6b6166fafca277151.vnoxdMJosUa1PrRBKljp2sXRQeXRiYOVwNMxGDKivVI
+        hash: v1.k794b7964.f44aebec23a383bf47c5310e229767e329dc9a52d220851265c86e2531dfd8f6.cg8SBdNPjYob5gTIonGhj0QupXWDzvTSG73043B7QEk
     scenes-app-error-project-unavailable--access-revoked--dark:
         hash: v1.k794b7964.b4b79f916091f0012ea76c7a0ebb5edfa465c98a503b5f544e6b3718f78b4799.pCe7LRrxPj_q7ErqOsrN1stM6UbZzC6XTRkaiD30Kew
     scenes-app-error-project-unavailable--access-revoked--light:
@@ -5127,9 +5127,9 @@ snapshots:
     scenes-app-settings-project--settings-project-danger-zone--light:
         hash: v1.k794b7964.fe1b56e8286378738a022e50371f816ba4c3da73f783bb50d663fa50f2c9b48d.q9laBRif8bIh_Yb4w0ws-7-7-wtiJHLJFAsIiXH0Sew
     scenes-app-settings-project--settings-project-details--dark:
-        hash: v1.k794b7964.aed63e9a70e138be6a6fa3e11b46755fc872434f838901a5aaf9cd65890aed02.My6Tj6K-o2MXJcPS8OFur_S_3Ggv1kCtA8Kix3Jo0O4
+        hash: v1.k794b7964.5db425b70bcccb56062f1f0660823e4b188a885c6e405d2d69af6b136270c22d.jDymaPh6zX3OdA4O70pF9CUrOTqZ0MGrJ4ZzvI3B21A
     scenes-app-settings-project--settings-project-details--light:
-        hash: v1.k794b7964.a1e1194bdac88dc5aa3ee7f924d71f86181d10e170b1f254c2b7efc60d5da9a6.IsEZZJhgQ5KEKpbdXsIr8yoxJ2MbbgpPEV9QV1xcgdI
+        hash: v1.k794b7964.8c2153c5df3ee90b46f6fcccc8745bbd82c884383f5f675d40f6f03024f6c17a.e4oNJifp8ViZaM_jHSjvMHDaI8zO_wa7pwxjGD2IHNw
     scenes-app-settings-project--settings-project-integrations--dark:
         hash: v1.k794b7964.14578f99cbcf6973b2ef94eeb8c4aec4d6d7456e74325182cf0c1026387e57d2.XXw7MVXpCqNdy67Wf9bzjUkzvMsDaeR86UV4iVI7_kI
     scenes-app-settings-project--settings-project-integrations--light:
