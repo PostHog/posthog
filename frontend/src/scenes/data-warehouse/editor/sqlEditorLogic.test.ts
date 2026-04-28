@@ -10,7 +10,13 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import * as queryRunner from '~/queries/query'
-import { DataTableNode, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    HogQLFilters,
+    HogQLQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -208,6 +214,137 @@ describe('sqlEditorLogic', () => {
     afterEach(() => {
         logic?.unmount()
         databaseLogic?.unmount()
+    })
+
+    it('keeps configured filters when the filters placeholder is removed from the query text', () => {
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        logic.actions.setSourceQuery({
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT * FROM events WHERE {filters}',
+                filters: {
+                    filterTestAccounts: true,
+                },
+            },
+            display: ChartDisplayType.Auto,
+        })
+        logic.actions.setQueryInput('SELECT * FROM events WHERE {filters}')
+
+        logic.actions.setQueryInput('SELECT * FROM events')
+
+        expect((logic.values.sourceQuery.source as HogQLQuery).filters).toEqual({
+            filterTestAccounts: true,
+        })
+    })
+
+    it('restores filters from the URL hash', async () => {
+        const filters: HogQLFilters = {
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+            },
+            filterTestAccounts: true,
+        }
+
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        router.actions.push(urls.sqlEditor(), undefined, {
+            q: 'SELECT * FROM events WHERE {filters}',
+            filters,
+        })
+
+        await expectLogic(logic)
+            .toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            .toMatchValues({
+                sourceQuery: partial({
+                    source: partial({
+                        filters,
+                    }),
+                }),
+            })
+    })
+
+    it('syncs filters to the URL hash and removes them after reset', async () => {
+        const filters: HogQLFilters = {
+            dateRange: {
+                date_from: '-30d',
+                date_to: null,
+            },
+            filterTestAccounts: true,
+        }
+
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        logic.actions.createTab('SELECT * FROM events WHERE {filters}')
+        await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+        logic.actions.setSourceQuery({
+            ...logic.values.sourceQuery,
+            source: {
+                ...logic.values.sourceQuery.source,
+                filters,
+            },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(router.values.hashParams.filters).toEqual(filters)
+
+        logic.actions.setSourceQuery({
+            ...logic.values.sourceQuery,
+            source: {
+                ...logic.values.sourceQuery.source,
+                filters: {},
+            },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(router.values.hashParams.filters).toBeUndefined()
+    })
+
+    it('syncs filters to the URL hash when the query is empty', async () => {
+        const filters: HogQLFilters = {
+            filterTestAccounts: true,
+        }
+
+        logic = sqlEditorLogic({
+            tabId: TAB_ID,
+            monaco: createMockMonaco(),
+            editor: createMockEditor(),
+        })
+        logic.mount()
+
+        logic.actions.createTab()
+        await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+        expect(logic.values.queryInput).toBeNull()
+
+        logic.actions.setSourceQuery({
+            ...logic.values.sourceQuery,
+            source: {
+                ...logic.values.sourceQuery.source,
+                filters,
+            },
+        })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(router.values.hashParams.filters).toEqual(filters)
     })
 
     describe('title section', () => {
