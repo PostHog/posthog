@@ -96,15 +96,13 @@ describe('utils', () => {
             expect(getDefaultVariantToKeep(multiVariantTest, ExperimentConclusion.Won)).toBe('test-a')
         })
 
-        it('picks control for any non-positive conclusion regardless of variant count', () => {
-            for (const conclusion of [
-                ExperimentConclusion.Lost,
-                ExperimentConclusion.Inconclusive,
-                ExperimentConclusion.StoppedEarly,
-                ExperimentConclusion.Invalid,
-            ]) {
-                expect(getDefaultVariantToKeep(multiVariantTest, conclusion)).toBe('control')
-            }
+        it.each([
+            { conclusion: ExperimentConclusion.Lost },
+            { conclusion: ExperimentConclusion.Inconclusive },
+            { conclusion: ExperimentConclusion.StoppedEarly },
+            { conclusion: ExperimentConclusion.Invalid },
+        ])('picks control for $conclusion regardless of variant count', ({ conclusion }) => {
+            expect(getDefaultVariantToKeep(multiVariantTest, conclusion)).toBe('control')
         })
 
         it('falls back to the first variant when no key is named "control"', () => {

@@ -103,7 +103,6 @@ export function getDefaultVariantToKeep(
         case ExperimentConclusion.Invalid:
             return controlVariant.key
         case ExperimentConclusion.Won:
-            return fallbackTestKey
         default:
             // No conclusion picked yet: keep the historical default of suggesting
             // a test variant, since most users open this modal to ship a winner.
