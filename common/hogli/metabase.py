@@ -1,4 +1,4 @@
-"""Authenticate to internal Metabase via SSO and cache the session cookie.
+"""Authenticate to internal Metabase via SSO and run queries against it.
 
 Production Metabase sits behind ALB Cognito OAuth, so callers need both the
 ALB session cookies (`ph_int_auth-0`, `ph_int_auth-1`) and the Metabase
@@ -6,20 +6,25 @@ application cookies (`metabase.SESSION`, `metabase.DEVICE`). API keys alone
 won't pass the ALB.
 
 Workflow:
-    hogli metabase:login [--region us|eu]   # opens system browser, captures cookies
-    hogli metabase:cookie [--region us|eu]  # prints cached cookie header
-
-Scripts can then use:
-    METABASE_COOKIE="$(hogli metabase:cookie --region us)" curl ...
+    hogli metabase:login --region us|eu         # opens browser, captures cookies
+    hogli metabase:databases --region us|eu     # list databases with current IDs
+    hogli metabase:query --region us|eu \\      # run SQL against /api/dataset
+        --database-id <id> < query.sql
+    hogli metabase:cookie --region us|eu        # print cached cookie header (humans)
 
 Cookies are cached at ~/.config/posthog/metabase/cookie-{region} with mode 0600.
+The `query` command reads the cookie internally so callers never see it —
+prefer it over `cookie` when automation is running the query.
 """
 
 from __future__ import annotations
 
+import sys
+import json
 import time
 import webbrowser
 from pathlib import Path
+from typing import Any
 
 import click
 from hogli.core.cli import cli
@@ -288,3 +293,211 @@ def metabase_cookie(region: str, check: bool) -> None:
         )
     # No trailing newline so $(hogli metabase:cookie) yields a clean header.
     click.echo(cookie_header, nl=False)
+
+
+def _require_cookie_header(region: str) -> str:
+    """Return the cached cookie header or raise with a clear re-login message."""
+    cookie_header = _read_cookie_file(region)
+    if cookie_header is None:
+        raise click.ClickException(
+            f"No cached cookie for region {region}. Run `hogli metabase:login --region {region}`.",
+        )
+    return cookie_header
+
+
+def _metabase_get(region: str, path: str, timeout: float = 30.0) -> Any:
+    """GET `path` on the region's Metabase, return parsed JSON.
+
+    Callers never see the cookie — it's read, used, and discarded internally.
+    """
+    import requests
+
+    domain = REGIONS[region]
+    cookie_header = _require_cookie_header(region)
+    response = requests.get(
+        f"https://{domain}{path}",
+        headers={"Cookie": cookie_header, "Accept": "application/json"},
+        timeout=timeout,
+        allow_redirects=False,
+    )
+    if response.status_code in (301, 302):
+        raise click.ClickException(
+            f"Session redirected to auth for region {region}. "
+            f"Run `hogli metabase:login --region {region}` to refresh cookies.",
+        )
+    if response.status_code == 401:
+        raise click.ClickException(
+            f"Session rejected (401) for region {region}. "
+            f"Run `hogli metabase:login --region {region}` to refresh cookies.",
+        )
+    response.raise_for_status()
+    return response.json()
+
+
+def _metabase_post_dataset(region: str, database_id: int, sql: str, timeout: float = 120.0) -> Any:
+    """POST a native SQL query to /api/dataset; return parsed JSON (incl. error body)."""
+    import requests
+
+    domain = REGIONS[region]
+    cookie_header = _require_cookie_header(region)
+    payload = {
+        "database": database_id,
+        "type": "native",
+        "native": {"query": sql, "template-tags": {}},
+    }
+    response = requests.post(
+        f"https://{domain}/api/dataset",
+        headers={
+            "Cookie": cookie_header,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        json=payload,
+        timeout=timeout,
+        allow_redirects=False,
+    )
+    if response.status_code in (301, 302):
+        raise click.ClickException(
+            f"Session redirected to auth for region {region}. "
+            f"Run `hogli metabase:login --region {region}` to refresh cookies.",
+        )
+    if response.status_code == 401:
+        raise click.ClickException(
+            f"Session rejected (401) for region {region}. "
+            f"Run `hogli metabase:login --region {region}` to refresh cookies.",
+        )
+    if response.status_code == 404:
+        raise click.ClickException(
+            f"Database {database_id} not found in region {region}. "
+            f"Run `hogli metabase:databases --region {region}` to see current IDs.",
+        )
+    # Metabase sometimes returns 202 / 200 with a {status: failed, error: ...} body.
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise click.ClickException(
+            f"Metabase returned non-JSON response (HTTP {response.status_code}): {response.text[:200]}",
+        ) from exc
+    return body
+
+
+def _render_rows_tsv(body: dict[str, Any]) -> str:
+    """Render /api/dataset JSON to a header-prefixed TSV string."""
+    data = body.get("data") or {}
+    cols = [c["name"] for c in data.get("cols") or []]
+    rows = data.get("rows") or []
+    out = ["\t".join(cols)]
+    for row in rows:
+        out.append("\t".join("" if v is None else str(v) for v in row))
+    return "\n".join(out) + "\n"
+
+
+@cli.command(
+    name="metabase:databases",
+    help="List Metabase databases (id, name, engine) for a region",
+)
+@click.option(
+    "--region",
+    type=click.Choice(sorted(REGIONS.keys())),
+    required=True,
+    help="Region to inspect (us or eu)",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    show_default=True,
+)
+def metabase_databases(region: str, output_format: str) -> None:
+    """Print current databases from /api/database. IDs change when Metabase's metadata DB is rebuilt or connections are re-added, so always run this before passing --database-id to metabase:query."""
+    body = _metabase_get(region, "/api/database")
+    # Metabase wraps the list in {data: [...], total: N}; older versions return a bare list.
+    entries = body["data"] if isinstance(body, dict) and "data" in body else body
+
+    if output_format == "json":
+        click.echo(json.dumps([{"id": e["id"], "name": e["name"], "engine": e["engine"]} for e in entries], indent=2))
+        return
+
+    header = f"{'ID':>4}  {'NAME':<40}  ENGINE"
+    click.echo(header)
+    click.echo("-" * len(header))
+    for e in entries:
+        click.echo(f"{e['id']:>4}  {e['name']:<40}  {e['engine']}")
+
+
+@cli.command(
+    name="metabase:query",
+    help="Run a SQL query against Metabase /api/dataset; results to stdout",
+)
+@click.option(
+    "--region",
+    type=click.Choice(sorted(REGIONS.keys())),
+    required=True,
+    help="Region to query (us or eu)",
+)
+@click.option(
+    "--database-id",
+    type=int,
+    required=True,
+    help="Database ID (get from `hogli metabase:databases --region <region>`)",
+)
+@click.option(
+    "--file",
+    "sql_file",
+    type=click.Path(exists=True, dir_okay=False, readable=True),
+    default=None,
+    help="Read SQL from this file (default: read from stdin)",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["tsv", "json"]),
+    default="tsv",
+    show_default=True,
+)
+@click.option(
+    "--save",
+    type=click.Path(dir_okay=False, writable=True),
+    default=None,
+    help="Write output to this file instead of stdout (avoids dumping large results into terminals/logs)",
+)
+@click.option(
+    "--timeout",
+    type=float,
+    default=120.0,
+    show_default=True,
+    help="HTTP timeout in seconds",
+)
+def metabase_query(
+    region: str,
+    database_id: int,
+    sql_file: str | None,
+    output_format: str,
+    save: str | None,
+    timeout: float,
+) -> None:
+    """Run SQL against the given database ID and emit results. Cookie stays internal."""
+    if sql_file:
+        sql = Path(sql_file).read_text()
+    else:
+        sql = sys.stdin.read()
+    if not sql.strip():
+        raise click.ClickException("No SQL provided. Pipe via stdin or use --file.")
+
+    body = _metabase_post_dataset(region, database_id, sql, timeout=timeout)
+    if body.get("status") == "failed" or body.get("error"):
+        error_msg = body.get("error") or body.get("status")
+        raise click.ClickException(f"Query failed: {error_msg}")
+
+    if output_format == "json":
+        rendered = json.dumps(body, indent=2) + "\n"
+    else:
+        rendered = _render_rows_tsv(body)
+
+    if save:
+        Path(save).write_text(rendered)
+        row_count = body.get("row_count", "?")
+        click.echo(f"Wrote {row_count} rows to {save}")
+    else:
+        click.echo(rendered, nl=False)

@@ -21,24 +21,28 @@ those and uses the same Metabase API surface.
 
 ## Environment
 
-| Region | Metabase URL                           | ClickHouse DB ID for `query_log`       |
-| ------ | -------------------------------------- | -------------------------------------- |
-| US     | `https://metabase.prod-us.posthog.dev` | `42`                                   |
-| EU     | `https://metabase.prod-eu.posthog.dev` | `35` (query tier) — or `2` (data tier) |
+| Region | Metabase URL                           |
+| ------ | -------------------------------------- |
+| US     | `https://metabase.prod-us.posthog.dev` |
+| EU     | `https://metabase.prod-eu.posthog.dev` |
 
-For `query_log` analysis, **use `35` on EU**. The `2` data-tier DB exists for
-direct table reads (events, persons, etc.) and is only needed when you're
-querying production data, not the logs.
+**Database IDs are not stable** — they change when Metabase's metadata DB is
+rebuilt or connections are re-added. Never hardcode an ID. Always discover
+the current list:
 
-EU's Metabase also exposes additional databases that may be useful for
-broader investigations (not `query_log`):
+```bash
+hogli metabase:databases --region us
+hogli metabase:databases --region eu
+```
 
-- DB `100` — ClickHouse ingestion layer
-- DB `70` — ClickHouse migrations EKS
-- DB `34` — PostgreSQL (the PostHog app DB)
+Regional layout (names may vary; re-check with `metabase:databases`):
 
-US Metabase only exposes one ClickHouse DB (`42`); other backends are
-queried via separate datasources you'll discover from `/api/database`.
+- **US** exposes one ClickHouse database (used for `query_log` and data reads).
+- **EU** exposes two ClickHouse databases — a **query tier** (use for
+  `query_log` analysis) and a **data tier** (production reads: events,
+  persons, etc.). Pick the one whose name indicates the query tier.
+- Both Metabases also expose Postgres databases (the app DB) and, on EU,
+  the ingestion-layer and migrations databases.
 
 ## Authentication
 
@@ -52,45 +56,31 @@ at `~/.config/posthog/metabase/cookie-{region}` (mode `0600`).
 # is cheap.
 hogli metabase:login --region us
 hogli metabase:login --region eu
-
-# In scripts: read the cached cookie header for the region you're querying.
-COOKIE_HEADER="$(hogli metabase:cookie --region us)"
 ```
 
-If the cookie has expired, `hogli metabase:cookie --check` exits non-zero
-with a "no longer valid — run `hogli metabase:login`" message. **Prompt the
-user to run `hogli metabase:login` themselves** — the harness blocks Keychain
-access from agent shells, so the user has to authenticate interactively.
+**Prompt the user to run `hogli metabase:login` themselves** — the harness
+blocks Keychain access from agent shells, so the user has to authenticate
+interactively.
+
+### Agents: use `metabase:query`
+
+`hogli metabase:query` reads the cached cookie internally and only emits
+results — the session value never appears in the agent's transcript.
+`metabase:cookie` exists for humans who want to hand-roll `curl` against
+Metabase.
 
 ## Running an ad-hoc query
 
-Pick the region's DB ID and base URL, build the JSON payload, POST to
-`/api/dataset`. The cookie header is the only auth.
-
-**Important:** the cookie cache is per-region. When switching regions,
-update **all four** of `REGION`, `DB_ID`, `BASE`, and re-fetch
-`COOKIE_HEADER`. Mixing a US cookie with an EU URL fails at the ALB.
+1. Discover the current ClickHouse DB ID: `hogli metabase:databases --region <region>`.
+2. Pass that ID into `hogli metabase:query`. Pipe SQL via stdin or `--file`.
 
 ```bash
-# US
-REGION=us; DB_ID=42; BASE="https://metabase.prod-us.posthog.dev"
-# EU (query_log lives in DB 35)
-# REGION=eu; DB_ID=35; BASE="https://metabase.prod-eu.posthog.dev"
+# 1. Find the ClickHouse database ID for your region
+hogli metabase:databases --region us
+# e.g. output row:  42  ClickHouse  clickhouse
 
-COOKIE_HEADER="$(hogli metabase:cookie --region $REGION)"
-
-python3 -c "
-import json, sys
-print(json.dumps({
-    'database': int(sys.argv[1]),
-    'type': 'native',
-    'native': {'query': sys.stdin.read(), 'template-tags': {}}
-}))
-" "$DB_ID" <<'SQL' | curl -sS -X POST \
-    -H "Cookie: $COOKIE_HEADER" \
-    -H "Content-Type: application/json" \
-    -d @- \
-    "$BASE/api/dataset"
+# 2. Run the query. The cookie is read internally; nothing leaks to stdout.
+hogli metabase:query --region us --database-id 42 --save /tmp/out.tsv <<'SQL'
 SELECT
     JSONExtractInt(log_comment, 'team_id') AS team_id,
     count() AS query_count,
@@ -107,6 +97,14 @@ SQL
 
 `clusterAllReplicas(posthog, system, query_log)` is the standard table reference —
 it fans out across the cluster.
+
+For large result sets, use `--save <path>` so rows land in a file rather
+than streaming through the terminal/transcript. Default output is TSV;
+`--format json` gives you the raw `/api/dataset` response body.
+
+If the DB ID is wrong, `metabase:query` exits non-zero with a pointer back
+to `metabase:databases`. Fail-fast is intentional — silently querying the
+wrong database is worse than failing.
 
 ## What counts as a slow query
 

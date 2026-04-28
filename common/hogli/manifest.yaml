@@ -586,6 +586,8 @@ quality:
 auth:
     metabase:login: null # Click-defined, placed here for categorization
     metabase:cookie: null # Click-defined, placed here for categorization
+    metabase:databases: null # Click-defined, placed here for categorization
+    metabase:query: null # Click-defined, placed here for categorization
 tools:
     doctor: null # Click-defined, placed here for categorization
     tool:temporal-codec-server:

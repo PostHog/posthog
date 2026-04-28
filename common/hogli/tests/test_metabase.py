@@ -204,3 +204,118 @@ def test_wait_for_valid_cookie_times_out(monkeypatch: pytest.MonkeyPatch) -> Non
 
     with pytest.raises(click.ClickException, match="Timed out"):
         metabase._wait_for_valid_cookie("metabase.example", None, timeout=10.0, interval=0.0)
+
+
+def test_require_cookie_header_errors_when_missing(cache_dir: Path) -> None:
+    with pytest.raises(click.ClickException, match="No cached cookie"):
+        metabase._require_cookie_header("us")
+
+
+def test_require_cookie_header_returns_cached(cache_dir: Path) -> None:
+    metabase._write_cookie_file("us", "metabase.SESSION=abc")
+    assert metabase._require_cookie_header("us") == "metabase.SESSION=abc"
+
+
+def test_render_rows_tsv_formats_cols_and_rows() -> None:
+    body = {
+        "data": {
+            "cols": [{"name": "team_id"}, {"name": "count"}, {"name": "label"}],
+            "rows": [[1, 10, "a"], [2, None, "b"]],
+        },
+        "status": "completed",
+    }
+    out = metabase._render_rows_tsv(body)
+    assert out == "team_id\tcount\tlabel\n1\t10\ta\n2\t\tb\n"
+
+
+def test_metabase_databases_prints_table(cache_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    metabase._write_cookie_file("us", "metabase.SESSION=abc")
+    fake = {
+        "data": [
+            {"id": 42, "name": "ClickHouse", "engine": "clickhouse"},
+            {"id": 38, "name": "Postgres", "engine": "postgres"},
+        ]
+    }
+    monkeypatch.setattr(metabase, "_metabase_get", lambda region, path, timeout=30.0: fake)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["metabase:databases", "--region", "us"])
+    assert result.exit_code == 0, result.output
+    assert "42" in result.output and "ClickHouse" in result.output
+    assert "38" in result.output and "Postgres" in result.output
+
+
+def test_metabase_databases_json_format(cache_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    metabase._write_cookie_file("us", "metabase.SESSION=abc")
+    fake = [{"id": 42, "name": "ClickHouse", "engine": "clickhouse"}]  # bare-list form
+    monkeypatch.setattr(metabase, "_metabase_get", lambda region, path, timeout=30.0: fake)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["metabase:databases", "--region", "us", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    import json as _json
+
+    parsed = _json.loads(result.output)
+    assert parsed == [{"id": 42, "name": "ClickHouse", "engine": "clickhouse"}]
+
+
+def test_metabase_query_requires_database_id() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["metabase:query", "--region", "us"], input="SELECT 1\n")
+    assert result.exit_code != 0
+    assert "--database-id" in result.output
+
+
+def test_metabase_query_emits_tsv(cache_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    metabase._write_cookie_file("us", "metabase.SESSION=abc")
+    fake = {
+        "status": "completed",
+        "row_count": 2,
+        "data": {"cols": [{"name": "x"}], "rows": [[1], [2]]},
+    }
+    monkeypatch.setattr(metabase, "_metabase_post_dataset", lambda region, db, sql, timeout=120.0: fake)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["metabase:query", "--region", "us", "--database-id", "42"], input="SELECT 1\n")
+    assert result.exit_code == 0, result.output
+    assert result.output == "x\n1\n2\n"
+
+
+def test_metabase_query_surface_query_failure(cache_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    metabase._write_cookie_file("us", "metabase.SESSION=abc")
+    fake = {"status": "failed", "error": "syntax error near 'SELEKT'"}
+    monkeypatch.setattr(metabase, "_metabase_post_dataset", lambda region, db, sql, timeout=120.0: fake)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["metabase:query", "--region", "us", "--database-id", "42"], input="SELEKT 1\n")
+    assert result.exit_code != 0
+    assert "syntax error" in result.output
+
+
+def test_metabase_query_save_to_file(cache_dir: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    metabase._write_cookie_file("us", "metabase.SESSION=abc")
+    fake = {
+        "status": "completed",
+        "row_count": 1,
+        "data": {"cols": [{"name": "x"}], "rows": [[42]]},
+    }
+    monkeypatch.setattr(metabase, "_metabase_post_dataset", lambda region, db, sql, timeout=120.0: fake)
+
+    out_path = tmp_path / "out.tsv"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["metabase:query", "--region", "us", "--database-id", "42", "--save", str(out_path)],
+        input="SELECT 42\n",
+    )
+    assert result.exit_code == 0, result.output
+    assert out_path.read_text() == "x\n42\n"
+    assert "42" not in result.output.replace("Wrote", "")  # value didn't leak to stdout
+
+
+def test_metabase_query_rejects_empty_sql(cache_dir: Path) -> None:
+    metabase._write_cookie_file("us", "metabase.SESSION=abc")
+    runner = CliRunner()
+    result = runner.invoke(cli, ["metabase:query", "--region", "us", "--database-id", "42"], input="")
+    assert result.exit_code != 0
+    assert "No SQL provided" in result.output
