@@ -593,7 +593,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod.object({
                             type: zod
                                 .enum(['cohort'])
                                 .default(endpointsRunCreateBodyFiltersOverridePropertiesItemSixTypeDefault),
-                            value: zod.number(),
+                            value: zod.number().nullish(),
                         }),
                         zod.object({
                             key: zod.union([

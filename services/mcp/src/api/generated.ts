@@ -889,7 +889,8 @@ export namespace Schemas {
       label?: string | null;
       operator?: PropertyOperator | null;
       type?: CohortPropertyFilterType;
-      value: number;
+      /** @nullable */
+      value?: number | null;
     }
 
     export type DurationType = typeof DurationType[keyof typeof DurationType];

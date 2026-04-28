@@ -363,7 +363,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                         type: zod
                             .enum(['cohort'])
                             .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSevenTypeDefault),
-                        value: zod.number(),
+                        value: zod.number().nullish(),
                     }),
                     zod.object({
                         key: zod.union([zod.enum(['duration', 'active_seconds', 'inactive_seconds']), zod.string()]),
@@ -1329,7 +1329,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .enum(['cohort'])
                             .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSevenTypeDefault),
-                        value: zod.number(),
+                        value: zod.number().nullish(),
                     }),
                     zod.object({
                         key: zod.union([zod.enum(['duration', 'active_seconds', 'inactive_seconds']), zod.string()]),
@@ -2416,7 +2416,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                         type: zod
                             .enum(['cohort'])
                             .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSevenTypeDefault),
-                        value: zod.number(),
+                        value: zod.number().nullish(),
                     }),
                     zod.object({
                         key: zod.union([zod.enum(['duration', 'active_seconds', 'inactive_seconds']), zod.string()]),

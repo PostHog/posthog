@@ -659,7 +659,8 @@ export interface CohortPropertyFilterApi {
     label?: string | null
     operator?: PropertyOperatorApi | null
     type?: CohortPropertyFilterApiType
-    value: number
+    /** @nullable */
+    value?: number | null
 }
 
 export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
