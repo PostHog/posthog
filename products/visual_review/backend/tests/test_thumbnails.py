@@ -153,6 +153,8 @@ class TestStoreThumbnail:
 @pytest.mark.django_db(databases=list(PRODUCT_DATABASES))
 class TestThumbnailEndpoint(APIBaseTest):
     databases = PRODUCT_DATABASES
+    THUMB_HASH = "thumb_hash_abc"
+    IDENTIFIER = "button--primary"
 
     def setUp(self):
         super().setUp()
@@ -162,13 +164,12 @@ class TestThumbnailEndpoint(APIBaseTest):
             repo_full_name="org/test",
         )
 
-    def test_returns_thumbnail_bytes(self):
-        thumb_content = b"fake-webp-bytes"
+    def _seed_snapshot_with_thumbnail(self) -> None:
         thumb_artifact = Artifact.objects.create(
             repo=self.repo,
             team_id=self.team.id,
-            content_hash="thumb_hash_abc",
-            storage_path="visual_review/thumb_hash_abc",
+            content_hash=self.THUMB_HASH,
+            storage_path=f"visual_review/{self.THUMB_HASH}",
         )
         current_artifact = Artifact.objects.create(
             repo=self.repo,
@@ -187,65 +188,43 @@ class TestThumbnailEndpoint(APIBaseTest):
         RunSnapshot.objects.create(
             run=run,
             team_id=self.team.id,
-            identifier="button--primary",
+            identifier=self.IDENTIFIER,
             current_hash="current_hash_123",
             current_artifact=current_artifact,
             result=SnapshotResult.CHANGED,
         )
 
+    def _thumbnail_url(self, identifier: str | None = None) -> str:
+        ident = identifier if identifier is not None else self.IDENTIFIER
+        return f"/api/projects/{self.team.id}/visual_review/repos/{self.repo.id}/thumbnails/{ident}/"
+
+    def test_returns_thumbnail_bytes(self):
+        self._seed_snapshot_with_thumbnail()
+        thumb_content = b"fake-webp-bytes"
+
         with patch("products.visual_review.backend.storage.ArtifactStorage.read", return_value=thumb_content):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/visual_review/repos/{self.repo.id}/thumbnails/button--primary/"
-            )
+            response = self.client.get(self._thumbnail_url())
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/webp")
         self.assertEqual(response.content, thumb_content)
         self.assertIn("ETag", response)
-        self.assertIn("Cache-Control", response)
         self.assertIn("max-age=300", response["Cache-Control"])
+        # Shared caches must key per-credential — see views.thumbnail.
+        self.assertIn("Authorization", response["Vary"])
+        self.assertIn("Cookie", response["Vary"])
 
     def test_returns_304_on_etag_match(self):
-        thumb_artifact = Artifact.objects.create(
-            repo=self.repo,
-            team_id=self.team.id,
-            content_hash="thumb_hash_abc",
-            storage_path="visual_review/thumb_hash_abc",
-        )
-        current_artifact = Artifact.objects.create(
-            repo=self.repo,
-            team_id=self.team.id,
-            content_hash="current_hash_123",
-            storage_path="visual_review/current_hash_123",
-            thumbnail=thumb_artifact,
-        )
-        run = Run.objects.create(
-            repo=self.repo,
-            team_id=self.team.id,
-            run_type=RunType.STORYBOOK,
-            commit_sha="abc",
-            branch="main",
-        )
-        RunSnapshot.objects.create(
-            run=run,
-            team_id=self.team.id,
-            identifier="button--primary",
-            current_hash="current_hash_123",
-            current_artifact=current_artifact,
-            result=SnapshotResult.CHANGED,
-        )
+        self._seed_snapshot_with_thumbnail()
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/visual_review/repos/{self.repo.id}/thumbnails/button--primary/",
-            HTTP_IF_NONE_MATCH='"thumb_hash_abc"',
-        )
+        response = self.client.get(self._thumbnail_url(), HTTP_IF_NONE_MATCH=f'"{self.THUMB_HASH}"')
 
         self.assertEqual(response.status_code, 304)
+        self.assertIn("Authorization", response["Vary"])
+        self.assertIn("Cookie", response["Vary"])
 
     def test_returns_404_when_no_thumbnail(self):
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/visual_review/repos/{self.repo.id}/thumbnails/nonexistent/"
-        )
+        response = self.client.get(self._thumbnail_url("nonexistent"))
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response["Cache-Control"], "no-store")
@@ -254,7 +233,8 @@ class TestThumbnailEndpoint(APIBaseTest):
         import uuid
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/visual_review/repos/{uuid.uuid4()}/thumbnails/button--primary/"
+            f"/api/projects/{self.team.id}/visual_review/repos/{uuid.uuid4()}/thumbnails/{self.IDENTIFIER}/"
         )
 
         self.assertEqual(response.status_code, 404)
+        self.assertEqual(response["Cache-Control"], "no-store")

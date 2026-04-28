@@ -14,7 +14,7 @@ from typing import cast
 from uuid import UUID
 
 from django.http import HttpResponse
-from django.utils.cache import get_conditional_response, patch_cache_control
+from django.utils.cache import get_conditional_response, patch_cache_control, patch_vary_headers
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -147,7 +147,9 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             logic.get_repo(UUID(pk), team_id=self.team_id)
         except api.RepoNotFoundError:
-            return HttpResponse(status=404)
+            resp = HttpResponse(status=404)
+            patch_cache_control(resp, no_store=True)
+            return resp
 
         thumb_hash = logic.get_thumbnail_hash_for_identifier(UUID(pk), identifier)
         if thumb_hash is None:
@@ -158,14 +160,21 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         etag = f'"{thumb_hash}"'
         not_modified = get_conditional_response(request._request, etag=etag)
         if not_modified:
+            # Shared caches must key on credentials — see thumbnail success path below.
+            patch_vary_headers(not_modified, ["Authorization", "Cookie"])
             return not_modified
 
         thumb_bytes = logic.read_thumbnail_bytes(UUID(pk), thumb_hash)
         if thumb_bytes is None:
-            return HttpResponse(status=404)
+            resp = HttpResponse(status=404)
+            patch_cache_control(resp, no_store=True)
+            return resp
 
         response = HttpResponse(thumb_bytes, content_type="image/webp")
         response["ETag"] = etag
+        # Endpoint is auth-scoped (team), so Vary on credential headers prevents shared
+        # caches from serving the same URL across tenants.
+        patch_vary_headers(response, ["Authorization", "Cookie"])
         patch_cache_control(response, public=True, max_age=300, stale_while_revalidate=3600)
         return response
 

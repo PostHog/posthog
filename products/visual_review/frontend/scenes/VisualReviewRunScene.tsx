@@ -437,7 +437,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                         isQuarantined={quarantinedIdentifierSet.has(snapshot.identifier)}
                                         thumbnailSrc={
                                             hasThumbnail
-                                                ? `${thumbnailBasePath}/${encodeURIComponent(snapshot.identifier)}`
+                                                ? `${thumbnailBasePath}/${encodeURIComponent(snapshot.identifier)}/`
                                                 : null
                                         }
                                         fallbackSrc={snapshot.current_artifact?.download_url ?? null}
