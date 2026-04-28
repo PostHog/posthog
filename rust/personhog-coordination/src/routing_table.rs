@@ -98,7 +98,9 @@ impl RoutingTable {
     }
 
     /// Run the routing table. Registers with etcd, loads the initial state,
-    /// then watches for assignment changes and handoffs. Blocks until cancelled.
+    /// then watches the handoffs keyspace. Blocks until cancelled. Routing
+    /// changes flow exclusively through handoff Complete events; there is
+    /// no separate assignment watch.
     ///
     /// The `handler` implements stashing and drain. It's invoked on handoff
     /// phase transitions: `begin_stash` at Freezing, `drain_stash` at Complete.
