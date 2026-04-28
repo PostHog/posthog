@@ -639,7 +639,7 @@ jobs:
         name: Capture run time
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        needs: [changes, playwright]
+        needs: [changes, playwright, playwright_tests]
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
             always() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.shouldRun == 'true' && (
