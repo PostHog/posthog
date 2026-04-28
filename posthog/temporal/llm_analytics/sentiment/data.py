@@ -38,15 +38,14 @@ def fetch_generations(
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
     from posthog.hogql.parser import parse_select
-    from posthog.hogql.query import execute_hogql_query
 
+    from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
     from posthog.models.team import Team
 
     team = Team.objects.get(id=team_id)
     query = parse_select(GENERATIONS_QUERY)
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
-        result = execute_hogql_query(
-            query_type="SentimentOnDemand",
+        result = execute_with_ai_events_fallback(
             query=query,
             placeholders={
                 "date_from": ast.Constant(value=date_from),
@@ -56,6 +55,7 @@ def fetch_generations(
                 "max_gens_per_trace": ast.Constant(value=MAX_GENERATIONS_PER_TRACE),
             },
             team=team,
+            query_type="SentimentOnDemand",
             limit_context=LimitContext.QUERY_ASYNC,
         )
 
@@ -90,15 +90,14 @@ def fetch_generations_by_uuid(
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
     from posthog.hogql.parser import parse_select
-    from posthog.hogql.query import execute_hogql_query
 
+    from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
     from posthog.models.team import Team
 
     team = Team.objects.get(id=team_id)
     query = parse_select(GENERATIONS_BY_UUID_QUERY)
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team_id):
-        result = execute_hogql_query(
-            query_type="SentimentOnDemandGeneration",
+        result = execute_with_ai_events_fallback(
             query=query,
             placeholders={
                 "date_from": ast.Constant(value=date_from),
@@ -106,6 +105,7 @@ def fetch_generations_by_uuid(
                 "uuids": ast.Tuple(exprs=[ast.Constant(value=uid) for uid in generation_ids]),
             },
             team=team,
+            query_type="SentimentOnDemandGeneration",
             limit_context=LimitContext.QUERY_ASYNC,
         )
 
