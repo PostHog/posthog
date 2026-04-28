@@ -15,35 +15,6 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const UsageMetricsListSchema = GroupsTypesMetricsListParams.omit({ project_id: true })
-    .extend(GroupsTypesMetricsListQueryParams.shape)
-    .extend({
-        group_type_index: GroupsTypesMetricsListParams.shape['group_type_index'].describe(
-            'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
-        ),
-    })
-
-const usageMetricsList = (): ToolBase<
-    typeof UsageMetricsListSchema,
-    WithPostHogUrl<Schemas.PaginatedGroupUsageMetricList>
-> => ({
-    name: 'usage-metrics-list',
-    schema: UsageMetricsListSchema,
-    mcpVersion: 1,
-    handler: async (context: Context, params: z.infer<typeof UsageMetricsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedGroupUsageMetricList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/groups_types/${encodeURIComponent(String(params.group_type_index))}/metrics/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return await withPostHogUrl(context, result, '/customer-analytics')
-    },
-})
-
 const UsageMetricsCreateSchema = GroupsTypesMetricsCreateParams.omit({ project_id: true })
     .extend(GroupsTypesMetricsCreateBody.shape)
     .extend({
@@ -88,23 +59,51 @@ const usageMetricsCreate = (): ToolBase<typeof UsageMetricsCreateSchema, Schemas
     },
 })
 
-const UsageMetricsRetrieveSchema = GroupsTypesMetricsRetrieveParams.omit({ project_id: true }).extend({
-    group_type_index: GroupsTypesMetricsRetrieveParams.shape['group_type_index'].describe(
+const UsageMetricsDestroySchema = GroupsTypesMetricsDestroyParams.omit({ project_id: true }).extend({
+    group_type_index: GroupsTypesMetricsDestroyParams.shape['group_type_index'].describe(
         'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
     ),
 })
 
-const usageMetricsRetrieve = (): ToolBase<typeof UsageMetricsRetrieveSchema, Schemas.GroupUsageMetric> => ({
-    name: 'usage-metrics-retrieve',
-    schema: UsageMetricsRetrieveSchema,
-    mcpVersion: 1,
-    handler: async (context: Context, params: z.infer<typeof UsageMetricsRetrieveSchema>) => {
+const usageMetricsDestroy = (): ToolBase<typeof UsageMetricsDestroySchema, unknown> => ({
+    name: 'usage-metrics-destroy',
+    schema: UsageMetricsDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof UsageMetricsDestroySchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.GroupUsageMetric>({
-            method: 'GET',
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/groups_types/${encodeURIComponent(String(params.group_type_index))}/metrics/${encodeURIComponent(String(params.id))}/`,
         })
         return result
+    },
+})
+
+const UsageMetricsListSchema = GroupsTypesMetricsListParams.omit({ project_id: true })
+    .extend(GroupsTypesMetricsListQueryParams.shape)
+    .extend({
+        group_type_index: GroupsTypesMetricsListParams.shape['group_type_index'].describe(
+            'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
+        ),
+    })
+
+const usageMetricsList = (): ToolBase<
+    typeof UsageMetricsListSchema,
+    WithPostHogUrl<Schemas.PaginatedGroupUsageMetricList>
+> => ({
+    name: 'usage-metrics-list',
+    schema: UsageMetricsListSchema,
+    mcpVersion: 1,
+    handler: async (context: Context, params: z.infer<typeof UsageMetricsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedGroupUsageMetricList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/groups_types/${encodeURIComponent(String(params.group_type_index))}/metrics/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
     },
 })
 
@@ -152,19 +151,20 @@ const usageMetricsPartialUpdate = (): ToolBase<typeof UsageMetricsPartialUpdateS
     },
 })
 
-const UsageMetricsDestroySchema = GroupsTypesMetricsDestroyParams.omit({ project_id: true }).extend({
-    group_type_index: GroupsTypesMetricsDestroyParams.shape['group_type_index'].describe(
+const UsageMetricsRetrieveSchema = GroupsTypesMetricsRetrieveParams.omit({ project_id: true }).extend({
+    group_type_index: GroupsTypesMetricsRetrieveParams.shape['group_type_index'].describe(
         'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
     ),
 })
 
-const usageMetricsDestroy = (): ToolBase<typeof UsageMetricsDestroySchema, unknown> => ({
-    name: 'usage-metrics-destroy',
-    schema: UsageMetricsDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof UsageMetricsDestroySchema>) => {
+const usageMetricsRetrieve = (): ToolBase<typeof UsageMetricsRetrieveSchema, Schemas.GroupUsageMetric> => ({
+    name: 'usage-metrics-retrieve',
+    schema: UsageMetricsRetrieveSchema,
+    mcpVersion: 1,
+    handler: async (context: Context, params: z.infer<typeof UsageMetricsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
+        const result = await context.api.request<Schemas.GroupUsageMetric>({
+            method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/groups_types/${encodeURIComponent(String(params.group_type_index))}/metrics/${encodeURIComponent(String(params.id))}/`,
         })
         return result
@@ -172,9 +172,9 @@ const usageMetricsDestroy = (): ToolBase<typeof UsageMetricsDestroySchema, unkno
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'usage-metrics-list': usageMetricsList,
     'usage-metrics-create': usageMetricsCreate,
-    'usage-metrics-retrieve': usageMetricsRetrieve,
-    'usage-metrics-partial-update': usageMetricsPartialUpdate,
     'usage-metrics-destroy': usageMetricsDestroy,
+    'usage-metrics-list': usageMetricsList,
+    'usage-metrics-partial-update': usageMetricsPartialUpdate,
+    'usage-metrics-retrieve': usageMetricsRetrieve,
 }
