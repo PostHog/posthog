@@ -50,9 +50,8 @@ AI-generated summary of pass/fail/N/A patterns across many runs.
 | `posthog:execute-sql`                             | Ad-hoc HogQL over `$ai_evaluation` events                      |
 | `posthog:query-llm-trace`                         | Drill into the underlying generation that an evaluation scored |
 
-The hand-curated `evaluation-*` tools live in `products/llm_analytics/mcp/evaluations.yaml`;
-`llm-analytics-evaluation-summary-create` is enabled from the scaffolded
-`products/llm_analytics/mcp/tools.yaml`.
+The first seven `evaluation-*` tools are hand-coded; `llm-analytics-evaluation-summary-create`
+is generated from `products/llm_analytics/mcp/tools.yaml`.
 
 ## Event schema
 
@@ -390,9 +389,9 @@ Always surface the relevant link so the user can verify in the UI.
   the `$ai_evaluation` ClickHouse events
 - When showing failure patterns to the user, always include 1-2 example trace links so
   they can validate the pattern visually
-- All `evaluation-*` tools share the same scope object (`llm_analytics`) — `evaluation:read`
-  for read tools, `evaluation:write` for mutating tools, and `llm_analytics:write` for
-  `llm-analytics-evaluation-summary-create` (it shares the LLM-summary surface scope)
+- Hand-coded `evaluation-*` tools and the codegen `llm-analytics-evaluation-summary-create`
+  share the same scope object (`llm_analytics`) — `evaluation:read` for read tools,
+  `evaluation:write` for mutating tools, and `llm_analytics:write` for the summary tool
 - Hog evaluators are reproducible — if you suspect a regression, `evaluation-test-hog`
   with the suspect source against the failing generations is the fastest way to bisect
   whether the change is in the evaluator or in the producer of the generations
