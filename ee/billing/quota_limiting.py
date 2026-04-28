@@ -773,6 +773,31 @@ def update_all_orgs_billing_quotas(
     # We have the teams that are currently under quota limits
     # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "exceptions": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flag_requests": ["phc_123", "phc_456"], "api_queries_read_bytes": ["phc_123", "phc_456"], "survey_responses": ["phc_123", "phc_456"]})
 
+    # The org instances in `orgs_by_id` were loaded via the team query at the start of this job.
+    # Billing webhooks may have written fresh `usage` / `customer_trust_scores` / `never_drop_data`
+    # values since then, and the org loop below saves `usage` back per-org. Without a refresh the
+    # save would clobber any concurrent billing updates with stale snapshots.
+    refresh_start = time()
+    fresh_orgs = Organization.objects.filter(id__in=list(orgs_by_id.keys())).only(
+        "id", "usage", "customer_trust_scores", "never_drop_data"
+    )
+    refreshed = 0
+    for fresh_org in fresh_orgs.iterator(chunk_size=2000):
+        cached = orgs_by_id.get(str(fresh_org.id))
+        if cached is None:
+            continue
+        cached.usage = fresh_org.usage
+        cached.customer_trust_scores = fresh_org.customer_trust_scores
+        cached.never_drop_data = fresh_org.never_drop_data
+        refreshed += 1
+    logger.info(
+        "quota_limiting_run",
+        phase="bulk_refresh",
+        status="done",
+        duration_ms=round((time() - refresh_start) * 1000, 1),
+        refreshed=refreshed,
+    )
+
     # Find all orgs that should be rate limited
     total_orgs = len(todays_usage_report)
     logger.info("quota_limiting_run", phase="org_loop", status="start", org_count=total_orgs)
@@ -792,10 +817,6 @@ def update_all_orgs_billing_quotas(
 
         try:
             org = orgs_by_id[org_id]
-            # Refresh usage data from DB. The org object was loaded at the start of this job,
-            # but billing updates may have arrived since then. Without this refresh, we'd
-            # overwrite fresh billing data with stale values when we save.
-            org.refresh_from_db(fields=["usage", "customer_trust_scores", "never_drop_data"])
 
             if org.usage and org.usage.get("period"):
                 if set_org_usage_summary(org, todays_usage=todays_report):

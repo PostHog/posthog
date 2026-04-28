@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, FuzzyInt, _create_event
+from unittest import expectedFailure
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -1789,10 +1790,12 @@ class TestQuotaLimiting(BaseTest):
     @freeze_time("2021-01-25T12:00:00Z")
     def test_update_all_orgs_billing_quotas_does_not_overwrite_fresh_billing_data(self, patch_capture) -> None:
         """
-        Regression test for a race condition where the cron job would overwrite fresh billing data.
+        Unit-level coverage for the merge step inside the org loop: given a refreshed org
+        with fresh `usage` from the DB and a `todays_usage` snapshot from ClickHouse,
+        `set_org_usage_summary` + `org.save(update_fields=["usage"])` must preserve the
+        fresh per-resource `usage`/`limit`/`period` and only overwrite `todays_usage`.
 
-        The cron job loads all orgs at the start and iterates through them over potentially 30+ minutes.
-        If a billing update arrives during that time, we must not overwrite it with stale data.
+        Complements the two E2E tests below, which cover the bulk job end-to-end.
         """
         from posthog.models.organization import Organization
 
@@ -1853,3 +1856,167 @@ class TestQuotaLimiting(BaseTest):
             assert final_org.usage["events"]["todays_usage"] == 100  # Today's usage updated
             assert final_org.usage["recordings"]["usage"] == 0  # Fresh billing data preserved
             assert final_org.usage["recordings"]["todays_usage"] == 50  # Today's usage updated
+
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_update_all_orgs_billing_quotas_bulk_refresh_picks_up_concurrent_writes(self, patch_capture) -> None:
+        """
+        End-to-end coverage for the bulk refresh that runs immediately before the org loop.
+
+        Setup: org has stale free-tier `usage` in Postgres. Between the queries phase and
+        the org loop, a concurrent billing webhook writes a fresh pay-as-you-go `usage`
+        directly to the row (the same shape `update_org_details` takes after a Stripe
+        webhook). The bulk job must pick that fresh row up and the per-org save must not
+        clobber it back to the stale snapshot loaded at the start of the job.
+
+        This is the Calmio incident shape: free-tier upgrade fired before the bulk job's
+        per-org iteration would have written the row.
+        """
+        from posthog.models.organization import Organization
+
+        with self.settings(USE_TZ=False):
+            stale_usage = {
+                "events": {"usage": 9_999_999, "limit": 10_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10_000, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.usage = stale_usage
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            # Create events so the ClickHouse rollup produces a non-zero todays_usage and
+            # `set_org_usage_summary` returns True, forcing the per-org save we want to
+            # exercise. Without this the loop short-circuits before saving.
+            distinct_id = str(uuid4())
+            for _ in range(5):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=1),
+                    team=self.team,
+                )
+            time.sleep(1)
+
+            fresh_usage = {
+                "events": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "period": ["2021-01-15T00:00:00Z", "2021-02-14T23:59:59Z"],
+            }
+
+            # Hook the simulated webhook write between the queries phase and the bulk
+            # refresh. `list_limited_team_attributes` is called once per resource right
+            # before the bulk refresh runs, so wrapping it lets us land the write at the
+            # right moment without patching anything inside the bulk-refresh codepath
+            # itself.
+            org_id = self.organization.id
+            simulated_webhook_write_count = {"count": 0}
+
+            real_list_limited_team_attributes = list_limited_team_attributes
+
+            def list_then_simulate_webhook(*args, **kwargs):
+                if simulated_webhook_write_count["count"] == 0:
+                    Organization.objects.filter(id=org_id).update(usage=fresh_usage)
+                    simulated_webhook_write_count["count"] += 1
+                return real_list_limited_team_attributes(*args, **kwargs)
+
+            with patch(
+                "ee.billing.quota_limiting.list_limited_team_attributes",
+                side_effect=list_then_simulate_webhook,
+            ):
+                update_all_orgs_billing_quotas()
+
+            assert simulated_webhook_write_count["count"] == 1, (
+                "The simulated webhook hook did not fire — the test no longer covers the "
+                "queries-phase-to-loop-start window. Re-anchor the hook to a call site "
+                "between the queries phase and the bulk refresh."
+            )
+
+            final_org = Organization.objects.get(id=org_id)
+            assert final_org.usage["events"]["usage"] == 0, (
+                "Bulk refresh must observe the webhook's fresh `usage` and the per-org "
+                "save must not clobber it back to the stale snapshot loaded at the start "
+                "of the job (Calmio regression)."
+            )
+            assert final_org.usage["events"]["limit"] == 10_000_000, (
+                "Fresh `limit` from the webhook must survive the per-org save."
+            )
+            assert final_org.usage["period"] == [
+                "2021-01-15T00:00:00Z",
+                "2021-02-14T23:59:59Z",
+            ], "Fresh `period` from the webhook must survive the per-org save."
+
+    @expectedFailure
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T12:00:00Z")
+    def test_update_all_orgs_billing_quotas_residual_window_during_loop(self, patch_capture) -> None:
+        """
+        Documents the residual race window the bulk refresh does NOT close.
+
+        If a billing webhook writes fresh `usage` AFTER the bulk refresh has run but
+        BEFORE the org loop reaches that org, the loop still saves the bulk-refresh
+        snapshot — clobbering the webhook. Marked `expectedFailure` so this test passes
+        today (the bug exists).
+        """
+        from posthog.models.organization import Organization
+
+        with self.settings(USE_TZ=False):
+            bulk_refresh_snapshot = {
+                "events": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 10_000_000, "todays_usage": 0},
+                "period": ["2021-01-15T00:00:00Z", "2021-02-14T23:59:59Z"],
+            }
+            self.organization.usage = bulk_refresh_snapshot
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            # Create events so the ClickHouse rollup produces a non-zero todays_usage and
+            # `set_org_usage_summary` returns True, forcing the per-org save that
+            # demonstrates the residual-window clobber.
+            distinct_id = str(uuid4())
+            for _ in range(5):
+                _create_event(
+                    distinct_id=distinct_id,
+                    event="$event1",
+                    properties={"$lib": "$web"},
+                    timestamp=now() - relativedelta(hours=1),
+                    team=self.team,
+                )
+            time.sleep(1)
+
+            mid_loop_webhook = {
+                "events": {"usage": 0, "limit": 50_000_000, "todays_usage": 0},
+                "recordings": {"usage": 0, "limit": 50_000_000, "todays_usage": 0},
+                "period": ["2021-01-20T00:00:00Z", "2021-02-19T23:59:59Z"],
+            }
+
+            org_id = self.organization.id
+            mid_loop_write_count = {"count": 0}
+            real_set_org_usage_summary = set_org_usage_summary
+
+            def webhook_before_per_org_save(organization, *args, **kwargs):
+                # Land the webhook write between the bulk refresh (already done) and the
+                # per-org save (about to happen). Subsequent calls (other orgs in larger
+                # tests) pass through unchanged.
+                if organization.id == org_id and mid_loop_write_count["count"] == 0:
+                    Organization.objects.filter(id=org_id).update(usage=mid_loop_webhook)
+                    mid_loop_write_count["count"] += 1
+                return real_set_org_usage_summary(organization, *args, **kwargs)
+
+            with patch(
+                "ee.billing.quota_limiting.set_org_usage_summary",
+                side_effect=webhook_before_per_org_save,
+            ):
+                update_all_orgs_billing_quotas()
+
+            assert mid_loop_write_count["count"] == 1
+
+            final_org = Organization.objects.get(id=org_id)
+            # The fix lands when this assertion holds: the webhook's `period` and `limit`
+            # survive the per-org save instead of being overwritten by the bulk-refresh
+            # snapshot the loop captured earlier.
+            assert final_org.usage["period"] == [
+                "2021-01-20T00:00:00Z",
+                "2021-02-19T23:59:59Z",
+            ]
+            assert final_org.usage["events"]["limit"] == 50_000_000
