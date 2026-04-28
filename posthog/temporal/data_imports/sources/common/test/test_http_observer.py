@@ -71,9 +71,9 @@ def job_ctx():
 @pytest.mark.parametrize(
     "status_code,expected_level",
     [
-        (200, "info"),
-        (201, "info"),
-        (301, "info"),
+        (200, "debug"),
+        (201, "debug"),
+        (301, "debug"),
         (400, "warning"),
         (404, "warning"),
         (500, "warning"),

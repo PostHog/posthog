@@ -3,7 +3,7 @@
 The transport calls `record_request` once per outbound HTTP request — both
 successful responses and exceptions. The observer:
 
-- emits a structlog INFO line with the scrubbed full URL, status, latency
+- emits a structlog log line with the scrubbed full URL, status, latency
   and request/response sizes, plus all `JobContext` labels;
 - updates OTel counters/histograms labelled by `team_id`, `source_type`,
   `host`, and `status_class`;
@@ -31,6 +31,7 @@ from posthog.temporal.data_imports.sources.common.http.metrics import (
     get_http_response_bytes_histogram,
     status_class,
 )
+from posthog.temporal.data_imports.sources.common.http.sampling import maybe_capture
 from posthog.temporal.data_imports.sources.common.http.url_utils import host_of, scrub_url, url_template
 
 logger = structlog.get_logger(__name__)
@@ -137,7 +138,7 @@ def _emit_log(
     elif record.status_code is not None and record.status_code >= 400:
         logger.warning("data_imports.http.request", **fields)
     else:
-        logger.info("data_imports.http.request", **fields)
+        logger.debug("data_imports.http.request", **fields)
 
 
 def _emit_metrics(record: RequestRecord, *, host: str, ctx: JobContext | None) -> None:
@@ -164,9 +165,6 @@ def _maybe_capture_sample(
     if ctx is None or exception is not None:
         return
     try:
-        # Imported lazily — pulls in scrubadub which is heavyweight.
-        from posthog.temporal.data_imports.sources.common.http.sampling import maybe_capture
-
         maybe_capture(request=request, response=response, record=record, ctx=ctx)
     except Exception:
         _fallback_logger.debug("Failed to capture HTTP sample", exc_info=True)
