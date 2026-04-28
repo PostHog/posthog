@@ -27,17 +27,9 @@ tools:
             (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR
             logic. Requires an insight ID and at least one subscribed user.
 
-            subscribed_users only controls email recipients. To also deliver to a Slack channel or HTTPS webhook,
-            follow up with cdp-functions-create using type=internal_destination and template_id=template-slack (or
-            template-webhook), filters scoped to this alert's id (events=[{"id": "$insight_alert_firing", "type":
-            "events"}], properties=[{"key": "alert_id", "value": "<alert.id>", "operator": "exact", "type": "event"}]),
-            and inputs={"slack_workspace": {"value": <integration_id_int>}, "channel": {"value":
-            "<channel_id_string>"}} for Slack or inputs={"url": {"value": "<https_url>"}} for webhooks. Ask the user
-            for the Slack integration's id (visible in PostHog at /settings/integrations — integrations-list does not
-            return Slack via API key), then call integrations-channels-retrieve with that id to list channels. Before
-            creating, call cdp-functions-list with type=internal_destination and check the existing functions' filters
-            for properties containing alert_id=<alert.id> — if one already exists for this alert and destination, use
-            cdp-functions-partial-update instead so retries don't produce duplicate notifications.
+            Note: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe
+            on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe
+            (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.
         exclude_params:
             - state
             - last_notified_at
@@ -107,11 +99,10 @@ tools:
             detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a
             relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.
 
-            Slack/webhook delivery is stored as a HogFunction filtered on this alert's id — to find the existing
-            function for this alert, call cdp-functions-list with type=internal_destination and look for one whose
-            filters.properties contains a value matching <alert.id>. Then use cdp-functions-partial-update to change it
-            or cdp-functions-delete to remove it. To add a new destination, follow the cdp-functions-create recipe
-            documented on alert-create.
+            Note: Slack/webhook delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create
+            for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list
+            (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then
+            use cdp-functions-partial-update or cdp-functions-delete.
         exclude_params:
             - state
             - last_notified_at

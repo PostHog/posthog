@@ -26,14 +26,28 @@ tools:
             their values. Use 'filters' to control which events trigger the function. Transformations run during
             ingestion and have an 'execution_order' field.
 
-            To deliver an insight alert to Slack or a webhook, use type=internal_destination with
-            template_id=template-slack (or template-webhook), filters scoped to the alert id (events=[{"id":
-            "$insight_alert_firing", "type": "events"}], properties=[{"key": "alert_id", "value": "<alert.id>",
-            "operator": "exact", "type": "event"}]), and inputs={"slack_workspace": {"value": <integration_id_int>},
-            "channel": {"value": "<channel_id_string>"}} for Slack or inputs={"url": {"value": "<https_url>"}} for
-            webhooks. Before creating, list existing internal_destination functions filtered by this alert id (see
-            alert-create / alert-update descriptions) and partial-update an existing match instead of creating a
-            duplicate.
+            Recipe — deliver an insight alert to Slack or a webhook (canonical reference; alert-create / alert-update
+            point here):
+
+            1. Pick the integration. For Slack, ask the user for the integration id (visible in PostHog at
+               /settings/integrations — integrations-list does not return Slack via API key) and call
+               integrations-channels-retrieve with that id to list channels. For a webhook, the user provides the
+               destination URL directly.
+
+            2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the
+               response now includes filters. Look for an existing function whose filters.properties contains a value
+               matching <alert.id>. If one exists, call cdp-functions-partial-update on that id; if not, proceed to
+               step 3. (Paginate beyond limit=1000 only if the project genuinely has more than 1000 internal
+               destinations.)
+
+            3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook), and:
+                 filters = {
+                   "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                   "properties": [{"key": "alert_id", "value": "<alert.id>", "operator": "exact", "type": "event"}]
+                 }
+                 inputs = {"slack_workspace": {"value": <slack_integration_id_int>},
+                           "channel": {"value": "<channel_id>"}}      # Slack — channel id is preferred (e.g. C0123ABC); "#general" is also accepted
+                 inputs = {"url": {"value": "<destination_url>"}}     # webhook — must be an https:// URL
         exclude_params:
             - _create_in_folder
             - batch_export_id
@@ -135,9 +149,11 @@ tools:
         title: List functions
         description: >
             List all functions (destinations, transformations, site apps, and source webhooks) in the project. Returns
-            each function's name, type, enabled status, execution order, and template info. Filter by type (destination,
-            site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation)
-            and enabled status via query parameters.
+            each function's name, type, enabled status, execution order, template info, and filters (the event/property
+            filter expression that gates the function). Filter by type (destination, site_destination,
+            internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation) and enabled status
+            via query parameters. Pagination caps at 100 per page by default — pass limit=1000 (max 1000) when scanning
+            for an existing function by alert id, and follow the next link if more pages exist.
         response:
             include:
                 - id
@@ -152,6 +168,7 @@ tools:
                 - created_at
                 - updated_at
                 - created_by
+                - filters
     cdp-functions-logs-retrieve:
         operation: hog_functions_logs_retrieve
         enabled: true

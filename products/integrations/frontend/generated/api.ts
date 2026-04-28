@@ -25,6 +25,7 @@ import type {
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
+    SlackChannelsResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -242,8 +243,8 @@ export const integrationsChannelsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
+): Promise<SlackChannelsResponseApi> => {
+    return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

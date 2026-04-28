@@ -861,70 +861,87 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "integration:read" in response.json()["detail"]
 
-    def test_channels_is_mapped_as_read_action(self):
-        assert "channels" in IntegrationViewSet.scope_object_read_actions
-
+    @pytest.mark.parametrize(
+        "kind,scope,expected_status,expected_detail_substring",
+        [
+            ("slack", "integration:read", status.HTTP_200_OK, None),
+            ("slack-posthog-code", "integration:read", status.HTTP_200_OK, None),
+            ("slack", "feature_flag:read", status.HTTP_403_FORBIDDEN, "integration:read"),
+            # github + twilio integrations exist for this team but the channels-action queryset
+            # only resolves Slack kinds for API-key callers — so they 404 before the action runs.
+            ("github", "integration:read", status.HTTP_404_NOT_FOUND, None),
+            ("twilio", "integration:read", status.HTTP_404_NOT_FOUND, None),
+        ],
+    )
     @patch("posthog.api.integration.SlackIntegration")
-    def test_channels_with_scope_succeeds(self, mock_slack_class, client: HttpClient):
-        slack_integration = Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id="T_SCOPE_SUCCESS",
-            config={"authed_user": {"id": "test_user_id"}},
-            sensitive_config={"access_token": "test-token-123"},
-            created_by=self.user,
-        )
+    def test_channels_action_auth_and_kind_matrix(
+        self,
+        mock_slack_class,
+        kind: str,
+        scope: str,
+        expected_status: int,
+        expected_detail_substring: str | None,
+        client: HttpClient,
+    ):
+        if kind in ("slack", "slack-posthog-code"):
+            target_integration = Integration.objects.create(
+                team=self.team,
+                kind=kind,
+                integration_id=f"T_{kind.upper()}",
+                config={"authed_user": {"id": "test_user_id"}},
+                sensitive_config={"access_token": "test-token-123"},
+                created_by=self.user,
+            )
+        elif kind == "github":
+            target_integration = self.github_integration
+        elif kind == "twilio":
+            target_integration = self.twilio_integration
+        else:
+            raise ValueError(f"Unhandled kind in test parameters: {kind}")
+
         mock_slack_instance = MagicMock()
         mock_slack_instance.list_channels.return_value = [
-            {"id": "C1", "name": "general", "is_private": False, "is_member": True, "is_ext_shared": False},
-            {"id": "C2", "name": "random", "is_private": False, "is_member": True, "is_ext_shared": False},
+            {
+                "id": "C1",
+                "name": "general",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
+            {
+                "id": "C2",
+                "name": "random",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            },
         ]
         mock_slack_class.return_value = mock_slack_instance
 
-        key_value = "test_key_channels"
+        key_value = f"test_key_{kind}_{scope}".replace(":", "_").replace("-", "_")
         PersonalAPIKey.objects.create(
             label="Test Key",
             user=self.user,
             secure_value=hash_key_value(key_value),
-            scopes=["integration:read"],
+            scopes=[scope],
         )
 
         response = client.get(
-            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/",
+            f"/api/environments/{self.team.pk}/integrations/{target_integration.id}/channels/",
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
 
-        assert response.status_code == status.HTTP_200_OK
-        data = response.json()
-        assert len(data["channels"]) == 2
-        assert data["channels"][0]["id"] == "C1"
-        assert data["channels"][0]["name"] == "general"
-
-    def test_channels_without_scope_fails(self, client: HttpClient):
-        slack_integration = Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id="T_SCOPE_FAIL",
-            config={"authed_user": {"id": "test_user_id"}},
-            sensitive_config={"access_token": "test-token-123"},
-            created_by=self.user,
-        )
-
-        key_value = "test_key_channels_no_scope"
-        PersonalAPIKey.objects.create(
-            label="Test Key",
-            user=self.user,
-            secure_value=hash_key_value(key_value),
-            scopes=["feature_flag:read"],
-        )
-
-        response = client.get(
-            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/",
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert "integration:read" in response.json()["detail"]
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_200_OK:
+            data = response.json()
+            assert len(data["channels"]) == 2
+            assert data["channels"][0]["id"] == "C1"
+            assert data["channels"][0]["name"] == "general"
+            assert data["channels"][0]["is_private_without_access"] is False
+        elif expected_detail_substring is not None:
+            assert expected_detail_substring in response.json()["detail"]
 
     def test_create_integration_with_api_key_fails(self, client: HttpClient):
         key_value = "test_key_123"

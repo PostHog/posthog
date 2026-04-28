@@ -43,12 +43,15 @@ const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.Integra
 
 const IntegrationsChannelsRetrieveSchema = IntegrationsChannelsRetrieveParams.omit({ project_id: true })
 
-const integrationsChannelsRetrieve = (): ToolBase<typeof IntegrationsChannelsRetrieveSchema, unknown> => ({
+const integrationsChannelsRetrieve = (): ToolBase<
+    typeof IntegrationsChannelsRetrieveSchema,
+    Schemas.SlackChannelsResponse
+> => ({
     name: 'integrations-channels-retrieve',
     schema: IntegrationsChannelsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof IntegrationsChannelsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.SlackChannelsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/channels/`,
         })
