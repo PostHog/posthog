@@ -73,6 +73,7 @@ describe('traceReviewModalLogic', () => {
     const existingReview: TraceReview = {
         id: 'review_1',
         trace_id: 'trace_1',
+        trace_url: `https://us.posthog.com/project/${MOCK_DEFAULT_TEAM.id}/llm-analytics/traces/trace_1`,
         comment: 'Needs investigation',
         created_at: '2026-03-12T00:00:00Z',
         updated_at: '2026-03-12T00:00:00Z',

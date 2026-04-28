@@ -31,6 +31,7 @@ describe('traceReviews utils', () => {
     const baseReview: TraceReview = {
         id: 'review-1',
         trace_id: 'trace-1',
+        trace_url: 'https://us.posthog.com/project/1/llm-analytics/traces/trace-1',
         comment: null,
         created_at: '2026-03-12T00:00:00Z',
         updated_at: null,
