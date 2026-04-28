@@ -82,6 +82,18 @@ def get_available_functions(language: str, context: HogQLContext) -> list[str]:
     return ALL_HOG_FUNCTIONS
 
 
+def get_direct_table_function_names(context: HogQLContext) -> list[str]:
+    metadata = context.direct_postgres_connection_metadata
+    if metadata is None and context.database is not None:
+        metadata = getattr(context.database, "_direct_connection_metadata", None)
+
+    if not isinstance(metadata, dict):
+        return []
+
+    introspected = metadata.get("available_table_functions") or []
+    return sorted({name for name in introspected if isinstance(name, str)})
+
+
 def append_function_suggestions(
     suggestions: list[AutocompleteCompletionItem], language: str, context: HogQLContext, prefix: str = ""
 ) -> None:
@@ -725,6 +737,15 @@ def get_hogql_autocomplete(
                             kind=AutocompleteCompletionItemKind.FOLDER,
                             details=["Table"] * len(table_names),
                         )
+                        table_function_names = get_direct_table_function_names(context)
+                        if table_function_names:
+                            extend_responses(
+                                keys=table_function_names,
+                                suggestions=response.suggestions,
+                                kind=AutocompleteCompletionItemKind.FUNCTION,
+                                insert_text=lambda key: f"{key}()",
+                                details=["Table function"] * len(table_function_names),
+                            )
                     elif node.chain[0] in posthog_table_names:
                         pass
                     else:
