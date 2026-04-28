@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from django.conf import settings
-from django.db import models
+from django.db import DatabaseError, models
 from django.db.models import Q
 from django.http import HttpResponse, HttpResponseRedirect
 from django.utils.text import slugify
@@ -246,9 +246,31 @@ def save_content(exported_asset: ExportedAsset, content: bytes) -> None:
         save_content_to_exported_asset(exported_asset, content)
 
 
+def _save_exported_asset_fields(exported_asset: ExportedAsset, update_fields: list[str]) -> bool:
+    """Save the given update_fields, returning False if the row was hard-deleted underneath us.
+
+    `save(update_fields=...)` raises `DatabaseError` when zero rows match, which happens when
+    the asset was deleted by `delete_expired_assets()` or a team/insight/dashboard cascade
+    while the export was running. Treat that as a terminal, non-retryable state instead of
+    letting the failure cascade through the exporter.
+    """
+    try:
+        exported_asset.save(update_fields=update_fields)
+        return True
+    except DatabaseError:
+        if ExportedAsset.objects_including_ttl_deleted.filter(pk=exported_asset.pk).exists():
+            raise
+        logger.warning(
+            "exported_asset.save_skipped_row_missing",
+            exported_asset_id=exported_asset.pk,
+            update_fields=update_fields,
+        )
+        return False
+
+
 def save_content_to_exported_asset(exported_asset: ExportedAsset, content: bytes) -> None:
     exported_asset.content = content
-    exported_asset.save(update_fields=["content"])
+    _save_exported_asset_fields(exported_asset, ["content"])
 
 
 def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes) -> None:
@@ -262,7 +284,7 @@ def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes
     object_path = "/".join(path_parts)
     object_storage.write(object_path, content)
     exported_asset.content_location = object_path
-    exported_asset.save(update_fields=["content_location"])
+    _save_exported_asset_fields(exported_asset, ["content_location"])
 
 
 def _get_object_path(exported_asset: ExportedAsset) -> str:
@@ -283,7 +305,7 @@ def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> Non
             object_path = _get_object_path(exported_asset)
             object_storage.write_from_file(object_path, file_path)
             exported_asset.content_location = object_path
-            exported_asset.save(update_fields=["content_location"])
+            _save_exported_asset_fields(exported_asset, ["content_location"])
             return
     except ObjectStorageError as ose:
         capture_exception(ose)

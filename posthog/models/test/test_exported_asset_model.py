@@ -1,11 +1,20 @@
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
+from django.db import DatabaseError
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from posthog.models.exported_asset import SEVEN_DAYS, SIX_MONTHS, TWELVE_MONTHS, ExportedAsset
+from posthog.models.exported_asset import (
+    SEVEN_DAYS,
+    SIX_MONTHS,
+    TWELVE_MONTHS,
+    ExportedAsset,
+    _save_exported_asset_fields,
+    save_content_to_exported_asset,
+)
 
 
 class TestExportedAssetModel(APIBaseTest):
@@ -75,6 +84,43 @@ class TestExportedAssetModel(APIBaseTest):
             asset_that_is_not_expired,
             asset_that_has_no_expiry,
         ]
+
+
+class TestSaveExportedAssetFields(APIBaseTest):
+    def test_returns_true_and_persists_when_row_exists(self) -> None:
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.CSV)
+        asset.exception = "boom"
+
+        assert _save_exported_asset_fields(asset, ["exception"]) is True
+
+        asset.refresh_from_db()
+        assert asset.exception == "boom"
+
+    def test_returns_false_when_row_was_hard_deleted(self) -> None:
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.CSV)
+        asset_id = asset.id
+        ExportedAsset.objects_including_ttl_deleted.filter(pk=asset_id).delete()
+
+        asset.exception = "boom"
+
+        assert _save_exported_asset_fields(asset, ["exception"]) is False
+
+    def test_re_raises_database_error_when_row_still_exists(self) -> None:
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.CSV)
+
+        def raise_database_error(*args, **kwargs):
+            raise DatabaseError("connection lost")
+
+        with patch.object(ExportedAsset, "save", side_effect=raise_database_error):
+            with self.assertRaises(DatabaseError):
+                _save_exported_asset_fields(asset, ["exception"])
+
+    def test_save_content_to_exported_asset_does_not_crash_when_row_deleted(self) -> None:
+        asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.CSV)
+        ExportedAsset.objects_including_ttl_deleted.filter(pk=asset.id).delete()
+
+        # Must not raise even though the underlying row no longer exists.
+        save_content_to_exported_asset(asset, b"some bytes")
 
 
 class TestExportedAssetExpiresAfter(APIBaseTest):

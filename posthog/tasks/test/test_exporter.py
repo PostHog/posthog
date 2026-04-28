@@ -146,3 +146,26 @@ class TestExportAssetFailureRecording(APIBaseTest):
         assert asset.exception == "Code: None.\nToo many queries"
         assert asset.exception_type == "CHQueryErrorTooManySimultaneousQueries"
         assert asset.failure_type == FAILURE_TYPE_SYSTEM
+
+    @patch("posthog.tasks.exports.image_exporter.export_image")
+    def test_record_export_failure_does_not_crash_when_row_was_deleted(
+        self, mock_export_direct: MagicMock
+    ) -> None:
+        # Reproduces the production race: the ExportedAsset row is hard-deleted
+        # (TTL cleanup or team/insight cascade) while the export is running, so
+        # the failure handler's save(update_fields=...) updates zero rows and
+        # Django raises DatabaseError. The handler must swallow that cleanly so
+        # the original export error still surfaces to the caller.
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+        )
+
+        def explode_then_delete(*args, **kwargs):
+            ExportedAsset.objects_including_ttl_deleted.filter(pk=asset.id).delete()
+            raise QueryError("Unknown table 'foo'")
+
+        mock_export_direct.side_effect = explode_then_delete
+
+        # Must not raise a DatabaseError from the failure-recording path.
+        exporter.export_asset(asset.id)

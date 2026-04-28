@@ -19,12 +19,26 @@ logger = structlog.get_logger(__name__)
 @temporalio.activity.defn
 async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAssetResult:
     async with Heartbeater():
-        asset = await database_sync_to_async(
-            lambda: ExportedAsset.objects_including_ttl_deleted.select_related(
-                "created_by", "team", "team__organization"
-            ).get(pk=inputs.exported_asset_id),
-            thread_sensitive=False,
-        )()
+        try:
+            asset = await database_sync_to_async(
+                lambda: ExportedAsset.objects_including_ttl_deleted.select_related(
+                    "created_by", "team", "team__organization"
+                ).get(pk=inputs.exported_asset_id),
+                thread_sensitive=False,
+            )()
+        except ExportedAsset.DoesNotExist as e:
+            # The row was hard-deleted before the activity ran (TTL cleanup or a
+            # team/insight/dashboard cascade). There is nothing to export and
+            # retrying won't bring the row back, so fail fast.
+            logger.info(
+                "export_asset_activity.asset_missing",
+                exported_asset_id=inputs.exported_asset_id,
+            )
+            raise ApplicationError(
+                f"ExportedAsset {inputs.exported_asset_id} no longer exists",
+                type=type(e).__name__,
+                non_retryable=True,
+            ) from e
 
         logger.info(
             "export_asset_activity.starting",
@@ -38,7 +52,20 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 source=EventSource(inputs.source) if inputs.source else None,
             )
         except Exception as e:
-            await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+            try:
+                await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+            except ExportedAsset.DoesNotExist:
+                # Row was hard-deleted while the export was running; the failure
+                # record is gone too, so there is nothing to retry against.
+                logger.info(
+                    "export_asset_activity.asset_missing_after_failure",
+                    exported_asset_id=inputs.exported_asset_id,
+                )
+                raise ApplicationError(
+                    f"ExportedAsset {inputs.exported_asset_id} was deleted during export",
+                    type=ExportedAsset.DoesNotExist.__name__,
+                    non_retryable=True,
+                ) from e
             exception_class = type(e).__name__
             error_trace = "\n".join(traceback.format_exception(e)[:5])
             logger.warning(
@@ -61,7 +88,21 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 non_retryable=exception_class not in SYSTEM_ERROR_NAMES,
             ) from e
 
-        await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+        try:
+            await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()
+        except ExportedAsset.DoesNotExist:
+            # Asset was deleted between a successful export and the post-run
+            # refresh. The export itself succeeded, but the row no longer exists
+            # to confirm has_content; treat it as a non-retryable terminal state.
+            logger.info(
+                "export_asset_activity.asset_missing_after_success",
+                exported_asset_id=inputs.exported_asset_id,
+            )
+            raise ApplicationError(
+                f"ExportedAsset {inputs.exported_asset_id} was deleted during export",
+                type=ExportedAsset.DoesNotExist.__name__,
+                non_retryable=True,
+            )
 
         return ExportAssetResult(
             exported_asset_id=asset.id,

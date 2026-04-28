@@ -8,6 +8,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog.event_usage import EventSource, groups
 from posthog.models import ExportedAsset
+from posthog.models.exported_asset import _save_exported_asset_fields
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.exports.failure_handler import USER_QUERY_ERRORS, classify_failure_type
 from posthog.tasks.utils import CeleryQueue
@@ -38,7 +39,10 @@ def _record_export_failure(exported_asset: ExportedAsset, e: Exception) -> None:
     exported_asset.exception = str(e)
     exported_asset.exception_type = type(e).__name__
     exported_asset.failure_type = failure_type
-    exported_asset.save(update_fields=["exception", "exception_type", "failure_type"])
+    # If the row was hard-deleted (TTL cleanup or team/insight/dashboard cascade) while
+    # the export was running, the helper will skip the save instead of letting the
+    # failure handler itself crash on a zero-row update.
+    _save_exported_asset_fields(exported_asset, ["exception", "exception_type", "failure_type"])
     EXPORT_FAILED_COUNTER.labels(type=exported_asset.export_format, failure_type=failure_type).inc()
 
 
@@ -136,7 +140,7 @@ def export_asset_direct(
         exported_asset.exception = None
         exported_asset.exception_type = None
         exported_asset.failure_type = None
-        exported_asset.save(update_fields=["exception", "exception_type", "failure_type"])
+        _save_exported_asset_fields(exported_asset, ["exception", "exception_type", "failure_type"])
     except Exception as e:
         is_user_error = isinstance(e, USER_QUERY_ERRORS)
 

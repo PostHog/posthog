@@ -114,3 +114,51 @@ async def test_export_asset_activity_propagates_user_errors(mock_exporter: Magic
     app_error = activity_error.cause
     assert app_error is not None
     assert "ExcelColumnLimitExceeded" in str(app_error) or "18,278 columns" in str(app_error)
+
+
+async def test_export_asset_activity_missing_asset_fails_fast(team):
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+    )
+    asset_id = asset.id
+    await sync_to_async(ExportedAsset.objects_including_ttl_deleted.filter(pk=asset_id).delete)()
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with export_worker(env.client):
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await run_export_workflow(env.client, asset_id)
+
+    activity_error = exc_info.value.cause
+    assert isinstance(activity_error, ActivityError)
+    app_error = activity_error.cause
+    assert app_error is not None
+    # Non-retryable: only one activity attempt should have run.
+    assert "no longer exists" in str(app_error)
+
+
+@patch("posthog.temporal.exports.activities.exporter")
+async def test_export_asset_activity_missing_after_failure_is_non_retryable(mock_exporter: MagicMock, team):
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        export_format=ExportedAsset.ExportFormat.PNG,
+    )
+    asset_id = asset.id
+
+    def fake_export(asset_obj, **kwargs):
+        # Simulate the row being hard-deleted while the export is running.
+        ExportedAsset.objects_including_ttl_deleted.filter(pk=asset_id).delete()
+        raise RuntimeError("export blew up")
+
+    mock_exporter.export_asset_direct = fake_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with export_worker(env.client):
+            with pytest.raises(WorkflowFailureError) as exc_info:
+                await run_export_workflow(env.client, asset_id)
+
+    activity_error = exc_info.value.cause
+    assert isinstance(activity_error, ActivityError)
+    app_error = activity_error.cause
+    assert app_error is not None
+    assert "deleted during export" in str(app_error)
