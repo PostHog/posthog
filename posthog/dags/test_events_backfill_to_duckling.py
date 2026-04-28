@@ -21,10 +21,12 @@ from posthog.dags.events_backfill_to_duckling import (
     _is_transaction_conflict,
     _set_table_partitioning,
     _validate_identifier,
+    check_ducklake_version_compatible,
     delete_events_partition_data,
     delete_persons_partition_data,
     duckling_events_full_backfill_sensor,
     get_months_in_range,
+    get_runtime_ducklake_version,
     get_s3_url_for_clickhouse,
     is_full_export_partition,
     parse_partition_key,
@@ -967,3 +969,83 @@ class TestDuckLakeAddDataFilesPartitioning:
                 f"CALL ducklake_add_data_files('test_lake', 'events', '{path}',"
                 f" schema => 'posthog', hive_partitioning => false)"
             )
+
+
+class TestGetRuntimeDucklakeVersion:
+    @parameterized.expand(
+        [
+            ("known_1_5_1", "1.5.1", 40),
+            ("known_1_5_2", "1.5.2", 100),
+            ("unknown_1_5_10", "1.5.10", None),
+            ("unknown_2_0_0", "2.0.0", None),
+            ("unknown_garbage", "not.a.version", None),
+        ]
+    )
+    def test_maps_duckdb_version_to_ducklake(self, _name: str, duckdb_version: str, expected: int | None):
+        with patch("duckdb.__version__", duckdb_version):
+            assert get_runtime_ducklake_version() == expected
+
+
+class TestCheckDucklakeVersionCompatible:
+    def _make_catalog(self, ducklake_version: int | None):
+        catalog = MagicMock()
+        catalog.ducklake_version = ducklake_version
+        return catalog
+
+    def _make_context(self) -> MagicMock:
+        context = MagicMock()
+        return context
+
+    @parameterized.expand(
+        [
+            ("catalog_unset", None, "1.5.1", 123, True),
+            ("match_0_4", 40, "1.5.1", 123, True),
+            ("match_1_0", 100, "1.5.2", 123, True),
+            ("mismatch_runtime_0_4_catalog_1_0", 100, "1.5.1", 456, False),
+            ("mismatch_runtime_1_0_catalog_0_4", 40, "1.5.2", 456, False),
+            ("unknown_runtime", 40, "1.5.10", 789, False),
+        ]
+    )
+    def test_compatibility(
+        self,
+        _name: str,
+        catalog_version: int | None,
+        duckdb_version: str,
+        team_id: int,
+        expected: bool,
+    ):
+        catalog = self._make_catalog(catalog_version)
+        context = self._make_context()
+
+        with patch("duckdb.__version__", duckdb_version):
+            assert check_ducklake_version_compatible(catalog, context, team_id) == expected
+
+    def test_logs_error_on_mismatch(self):
+        catalog = self._make_catalog(100)
+        context = self._make_context()
+
+        with patch("duckdb.__version__", "1.5.1"):
+            result = check_ducklake_version_compatible(catalog, context, 456)
+            assert result is False
+            context.log.error.assert_called_once()
+            assert "team_id=456" in str(context.log.error.call_args)
+
+    def test_logs_warning_on_unknown_runtime(self):
+        catalog = self._make_catalog(40)
+        context = self._make_context()
+
+        with patch("duckdb.__version__", "1.5.10"):
+            result = check_ducklake_version_compatible(catalog, context, 789)
+            assert result is False
+            context.log.warning.assert_called_once()
+            assert "team_id=789" in str(context.log.warning.call_args)
+
+    def test_no_logging_when_catalog_unset(self):
+        catalog = self._make_catalog(None)
+        context = self._make_context()
+
+        with patch("duckdb.__version__", "1.5.10"):
+            result = check_ducklake_version_compatible(catalog, context, 123)
+            assert result is True
+            context.log.warning.assert_not_called()
+            context.log.error.assert_not_called()
