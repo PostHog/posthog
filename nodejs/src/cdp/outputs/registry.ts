@@ -2,7 +2,6 @@ import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '../../ingestion/common/o
 import { IngestionOutputsBuilder } from '../../ingestion/outputs/ingestion-outputs-builder'
 import {
     BATCH_HOGFLOW_REQUESTS_OUTPUT,
-    LEGACY_PLUGIN_APP_METRICS_OUTPUT,
     PRECALCULATED_PERSON_PROPERTIES_OUTPUT,
     PREFILTERED_EVENTS_OUTPUT,
     WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT,
@@ -13,10 +12,11 @@ import {
  * env-controlled so the route can be flipped between MSK / Warpstream /
  * default / warehouse clusters without code changes.
  *
- * - `APP_METRICS_OUTPUT` + `LOG_ENTRIES_OUTPUT` — hog function monitoring path.
+ * - `APP_METRICS_OUTPUT` + `LOG_ENTRIES_OUTPUT` — hog function monitoring path
+ *   (also used for legacy plugin app metrics since they share the
+ *   `clickhouse_app_metrics2` schema).
  * - `PREFILTERED_EVENTS_OUTPUT` + `PRECALCULATED_PERSON_PROPERTIES_OUTPUT` —
  *   precalculated-filters consumer writes to ClickHouse.
- * - `LEGACY_PLUGIN_APP_METRICS_OUTPUT` — legacy plugin v1 app metrics.
  * - `BATCH_HOGFLOW_REQUESTS_OUTPUT` — batch hogflow invocation queue.
  * - `WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT` — warehouse source webhook payloads.
  */
@@ -37,10 +37,6 @@ export function createCdpOutputsRegistry() {
         .register(PRECALCULATED_PERSON_PROPERTIES_OUTPUT, {
             topicKey: 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC',
             producerKey: 'CDP_PRECALCULATED_PERSON_PROPERTIES_PRODUCER',
-        })
-        .register(LEGACY_PLUGIN_APP_METRICS_OUTPUT, {
-            topicKey: 'CDP_LEGACY_PLUGIN_APP_METRICS_TOPIC',
-            producerKey: 'CDP_LEGACY_PLUGIN_APP_METRICS_PRODUCER',
         })
         .register(BATCH_HOGFLOW_REQUESTS_OUTPUT, {
             topicKey: 'CDP_BATCH_HOGFLOW_REQUESTS_TOPIC',

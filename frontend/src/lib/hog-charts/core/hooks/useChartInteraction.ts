@@ -99,8 +99,12 @@ export function useChartInteraction<Meta = unknown>({
         }
 
         const handleClickOutside = (e: MouseEvent): void => {
+            const target = e.target
+            if (target instanceof Element && target.closest('[data-hog-charts-tooltip]')) {
+                return
+            }
             const wrapper = wrapperRef.current
-            if (wrapper && !wrapper.contains(e.target as Node)) {
+            if (wrapper && !wrapper.contains(target as Node)) {
                 clearTooltip()
             }
         }

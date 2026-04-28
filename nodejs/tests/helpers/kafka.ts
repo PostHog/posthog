@@ -2,7 +2,6 @@ import { AdminClient, CODES, KafkaConsumer, LibrdKafkaError } from 'node-rdkafka
 
 import { defaultConfig, overrideWithEnv } from '../../src/config/config'
 import {
-    KAFKA_APP_METRICS,
     KAFKA_APP_METRICS_2,
     KAFKA_BUFFER,
     KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES,
@@ -87,7 +86,6 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC,
         KAFKA_INGESTION_WARNINGS,
         KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-        KAFKA_APP_METRICS,
         KAFKA_APP_METRICS_2,
         KAFKA_PERSON,
         KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,

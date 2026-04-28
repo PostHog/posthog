@@ -14,44 +14,6 @@ import {
 } from '@/generated/evaluations/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const EvaluationsGetSchema = EvaluationsListQueryParams
-
-const evaluationsGet = (): ToolBase<typeof EvaluationsGetSchema, Schemas.PaginatedEvaluationList> => ({
-    name: 'evaluations-get',
-    schema: EvaluationsGetSchema,
-    handler: async (context: Context, params: z.infer<typeof EvaluationsGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedEvaluationList>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/`,
-            query: {
-                enabled: params.enabled,
-                id__in: params.id__in,
-                limit: params.limit,
-                offset: params.offset,
-                order_by: params.order_by,
-                search: params.search,
-            },
-        })
-        return result
-    },
-})
-
-const EvaluationGetSchema = EvaluationsRetrieveParams.omit({ project_id: true })
-
-const evaluationGet = (): ToolBase<typeof EvaluationGetSchema, Schemas.Evaluation> => ({
-    name: 'evaluation-get',
-    schema: EvaluationGetSchema,
-    handler: async (context: Context, params: z.infer<typeof EvaluationGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Evaluation>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
 const EvaluationCreateSchema = EvaluationsCreateBody
 
 const evaluationCreate = (): ToolBase<typeof EvaluationCreateSchema, Schemas.Evaluation> => ({
@@ -93,6 +55,98 @@ const evaluationCreate = (): ToolBase<typeof EvaluationCreateSchema, Schemas.Eva
         const result = await context.api.request<Schemas.Evaluation>({
             method: 'POST',
             path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EvaluationDeleteSchema = EvaluationsDestroyParams.omit({ project_id: true })
+
+const evaluationDelete = (): ToolBase<typeof EvaluationDeleteSchema, Schemas.Evaluation> => ({
+    name: 'evaluation-delete',
+    schema: EvaluationDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Evaluation>({
+            method: 'PATCH',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.id))}/`,
+            body: { deleted: true },
+        })
+        return result
+    },
+})
+
+const EvaluationGetSchema = EvaluationsRetrieveParams.omit({ project_id: true })
+
+const evaluationGet = (): ToolBase<typeof EvaluationGetSchema, Schemas.Evaluation> => ({
+    name: 'evaluation-get',
+    schema: EvaluationGetSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.Evaluation>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const EvaluationRunSchema = EvaluationRunsCreateBody
+
+const evaluationRun = (): ToolBase<typeof EvaluationRunSchema, unknown> => ({
+    name: 'evaluation-run',
+    schema: EvaluationRunSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationRunSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.evaluation_id !== undefined) {
+            body['evaluation_id'] = params.evaluation_id
+        }
+        if (params.target_event_id !== undefined) {
+            body['target_event_id'] = params.target_event_id
+        }
+        if (params.timestamp !== undefined) {
+            body['timestamp'] = params.timestamp
+        }
+        if (params.event !== undefined) {
+            body['event'] = params.event
+        }
+        if (params.distinct_id !== undefined) {
+            body['distinct_id'] = params.distinct_id
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluation_runs/`,
+            body,
+        })
+        return result
+    },
+})
+
+const EvaluationTestHogSchema = EvaluationsTestHogCreateBody
+
+const evaluationTestHog = (): ToolBase<typeof EvaluationTestHogSchema, Schemas.TestHogResponse> => ({
+    name: 'evaluation-test-hog',
+    schema: EvaluationTestHogSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationTestHogSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source !== undefined) {
+            body['source'] = params.source
+        }
+        if (params.sample_count !== undefined) {
+            body['sample_count'] = params.sample_count
+        }
+        if (params.allows_na !== undefined) {
+            body['allows_na'] = params.allows_na
+        }
+        if (params.conditions !== undefined) {
+            body['conditions'] = params.conditions
+        }
+        const result = await context.api.request<Schemas.TestHogResponse>({
+            method: 'POST',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/test_hog/`,
             body,
         })
         return result
@@ -148,89 +202,35 @@ const evaluationUpdate = (): ToolBase<typeof EvaluationUpdateSchema, Schemas.Eva
     },
 })
 
-const EvaluationDeleteSchema = EvaluationsDestroyParams.omit({ project_id: true })
+const EvaluationsGetSchema = EvaluationsListQueryParams
 
-const evaluationDelete = (): ToolBase<typeof EvaluationDeleteSchema, Schemas.Evaluation> => ({
-    name: 'evaluation-delete',
-    schema: EvaluationDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof EvaluationDeleteSchema>) => {
+const evaluationsGet = (): ToolBase<typeof EvaluationsGetSchema, Schemas.PaginatedEvaluationList> => ({
+    name: 'evaluations-get',
+    schema: EvaluationsGetSchema,
+    handler: async (context: Context, params: z.infer<typeof EvaluationsGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Evaluation>({
-            method: 'PATCH',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.id))}/`,
-            body: { deleted: true },
-        })
-        return result
-    },
-})
-
-const EvaluationTestHogSchema = EvaluationsTestHogCreateBody
-
-const evaluationTestHog = (): ToolBase<typeof EvaluationTestHogSchema, Schemas.TestHogResponse> => ({
-    name: 'evaluation-test-hog',
-    schema: EvaluationTestHogSchema,
-    handler: async (context: Context, params: z.infer<typeof EvaluationTestHogSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source !== undefined) {
-            body['source'] = params.source
-        }
-        if (params.sample_count !== undefined) {
-            body['sample_count'] = params.sample_count
-        }
-        if (params.allows_na !== undefined) {
-            body['allows_na'] = params.allows_na
-        }
-        if (params.conditions !== undefined) {
-            body['conditions'] = params.conditions
-        }
-        const result = await context.api.request<Schemas.TestHogResponse>({
-            method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/test_hog/`,
-            body,
-        })
-        return result
-    },
-})
-
-const EvaluationRunSchema = EvaluationRunsCreateBody
-
-const evaluationRun = (): ToolBase<typeof EvaluationRunSchema, unknown> => ({
-    name: 'evaluation-run',
-    schema: EvaluationRunSchema,
-    handler: async (context: Context, params: z.infer<typeof EvaluationRunSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.evaluation_id !== undefined) {
-            body['evaluation_id'] = params.evaluation_id
-        }
-        if (params.target_event_id !== undefined) {
-            body['target_event_id'] = params.target_event_id
-        }
-        if (params.timestamp !== undefined) {
-            body['timestamp'] = params.timestamp
-        }
-        if (params.event !== undefined) {
-            body['event'] = params.event
-        }
-        if (params.distinct_id !== undefined) {
-            body['distinct_id'] = params.distinct_id
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluation_runs/`,
-            body,
+        const result = await context.api.request<Schemas.PaginatedEvaluationList>({
+            method: 'GET',
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/evaluations/`,
+            query: {
+                enabled: params.enabled,
+                id__in: params.id__in,
+                limit: params.limit,
+                offset: params.offset,
+                order_by: params.order_by,
+                search: params.search,
+            },
         })
         return result
     },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'evaluations-get': evaluationsGet,
-    'evaluation-get': evaluationGet,
     'evaluation-create': evaluationCreate,
-    'evaluation-update': evaluationUpdate,
     'evaluation-delete': evaluationDelete,
-    'evaluation-test-hog': evaluationTestHog,
+    'evaluation-get': evaluationGet,
     'evaluation-run': evaluationRun,
+    'evaluation-test-hog': evaluationTestHog,
+    'evaluation-update': evaluationUpdate,
+    'evaluations-get': evaluationsGet,
 }

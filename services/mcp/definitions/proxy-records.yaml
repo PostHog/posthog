@@ -9,35 +9,6 @@ feature: reverse_proxy
 url_prefix: /settings/organization-proxy
 ui_apps: {}
 tools:
-    proxy-list:
-        operation: proxy_records_list
-        enabled: true
-        scopes:
-            - organization:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List reverse proxies
-        description: >
-            List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME
-            target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to
-            check whether a reverse proxy is set up before recommending one.
-    proxy-get:
-        operation: proxy_records_retrieve
-        enabled: true
-        scopes:
-            - organization:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get reverse proxy details
-        description: >
-            Get full details of a specific reverse proxy by ID. Returns the domain, CNAME target (the DNS record value
-            the user needs to configure), current provisioning status, and any error or warning messages. Use this to
-            debug why a proxy isn't working or to check DNS verification status.
     proxy-create:
         operation: proxy_records_create
         enabled: true
@@ -60,20 +31,6 @@ tools:
             - created_at
             - updated_at
             - created_by
-    proxy-retry:
-        operation: proxy_records_retry_create
-        enabled: true
-        scopes:
-            - organization:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Retry reverse proxy provisioning
-        description: >
-            Retry provisioning a reverse proxy that has failed. Only works for proxies in 'erroring' or 'timed_out'
-            status. Resets the proxy to 'waiting' and restarts the DNS verification and certificate provisioning
-            workflow.
     proxy-delete:
         operation: proxy_records_destroy
         enabled: true
@@ -88,3 +45,46 @@ tools:
             Delete a managed reverse proxy. For proxies still being set up (waiting, erroring, timed_out), the record is
             removed immediately. For active proxies, a cleanup workflow is started to remove the provisioned
             infrastructure.
+    proxy-get:
+        operation: proxy_records_retrieve
+        enabled: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get reverse proxy details
+        description: >
+            Get full details of a specific reverse proxy by ID. Returns the domain, CNAME target (the DNS record value
+            the user needs to configure), current provisioning status, and any error or warning messages. Use this to
+            debug why a proxy isn't working or to check DNS verification status.
+    proxy-list:
+        operation: proxy_records_list
+        enabled: true
+        scopes:
+            - organization:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List reverse proxies
+        description: >
+            List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME
+            target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to
+            check whether a reverse proxy is set up before recommending one.
+    proxy-retry:
+        operation: proxy_records_retry_create
+        enabled: true
+        scopes:
+            - organization:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Retry reverse proxy provisioning
+        description: >
+            Retry provisioning a reverse proxy that has failed. Only works for proxies in 'erroring' or 'timed_out'
+            status. Resets the proxy to 'waiting' and restarts the DNS verification and certificate provisioning
+            workflow.
