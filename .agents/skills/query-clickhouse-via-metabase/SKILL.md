@@ -224,11 +224,9 @@ for row in d['data']['rows']:
 
 1. **Frame the question.** Slow per-team? Specific query pattern? Cost/memory regression?
 2. **Pick the smallest time window** that still answers the question — `query_log` is large; default to 1h–24h, expand only when needed.
-3. **Apply standard noise filters** (above) so offline/temporal traffic doesn't pollute results.
-4. **Filter to `type = 'QueryFinish'`** for "what actually ran" — there are also `QueryStart` and `ExceptionBeforeStart` rows.
-5. **Group then drill in.** First a per-team or per-pattern aggregate, then `WHERE` by the worst offender to see individual queries.
-6. **Cross-region check.** If a regression looks region-specific, run the same query against the other region's DB ID.
-7. **Capture `query_id` examples** in any writeup so reviewers can pull the full row from `query_log` themselves.
+3. **Filter to `type = 'QueryFinish'`** for "what actually ran" — there are also `QueryStart` and `ExceptionBeforeStart` rows.
+4. **Group then drill in.** First a per-team or per-pattern aggregate, then `WHERE` by the worst offender to see individual queries.
+5. **Capture `query_id` examples** in any writeup so reviewers can pull the full row from `query_log` themselves.
 
 ## Known limitations
 

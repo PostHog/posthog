@@ -38,7 +38,6 @@ _CHROMIUM_PROFILE_ROOTS: dict[str, list[Path]] = {
     "chrome": [_HOME / "Library/Application Support/Google/Chrome"],
     "chromium": [_HOME / "Library/Application Support/Chromium"],
     "brave": [_HOME / "Library/Application Support/BraveSoftware/Brave-Browser"],
-    "edge": [_HOME / "Library/Application Support/Microsoft Edge"],
 }
 
 REGIONS: dict[str, str] = {
@@ -51,7 +50,7 @@ REQUIRED_COOKIES: tuple[str, ...] = (
     "ph_int_auth-0",
     "ph_int_auth-1",
 )
-SUPPORTED_BROWSERS: tuple[str, ...] = ("chrome", "chromium", "brave", "edge", "firefox", "safari")
+SUPPORTED_BROWSERS: tuple[str, ...] = ("chrome", "chromium", "brave", "firefox", "safari")
 CACHE_DIR: Path = Path.home() / ".config" / "posthog" / "metabase"
 
 
@@ -66,7 +65,7 @@ def _format_cookie_header(cookies: dict[str, str]) -> str:
 def _enumerate_cookie_files(browser: str | None) -> list[tuple[str, Path]]:
     """Return (loader_name, cookie_file_path) pairs for every browser profile to try.
 
-    Chromium-family browsers (Chrome, Brave, Edge, Chromium) keep a `Cookies`
+    Chromium-family browsers (Chrome, Brave, Chromium) keep a `Cookies`
     SQLite db per profile (`Default`, `Profile 1`, ...). We glob each profile
     directory so users with multiple profiles (work + personal) don't have to
     care which one they logged in with.

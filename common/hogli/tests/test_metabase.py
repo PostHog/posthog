@@ -157,7 +157,6 @@ def test_metabase_login_writes_cookie_after_validation(cache_dir: Path, monkeypa
 
 
 def test_metabase_login_requires_region_flag() -> None:
-    """`metabase:login` without --region should fail with a clear error."""
     runner = CliRunner()
     result = runner.invoke(cli, ["metabase:login", "--no-open"])
     assert result.exit_code != 0
@@ -165,7 +164,6 @@ def test_metabase_login_requires_region_flag() -> None:
 
 
 def test_metabase_login_fast_paths_already_valid_session(cache_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """If cookies are already valid, login should not open the browser."""
     captured = {name: f"{name}-val" for name in metabase.REQUIRED_COOKIES}
     monkeypatch.setattr(metabase, "_load_cookies_from_browser", lambda domain, browser: captured)
     monkeypatch.setattr(metabase, "_check_cookie", lambda domain, header: True)
@@ -181,7 +179,6 @@ def test_metabase_login_fast_paths_already_valid_session(cache_dir: Path, monkey
 
 
 def test_wait_for_valid_cookie_returns_when_session_valid(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cookies appear progressively (none → partial → all four), then validate succeeds."""
     sequence = [
         {},
         {"metabase.SESSION": "s"},
@@ -198,7 +195,6 @@ def test_wait_for_valid_cookie_returns_when_session_valid(monkeypatch: pytest.Mo
 
 
 def test_wait_for_valid_cookie_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If cookies never appear, wait raises a ClickException after the timeout."""
     monkeypatch.setattr(metabase, "_load_cookies_from_browser", lambda d, b: {})
     monkeypatch.setattr(metabase, "_check_cookie", lambda d, h: False)
     monkeypatch.setattr(metabase.time, "sleep", lambda _: None)
