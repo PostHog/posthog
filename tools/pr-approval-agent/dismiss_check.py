@@ -3,24 +3,29 @@
 # requires-python = ">=3.11"
 # ///
 # ruff: noqa: T201
-"""Decide whether to retain or dismiss Stamphog's prior approval after a push.
+"""Decide what to do with Stamphog's prior approval after a push.
 
 Reads `REPO`, `PR_NUMBER`, `HEAD_SHA`, `BASE_REF`, `GITHUB_WORKSPACE` from
-the environment, prints a single-line JSON verdict on stdout:
+the environment and prints a single-line `Decision` JSON on stdout:
 
-    {"action": "retain"|"dismiss", "reason": "...", "last_approved_sha": "..."}
+    {"dismiss_approval": bool, "run_review": bool, "reason": "...", "last_approved_sha": "..."}
 
-Retains only when every new commit since the last bot approval is either
-a clean merge from the base branch (no manual conflict resolution AND
-foreign parents reachable from `BASE_REF`) or touches only paths in the
-strict dismiss-time allow-list (see `gates.is_trivial_at_dismiss_time`).
-Anything ambiguous — force-push, mixed paths, fetch error, foreign-branch
-merge — falls through to `dismiss`. The bias is correctness, not retention.
+The two booleans are orthogonal so each downstream workflow job gates on
+exactly the question it owns: the `dismiss` job reads `dismiss_approval`,
+the `review` job reads `run_review`. Decisions are constructed only via
+`_retain`, `_dismiss_and_review`, `_no_op`, and `_error` — together they
+cover every legitimate combination, and the impossible "dismiss the
+approval but skip re-review" case is unrepresentable.
+
+Anything ambiguous (force-push, mixed paths, fetch error, foreign-branch
+merge) falls through to `_dismiss_and_review`. The bias is correctness,
+not retention.
 """
 
 import os
 import json
 import subprocess
+from dataclasses import asdict, dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
@@ -29,17 +34,10 @@ from gates import is_trivial_at_dismiss_time
 BOT_LOGIN = "github-actions[bot]"
 
 
-class Action(StrEnum):
-    """Top-level decision. Wire format consumed by the workflow YAML."""
-
-    RETAIN = "retain"
-    DISMISS = "dismiss"
-
-
 class Reason(StrEnum):
     """Why the decision was made. Plumbed into the dismissal message and PR comment.
 
-    `error:<ExcName>` is constructed dynamically in `main()` for unhandled
+    `error:<ExcName>` is constructed dynamically in `_error()` for unhandled
     exceptions and is intentionally not enumerated here.
     """
 
@@ -58,6 +56,44 @@ class CommitClass(StrEnum):
     MERGE = "merge"
     TRIVIAL = "trivial"
     NON_TRIVIAL = "non_trivial"
+
+
+@dataclass(frozen=True)
+class Decision:
+    """Wire format consumed by .github/workflows/pr-approval-agent.yml.
+
+    Construct only via the `_retain`, `_dismiss_and_review`, `_review_only`,
+    and `_error` helpers below — together they enumerate every legitimate
+    combination of the two booleans.
+    """
+
+    dismiss_approval: bool
+    run_review: bool
+    reason: str
+    last_approved_sha: str | None = None
+
+
+def _retain(reason: Reason) -> Decision:
+    """Trivial delta with a prior approval — leave both the approval and the review alone."""
+    return Decision(dismiss_approval=False, run_review=False, reason=reason)
+
+
+def _dismiss_and_review(reason: Reason | str) -> Decision:
+    """Non-trivial delta (or ambiguous fallback) — clear the prior approval and re-run review."""
+    return Decision(dismiss_approval=True, run_review=True, reason=str(reason))
+
+
+def _no_op(reason: Reason) -> Decision:
+    """No prior approval to act on — nothing to do; the original `labeled`
+    event already fired a review, and the label-strip on non-APPROVED is
+    the canonical kill-switch. If a human dismissed the bot approval and
+    kept the label, they can re-label to request a fresh review."""
+    return Decision(dismiss_approval=False, run_review=False, reason=reason)
+
+
+def _error(exc: Exception) -> Decision:
+    """Defense-in-depth fallback when the script itself crashes."""
+    return _dismiss_and_review(f"error:{type(exc).__name__}")
 
 
 def _run(*args: str, cwd: Path | None = None) -> str:
@@ -127,7 +163,7 @@ def _classify_commit(sha: str, cwd: Path, base_ref: str) -> CommitClass:
     return CommitClass.TRIVIAL if all(is_trivial_at_dismiss_time(f) for f in files) else CommitClass.NON_TRIVIAL
 
 
-def evaluate_delta(last_approved_sha: str, head_sha: str, cwd: Path, base_ref: str = "origin/master") -> dict:
+def evaluate_delta(last_approved_sha: str, head_sha: str, cwd: Path, base_ref: str = "origin/master") -> Decision:
     """Classify the first-parent commit delta from `last_approved_sha` to `head_sha`.
 
     First-parent walking ensures a merge from base appears as a single
@@ -135,27 +171,30 @@ def evaluate_delta(last_approved_sha: str, head_sha: str, cwd: Path, base_ref: s
     individually and almost always classify as non-trivial.
     """
     if not _is_ancestor(last_approved_sha, head_sha, cwd):
-        return {"action": Action.DISMISS, "reason": Reason.NON_LINEAR_HISTORY}
+        return _dismiss_and_review(Reason.NON_LINEAR_HISTORY)
 
     commits = _first_parent_commits_between(last_approved_sha, head_sha, cwd)
     if not commits:
-        return {"action": Action.RETAIN, "reason": Reason.EMPTY_DELTA}
+        return _retain(Reason.EMPTY_DELTA)
 
     classes = [_classify_commit(c, cwd, base_ref) for c in commits]
     if CommitClass.NON_TRIVIAL in classes:
-        return {"action": Action.DISMISS, "reason": Reason.NON_TRIVIAL_DELTA}
+        return _dismiss_and_review(Reason.NON_TRIVIAL_DELTA)
     if CommitClass.MERGE in classes and CommitClass.TRIVIAL in classes:
-        return {"action": Action.RETAIN, "reason": Reason.MIXED_TRIVIAL}
+        return _retain(Reason.MIXED_TRIVIAL)
     if CommitClass.MERGE in classes:
-        return {"action": Action.RETAIN, "reason": Reason.MERGE_ONLY}
-    return {"action": Action.RETAIN, "reason": Reason.TRIVIAL_PATHS}
+        return _retain(Reason.MERGE_ONLY)
+    return _retain(Reason.TRIVIAL_PATHS)
 
 
-def decide(repo: str, pr_number: int, head_sha: str, cwd: Path, base_ref: str = "origin/master") -> dict:
+def decide(repo: str, pr_number: int, head_sha: str, cwd: Path, base_ref: str = "origin/master") -> Decision:
     last_approved_sha = find_last_approved_sha(repo, pr_number)
     if last_approved_sha is None:
-        return {"action": Action.DISMISS, "reason": Reason.NO_PRIOR_APPROVAL, "last_approved_sha": None}
-    return {**evaluate_delta(last_approved_sha, head_sha, cwd, base_ref), "last_approved_sha": last_approved_sha}
+        return _no_op(Reason.NO_PRIOR_APPROVAL)
+    return replace(
+        evaluate_delta(last_approved_sha, head_sha, cwd, base_ref),
+        last_approved_sha=last_approved_sha,
+    )
 
 
 def main() -> None:
@@ -168,8 +207,8 @@ def main() -> None:
             base_ref=os.environ.get("BASE_REF", "origin/master"),
         )
     except Exception as e:
-        decision = {"action": Action.DISMISS, "reason": f"error:{type(e).__name__}", "last_approved_sha": None}
-    print(json.dumps(decision))
+        decision = _error(e)
+    print(json.dumps(asdict(decision)))
 
 
 if __name__ == "__main__":

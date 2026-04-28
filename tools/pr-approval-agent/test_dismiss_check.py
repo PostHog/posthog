@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import dismiss_check
-from dismiss_check import decide, evaluate_delta, select_last_bot_approval
+from dismiss_check import Decision, decide, evaluate_delta, select_last_bot_approval
 from gates import is_trivial_at_dismiss_time
 
 _GIT_ENV = {
@@ -45,6 +45,12 @@ def _commit(repo: Path, message: str) -> str:
 
 def _head(repo: Path) -> str:
     return _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+
+
+def _assert_decision(d: Decision, *, dismiss: bool, review: bool, reason: str) -> None:
+    assert d.dismiss_approval is dismiss
+    assert d.run_review is review
+    assert d.reason == reason
 
 
 @pytest.fixture
@@ -119,45 +125,35 @@ def test_test_only_delta_retains(repo: Path) -> None:
     base = _head(repo)
     _write(repo, "tests/test_foo.py", "def test_foo(): pass")
     _commit(repo, "test only")
-    result = evaluate_delta(base, _head(repo), repo)
-    assert result["action"] == "retain"
-    assert result["reason"] == "trivial_paths"
+    _assert_decision(evaluate_delta(base, _head(repo), repo), dismiss=False, review=False, reason="trivial_paths")
 
 
 def test_lockfile_only_delta_retains(repo: Path) -> None:
     base = _head(repo)
     _write(repo, "package-lock.json", "{}")
     _commit(repo, "lock")
-    result = evaluate_delta(base, _head(repo), repo)
-    assert result["action"] == "retain"
-    assert result["reason"] == "trivial_paths"
+    _assert_decision(evaluate_delta(base, _head(repo), repo), dismiss=False, review=False, reason="trivial_paths")
 
 
 def test_workflow_change_dismisses(repo: Path) -> None:
     base = _head(repo)
     _write(repo, ".github/workflows/foo.yml", "name: x")
     _commit(repo, "workflow")
-    result = evaluate_delta(base, _head(repo), repo)
-    assert result["action"] == "dismiss"
-    assert result["reason"] == "non_trivial_delta"
+    _assert_decision(evaluate_delta(base, _head(repo), repo), dismiss=True, review=True, reason="non_trivial_delta")
 
 
 def test_prod_file_dismisses(repo: Path) -> None:
     base = _head(repo)
     _write(repo, "frontend/src/foo.ts", "export const x = 1")
     _commit(repo, "prod")
-    result = evaluate_delta(base, _head(repo), repo)
-    assert result["action"] == "dismiss"
-    assert result["reason"] == "non_trivial_delta"
+    _assert_decision(evaluate_delta(base, _head(repo), repo), dismiss=True, review=True, reason="non_trivial_delta")
 
 
 def test_generated_file_only_retains(repo: Path) -> None:
     base = _head(repo)
     _write(repo, "frontend/src/generated/core/api.ts", "export const x = 1")
     _commit(repo, "regen")
-    result = evaluate_delta(base, _head(repo), repo)
-    assert result["action"] == "retain"
-    assert result["reason"] == "trivial_paths"
+    _assert_decision(evaluate_delta(base, _head(repo), repo), dismiss=False, review=False, reason="trivial_paths")
 
 
 def test_mixed_test_plus_prod_dismisses(repo: Path) -> None:
@@ -165,9 +161,7 @@ def test_mixed_test_plus_prod_dismisses(repo: Path) -> None:
     _write(repo, "frontend/src/foo.test.ts", "test('x', () => {})")
     _write(repo, "frontend/src/foo.ts", "export const x = 1")
     _commit(repo, "mixed")
-    result = evaluate_delta(base, _head(repo), repo)
-    assert result["action"] == "dismiss"
-    assert result["reason"] == "non_trivial_delta"
+    _assert_decision(evaluate_delta(base, _head(repo), repo), dismiss=True, review=True, reason="non_trivial_delta")
 
 
 def test_clean_merge_from_master_retains(repo: Path) -> None:
@@ -185,9 +179,12 @@ def test_clean_merge_from_master_retains(repo: Path) -> None:
     _git("checkout", "feat", cwd=repo)
     _git("merge", "--no-ff", "master", "-m", "merge master", cwd=repo)
 
-    result = evaluate_delta(feat_sha, _head(repo), repo, base_ref="master")
-    assert result["action"] == "retain"
-    assert result["reason"] == "merge_only"
+    _assert_decision(
+        evaluate_delta(feat_sha, _head(repo), repo, base_ref="master"),
+        dismiss=False,
+        review=False,
+        reason="merge_only",
+    )
 
 
 def test_merge_with_conflict_resolution_dismisses(repo: Path) -> None:
@@ -207,9 +204,12 @@ def test_merge_with_conflict_resolution_dismisses(repo: Path) -> None:
     _git("add", "shared.ts", cwd=repo)
     _git("commit", "--no-edit", cwd=repo)
 
-    result = evaluate_delta(feat_sha, _head(repo), repo, base_ref="master")
-    assert result["action"] == "dismiss"
-    assert result["reason"] == "non_trivial_delta"
+    _assert_decision(
+        evaluate_delta(feat_sha, _head(repo), repo, base_ref="master"),
+        dismiss=True,
+        review=True,
+        reason="non_trivial_delta",
+    )
 
 
 def test_clean_merge_plus_test_commit_retains(repo: Path) -> None:
@@ -227,9 +227,12 @@ def test_clean_merge_plus_test_commit_retains(repo: Path) -> None:
     _write(repo, "tests/test_feat.py", "def test_feat(): pass")
     _commit(repo, "tests")
 
-    result = evaluate_delta(feat_sha, _head(repo), repo, base_ref="master")
-    assert result["action"] == "retain"
-    assert result["reason"] == "mixed_trivial"
+    _assert_decision(
+        evaluate_delta(feat_sha, _head(repo), repo, base_ref="master"),
+        dismiss=False,
+        review=False,
+        reason="mixed_trivial",
+    )
 
 
 def test_clean_merge_plus_prod_commit_dismisses(repo: Path) -> None:
@@ -246,9 +249,12 @@ def test_clean_merge_plus_prod_commit_dismisses(repo: Path) -> None:
     _write(repo, "feat.ts", "feat updated")
     _commit(repo, "prod tweak")
 
-    result = evaluate_delta(feat_sha, _head(repo), repo, base_ref="master")
-    assert result["action"] == "dismiss"
-    assert result["reason"] == "non_trivial_delta"
+    _assert_decision(
+        evaluate_delta(feat_sha, _head(repo), repo, base_ref="master"),
+        dismiss=True,
+        review=True,
+        reason="non_trivial_delta",
+    )
 
 
 def test_non_linear_history_dismisses(repo: Path) -> None:
@@ -261,16 +267,14 @@ def test_non_linear_history_dismisses(repo: Path) -> None:
     _write(repo, "a.ts", "different a")
     _commit(repo, "rebased a")
 
-    result = evaluate_delta(feat_sha, _head(repo), repo)
-    assert result["action"] == "dismiss"
-    assert result["reason"] == "non_linear_history"
+    _assert_decision(
+        evaluate_delta(feat_sha, _head(repo), repo), dismiss=True, review=True, reason="non_linear_history"
+    )
 
 
 def test_empty_delta_retains(repo: Path) -> None:
     head = _head(repo)
-    result = evaluate_delta(head, head, repo)
-    assert result["action"] == "retain"
-    assert result["reason"] == "empty_delta"
+    _assert_decision(evaluate_delta(head, head, repo), dismiss=False, review=False, reason="empty_delta")
 
 
 # ── edge cases ───────────────────────────────────────────────────
@@ -279,9 +283,12 @@ def test_empty_delta_retains(repo: Path) -> None:
 def test_empty_commit_retains(repo: Path) -> None:
     base = _head(repo)
     _git("commit", "--allow-empty", "-m", "empty", cwd=repo)
-    result = evaluate_delta(base, _head(repo), repo, base_ref="master")
-    assert result["action"] == "retain"
-    assert result["reason"] == "trivial_paths"
+    _assert_decision(
+        evaluate_delta(base, _head(repo), repo, base_ref="master"),
+        dismiss=False,
+        review=False,
+        reason="trivial_paths",
+    )
 
 
 def test_merge_from_non_base_branch_dismisses(repo: Path) -> None:
@@ -299,20 +306,25 @@ def test_merge_from_non_base_branch_dismisses(repo: Path) -> None:
     _git("checkout", "feat", cwd=repo)
     _git("merge", "--no-ff", "side", "-m", "merge side", cwd=repo)
 
-    result = evaluate_delta(feat_sha, _head(repo), repo, base_ref="master")
-    assert result["action"] == "dismiss"
-    assert result["reason"] == "non_trivial_delta"
+    _assert_decision(
+        evaluate_delta(feat_sha, _head(repo), repo, base_ref="master"),
+        dismiss=True,
+        review=True,
+        reason="non_trivial_delta",
+    )
 
 
 # ── decide() with mocked GitHub API ──────────────────────────────
 
 
 def test_decide_no_prior_approval(monkeypatch: pytest.MonkeyPatch, repo: Path) -> None:
+    # No prior bot approval → no_op. Re-review here would burn LLM credits
+    # for a state we didn't create (a human dismissed the approval out-of-
+    # band) and the label-add path is the canonical re-review trigger.
     monkeypatch.setattr(dismiss_check, "find_last_approved_sha", lambda *_: None)
     result = decide("PostHog/posthog", 1, _head(repo), repo)
-    assert result["action"] == "dismiss"
-    assert result["reason"] == "no_prior_approval"
-    assert result["last_approved_sha"] is None
+    _assert_decision(result, dismiss=False, review=False, reason="no_prior_approval")
+    assert result.last_approved_sha is None
 
 
 def test_decide_returns_last_approved_sha(monkeypatch: pytest.MonkeyPatch, repo: Path) -> None:
@@ -322,8 +334,8 @@ def test_decide_returns_last_approved_sha(monkeypatch: pytest.MonkeyPatch, repo:
 
     monkeypatch.setattr(dismiss_check, "find_last_approved_sha", lambda *_: base)
     result = decide("PostHog/posthog", 1, _head(repo), repo)
-    assert result["action"] == "retain"
-    assert result["last_approved_sha"] == base
+    _assert_decision(result, dismiss=False, review=False, reason="trivial_paths")
+    assert result.last_approved_sha == base
 
 
 def test_decide_dismiss_path_includes_last_approved_sha(monkeypatch: pytest.MonkeyPatch, repo: Path) -> None:
@@ -333,9 +345,8 @@ def test_decide_dismiss_path_includes_last_approved_sha(monkeypatch: pytest.Monk
 
     monkeypatch.setattr(dismiss_check, "find_last_approved_sha", lambda *_: base)
     result = decide("PostHog/posthog", 1, _head(repo), repo)
-    assert result["action"] == "dismiss"
-    assert result["reason"] == "non_trivial_delta"
-    assert result["last_approved_sha"] == base
+    _assert_decision(result, dismiss=True, review=True, reason="non_trivial_delta")
+    assert result.last_approved_sha == base
 
 
 # ── select_last_bot_approval (filter + sort) ─────────────────────
@@ -406,6 +417,7 @@ def test_main_missing_env_emits_dismiss(monkeypatch: pytest.MonkeyPatch, capsys:
     import json as _json
 
     decision = _json.loads(out)
-    assert decision["action"] == "dismiss"
+    assert decision["dismiss_approval"] is True
+    assert decision["run_review"] is True
     assert decision["reason"].startswith("error:")
     assert decision["last_approved_sha"] is None

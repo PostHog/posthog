@@ -25,7 +25,7 @@ jobs:
             && (
               github.event.label.name == 'stamphog'
               || (github.event.action == 'ready_for_review' && contains(github.event.pull_request.labels.*.name, 'stamphog'))
-              || needs.decide-delta.outputs.action == 'dismiss'
+              || needs.decide-delta.outputs.run_review == 'true'
               || needs.decide-delta.result == 'failure'
             )
         runs-on: ubuntu-latest
@@ -127,7 +127,8 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         outputs:
-            action: ${{ steps.decide.outputs.action }}
+            dismiss_approval: ${{ steps.decide.outputs.dismiss_approval }}
+            run_review: ${{ steps.decide.outputs.run_review }}
             reason: ${{ steps.decide.outputs.reason }}
             last_approved_sha: ${{ steps.decide.outputs.last_approved_sha }}
 
@@ -168,12 +169,16 @@ jobs:
                   set -euo pipefail
                   decision=$(uv run tools/pr-approval-agent/dismiss_check.py)
                   echo "$decision"
-                  echo "action=$(echo "$decision" | jq -r .action)" >> "$GITHUB_OUTPUT"
+                  echo "dismiss_approval=$(echo "$decision" | jq -r .dismiss_approval)" >> "$GITHUB_OUTPUT"
+                  echo "run_review=$(echo "$decision" | jq -r .run_review)" >> "$GITHUB_OUTPUT"
                   echo "reason=$(echo "$decision" | jq -r .reason)" >> "$GITHUB_OUTPUT"
                   echo "last_approved_sha=$(echo "$decision" | jq -r '.last_approved_sha // ""')" >> "$GITHUB_OUTPUT"
 
+            # Only post the comment on actual retention reasons — not on
+            # no_prior_approval (nothing to retain) or empty_delta (HEAD
+            # didn't move, comment would be noise).
             - name: Note retained approval
-              if: steps.decide.outputs.action == 'retain'
+              if: contains(fromJSON('["trivial_paths", "merge_only", "mixed_trivial"]'), steps.decide.outputs.reason)
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR: ${{ github.event.pull_request.number }}
@@ -191,7 +196,7 @@ jobs:
         if: >-
             always()
             && (
-              needs.decide-delta.outputs.action == 'dismiss'
+              needs.decide-delta.outputs.dismiss_approval == 'true'
               || needs.decide-delta.result == 'failure'
             )
         runs-on: ubuntu-latest
