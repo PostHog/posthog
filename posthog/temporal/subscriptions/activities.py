@@ -35,6 +35,7 @@ from posthog.temporal.subscriptions.types import (
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS, SUPPORTED_TARGET_TYPES, _capture_delivery_failed_event
+from ee.tasks.subscriptions.auto_disable import SLACK_INTEGRATION_DISCONNECTED_REASON, disable_invalid_subscription
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import (
     get_slack_integration_for_team,
@@ -429,10 +430,8 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                 # disconnected. This won't self-resolve, so auto-disable the
                 # subscription and notify the owner — same pattern as alert
                 # auto-disable for permanently-broken alert config.
-                from ee.tasks.subscriptions.auto_disable import disable_invalid_subscription
-
                 await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(
-                    subscription, "Slack integration disconnected"
+                    subscription, SLACK_INTEGRATION_DISCONNECTED_REASON
                 )
                 return DeliverSubscriptionResult(recipient_results=recipient_results)
 

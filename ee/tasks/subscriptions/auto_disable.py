@@ -5,6 +5,11 @@ import structlog
 from posthog.email import EmailMessage
 from posthog.models.subscription import Subscription
 
+# Reason strings flow into the disabled-subscription email body, so they are
+# effectively a public contract — keep them as module-level constants so call
+# sites and tests stay in sync.
+SLACK_INTEGRATION_DISCONNECTED_REASON = "Slack integration disconnected"
+
 logger = structlog.get_logger(__name__)
 
 

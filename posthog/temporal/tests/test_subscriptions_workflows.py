@@ -451,6 +451,10 @@ async def test_process_subscription_records_missing_slack_integration_failure(
             )
 
     row = await sync_to_async(SubscriptionDelivery.objects.filter(subscription_id=subscription.id).latest)("created_at")
+    # Activity returns cleanly after auto-disable, so the workflow records a
+    # COMPLETED delivery row — the per-recipient failure detail lives in
+    # recipient_results, not the row-level status.
+    assert row.status == SubscriptionDelivery.Status.COMPLETED
     assert row.recipient_results == [
         {
             "recipient": "C12345|#test-channel",

@@ -7,7 +7,7 @@ from parameterized import parameterized
 
 from posthog.models.subscription import Subscription
 
-from ee.tasks.subscriptions.auto_disable import disable_invalid_subscription
+from ee.tasks.subscriptions.auto_disable import SLACK_INTEGRATION_DISCONNECTED_REASON, disable_invalid_subscription
 
 
 class TestDisableInvalidSubscription(APIBaseTest):
@@ -30,11 +30,11 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub = self._make_subscription()
 
         with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock:
-            disable_invalid_subscription(sub, "Slack integration disconnected")
+            disable_invalid_subscription(sub, SLACK_INTEGRATION_DISCONNECTED_REASON)
 
         sub.refresh_from_db()
         assert sub.enabled is False
-        send_mock.assert_called_once_with(sub, "Slack integration disconnected", [self.user.email])
+        send_mock.assert_called_once_with(sub, SLACK_INTEGRATION_DISCONNECTED_REASON, [self.user.email])
 
     @parameterized.expand(
         [
@@ -51,7 +51,7 @@ class TestDisableInvalidSubscription(APIBaseTest):
             sub = self._make_subscription(created_by=None)
 
         with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock:
-            disable_invalid_subscription(sub, "Slack integration disconnected")
+            disable_invalid_subscription(sub, SLACK_INTEGRATION_DISCONNECTED_REASON)
 
         sub.refresh_from_db()
         assert sub.enabled is False
