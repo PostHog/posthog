@@ -22788,7 +22788,7 @@
         },
         "LogsSparklineBreakdownBy": {
             "description": "Field to break down sparkline data by",
-            "enum": ["severity", "service"],
+            "enum": ["severity", "service", "traffic_type"],
             "type": "string"
         },
         "MADDetectorConfig": {

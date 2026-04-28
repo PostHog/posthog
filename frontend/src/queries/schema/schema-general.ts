@@ -2879,7 +2879,7 @@ export interface LogMessage {
 }
 
 /** Field to break down sparkline data by */
-export type LogsSparklineBreakdownBy = 'severity' | 'service'
+export type LogsSparklineBreakdownBy = 'severity' | 'service' | 'traffic_type'
 
 /** @title LogsOrderBy */
 export type LogsOrderBy = 'latest' | 'earliest'
