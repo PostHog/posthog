@@ -15,7 +15,7 @@ from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from prometheus_client import Counter
 from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.permissions import BasePermission
@@ -742,16 +742,20 @@ class FeatureFlagSerializer(
             )
         )
 
-    def get_features(self, feature_flag: FeatureFlag) -> dict:
+    @extend_schema_field({"type": "array", "items": {"type": "object"}})
+    def get_features(self, feature_flag: FeatureFlag) -> list[dict]:
         from products.early_access_features.backend.api import MinimalEarlyAccessFeatureSerializer
 
-        return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
+        return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data  # ty: ignore[invalid-return-type]
 
-    def get_surveys(self, feature_flag: FeatureFlag) -> dict:
+    @extend_schema_field({"type": "array", "items": {"type": "object"}})
+    def get_surveys(self, feature_flag: FeatureFlag) -> list[dict]:
         from products.surveys.backend.api.survey import SurveyAPISerializer
 
-        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
-        # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
+        # ``.data`` returns DRF's ``ReturnList`` (a list subclass); annotated as ``list[dict]``
+        # for the schema generator. The ``ignoring type`` comment below references the
+        # ``surveys_linked_flag`` reverse relation which mypy can't follow.
+        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data  # ty: ignore[invalid-return-type]
 
     def get_is_used_in_replay_settings(self, feature_flag: FeatureFlag) -> bool:
         """Check if this feature flag is used in any team's session recording linked flag setting."""

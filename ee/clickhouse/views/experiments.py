@@ -104,9 +104,9 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible."
         ),
     )
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
-    holdout = ExperimentHoldoutSerializer(read_only=True)
+    holdout = ExperimentHoldoutSerializer(read_only=True, allow_null=True)
     holdout_id = TeamScopedPrimaryKeyRelatedField(
         queryset=ExperimentHoldout.objects.all(),
         source="holdout",

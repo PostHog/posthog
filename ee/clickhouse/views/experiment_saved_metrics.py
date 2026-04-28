@@ -46,7 +46,7 @@ class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
 class ExperimentSavedMetricSerializer(
     UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
 ):
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = ExperimentSavedMetric

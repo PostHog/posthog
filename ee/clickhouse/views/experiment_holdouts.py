@@ -16,7 +16,7 @@ from products.experiments.backend.models.experiment import ExperimentHoldout, ho
 
 
 class ExperimentHoldoutSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = ExperimentHoldout

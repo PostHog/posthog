@@ -157,9 +157,9 @@ export type FeatureFlagApiFilters = { [key: string]: unknown }
 
 export type FeatureFlagApiExperimentSetMetadataItem = { [key: string]: unknown }
 
-export type FeatureFlagApiSurveys = { [key: string]: unknown }
+export type FeatureFlagApiSurveysItem = { [key: string]: unknown }
 
-export type FeatureFlagApiFeatures = { [key: string]: unknown }
+export type FeatureFlagApiFeaturesItem = { [key: string]: unknown }
 
 /**
  * Serializer mixin that handles tags for objects.
@@ -183,8 +183,8 @@ export interface FeatureFlagApi {
     ensure_experience_continuity?: boolean | null
     readonly experiment_set: readonly number[]
     readonly experiment_set_metadata: readonly FeatureFlagApiExperimentSetMetadataItem[]
-    readonly surveys: FeatureFlagApiSurveys
-    readonly features: FeatureFlagApiFeatures
+    readonly surveys: readonly FeatureFlagApiSurveysItem[]
+    readonly features: readonly FeatureFlagApiFeaturesItem[]
     rollback_conditions?: unknown | null
     /** @nullable */
     performed_rollback?: boolean | null

@@ -14,7 +14,7 @@ from infi.clickhouse_orm import Database
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client import sync_execute
-from posthog.test.openapi_response_validation import build_openapi_response_validator
+from posthog.test.openapi_response_validation import build_openapi_response_validator, set_current_test_id
 
 
 def create_clickhouse_tables():
@@ -478,6 +478,10 @@ def validate_api_responses_against_openapi_spec(
     if "skip_openapi_response_validation" in request.keywords:
         return
 
+    # Stamp every event captured during this test with the pytest node id, so failures in the
+    # report can be traced back to the originating test (useful for triaging false positives).
+    set_current_test_id(request.node.nodeid)
+
     validator = build_openapi_response_validator()
     original_request = APIClient.request
 
@@ -501,6 +505,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     "exitstatus": exitstatus,
                     "summary": report["summary"],
                 },
-                sort_keys=True,
+                # Preserve the priority ordering of by_reason established in the recorder.
+                sort_keys=False,
             )
         )

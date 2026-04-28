@@ -76,7 +76,7 @@ export interface ExperimentHoldoutApi {
      */
     description?: string | null
     filters?: unknown
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     readonly created_at: string
     readonly updated_at: string
 }
@@ -100,7 +100,7 @@ export interface PatchedExperimentHoldoutApi {
      */
     description?: string | null
     filters?: unknown
-    readonly created_by?: UserBasicApi
+    readonly created_by?: UserBasicApi | null
     readonly created_at?: string
     readonly updated_at?: string
 }
@@ -118,7 +118,7 @@ export interface ExperimentSavedMetricApi {
      */
     description?: string | null
     query: unknown
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     readonly created_at: string
     readonly updated_at: string
     tags?: unknown[]
@@ -151,7 +151,7 @@ export interface PatchedExperimentSavedMetricApi {
      */
     description?: string | null
     query?: unknown
-    readonly created_by?: UserBasicApi
+    readonly created_by?: UserBasicApi | null
     readonly created_at?: string
     readonly updated_at?: string
     tags?: unknown[]
@@ -524,7 +524,7 @@ export interface ExperimentApi {
     /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key: string
     readonly feature_flag: MinimalFeatureFlagApi
-    readonly holdout: ExperimentHoldoutApi
+    readonly holdout: ExperimentHoldoutApi | null
     /**
      * ID of a holdout group to exclude from the experiment.
      * @nullable
@@ -546,7 +546,7 @@ export interface ExperimentApi {
     archived?: boolean
     /** @nullable */
     deleted?: boolean | null
-    readonly created_by: UserBasicApi
+    readonly created_by: UserBasicApi | null
     readonly created_at: string
     readonly updated_at: string
     /** Experiment type: web for frontend UI changes, product for backend/API changes.
@@ -622,7 +622,7 @@ export interface PatchedExperimentApi {
     /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flags-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key?: string
     readonly feature_flag?: MinimalFeatureFlagApi
-    readonly holdout?: ExperimentHoldoutApi
+    readonly holdout?: ExperimentHoldoutApi | null
     /**
      * ID of a holdout group to exclude from the experiment.
      * @nullable
@@ -644,7 +644,7 @@ export interface PatchedExperimentApi {
     archived?: boolean
     /** @nullable */
     deleted?: boolean | null
-    readonly created_by?: UserBasicApi
+    readonly created_by?: UserBasicApi | null
     readonly created_at?: string
     readonly updated_at?: string
     /** Experiment type: web for frontend UI changes, product for backend/API changes.
