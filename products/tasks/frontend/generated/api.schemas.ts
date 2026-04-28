@@ -368,6 +368,7 @@ export const ClaudeRuntimeAdapterEnumApi = {
  * * `low` - low
  * `medium` - medium
  * `high` - high
+ * `xhigh` - xhigh
  * `max` - max
  */
 export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
@@ -376,6 +377,7 @@ export const ReasoningEffortEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
+    Xhigh: 'xhigh',
     Max: 'max',
 } as const
 
@@ -443,6 +445,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
 * `low` - low
 * `medium` - medium
 * `high` - high
+* `xhigh` - xhigh
 * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -526,6 +529,7 @@ export interface CodexTaskRunCreateSchemaApi {
 * `low` - low
 * `medium` - medium
 * `high` - high
+* `xhigh` - xhigh
 * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -576,6 +580,21 @@ export type TaskRunCreateRequestSchemaApi =
     | ClaudeTaskRunCreateSchemaApi
     | CodexTaskRunCreateSchemaApi
     | TaskRunResumeRequestSchemaApi
+
+export interface TaskRunErrorResponseApi {
+    /** Human-readable validation error */
+    detail?: string
+    /** Human-readable error message */
+    error?: string
+    /** Machine-readable error type */
+    type?: string
+    /** Machine-readable error code */
+    code?: string
+    /** Request field associated with the error */
+    attr?: string
+    /** Artifact ids that could not be resolved for the run */
+    missing_artifact_ids?: string[]
+}
 
 /**
  * * `plan` - plan
@@ -931,6 +950,7 @@ export interface TaskRunBootstrapCreateRequestApi {
 * `low` - low
 * `medium` - medium
 * `high` - high
+* `xhigh` - xhigh
 * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */

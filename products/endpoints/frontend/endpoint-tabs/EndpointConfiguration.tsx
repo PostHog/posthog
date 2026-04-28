@@ -16,8 +16,6 @@ import {
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { DataModelingSyncInterval } from '~/types'
-
 import { endpointLogic } from '../endpointLogic'
 import { endpointSceneLogic, MaterializationPreview } from '../endpointSceneLogic'
 
@@ -25,26 +23,14 @@ interface EndpointConfigurationProps {
     tabId: string
 }
 
-type CacheAgeOption = number | null
-const CACHE_AGE_OPTIONS: { value: CacheAgeOption; label: string }[] = [
-    { value: 300, label: '5 minutes' },
+const DATA_FRESHNESS_OPTIONS: { value: number; label: string }[] = [
     { value: 900, label: '15 minutes' },
     { value: 1800, label: '30 minutes' },
     { value: 3600, label: '1 hour' },
-    { value: 10800, label: '3 hours' },
-    { value: null, label: '6 hours (default)' },
-    { value: 86400, label: '1 day' },
-    { value: 259200, label: '3 days' },
-]
-
-const SYNC_FREQUENCY_OPTIONS: {
-    value: DataModelingSyncInterval
-    label: string
-}[] = [
-    { value: '1hour', label: 'Every hour' },
-    { value: '6hour', label: 'Every 6 hours' },
-    { value: '24hour', label: 'Once a day' },
-    { value: '7day', label: 'Once a week' },
+    { value: 21600, label: '6 hours' },
+    { value: 43200, label: '12 hours' },
+    { value: 86400, label: '1 day (default)' },
+    { value: 604800, label: '7 days' },
 ]
 
 const BUCKET_OPTIONS: { value: string; label: string }[] = [
@@ -79,9 +65,9 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
 
 export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { setCacheAge } = useActions(endpointSceneLogic({ tabId }))
+    const { setDataFreshness } = useActions(endpointSceneLogic({ tabId }))
     const {
-        cacheAge,
+        dataFreshness,
         viewingVersion,
         materializationPreview,
         materializationPreviewLoading,
@@ -94,7 +80,8 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
         return <></>
     }
 
-    const effectiveCacheAge = cacheAge ?? viewingVersion?.cache_age_seconds ?? endpoint.cache_age_seconds
+    const effectiveDataFreshness =
+        dataFreshness ?? viewingVersion?.data_freshness_seconds ?? endpoint.data_freshness_seconds ?? 86400
     const baseIsMaterialized = viewingVersion?.is_materialized ?? endpoint.is_materialized
     const isMaterialized = localIsMaterialized ?? baseIsMaterialized
     const materializationExpanded = leftActiveKeys.includes('materialization')
@@ -114,7 +101,7 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                                 <div className="flex items-center gap-2">
                                     <IconDatabase className="text-lg" />
                                     <span>Materialization</span>
-                                    <Tooltip title="We run your query on a schedule and store results in a table. When you execute this endpoint, we read from that stored table instead of running the full query again. You'll get results much faster, but data is only as fresh as the last time materialization happened.">
+                                    <Tooltip title="We run your query on a schedule and store results in a table. When you execute this endpoint, we read from that stored table instead of running the full query again. You'll get results much faster, but data is only as fresh as the last time materialization ran.">
                                         <IconInfo className="text-lg text-secondary" />
                                     </Tooltip>
                                 </div>
@@ -122,12 +109,12 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                             content: <MaterializationContent tabId={tabId} />,
                         },
                         {
-                            key: 'caching',
+                            key: 'data-freshness',
                             header: (
                                 <div className="flex items-center gap-2">
                                     <IconClock className="text-lg" />
-                                    <span>Caching</span>
-                                    <Tooltip title="Caching configuration will soon be removed and replaced with the concept of data freshness.">
+                                    <span>Data freshness</span>
+                                    <Tooltip title="Controls how long results are cached and how often materialized endpoints refresh.">
                                         <IconInfo className="text-lg text-secondary" />
                                     </Tooltip>
                                 </div>
@@ -135,19 +122,14 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                             content: (
                                 <div className="flex flex-col gap-4 max-w-md p-1">
                                     <p className="text-sm text-secondary m-0">
-                                        Keep query results cached, so subsequent requests get served quickly and are not
-                                        waiting for another query execution.
+                                        Choose how fresh the returned data should be. Shorter periods serve fresher
+                                        data, but consume more compute.
                                     </p>
-                                    <LemonField.Pure
-                                        label="Cache duration"
-                                        info="Shorter durations mean fresher data but more query load. Longer durations are faster but may serve stale results."
-                                    >
-                                        <LemonSelect
-                                            value={effectiveCacheAge}
-                                            onChange={setCacheAge}
-                                            options={CACHE_AGE_OPTIONS}
-                                        />
-                                    </LemonField.Pure>
+                                    <LemonSelect
+                                        value={effectiveDataFreshness}
+                                        onChange={setDataFreshness}
+                                        options={DATA_FRESHNESS_OPTIONS}
+                                    />
                                 </div>
                             ),
                         },
@@ -245,9 +227,8 @@ function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
         materializationStatus: loadedMaterializationStatus,
         materializationStatusLoading,
     } = useValues(endpointLogic({ tabId }))
-    const { setSyncFrequency, setIsMaterialized, setBucketOverride } = useActions(endpointSceneLogic({ tabId }))
+    const { setIsMaterialized, setBucketOverride } = useActions(endpointSceneLogic({ tabId }))
     const {
-        syncFrequency,
         isMaterialized: localIsMaterialized,
         viewingVersion,
         materializationPreview,
@@ -266,7 +247,6 @@ function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
     const effectiveMaterializationStatus = freshMaterialization?.status
     const effectiveLastMaterializedAt = freshMaterialization?.last_materialized_at
     const effectiveMaterializationError = freshMaterialization?.error
-    const effectiveSyncFrequency = syncFrequency ?? freshMaterialization?.sync_frequency
 
     const hasUnsavedMaterializationChange = localIsMaterialized !== null && localIsMaterialized !== baseIsMaterialized
 
@@ -310,19 +290,6 @@ function MaterializationContent({ tabId }: { tabId: string }): JSX.Element {
                                 ? 'Save your changes to start materialization.'
                                 : 'Save your changes to disable materialization.'}
                         </LemonBanner>
-                    )}
-
-                    {isMaterialized && (
-                        <LemonField.Pure
-                            label="Materialization frequency"
-                            info="How often we re-run your query and update the stored table. More frequent syncs give fresher data but use more compute."
-                        >
-                            <LemonSelect
-                                value={effectiveSyncFrequency || '24hour'}
-                                onChange={setSyncFrequency}
-                                options={SYNC_FREQUENCY_OPTIONS}
-                            />
-                        </LemonField.Pure>
                     )}
 
                     {isMaterialized && !hasUnsavedMaterializationChange && (
