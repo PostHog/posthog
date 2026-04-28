@@ -191,7 +191,7 @@
             "type": "string"
         },
         "release": {
-            "description": "Filter by release/version text captured in $exception_releases.",
+            "description": "Filter by exact release ID, version, or git commit ID captured in $exception_releases.",
             "maxLength": 500,
             "type": "string"
         },

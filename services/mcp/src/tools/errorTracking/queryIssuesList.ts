@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
-import { dateRangeSchema, getPageInfo, propertyFilterSchema, type PropertyFilter } from './utils'
+import { dateRangeSchema, escapeHogQLString, getPageInfo, propertyFilterSchema, type PropertyFilter } from './utils'
 
 const stringOrStringsSchema = z.union([z.string(), z.array(z.string()).min(1)])
 
@@ -47,7 +47,11 @@ const schema = z.object({
     library: stringOrStringsSchema
         .optional()
         .describe('Filter by SDK/library value from event $lib, for example posthog-js or posthog-node.'),
-    release: z.string().max(500).optional().describe('Filter by release/version text captured in $exception_releases.'),
+    release: z
+        .string()
+        .max(500)
+        .optional()
+        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_releases.'),
     environment: z
         .string()
         .max(200)
@@ -94,6 +98,15 @@ function addEventFilter(
     filters.push({ type: 'event', key, operator, value: operator === 'exact' ? asArray(value) : value })
 }
 
+function addReleaseFilter(filters: PropertyFilter[], release: string): void {
+    const escapedRelease = escapeHogQLString(release)
+    const releasesJson = "ifNull(nullIf(JSONExtractRaw(properties, '$exception_releases'), ''), '{}')"
+    filters.push({
+        type: 'hogql',
+        key: `arrayExists(r -> (r.1 = '${escapedRelease}' OR JSONExtractString(r.2, 'version') = '${escapedRelease}' OR JSONExtractString(JSONExtractRaw(r.2, 'metadata'), 'git', 'commit_id') = '${escapedRelease}'), JSONExtractKeysAndValuesRaw(${releasesJson}))`,
+    })
+}
+
 function buildFilterGroup(params: Params): PropertyFilter[] {
     const filters = [...(params.filterGroup ?? [])]
 
@@ -101,7 +114,7 @@ function buildFilterGroup(params: Params): PropertyFilter[] {
         addEventFilter(filters, '$lib', 'exact', params.library)
     }
     if (params.release) {
-        addEventFilter(filters, '$exception_releases', 'icontains', params.release)
+        addReleaseFilter(filters, params.release)
     }
     if (params.environment) {
         addEventFilter(filters, '$environment', 'exact', params.environment)

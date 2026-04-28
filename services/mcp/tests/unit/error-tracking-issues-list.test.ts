@@ -76,7 +76,7 @@ describe('query-error-tracking-issues-list', () => {
 
         await tool.handler(context, {
             library: ['posthog-js', 'posthog-node'],
-            release: '2026.04.24',
+            release: "2026.04.24'\\release",
             environment: 'production',
             fingerprint,
             user: 'alice@example.com',
@@ -94,7 +94,10 @@ describe('query-error-tracking-issues-list', () => {
             expect.arrayContaining([
                 { type: 'event', key: '$browser', operator: 'exact', value: ['Chrome'] },
                 { type: 'event', key: '$lib', operator: 'exact', value: ['posthog-js', 'posthog-node'] },
-                { type: 'event', key: '$exception_releases', operator: 'icontains', value: '2026.04.24' },
+                {
+                    type: 'hogql',
+                    key: "arrayExists(r -> (r.1 = '2026.04.24\\'\\\\release' OR JSONExtractString(r.2, 'version') = '2026.04.24\\'\\\\release' OR JSONExtractString(JSONExtractRaw(r.2, 'metadata'), 'git', 'commit_id') = '2026.04.24\\'\\\\release'), JSONExtractKeysAndValuesRaw(ifNull(nullIf(JSONExtractRaw(properties, '$exception_releases'), ''), '{}')))",
+                },
                 { type: 'event', key: '$environment', operator: 'exact', value: ['production'] },
                 { type: 'event', key: '$exception_fingerprint', operator: 'exact', value: [fingerprint] },
                 { type: 'event', key: '$current_url', operator: 'icontains', value: '/checkout' },

@@ -23,7 +23,7 @@ Free-text search across exception type, message, and stack frames. Use this when
 Prefer these typed fields over `filterGroup` when they fit:
 
 - `library`: SDK/library from `$lib`, for example `posthog-js`, `posthog-node`, or `posthog-android`.
-- `release`: release/version text from `$exception_releases`.
+- `release`: exact release ID, version, or git commit ID from `$exception_releases`.
 - `environment`: runtime environment from `$environment`.
 - `fingerprint`: exact `$exception_fingerprint` hash.
 - `user`: user/email search text.
