@@ -81,6 +81,21 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
     },
 })
 
+const AlertDeleteSchema = AlertsDestroyParams.omit({ project_id: true })
+
+const alertDelete = (): ToolBase<typeof AlertDeleteSchema, unknown> => ({
+    name: 'alert-delete',
+    schema: AlertDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof AlertDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const AlertDestinationsCreateSchema = AlertsDestinationsCreateParams.omit({ project_id: true }).extend(
     AlertsDestinationsCreateBody.shape
 )
@@ -135,21 +150,6 @@ const alertDestinationsDeleteCreate = (): ToolBase<typeof AlertDestinationsDelet
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/destinations/delete/`,
             body,
-        })
-        return result
-    },
-})
-
-const AlertDeleteSchema = AlertsDestroyParams.omit({ project_id: true })
-
-const alertDelete = (): ToolBase<typeof AlertDeleteSchema, unknown> => ({
-    name: 'alert-delete',
-    schema: AlertDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof AlertDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -288,9 +288,9 @@ const alertsList = (): ToolBase<typeof AlertsListSchema, WithPostHogUrl<Schemas.
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'alert-create': alertCreate,
+    'alert-delete': alertDelete,
     'alert-destinations-create': alertDestinationsCreate,
     'alert-destinations-delete-create': alertDestinationsDeleteCreate,
-    'alert-delete': alertDelete,
     'alert-get': alertGet,
     'alert-simulate': alertSimulate,
     'alert-update': alertUpdate,
