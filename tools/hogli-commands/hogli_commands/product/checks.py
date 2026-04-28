@@ -115,14 +115,18 @@ def _names_from_pattern(pattern: str) -> set[str]:
 def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[str]:
     """Validate the canonical facade `[[interfaces]]` block(s).
 
-    Rules:
+    Catches stale entries:
       1. Every product named in the canonical alternation must exist as
          products/<name>/.
       2. Every product named in the canonical alternation must have
          backend/facade/contracts.py (be isolated).
-      3. Every isolated product (has facade/contracts.py) must appear in some
-         canonical alternation block — otherwise its facade isn't reachable
-         from outside the product.
+
+    The inverse direction ("every isolated product must be listed") is not
+    enforced — having `facade/contracts.py` is just scaffolding and doesn't
+    mean the product is ready for canonical exposure. Some products
+    deliberately stay off the alternation while core still imports their
+    internals. The per-product `TachCheck` already requires isolated
+    products to appear in *some* `[[interfaces]]` block.
 
     A "canonical" block is one whose `expose` patterns target only
     backend.facade or backend.presentation paths.
@@ -145,11 +149,8 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
             canonical_names |= names
 
     if not found_canonical_block:
-        # Nothing to validate — the alternation block is missing entirely.
-        # TachCheck will already flag isolated products missing from interfaces.
         return issues
 
-    # Rules 1 & 2 — every alternation entry must exist and be isolated.
     for name in sorted(canonical_names):
         product_dir = products_dir / name
         if not product_dir.is_dir():
@@ -163,19 +164,6 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
                 f"canonical facade alternation lists '{name}' but products/{name}/backend/facade/contracts.py "
                 "is missing — either add contracts.py or remove the entry from tach.toml"
             )
-
-    # Rule 3 — every isolated product must be in the canonical alternation.
-    if products_dir.is_dir():
-        for product_dir in sorted(products_dir.iterdir()):
-            if not product_dir.is_dir() or product_dir.name.startswith((".", "_")):
-                continue
-            if not is_isolated_product(product_dir / "backend"):
-                continue
-            if product_dir.name not in canonical_names:
-                issues.append(
-                    f"product '{product_dir.name}' has backend/facade/contracts.py but is not listed in the "
-                    "canonical [[interfaces]] alternation — its facade is not reachable from outside"
-                )
 
     return issues
 

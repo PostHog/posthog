@@ -699,15 +699,6 @@ expose = ["backend\\\\.models.*"]
 from = ["products.alpha"]
 """
 
-_CANONICAL_PLUS_LEGACY_TACH = (
-    _CANONICAL_BLOCK
-    + """
-[[interfaces]]
-expose = ["backend\\\\.models.*"]
-from = ["products.delta"]
-"""
-)
-
 # Real tach.toml on disk uses literal `\\.` (two backslashes + dot).
 # `_CANONICAL_BLOCK` already encodes that form via escaped backslashes in
 # the Python source — `\\\\` in source is two literal backslashes at runtime.
@@ -739,23 +730,13 @@ class TestValidateFacadeAlternation:
                 _CANONICAL_BLOCK,
                 [("beta", "contracts.py")],
             ),
-            # Missing entry: isolated product not in alternation.
-            (
-                [("alpha", True), ("beta", True), ("gamma", True)],
-                _CANONICAL_BLOCK,
-                [("gamma", "not listed")],
-            ),
-            # Legacy-only block doesn't satisfy the canonical alternation rule.
-            (
-                [("alpha", True), ("beta", True), ("delta", True)],
-                _CANONICAL_PLUS_LEGACY_TACH,
-                [("delta", "not listed")],
-            ),
             # On-disk single-name `from` (no alternation) parses.
             ([("alpha", True)], _CANONICAL_SINGLE_NAME_TACH, []),
-            # Non-isolated products are ignored by the "missing from alternation" rule.
+            # Non-listed isolated products are tolerated — having
+            # facade/contracts.py is just scaffolding, not a commitment to
+            # canonical exposure.
             (
-                [("alpha", True), ("beta", True), ("lenient_one", False), ("lenient_two", False)],
+                [("alpha", True), ("beta", True), ("gamma", True)],
                 _CANONICAL_BLOCK,
                 [],
             ),
@@ -766,10 +747,8 @@ class TestValidateFacadeAlternation:
             "clean_alternation",
             "stale_entry_missing_on_disk",
             "stale_entry_not_isolated",
-            "isolated_product_missing_from_alternation",
-            "legacy_block_alone_is_not_canonical",
             "on_disk_single_name_form_parses",
-            "non_isolated_products_ignored",
+            "isolated_but_not_in_alternation_is_tolerated",
         ],
     )
     def test_validate(
