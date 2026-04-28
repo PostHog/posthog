@@ -479,9 +479,9 @@ class TestGetRowsResume:
             self._patch_batcher(),
             mock.patch(
                 "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
-                side_effect=responses,
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -513,9 +513,9 @@ class TestGetRowsResume:
             self._patch_batcher(),
             mock.patch(
                 "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
-                side_effect=responses,
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -536,9 +536,9 @@ class TestGetRowsResume:
             self._patch_batcher(),
             mock.patch(
                 "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
-                side_effect=[_make_response(body=[], link="")],
-            ),
+            ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = [_make_response(body=[], link="")]
             rows = list(
                 get_rows(
                     personal_access_token="tok",
@@ -561,9 +561,9 @@ class TestGetRowsResume:
             self._patch_batcher(),
             mock.patch(
                 "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
-                side_effect=[_make_response(body=[{"id": 1}], link="")],
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = [_make_response(body=[{"id": 1}], link="")]
             list(
                 get_rows(
                     personal_access_token="tok",
@@ -606,9 +606,9 @@ class TestGetRowsResume:
             ),
             mock.patch(
                 "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
-                side_effect=responses,
             ) as mock_get,
         ):
+            mock_get.return_value.get.side_effect = responses
             list(
                 get_rows(
                     personal_access_token="tok",
