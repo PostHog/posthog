@@ -26,6 +26,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
@@ -36,6 +37,21 @@ import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
 import { getItemGroup } from './InfiniteList'
 import type { infiniteListLogicType } from './infiniteListLogicType'
+
+const TAXONOMY_TRACKED_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
+    TaxonomicFilterGroupType.Events,
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.NumericalEventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.SessionProperties,
+])
+
+function shouldTrackMissingTaxonomy(listGroupType: TaxonomicFilterGroupType): boolean {
+    return (
+        TAXONOMY_TRACKED_GROUP_TYPES.has(listGroupType) ||
+        listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
+    )
+}
 
 function pinnedItemMatchesSearch(
     item: TaxonomicDefinitionTypes,
@@ -213,6 +229,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         actions: [
             taxonomicFilterLogic(props),
             ['setSearchQuery', 'setActiveTab', 'selectItem', 'infiniteListResultsReceived'],
+            eventUsageLogic,
+            ['reportMissingTaxonomyEntries'],
         ],
     })),
     actions({
@@ -947,6 +965,28 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         },
         infiniteListResultsReceived: () => {
             actions.reconcilePinnedRowState()
+            const listGroupType = props.listGroupType
+            if (!shouldTrackMissingTaxonomy(listGroupType)) {
+                return
+            }
+            const group = values.group
+            const missing: { name: string; groupType: TaxonomicFilterGroupType }[] = []
+            for (const item of values.results) {
+                if (!item || isSkeletonItem(item) || isQuickFilterItem(item)) {
+                    continue
+                }
+                const name = group?.getName?.(item) ?? ('name' in item ? (item as { name?: string }).name : undefined)
+                if (!name || !name.startsWith('$')) {
+                    continue
+                }
+                if (getCoreFilterDefinition(name, listGroupType) !== null) {
+                    continue
+                }
+                missing.push({ name, groupType: listGroupType })
+            }
+            if (missing.length > 0) {
+                actions.reportMissingTaxonomyEntries(missing)
+            }
         },
         applyInitialPinnedRow: ({ rowIndex }) => {
             actions.setIndex(rowIndex)
