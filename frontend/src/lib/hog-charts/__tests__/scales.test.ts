@@ -90,7 +90,7 @@ describe('hog-charts scales', () => {
             expect(scale.domain()).toEqual([0, 1])
         })
 
-        it('excludes hidden series from the domain calculation', () => {
+        it('excludes visibility.excluded series from the domain calculation', () => {
             const visible = makeSeries({ key: 'v', data: [0, 10] })
             const hidden = makeSeries({ key: 'h', data: [0, 1000], visibility: { excluded: true } })
             const scale = createYScale([visible, hidden], dimensions)
@@ -168,7 +168,7 @@ describe('hog-charts scales', () => {
             expect(result.yAxes).toBeUndefined()
         })
 
-        it('treats all-hidden series as single-axis (no yAxes map)', () => {
+        it('treats all-excluded series as single-axis (no yAxes map)', () => {
             const series = [
                 makeSeries({ key: 'h1', data: [10], visibility: { excluded: true }, yAxisId: 'y1' }),
                 makeSeries({ key: 'h2', data: [20], visibility: { excluded: true }, yAxisId: 'y2' }),
@@ -218,7 +218,7 @@ describe('hog-charts scales', () => {
             expect(result.y(10)).toBe(result.yAxes!.y1.scale(10))
         })
 
-        it('excludes hidden series from per-axis domain calculation', () => {
+        it('excludes visibility.excluded series from per-axis domain calculation', () => {
             const visible = makeSeries({ key: 'v', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
             const hiddenOnLeft = makeSeries({
                 key: 'h',
@@ -240,7 +240,7 @@ describe('hog-charts scales', () => {
             expect(result.size).toBe(0)
         })
 
-        it('returns an empty map when all series are hidden', () => {
+        it('returns an empty map when all series have visibility.excluded', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20], visibility: { excluded: true } })]
             const result = computePercentStackData(series, ['a', 'b'])
             expect(result.size).toBe(0)
@@ -268,7 +268,7 @@ describe('hog-charts scales', () => {
             }
         })
 
-        it('excludes hidden series from the percent calculation', () => {
+        it('excludes visibility.excluded series from the percent calculation', () => {
             const visible = makeSeries({ key: 'v', data: [50, 50] })
             const hidden = makeSeries({ key: 'h', data: [50, 50], visibility: { excluded: true } })
             const result = computePercentStackData([visible, hidden], ['a', 'b'])
@@ -300,7 +300,7 @@ describe('hog-charts scales', () => {
             expect(result.size).toBe(0)
         })
 
-        it('returns an empty map when all series are hidden', () => {
+        it('returns an empty map when all series have visibility.excluded', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20], visibility: { excluded: true } })]
             const result = computeStackData(series, ['a', 'b'])
             expect(result.size).toBe(0)
@@ -341,7 +341,7 @@ describe('hog-charts scales', () => {
             expect(result.get('s3')!.bottom).toEqual([30])
         })
 
-        it('excludes hidden series from the stack', () => {
+        it('excludes visibility.excluded series from the stack', () => {
             const visible = makeSeries({ key: 'v', data: [10, 20] })
             const hidden = makeSeries({ key: 'h', data: [100, 200], visibility: { excluded: true } })
             const result = computeStackData([visible, hidden], ['a', 'b'])

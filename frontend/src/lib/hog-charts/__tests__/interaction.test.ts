@@ -136,7 +136,7 @@ describe('hog-charts interaction', () => {
             expect(result?.dataIndex).toBe(1)
         })
 
-        it('excludes hidden series from seriesData', () => {
+        it('excludes visibility.excluded series from seriesData', () => {
             const visible = makeSeries({ key: 'v', data: [10] })
             const hidden = makeSeries({ key: 'h', data: [20], visibility: { excluded: true } })
             const result = buildTooltipContext(
@@ -260,7 +260,7 @@ describe('hog-charts interaction', () => {
             expect(buildPointClickData(index, series, ['a'], defaultResolveValue)).toBeNull()
         })
 
-        it('returns null when all series are hidden', () => {
+        it('returns null when all series have visibility.excluded', () => {
             const series = [makeSeries({ key: 's1', data: [10], visibility: { excluded: true } })]
             expect(buildPointClickData(0, series, ['a'], defaultResolveValue)).toBeNull()
         })
