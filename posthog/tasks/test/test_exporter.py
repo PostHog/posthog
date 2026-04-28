@@ -159,7 +159,7 @@ class TestExportAssetFailureRecording(APIBaseTest):
             export_format=ExportedAsset.ExportFormat.PNG,
         )
 
-        def explode_then_delete(*args, **kwargs):
+        def explode_then_delete(*args: object, **kwargs: object) -> None:
             ExportedAsset.objects_including_ttl_deleted.filter(pk=asset.id).delete()
             raise QueryError("Unknown table 'foo'")
 

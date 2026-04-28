@@ -109,7 +109,7 @@ class TestSaveExportedAssetFields(APIBaseTest):
     def test_re_raises_database_error_when_row_still_exists(self) -> None:
         asset = ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.CSV)
 
-        def raise_database_error(*args, **kwargs):
+        def raise_database_error(*args: object, **kwargs: object) -> None:
             raise DatabaseError("connection lost")
 
         with patch.object(ExportedAsset, "save", side_effect=raise_database_error):
