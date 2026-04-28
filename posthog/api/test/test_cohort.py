@@ -1029,6 +1029,7 @@ Jane Smith,{person2.uuid},ignore_this_too,jane@example.com
             [str(person1.uuid), str(person2.uuid)],
             team_id=self.team.id,
             id_type="person_id",
+            email_property_key=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1061,6 +1062,7 @@ Jane Smith,   ,jane@example.com
             [str(person1.uuid)],
             team_id=self.team.id,
             id_type="person_id",
+            email_property_key=None,
         )
 
     def test_static_cohort_csv_upload_multicolumn_without_any_id_fails(self):
@@ -1169,6 +1171,7 @@ another_user
             ["legacy_user", "another_user"],
             team_id=self.team.id,
             id_type="distinct_id",
+            email_property_key=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1202,6 +1205,7 @@ another_user
             [str(person1.uuid), str(person2.uuid)],
             team_id=self.team.id,
             id_type="person_id",
+            email_property_key=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1235,6 +1239,7 @@ Jane Smith,	user456	,jane@example.com
             ["user123", "user456"],
             team_id=self.team.id,
             id_type="distinct_id",
+            email_property_key=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1268,6 +1273,7 @@ Jane Smith,	user456	,jane@example.com
             ["user,123", "user,456,special"],
             team_id=self.team.id,
             id_type="distinct_id",
+            email_property_key=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1301,6 +1307,7 @@ Jane Smith,	user456	,jane@example.com
             ['user"123', 'user"special"456'],
             team_id=self.team.id,
             id_type="distinct_id",
+            email_property_key=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -1339,6 +1346,7 @@ user789
             ["user123", "user456"],
             team_id=self.team.id,
             id_type="distinct_id",
+            email_property_key=None,
         )
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
@@ -5595,7 +5603,12 @@ User 2,uppercase@example.com
             ch_mock.assert_not_called()
             pg_mock.assert_called_once()
             # Non-default keys must reach the PG helper with the exact casing from the caller.
-            self.assertEqual(pg_mock.call_args.kwargs.get("email_property_key"), email_property_key)
+            # The model passes email_property_key positionally, so check args[2] with a kwarg fallback.
+            call_args = pg_mock.call_args
+            actual_key = call_args.kwargs.get(
+                "email_property_key", call_args.args[2] if len(call_args.args) > 2 else None
+            )
+            self.assertEqual(actual_key, email_property_key)
 
     @patch("posthog.models.cohort.cohort.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.models.cohort.cohort.sync_execute", side_effect=RuntimeError("CH down"))
