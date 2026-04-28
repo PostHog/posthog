@@ -470,6 +470,16 @@ class ErrorTrackingQueryRunnerTestsMixin:
         self.assertEqual(len(results), 2)
 
     @freeze_time("2022-01-10T12:11:00")
+    def test_filter_group_with_empty_values(self):
+        # The frontend can produce a filterGroup with an empty top-level values list
+        # (see products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic.ts).
+        # The runner must not crash with IndexError when there are no filter values.
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+        )["results"]
+        self.assertEqual(len(results), 3)
+
+    @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
     def test_ordering(self):
         results = self._calculate(orderBy="last_seen")["results"]
