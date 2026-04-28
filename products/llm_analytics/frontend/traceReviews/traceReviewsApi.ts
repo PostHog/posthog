@@ -35,7 +35,7 @@ function getTraceReviewsBaseUrl(teamId: number = ApiConfig.getCurrentTeamId()): 
     return `/api/environments/${teamId}/llm_analytics/trace_reviews/`
 }
 
-function buildTraceReviewsListUrl(
+export function buildTraceReviewsListUrl(
     teamId: number = ApiConfig.getCurrentTeamId(),
     params?: TraceReviewListParams
 ): string {

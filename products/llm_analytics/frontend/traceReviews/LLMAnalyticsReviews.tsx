@@ -1,15 +1,28 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import { IconDownload } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonMenu,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+} from '@posthog/lemon-ui'
 
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from '~/scenes/urls'
+import { ExporterFormat } from '~/types'
 
 import { llmAnalyticsReviewsLogic, TRACE_REVIEWS_PER_PAGE } from './llmAnalyticsReviewsLogic'
+import { buildTraceReviewsListUrl } from './traceReviewsApi'
+import { copyReviewsAs } from './traceReviewsExport'
 import { TraceReviewValue } from './TraceReviewValue'
 import type { TraceReview } from './types'
 
@@ -20,6 +33,7 @@ function formatTraceId(traceId: string): string {
 export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element {
     const logic = useMountedLogic(llmAnalyticsReviewsLogic({ tabId }))
     const { setFilters } = useActions(logic)
+    const { startExport } = useActions(exportsLogic)
     const {
         reviews,
         reviewsLoading,
@@ -30,6 +44,30 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
         scoreDefinitionOptions,
         scoreDefinitionOptionsLoading,
     } = useValues(logic)
+
+    const exportPath = buildTraceReviewsListUrl(undefined, {
+        search: filters.search || undefined,
+        definition_id: filters.definition_id || undefined,
+        order_by: filters.order_by,
+    })
+
+    const triggerFileExport = (format: ExporterFormat, extension: 'csv' | 'xlsx'): void => {
+        startExport({
+            export_format: format,
+            export_context: {
+                path: exportPath,
+                method: 'GET',
+                filename: `trace_reviews.${extension}`,
+            },
+        })
+    }
+
+    const hasLoadedReviews = reviews.results.length > 0
+    const exportDisabledReason = !hasLoadedReviews
+        ? reviewsLoading
+            ? 'Loading reviews...'
+            : 'No reviews to export'
+        : undefined
 
     const columns: LemonTableColumns<TraceReview> = [
         {
@@ -125,7 +163,56 @@ export function LLMAnalyticsReviews({ tabId }: { tabId?: string }): JSX.Element 
                         data-attr="llma-trace-reviews-definition-filter"
                     />
                 </div>
-                <div className="text-muted-alt">{reviewCountLabel}</div>
+                <div className="flex gap-2 items-center">
+                    <span className="text-muted-alt">{reviewCountLabel}</span>
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Export current columns',
+                                items: [
+                                    {
+                                        label: 'CSV',
+                                        onClick: () => triggerFileExport(ExporterFormat.CSV, 'csv'),
+                                    },
+                                    {
+                                        label: 'XLSX',
+                                        onClick: () => triggerFileExport(ExporterFormat.XLSX, 'xlsx'),
+                                    },
+                                ],
+                            },
+                            {
+                                label: 'Copy to clipboard',
+                                items: [
+                                    {
+                                        label: 'CSV',
+                                        onClick: () => copyReviewsAs(reviews.results, 'csv'),
+                                        'data-attr': 'copy-csv-to-clipboard',
+                                    },
+                                    {
+                                        label: 'JSON',
+                                        onClick: () => copyReviewsAs(reviews.results, 'json'),
+                                        'data-attr': 'copy-json-to-clipboard',
+                                    },
+                                    {
+                                        label: 'Excel',
+                                        onClick: () => copyReviewsAs(reviews.results, 'tsv'),
+                                        'data-attr': 'copy-excel-to-clipboard',
+                                    },
+                                ],
+                            },
+                        ]}
+                    >
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconDownload />}
+                            size="small"
+                            disabledReason={exportDisabledReason}
+                            data-attr="llma-trace-reviews-export-menu"
+                        >
+                            Export
+                        </LemonButton>
+                    </LemonMenu>
+                </div>
             </div>
 
             <LemonTable
