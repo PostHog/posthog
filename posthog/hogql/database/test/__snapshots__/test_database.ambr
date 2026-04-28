@@ -4002,12 +4002,12 @@
                   "table": null,
                   "type": "json"
               },
-              "cache_age_seconds": {
+              "data_freshness_seconds": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "cache_age_seconds",
+                  "hogql_value": "data_freshness_seconds",
                   "id": null,
-                  "name": "cache_age_seconds",
+                  "name": "data_freshness_seconds",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
@@ -10560,12 +10560,12 @@
                   "table": null,
                   "type": "json"
               },
-              "cache_age_seconds": {
+              "data_freshness_seconds": {
                   "chain": null,
                   "fields": null,
-                  "hogql_value": "cache_age_seconds",
+                  "hogql_value": "data_freshness_seconds",
                   "id": null,
-                  "name": "cache_age_seconds",
+                  "name": "data_freshness_seconds",
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
