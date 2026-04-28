@@ -28,25 +28,27 @@ class ValidateDataWarehouseBreakdown:
         breakdown_filter = context.query.breakdownFilter
         insight_name = get_query_insight_name(context.query).lower()
 
+        # `hogql` breakdowns resolve against the FROM clause, which for a `DataWarehouseNode`
+        # series is the warehouse table itself — so they're safe alongside `data_warehouse`.
+        supported_multi_types = {MultipleBreakdownType.DATA_WAREHOUSE, MultipleBreakdownType.HOGQL}
+        supported_single_types = {BreakdownType.DATA_WAREHOUSE, BreakdownType.HOGQL}
+
         if has_multi_breakdown(breakdown_filter):
             assert breakdown_filter.breakdowns is not None  # type checking
-            # A length-1 `breakdowns` is treated like the legacy single-breakdown form: it's
-            # accepted iff its `type` is `data_warehouse`. Anything longer (or a different
-            # type) keeps being rejected.
             if len(breakdown_filter.breakdowns) > 1:
                 raise ValidationError(
                     f"Multi-breakdowns not supported for {insight_name} with a data warehouse series.",
                     code=self.code,
                 )
 
-            if breakdown_filter.breakdowns[0].type != MultipleBreakdownType.DATA_WAREHOUSE:
+            if breakdown_filter.breakdowns[0].type not in supported_multi_types:
                 raise ValidationError(
                     f"Event based breakdowns are not supported for {insight_name} with a data warehouse series.",
                     code=self.code,
                 )
             return
 
-        if has_single_breakdown(breakdown_filter) and breakdown_filter.breakdown_type != BreakdownType.DATA_WAREHOUSE:
+        if has_single_breakdown(breakdown_filter) and breakdown_filter.breakdown_type not in supported_single_types:
             raise ValidationError(
                 f"Event based breakdowns are not supported for {insight_name} with a data warehouse series.",
                 code=self.code,
