@@ -3207,9 +3207,9 @@ snapshots:
     posthog-3000-keyboard-shortcut--default--light:
         hash: v1.k794b7964.a114c09c62922c6e330d8e37e97a37d96b2c59cf81a9b3ef7b14d9f9bdea0104.Z9e-Xts5MKG-FFi5BzbjfIM5Nybv_0F3lRkHp87KMQs
     posthog-3000-keyboard-shortcut--within-tooltip--dark:
-        hash: v1.k794b7964.16bf9ae85ff75e876f7912ba9ad59d1d54ce7f955e078a2478d516fa18cca072.PlNkVp0flMpMU8n8MLAVw-svE_aUHmoy0_79Re2tDiw
+        hash: v1.k794b7964.a435847cc6f3bc73fd9c4b7ae0775002284262fb4f753530cfd01d1173b0a428.ZKW7zpcoHpagc0l2H75r8dLQ7_EEXZgEttsH1D0yO8s
     posthog-3000-keyboard-shortcut--within-tooltip--light:
-        hash: v1.k794b7964.492adfc8c1a7c065853ecc227d3494c5bdf17daa002bfc82b2e3297a22b63b82.RZL_f46t7-ztJlLTBwlGMKFSMo_OB9kLTVswG41Oq0M
+        hash: v1.k794b7964.831707ce7321443acb5f1c3a42fa011208a5835f2bd1da7adb4d1e633c01d80e.iKluOVcanJt9x8LmC_3_gpnNJrUWm1JDWcZX3-GRKvc
     products-workflows-customerioimportmodal--all-steps-completed--dark:
         hash: v1.k794b7964.679720cf72d72cd35bb4c4a2e86094627df27ff2798b4244c5d29a6a767f3861.AvZ-0V3qNglzE2ZWUOcEjHFnSe9Qs68t-u03-ytn7VI
     products-workflows-customerioimportmodal--all-steps-completed--light:
