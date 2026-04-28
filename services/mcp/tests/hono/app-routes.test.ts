@@ -50,6 +50,20 @@ describe('Hono App Routes', () => {
             expect(body).toEqual({ status: 'ok' })
         })
 
+        it('should return 200 with JSON on /health', async () => {
+            const app = createApp(mockRedis)
+            const res = await app.request('/health')
+            expect(res.status).toBe(200)
+            const body = (await res.json()) as Record<string, unknown>
+            expect(body).toEqual({ status: 'ok' })
+        })
+
+        it('should return Cache-Control: no-store on /health', async () => {
+            const app = createApp(mockRedis)
+            const res = await app.request('/health')
+            expect(res.headers.get('Cache-Control')).toBe('no-store')
+        })
+
         it('should return 200 on /readyz when Redis is healthy', async () => {
             const app = createApp(mockRedis)
             const res = await app.request('/readyz')
@@ -72,6 +86,16 @@ describe('Hono App Routes', () => {
             const app = createApp(mockRedis)
             const res = await app.request('/readyz')
             expect(res.status).toBe(503)
+        })
+    })
+
+    describe('GET /.well-known/openai-apps-challenge', () => {
+        it('should return the challenge token', async () => {
+            const app = createApp(mockRedis)
+            const res = await app.request('/.well-known/openai-apps-challenge')
+            expect(res.status).toBe(200)
+            const body = await res.text()
+            expect(body).toBe('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU')
         })
     })
 
@@ -210,7 +234,7 @@ describe('Hono App Routes', () => {
             expect(await res.text()).toContain('Invalid token')
         })
 
-        it('should accept phx_ tokens (not 401)', async () => {
+        it('should pass auth check for phx_ tokens (may fail later at init)', async () => {
             const app = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'POST',
@@ -229,10 +253,12 @@ describe('Hono App Routes', () => {
                     id: 1,
                 }),
             })
-            expect(res.status).not.toBe(401)
+            // Token format check passes — response is NOT "Invalid token"
+            const body = await res.text()
+            expect(body).not.toContain('Invalid token')
         })
 
-        it('should accept pha_ tokens (not 401)', async () => {
+        it('should pass auth check for pha_ tokens (may fail later at init)', async () => {
             const app = createApp(mockRedis)
             const res = await app.request('/mcp', {
                 method: 'POST',
@@ -251,7 +277,9 @@ describe('Hono App Routes', () => {
                     id: 1,
                 }),
             })
-            expect(res.status).not.toBe(401)
+            // Token format check passes — response is NOT "Invalid token"
+            const body = await res.text()
+            expect(body).not.toContain('Invalid token')
         })
     })
 

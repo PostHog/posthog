@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Start the MCP server. Uses MCP_RUNTIME env var to select the runtime:
+#   - "hono" → Node.js/Hono server (for k8s deployments)
+#   - unset  → Cloudflare Workers via wrangler (default)
+
+MCP_RUNTIME="${MCP_RUNTIME:-cloudflare}"
+
+case "$MCP_RUNTIME" in
+    hono)
+        echo "[start-mcp-server] Starting Hono runtime..."
+        cd "$(dirname "$0")/.."
+
+        if [ -f "dist-hono/index.mjs" ]; then
+            exec node --enable-source-maps dist-hono/index.mjs
+        else
+            echo "[start-mcp-server] No build found, running with tsx..."
+            exec npx tsx src/hono/index.ts
+        fi
+        ;;
+    cloudflare|cf|*)
+        echo "[start-mcp-server] Starting Cloudflare Workers runtime..."
+        cd "$(dirname "$0")/.."
+        exec npx wrangler dev
+        ;;
+esac

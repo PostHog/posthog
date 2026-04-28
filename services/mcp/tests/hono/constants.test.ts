@@ -70,16 +70,26 @@ describe('Hono Constants', () => {
     })
 
     describe('getUserAgent', () => {
-        it('should return base user agent when no client agent', () => {
+        it('should return base user agent when no options', () => {
             expect(getUserAgent()).toBe(USER_AGENT)
         })
 
         it('should append posthog client info when present', () => {
-            expect(getUserAgent('posthog/web-client-1.0')).toContain('for posthog/web-client-1')
+            expect(getUserAgent({ clientUserAgent: 'posthog/web-client-1.0' })).toContain('for posthog/web-client-1')
         })
 
         it('should return base user agent for non-posthog clients', () => {
-            expect(getUserAgent('Mozilla/5.0')).toBe(USER_AGENT)
+            expect(getUserAgent({ clientUserAgent: 'Mozilla/5.0' })).toBe(USER_AGENT)
+        })
+
+        it('should prepend consumer/client token when mcpConsumer is set', () => {
+            const ua = getUserAgent({ mcpConsumer: 'posthog-code', mcpClientName: 'claude-code' })
+            expect(ua).toMatch(/^posthog-code\/claude-code posthog\/mcp-server/)
+        })
+
+        it('should use "unknown" for mcpClientName when not provided', () => {
+            const ua = getUserAgent({ mcpConsumer: 'my-app' })
+            expect(ua).toMatch(/^my-app\/unknown posthog\/mcp-server/)
         })
     })
 

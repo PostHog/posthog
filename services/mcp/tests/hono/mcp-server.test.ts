@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { HonoMcpServer, type RequestProperties } from '@/hono/mcp-server'
@@ -28,15 +28,27 @@ describe('HonoMcpServer', () => {
         apiToken: 'phx_test_token',
         version: 1,
     }
+    const originalEnv = { ...process.env }
 
     beforeEach(() => {
         mockRedis = createMockRedis()
+        delete process.env.POSTHOG_API_BASE_URL
+    })
+
+    afterEach(() => {
+        process.env = { ...originalEnv }
     })
 
     describe('constructor', () => {
         it('should create a server instance', () => {
             const server = new HonoMcpServer(mockRedis, baseProps)
             expect(server.server).toBeTruthy()
+        })
+
+        it('should expose requestProperties', () => {
+            const server = new HonoMcpServer(mockRedis, baseProps)
+            expect(server.requestProperties.userHash).toBe('test-hash')
+            expect(server.requestProperties.apiToken).toBe('phx_test_token')
         })
     })
 
@@ -73,19 +85,10 @@ describe('HonoMcpServer', () => {
         })
 
         it('should use custom API base URL from env', async () => {
-            const originalEnv = process.env.POSTHOG_API_BASE_URL
             process.env.POSTHOG_API_BASE_URL = 'https://custom.posthog.com'
-            try {
-                const server = new HonoMcpServer(mockRedis, baseProps)
-                const url = await server.getBaseUrl()
-                expect(url).toBe('https://custom.posthog.com')
-            } finally {
-                if (originalEnv !== undefined) {
-                    process.env.POSTHOG_API_BASE_URL = originalEnv
-                } else {
-                    delete process.env.POSTHOG_API_BASE_URL
-                }
-            }
+            const server = new HonoMcpServer(mockRedis, baseProps)
+            const url = await server.getBaseUrl()
+            expect(url).toBe('https://custom.posthog.com')
         })
     })
 
@@ -113,6 +116,7 @@ describe('HonoMcpServer', () => {
             expect(ctx.env).toBeTruthy()
             expect(ctx.stateManager).toBeTruthy()
             expect(ctx.sessionManager).toBeTruthy()
+            expect(ctx.getDistinctId).toBeTruthy()
         })
     })
 

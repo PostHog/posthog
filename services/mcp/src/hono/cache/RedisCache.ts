@@ -1,24 +1,24 @@
 import { ScopedCache } from '@/lib/cache/ScopedCache'
 
-const DEFAULT_TTL_SECONDS = 86400
-
 export interface RedisLike {
     get(key: string): Promise<string | null>
-    set(key: string, value: string, expiryMode: string, time: number): Promise<string | null>
+    set(key: string, value: string, ...args: (string | number)[]): Promise<string | null>
     del(...keys: string[]): Promise<number>
-    scan(cursor: string, matchOption: string, pattern: string, countOption: string, count: number): Promise<[cursor: string, keys: string[]]>
+    scan(cursor: string | number, ...args: (string | number)[]): Promise<[cursor: string, keys: string[]]>
 }
+
+const DEFAULT_TTL_SECONDS = 24 * 60 * 60 // 24 hours
 
 export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
     private redis: RedisLike
-    private userHash: string
     private ttl: number
+    private userHash: string
 
-    constructor(scope: string, redis: RedisLike, ttl: number = DEFAULT_TTL_SECONDS) {
+    constructor(scope: string, redis: RedisLike, ttlSeconds: number = DEFAULT_TTL_SECONDS) {
         super(scope)
         this.userHash = scope
         this.redis = redis
-        this.ttl = ttl
+        this.ttl = ttlSeconds
     }
 
     private getScopedKey(key: string): string {
@@ -32,9 +32,9 @@ export class RedisCache<T extends Record<string, any>> extends ScopedCache<T> {
             return undefined
         }
         try {
-            return JSON.parse(raw) as T[K]
+            return JSON.parse(raw)
         } catch {
-            return raw as T[K] & string
+            return raw as T[K]
         }
     }
 
