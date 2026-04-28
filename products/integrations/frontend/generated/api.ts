@@ -660,6 +660,10 @@ export const usersIntegrationsGithubReposRetrieve = async (
 /**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).
 
+``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
+``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
+under projects).
+
 - If the current project has **no** team-level GitHub ``Integration``, returns
   ``install_url`` pointing at ``/installations/new`` (configure org + repos).
 - If the team **already** has a GitHub installation, returns ``install_url``
