@@ -2,6 +2,7 @@ import os
 
 from posthog.settings import TEST
 from posthog.settings.base_variables import DEBUG
+from posthog.settings.data_stores import DATABASE_URL
 from posthog.settings.utils import get_from_env, str_to_bool
 
 DATAWAREHOUSE_LOCAL_BUCKET_REGION = os.getenv("DATAWAREHOUSE_LOCAL_BUCKET_REGION", "us-east-1")
@@ -38,6 +39,8 @@ CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT: str | None = os.getenv("CLICKHOUSE_HOGQL_RD
 CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE")
 CLICKHOUSE_HOGQL_RDSPROXY_READ_USER: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_USER")
 CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD")
+
+WAREHOUSE_SOURCES_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_DATABASE_URL") or DATABASE_URL
 
 # Warehouse-pipeline and cyclotron Kafka config live in `posthog/settings/kafka.py`
 # (profiles `warehouse_sources` and `cyclotron`) — read from `settings.KAFKA_PROFILES[...]`

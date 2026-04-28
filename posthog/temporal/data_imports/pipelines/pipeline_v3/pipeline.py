@@ -8,7 +8,7 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.models import DataWarehouseTable
-from posthog.settings import DATABASE_URL
+from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
     cdp_producer_clear_chunks,
@@ -156,7 +156,7 @@ class PipelineV3(Generic[ResumableData]):
         # )
 
         self._pg_producer = PostgresProducer(
-            database_url=DATABASE_URL,
+            database_url=WAREHOUSE_SOURCES_DATABASE_URL,
             team_id=self._job.team_id,
             job_id=str(self._job.id),
             schema_id=str(self._schema.id),

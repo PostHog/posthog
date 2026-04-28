@@ -555,7 +555,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
             # Point the Postgres producer at the Django test database
             stack.enter_context(
                 mock.patch(
-                    "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.DATABASE_URL",
+                    "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline.WAREHOUSE_SOURCES_DATABASE_URL",
                     _get_test_database_url(),
                 )
             )

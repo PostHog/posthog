@@ -176,6 +176,13 @@ if persons_db_writer_url:
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 
+_warehouse_sources_url = os.getenv("WAREHOUSE_SOURCES_DATABASE_URL")
+if _warehouse_sources_url:
+    DATABASES["warehouse_sources"] = dict(dj_database_url.parse(_warehouse_sources_url, conn_max_age=0))
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES["warehouse_sources"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+    DATABASE_ROUTERS.insert(0, "posthog.warehouse_sources_db_router.WarehouseSourcesDBRouter")
+
 product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
 

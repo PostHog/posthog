@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.settings import DATABASE_URL
+from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState, start_health_server
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import BatchConsumer, ConsumerConfig
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import process_batch
@@ -58,7 +58,7 @@ class Command(BaseCommand):
         health_timeout = options["health_timeout"]
 
         config = ConsumerConfig(
-            database_url=DATABASE_URL,
+            database_url=WAREHOUSE_SOURCES_DATABASE_URL,
             max_concurrency=options["max_concurrency"],
             poll_interval_seconds=options["poll_interval"],
             poll_limit=options["poll_limit"],
