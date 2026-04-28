@@ -2265,7 +2265,7 @@
         }
     },
     "llm-analytics-eval-config-set-active-key-create": {
-        "description": "Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't pin its own key. The key must already be validated — use llm-analytics-provider-keys-validate-create or create a new key with the validation flow first.",
+        "description": "Assign the LLM provider key used to run llm_judge evaluations team-wide. Pass key_id (UUID of an existing provider key whose state is 'ok'). Switching the active key affects every llm_judge evaluation that doesn't pin its own key. The key must already be in the 'ok' state — if it isn't, ask the user to validate it from the PostHog UI before retrying.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
         "summary": "Set active evaluation provider key",

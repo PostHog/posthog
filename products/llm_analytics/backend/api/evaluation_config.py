@@ -40,6 +40,7 @@ class EvaluationConfigSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = [
+            "trial_eval_limit",
             "trial_evals_used",
             "trial_evals_remaining",
             "active_provider_key",

@@ -579,12 +579,8 @@ export interface LLMProviderKeyApi {
 }
 
 export interface EvaluationConfigApi {
-    /**
-     * Maximum number of llm_judge runs the team may execute on PostHog trial credits.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    trial_eval_limit?: number
+    /** Maximum number of llm_judge runs the team may execute on PostHog trial credits. */
+    readonly trial_eval_limit: number
     /** Number of llm_judge runs already consumed against the trial credit pool. */
     readonly trial_evals_used: number
     /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
