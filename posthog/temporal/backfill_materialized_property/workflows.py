@@ -202,11 +202,16 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: BackfillMaterializedPropertiesBatchInputs) -> None:
         logger = structlog.get_logger("backfill_materialized_properties_batch")
-        workflow_id = workflow.info().workflow_id
+        # Use the per-execution run_id rather than workflow_id. The schedule reuses the same
+        # workflow_id every week, so workflow_id alone can't distinguish "this firing's commits"
+        # from "last week's firing's commits". run_id is unique per execution and stays constant
+        # across activity retries — exactly what we need to make `assign_pending_slots` idempotent
+        # against an activity retry that hits a partially-committed PENDING→BACKFILL transition.
+        workflow_run_id = workflow.info().workflow_run_id
 
         assignment: AssignPendingSlotsResult = await workflow.execute_activity(
             assign_pending_slots,
-            AssignPendingSlotsInputs(workflow_id=workflow_id),
+            AssignPendingSlotsInputs(workflow_id=workflow_run_id),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
@@ -216,7 +221,7 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
         )
 
         if not assignment.assigned_slot_ids and not assignment.compacted_slot_ids:
-            logger.info("Nothing to do — no PENDING slots and no compaction needed", workflow_id=workflow_id)
+            logger.info("Nothing to do — no PENDING slots and no compaction needed", workflow_run_id=workflow_run_id)
             return
 
         if inputs.cache_refresh_wait_seconds > 0:
@@ -245,7 +250,9 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
                     ),
                 )
             except Exception as e:
-                logger.exception("Batched mutation failed; rolling back slot transitions", workflow_id=workflow_id)
+                logger.exception(
+                    "Batched mutation failed; rolling back slot transitions", workflow_run_id=workflow_run_id
+                )
                 try:
                     # PENDING slots that were promoted to BACKFILL get marked ERROR so an operator
                     # can retry them. Compacted slots stay READY — their old column still has
@@ -279,7 +286,7 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
                 except Exception:
                     logger.exception(
                         "Failed to roll back slot transitions after mutation failure",
-                        workflow_id=workflow_id,
+                        workflow_run_id=workflow_run_id,
                     )
                 raise
 
@@ -309,7 +316,7 @@ class BackfillMaterializedPropertiesBatchWorkflow(PostHogWorkflow):
 
         logger.info(
             "Batched dmat workflow completed",
-            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
             pending_count=len(assignment.assigned_slot_ids),
             compacted_count=len(assignment.compacted_slot_ids),
             column_count=len(assignment.assignments),

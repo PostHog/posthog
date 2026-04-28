@@ -1,6 +1,9 @@
+import * as fs from 'fs'
 import { DateTime } from 'luxon'
+import * as path from 'path'
 
 import { MaterializedColumnSlot, Person, PreIngestionEvent, ProjectId, TimestampFormat } from '../../types'
+import { parseJSON } from '../../utils/json-parse'
 import { castTimestampOrNow } from '../../utils/utils'
 import { createEvent } from './create-event'
 
@@ -91,7 +94,11 @@ describe('createEvent dmat extraction', () => {
         expect(event.dmat_columns).toEqual({ dmat_numeric_0: 42.5 })
     })
 
-    it('maps boolean-ish strings to UInt8 0/1 and rejects unknown values', () => {
+    it('maps booleans to UInt8 0/1 and rejects everything that is not the lowercase literal', () => {
+        // Mirror SQL's `transform(toString(extract), ['true', 'false'], [1, 0], NULL)`:
+        // case-SENSITIVE match against the literal 'true' / 'false' only. '1', '0', 'TRUE',
+        // 'True', 'yes' all return NULL. Previously this code path lower-cased and accepted
+        // '1'/'0' which silently disagreed with backfill — see the parity fixture.
         const slots: MaterializedColumnSlot[] = [
             {
                 property_name: 'a',
@@ -141,10 +148,7 @@ describe('createEvent dmat extraction', () => {
 
         expect(event.dmat_columns).toEqual({
             dmat_bool_0: 1,
-            dmat_bool_1: 0,
-            dmat_bool_2: 1,
-            dmat_bool_3: 0,
-            // 'maybe' is rejected → NULL → not written.
+            // 'False' (mixed case), '1', '0', 'maybe' all rejected → NULL → not written.
         })
     })
 
@@ -215,5 +219,66 @@ describe('createEvent dmat extraction', () => {
         )
 
         expect(event.dmat_columns).toEqual({ dmat_string_7: 'Firefox' })
+    })
+})
+
+// Parity tests driven by the shared fixture at
+// posthog/temporal/backfill_materialized_property/coercion_fixtures.json. The same fixture is
+// loaded by the Python-side ClickHouse parity test, so any case that passes here MUST also
+// produce the same value when the SQL backfill mutation runs against ClickHouse on the same
+// input — and vice versa. This is the contract we rely on so that a row written live agrees
+// with the same row written by the historical backfill agrees with HogQL's JSON fallback.
+describe('createEvent dmat coercion parity vs SQL', () => {
+    interface FixtureCase {
+        name: string
+        input: unknown
+        expected_output: unknown
+        _skip_reason?: string
+    }
+    interface Fixtures {
+        string_cases: FixtureCase[]
+        numeric_cases: FixtureCase[]
+        boolean_cases: FixtureCase[]
+        datetime_cases: FixtureCase[]
+    }
+
+    const fixturePath = path.resolve(
+        __dirname,
+        '../../../../posthog/temporal/backfill_materialized_property/coercion_fixtures.json'
+    )
+    const fixtures: Fixtures = parseJSON(fs.readFileSync(fixturePath, 'utf-8'))
+
+    function runCase(propType: MaterializedColumnSlot['property_type'], suffix: string, fc: FixtureCase): void {
+        if (fc._skip_reason) {
+            return
+        }
+        const slot: MaterializedColumnSlot = {
+            property_name: 'p',
+            slot_index: 0,
+            property_type: propType,
+            state: 'READY',
+            compaction_target_slot_index: null,
+        }
+        const event = createEvent({ ...baseEvent, properties: { p: fc.input } }, fakePerson, true, false, null, [slot])
+        const actual = event.dmat_columns?.[`dmat_${suffix}_0`]
+        // null expected_output ↔ no column written
+        if (fc.expected_output === null) {
+            expect(actual).toBeUndefined()
+        } else {
+            expect(actual).toEqual(fc.expected_output)
+        }
+    }
+
+    fixtures.string_cases.forEach((fc) => {
+        it(`String: ${fc.name}`, () => runCase('String', 'string', fc))
+    })
+    fixtures.numeric_cases.forEach((fc) => {
+        it(`Numeric: ${fc.name}`, () => runCase('Numeric', 'numeric', fc))
+    })
+    fixtures.boolean_cases.forEach((fc) => {
+        it(`Boolean: ${fc.name}`, () => runCase('Boolean', 'bool', fc))
+    })
+    fixtures.datetime_cases.forEach((fc) => {
+        it(`DateTime: ${fc.name}`, () => runCase('DateTime', 'datetime', fc))
     })
 })

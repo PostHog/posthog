@@ -175,6 +175,66 @@ class TestAssignPendingSlots:
         assert result.assigned_slot_ids == []
         assert result.assignments == []
 
+    def test_reclaims_backfill_slots_from_the_same_workflow_run(self, team, activity_environment):
+        """Activity-retry case: PENDING→BACKFILL committed, but Temporal didn't record completion.
+        Re-running the activity must pick up the already-claimed slots and include them in the
+        assignment plan so the mutation step still runs against them."""
+        prop_def = PropertyDefinition.objects.create(
+            team=team,
+            name="reclaimable",
+            property_type=PropertyType.String,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        existing = MaterializedColumnSlot.objects.create(
+            team=team,
+            property_definition=prop_def,
+            property_type=PropertyType.String,
+            slot_index=7,
+            state=MaterializedColumnSlotState.BACKFILL,
+            backfill_temporal_workflow_id="run-abc",
+        )
+
+        result = activity_environment.run(
+            assign_pending_slots,
+            AssignPendingSlotsInputs(workflow_id="run-abc"),
+        )
+
+        # The reclaimed slot should be in assigned_slot_ids and a column 7 assignment should
+        # exist so the mutation runs against the slot's existing column.
+        assert str(existing.id) in result.assigned_slot_ids
+        assert any(a.column_index == 7 for a in result.assignments), "missing reclaim assignment for column 7"
+
+    def test_does_not_reclaim_backfill_slots_from_a_different_run(self, team, activity_environment):
+        """Stranded BACKFILL slots from a previous run are NOT auto-reclaimed — the activity
+        logs a warning and an operator handles the recovery via the API. Otherwise we'd risk
+        re-running a mutation that may have already completed against a column an operator
+        re-purposed."""
+        prop_def = PropertyDefinition.objects.create(
+            team=team,
+            name="stranded",
+            property_type=PropertyType.String,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        stranded = MaterializedColumnSlot.objects.create(
+            team=team,
+            property_definition=prop_def,
+            property_type=PropertyType.String,
+            slot_index=7,
+            state=MaterializedColumnSlotState.BACKFILL,
+            backfill_temporal_workflow_id="run-OLD",
+        )
+
+        result = activity_environment.run(
+            assign_pending_slots,
+            AssignPendingSlotsInputs(workflow_id="run-NEW"),
+        )
+
+        assert str(stranded.id) not in result.assigned_slot_ids
+        # And the slot stays in BACKFILL with its old workflow_id intact — operator must intervene.
+        stranded.refresh_from_db()
+        assert stranded.state == MaterializedColumnSlotState.BACKFILL
+        assert stranded.backfill_temporal_workflow_id == "run-OLD"
+
     def test_avoids_collisions_with_existing_ready_slot_indexes(self, team, activity_environment):
         # Pre-existing READY slot at index 0 means the new pending slot must land elsewhere.
         existing_prop = PropertyDefinition.objects.create(

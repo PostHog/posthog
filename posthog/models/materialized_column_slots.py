@@ -82,6 +82,16 @@ class MaterializedColumnSlot(UUIDTModel):
                 name="unique_team_property_type_slot_index",
                 condition=models.Q(slot_index__isnull=False),
             ),
+            # Mirrors the slot_index uniqueness for compaction_target_slot_index. The planner
+            # already enforces per-team uniqueness in code; this is the safety net for hand
+            # edits, manual recovery, and any future planner regression — without it, two
+            # slots in one team could end up dual-writing to the same target column and
+            # silently corrupting each other's values.
+            models.UniqueConstraint(
+                fields=["team", "property_type", "compaction_target_slot_index"],
+                name="unique_team_property_type_compaction_target",
+                condition=models.Q(compaction_target_slot_index__isnull=False),
+            ),
             models.CheckConstraint(
                 name="valid_slot_index",
                 condition=models.Q(slot_index__isnull=True)

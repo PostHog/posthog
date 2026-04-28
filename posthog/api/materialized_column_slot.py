@@ -56,6 +56,7 @@ class MaterializedColumnSlotSerializer(serializers.ModelSerializer):
             "property_definition_details",
             "property_type",
             "slot_index",
+            "compaction_target_slot_index",
             "state",
             "backfill_temporal_workflow_id",
             "error_message",

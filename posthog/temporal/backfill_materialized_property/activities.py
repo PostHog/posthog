@@ -13,6 +13,7 @@ from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.event.sql import DMAT_STRING_COLUMN_COUNT
 from posthog.models.materialized_column_slots import COMPACTION_FREE_COLUMN_THRESHOLD, MaterializedColumnSlotState
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
@@ -367,19 +368,30 @@ def _plan_compaction_targets(
 def assign_pending_slots(inputs: AssignPendingSlotsInputs) -> AssignPendingSlotsResult:
     """
     Atomically:
-      1. Read all PENDING slots
+      1. Read all PENDING slots PLUS any BACKFILL slots already claimed by THIS workflow run
+         (their backfill_temporal_workflow_id == inputs.workflow_id). The latter happens when
+         the activity is retried after the DB transaction commits but before Temporal records
+         the activity completion — without this, those slots would be silently stranded in
+         BACKFILL forever and the next weekly run would never pick them up.
       2. If free-column count is below COMPACTION_FREE_COLUMN_THRESHOLD, mark every existing
          READY slot for compaction by populating `compaction_target_slot_index` with a fresh
          dense column index. Plugin-server reads pick this up on next cache refresh and start
          dual-writing to both columns.
       3. Compute column assignments for PENDING slots, avoiding per-team collisions with the
          union of existing slot_index, compaction_target_slot_index, and the in-progress plan.
-      4. Update each PENDING slot in-place: set slot_index, transition to BACKFILL, stamp workflow_id
+      4. Update each PENDING slot in-place: set slot_index, transition to BACKFILL, stamp
+         workflow_run_id (in `backfill_temporal_workflow_id`).
 
     Returns the combined assignment plan (PENDING new columns + compaction target columns)
-    so the workflow can submit a single batched mutation that backfills both.
+    so the workflow can submit a single batched mutation that backfills both. Reclaimed slots
+    are included in `assigned_slot_ids` and re-use their existing `slot_index` (we do NOT
+    re-pack them — that would risk repeating a successful mutation against the wrong column).
+
+    Stranded BACKFILL slots from PRIOR runs (workflow_id != current) are NOT reclaimed by this
+    activity — they need operator intervention because we can't safely tell whether their
+    mutation completed. We log a warning and a metric so they're observable.
     """
-    logger.info("Assigning pending slots to columns", workflow_id=inputs.workflow_id)
+    logger.info("Assigning pending slots to columns", workflow_run_id=inputs.workflow_id)
 
     with transaction.atomic():
         # Lock both PENDING and READY rows we may modify.
@@ -391,6 +403,43 @@ def assign_pending_slots(inputs: AssignPendingSlotsInputs) -> AssignPendingSlots
         )
 
         pending = [s for s in all_string_slots if s.state == MaterializedColumnSlotState.PENDING]
+
+        # Detect slots already claimed by this workflow_run_id (activity retry case).
+        # Their slot_index is already assigned and their column may have already been backfilled
+        # by a prior run-batched-mutation invocation — we re-include them in the assignments so
+        # the mutation runs idempotently (AlterTableMutationRunner is itself idempotent).
+        reclaimed_from_this_run = [
+            s
+            for s in all_string_slots
+            if s.state == MaterializedColumnSlotState.BACKFILL
+            and s.backfill_temporal_workflow_id == inputs.workflow_id
+            and s.slot_index is not None
+        ]
+        if reclaimed_from_this_run:
+            logger.info(
+                "Reclaiming BACKFILL slots from a previous attempt of this workflow run",
+                workflow_run_id=inputs.workflow_id,
+                count=len(reclaimed_from_this_run),
+                slot_ids=[str(s.id) for s in reclaimed_from_this_run],
+            )
+
+        # Stranded slots from OTHER runs — we don't auto-recover, but we make them visible.
+        # An operator can manually transition them back to PENDING via the API's retry endpoint.
+        stranded = [
+            s
+            for s in all_string_slots
+            if s.state == MaterializedColumnSlotState.BACKFILL
+            and s.backfill_temporal_workflow_id is not None
+            and s.backfill_temporal_workflow_id != inputs.workflow_id
+        ]
+        if stranded:
+            logger.warning(
+                "Stranded BACKFILL slots from a prior workflow run — operator action required to retry",
+                current_workflow_run_id=inputs.workflow_id,
+                count=len(stranded),
+                slot_ids=[str(s.id) for s in stranded],
+                stale_workflow_ids=sorted({s.backfill_temporal_workflow_id for s in stranded}),
+            )
 
         # Compaction trigger: count free string columns across the global pool. We trigger when
         # remaining capacity could fail to absorb a worst-case weekly cycle.
@@ -421,8 +470,11 @@ def assign_pending_slots(inputs: AssignPendingSlotsInputs) -> AssignPendingSlots
                 # whatever PENDING assignments we're about to make below.
                 compaction_plan = _plan_compaction_targets(slots_to_compact, set(used_indexes))
 
-        if not pending and not compaction_plan:
-            logger.info("Nothing to do — no PENDING slots and no compaction needed", workflow_id=inputs.workflow_id)
+        if not pending and not compaction_plan and not reclaimed_from_this_run:
+            logger.info(
+                "Nothing to do — no PENDING slots, nothing reclaimed, and no compaction needed",
+                workflow_run_id=inputs.workflow_id,
+            )
             return AssignPendingSlotsResult(assignments=[], assigned_slot_ids=[], compacted_slot_ids=[])
 
         # PENDING-slot assignment: avoid every column currently in use across all teams,
@@ -457,7 +509,29 @@ def assign_pending_slots(inputs: AssignPendingSlotsInputs) -> AssignPendingSlots
             slot.state = MaterializedColumnSlotState.BACKFILL
             slot.backfill_temporal_workflow_id = inputs.workflow_id
             slot.error_message = None
-            slot.save(update_fields=["slot_index", "state", "backfill_temporal_workflow_id", "error_message"])
+            slot.save(
+                update_fields=[
+                    "slot_index",
+                    "state",
+                    "backfill_temporal_workflow_id",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+            assigned_slot_ids.append(str(slot.id))
+
+        # Re-include reclaimed slots in the assignment plan so the mutation runs against
+        # them too (idempotent — the mutation runner attaches to an existing mutation if one
+        # for the same command is already in flight or done).
+        reclaimed_assignments_by_column: dict[int, _ColumnAssignment] = {}
+        for slot in reclaimed_from_this_run:
+            assert slot.slot_index is not None  # filtered above
+            reclaimed_assignments_by_column.setdefault(
+                slot.slot_index, _ColumnAssignment(column_index=slot.slot_index, branches=[])
+            )
+            reclaimed_assignments_by_column[slot.slot_index].branches.append(
+                (slot.team_id, slot.property_definition.name, str(slot.id))
+            )
             assigned_slot_ids.append(str(slot.id))
 
         # Apply compaction targets — these stay in READY state with compaction_target_slot_index set.
@@ -477,14 +551,17 @@ def assign_pending_slots(inputs: AssignPendingSlotsInputs) -> AssignPendingSlots
                 (slot.team_id, slot.property_definition.name, str(slot.id))
             )
 
-        all_assignments = pending_assignments + [
-            compaction_assignments_by_column[idx] for idx in sorted(compaction_assignments_by_column)
-        ]
+        all_assignments = (
+            pending_assignments
+            + [reclaimed_assignments_by_column[idx] for idx in sorted(reclaimed_assignments_by_column)]
+            + [compaction_assignments_by_column[idx] for idx in sorted(compaction_assignments_by_column)]
+        )
 
     logger.info(
         "Assigned PENDING slots and compaction targets",
-        workflow_id=inputs.workflow_id,
+        workflow_run_id=inputs.workflow_id,
         assigned_count=len(assigned_slot_ids),
+        reclaimed_count=len(reclaimed_from_this_run),
         compacted_count=len(compacted_slot_ids),
         column_count=len(all_assignments),
     )
@@ -613,32 +690,37 @@ def run_batched_mutation(inputs: RunBatchedMutationInputs) -> None:
         chunk_count=len(chunks),
     )
 
-    cluster = get_cluster()
-    for chunk_index, chunk in enumerate(chunks):
-        chunk_branches = sum(len(a.branches) for a in chunk)
-        if chunk_branches > MAX_MULTIIF_BRANCHES_PER_MUTATION:
-            # Single column with too many branches — let it through but warn so we notice.
-            # If this fires repeatedly the per-team cap or the column-packing strategy
-            # needs revisiting (e.g. raise MAX_SLOTS_PER_TEAM or pack fewer teams per column).
-            logger.warning(
-                "Single-column chunk exceeds branch cap — submitting anyway, may hit max_query_size",
-                chunk_branches=chunk_branches,
-                column_index=chunk[0].column_index if chunk else None,
-            )
+    # Sync activity that may run for hours — without periodic heartbeats Temporal
+    # will kill it as soon as `heartbeat_timeout` elapses. The HeartbeaterSync
+    # context manager spawns a background thread that calls `activity.heartbeat()`
+    # at heartbeat_timeout / 12.
+    with HeartbeaterSync(logger=logger):
+        cluster = get_cluster()
+        for chunk_index, chunk in enumerate(chunks):
+            chunk_branches = sum(len(a.branches) for a in chunk)
+            if chunk_branches > MAX_MULTIIF_BRANCHES_PER_MUTATION:
+                # Single column with too many branches — let it through but warn so we notice.
+                # If this fires repeatedly the per-team cap or the column-packing strategy
+                # needs revisiting (e.g. raise MAX_SLOTS_PER_TEAM or pack fewer teams per column).
+                logger.warning(
+                    "Single-column chunk exceeds branch cap — submitting anyway, may hit max_query_size",
+                    chunk_branches=chunk_branches,
+                    column_index=chunk[0].column_index if chunk else None,
+                )
 
-        command, params = _build_batched_update_command(chunk)
-        runner = AlterTableMutationRunner(
-            table="sharded_events",
-            commands={command},
-            parameters=params,
-        )
-        runner.run_on_shards(cluster)
-        logger.info(
-            "Mutation chunk complete on all shards",
-            chunk_index=chunk_index + 1,
-            total_chunks=len(chunks),
-            chunk_branches=chunk_branches,
-        )
+            command, params = _build_batched_update_command(chunk)
+            runner = AlterTableMutationRunner(
+                table="sharded_events",
+                commands={command},
+                parameters=params,
+            )
+            runner.run_on_shards(cluster)
+            logger.info(
+                "Mutation chunk complete on all shards",
+                chunk_index=chunk_index + 1,
+                total_chunks=len(chunks),
+                chunk_branches=chunk_branches,
+            )
 
     logger.info("All batched dmat backfill mutation chunks complete", chunk_count=len(chunks))
 
@@ -704,9 +786,18 @@ class FinalizeCompactionInputs:
 def finalize_compaction(inputs: FinalizeCompactionInputs) -> int:
     """
     After the batched mutation has populated `compaction_target_slot_index` columns,
-    atomically swap each compacted slot's `slot_index` ← `compaction_target_slot_index`
-    and clear the target. The slot remains READY throughout — the only observable change
-    is which dmat_string column HogQL reads from on the next query.
+    swap each compacted slot's `slot_index` ← `compaction_target_slot_index` and clear
+    the target. The slot remains READY throughout — the only observable change is which
+    dmat_string column HogQL reads from on the next query.
+
+    The whole batch swaps in a single transaction with `select_for_update()` so a
+    crash mid-loop rolls back cleanly (Postgres transactional guarantee), and so the
+    activity is correct under retry: re-running it produces the same final state and
+    we don't end up with a half-swapped batch confusing the planner on the next
+    workflow run. Inside the transaction we also assert per-team uniqueness of the
+    target column index against the *other* slots — if some operator hand-edited the
+    table or a future planner bug let two slots claim the same target column for the
+    same team, we fail loudly rather than silently violating the unique constraint.
 
     Until plugin-server caches refresh (~3 min), ingestion may still write to the OLD column
     for in-flight events. That data is harmless (no slot reads it) and the column is fully
@@ -716,38 +807,63 @@ def finalize_compaction(inputs: FinalizeCompactionInputs) -> int:
         return 0
 
     swapped = 0
-    for slot in MaterializedColumnSlot.objects.select_related("team", "property_definition").filter(
-        id__in=inputs.slot_ids,
-        compaction_target_slot_index__isnull=False,
-    ):
-        old_slot_index = slot.slot_index
-        new_slot_index = slot.compaction_target_slot_index
-        slot.slot_index = new_slot_index
-        slot.compaction_target_slot_index = None
-        slot.save(update_fields=["slot_index", "compaction_target_slot_index"])
-        swapped += 1
-
-        log_activity(
-            organization_id=slot.team.organization_id,
-            team_id=slot.team_id,
-            user=None,
-            was_impersonated=False,
-            item_id=str(slot.id),
-            scope="DataManagement",
-            activity="materialized_column_compacted",
-            detail=Detail(
-                name=slot.property_definition.name,
-                changes=[
-                    Change(
-                        type="MaterializedColumnSlot",
-                        action="changed",
-                        field="slot_index",
-                        before=old_slot_index,
-                        after=new_slot_index,
-                    ),
-                ],
-            ),
+    with transaction.atomic():
+        slots = list(
+            MaterializedColumnSlot.objects.select_for_update()
+            .select_related("team", "property_definition")
+            .filter(
+                id__in=inputs.slot_ids,
+                compaction_target_slot_index__isnull=False,
+            )
         )
+        for slot in slots:
+            old_slot_index = slot.slot_index
+            new_slot_index = slot.compaction_target_slot_index
+            collision = (
+                MaterializedColumnSlot.objects.filter(
+                    team_id=slot.team_id,
+                    property_type=slot.property_type,
+                    slot_index=new_slot_index,
+                )
+                .exclude(id=slot.id)
+                .exists()
+            )
+            if collision:
+                # The planner must never let two slots in the same team end up on the same
+                # column. If we see this, something has corrupted the slot table — abort the
+                # whole transaction so the operator can investigate before any swap is committed.
+                raise RuntimeError(
+                    f"Cannot finalize compaction for slot {slot.id}: "
+                    f"team {slot.team_id} already has another {slot.property_type} slot at column "
+                    f"{new_slot_index}. Aborting the entire compaction batch — investigate slot "
+                    f"table state before retrying."
+                )
+            slot.slot_index = new_slot_index
+            slot.compaction_target_slot_index = None
+            slot.save(update_fields=["slot_index", "compaction_target_slot_index", "updated_at"])
+            swapped += 1
+
+            log_activity(
+                organization_id=slot.team.organization_id,
+                team_id=slot.team_id,
+                user=None,
+                was_impersonated=False,
+                item_id=str(slot.id),
+                scope="DataManagement",
+                activity="materialized_column_compacted",
+                detail=Detail(
+                    name=slot.property_definition.name,
+                    changes=[
+                        Change(
+                            type="MaterializedColumnSlot",
+                            action="changed",
+                            field="slot_index",
+                            before=old_slot_index,
+                            after=new_slot_index,
+                        ),
+                    ],
+                ),
+            )
 
     logger.info("Finalized compaction", swapped=swapped, requested=len(inputs.slot_ids))
     return swapped

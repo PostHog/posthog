@@ -181,40 +181,113 @@ function extractDynamicMaterializedColumns(
     return out
 }
 
+/**
+ * Mirror the SQL extraction `replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, key), ''), 'null'), '^"|"$', '')`
+ * on a parsed JS value, so the live-ingest column write produces byte-identical output to the
+ * historical-backfill mutation and to HogQL's JSON fallback (which uses the same SQL).
+ *
+ * Plugin-server gets the parsed JS value, not the raw JSON text — so we re-encode and apply
+ * the SQL nullIf+regex rules. Without this step `String({a:1})` writes `[object Object]` while
+ * the SQL backfill writes `{"a":1}`, and the same row reads differently before vs after backfill.
+ *
+ * The shared fixture at posthog/temporal/backfill_materialized_property/coercion_fixtures.json
+ * pins down the cases this function MUST agree with the SQL on.
+ */
+export function jsonExtractRawAndTrimQuotes(value: unknown): string | null {
+    if (value === null || value === undefined) {
+        // Mirrors `nullIf(extract, 'null')`: a JSON `null` becomes SQL NULL.
+        return null
+    }
+    const json = JSON.stringify(value)
+    // `JSON.stringify(undefined)` returns `undefined` — handled above. For all other inputs
+    // it returns a string, never the empty string, so the SQL `nullIf(extract, '')` branch is
+    // unreachable from real ingestion input.
+    if (json === 'null') {
+        // JSON.stringify(null) === 'null' but we already returned for that. This is for any
+        // future edge case where the encoder produces the literal 'null' string; keep parity
+        // with SQL's nullIf(..., 'null').
+        return null
+    }
+    // Strip exactly one leading and one trailing `"` if both present (mirrors `^"|"$`).
+    if (json.length >= 2 && json[0] === '"' && json[json.length - 1] === '"') {
+        return json.slice(1, -1)
+    }
+    return json
+}
+
+/**
+ * Best-effort parse of a datetime string into a Luxon DateTime. Tries the formats
+ * ClickHouse's `parseDateTime64BestEffortOrNull` accepts most reliably:
+ *   - ISO 8601 (with or without `T` and timezone)
+ *   - SQL format `YYYY-MM-DD HH:mm:ss`
+ *   - date-only `YYYY-MM-DD`
+ *   - RFC 2822
+ *
+ * Out-of-spec formats (e.g. `MM/DD/YYYY`) may still parse on the SQL side; this function
+ * returns null for them. The shared fixture documents which formats are guaranteed to round-trip.
+ */
+function tryParseDateTime(text: string): DateTime | null {
+    const isoT = DateTime.fromISO(text, { zone: 'utc' })
+    if (isoT.isValid) {
+        return isoT
+    }
+    const sqlForm = DateTime.fromFormat(text, 'yyyy-MM-dd HH:mm:ss', { zone: 'utc' })
+    if (sqlForm.isValid) {
+        return sqlForm
+    }
+    const rfc = DateTime.fromRFC2822(text, { zone: 'utc' })
+    if (rfc.isValid) {
+        return rfc
+    }
+    return null
+}
+
 function convertPropertyValueForSlot(
     value: unknown,
     propertyType: MaterializedColumnSlot['property_type']
 ): string | number | null {
-    try {
-        switch (propertyType) {
-            case 'String':
-                return String(value)
-            case 'Numeric': {
-                const numValue = parseFloat(String(value))
-                return isNaN(numValue) ? null : numValue
-            }
-            case 'Boolean': {
-                const strValue = String(value).toLowerCase()
-                if (strValue === 'true' || strValue === '1') {
-                    return 1
-                }
-                if (strValue === 'false' || strValue === '0') {
-                    return 0
-                }
-                return null
-            }
-            case 'DateTime': {
-                // Match HogQL's parseDateTime64BestEffortOrNull behavior: parse loosely; reject if not parseable.
-                const parsed = DateTime.fromISO(String(value), { zone: 'utc' })
-                if (!parsed.isValid) {
-                    return null
-                }
-                return castTimestampToClickhouseFormat(parsed, TimestampFormat.ClickHouse)
-            }
-            default:
-                return null
-        }
-    } catch {
+    // First reproduce the SQL extraction so the input to the type cast matches what the
+    // backfill mutation sees. After this the cases below differ only in the type wrapper
+    // (toFloat64OrNull / transform / parseDateTime64BestEffortOrNull) — match each precisely.
+    const raw = jsonExtractRawAndTrimQuotes(value)
+    if (raw === null) {
         return null
+    }
+    switch (propertyType) {
+        case 'String':
+            return raw
+        case 'Numeric': {
+            // Match `toFloat64OrNull(raw)`. parseFloat tolerates leading whitespace; SQL
+            // tolerates leading and trailing. Both reject non-numeric input by returning NULL.
+            const numValue = parseFloat(raw)
+            return isNaN(numValue) ? null : numValue
+        }
+        case 'Boolean':
+            // Match `transform(toString(raw), ['true', 'false'], [1, 0], NULL)` — case-sensitive
+            // lowercase only. '1', '0', 'TRUE', 'True', 'yes', etc. all return NULL.
+            if (raw === 'true') {
+                return 1
+            }
+            if (raw === 'false') {
+                return 0
+            }
+            return null
+        case 'DateTime': {
+            const parsed = tryParseDateTime(raw)
+            if (parsed === null) {
+                return null
+            }
+            // dmat datetime columns are Nullable(DateTime64(6, 'UTC')) — pad to 6 decimal
+            // places so the string we write to Kafka matches the format ClickHouse uses when
+            // reading the column back, which lets HogQL queries that compare a JSON-fallback
+            // datetime to a dmat datetime return TRUE for the same instant. castTimestampToClickhouseFormat
+            // emits millisecond precision (3 decimals); pad to microsecond precision (6).
+            const millis = castTimestampToClickhouseFormat(parsed, TimestampFormat.ClickHouse)
+            const dot = millis.lastIndexOf('.')
+            if (dot === -1) {
+                return `${millis}.000000`
+            }
+            return millis + '0'.repeat(6 - (millis.length - dot - 1))
+        }
     }
 }
