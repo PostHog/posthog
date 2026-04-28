@@ -178,8 +178,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
     props({} as DashboardLogicProps),
 
     key((props) => {
-        if (typeof props.id !== 'number') {
-            throw Error('Must init dashboardLogic with a numeric ID key')
+        // `typeof NaN === 'number'`, so the previous check let NaN-keyed instances through silently;
+        // they then mounted, never fired a load (afterMount's `if (props.id)` is falsy for NaN), and
+        // the scene was stuck on NotFound. Reject NaN explicitly so an upstream regression — e.g.
+        // `paramsToProps` running before route params are hydrated — surfaces as a loud error caught
+        // by the nearest React error boundary instead of the silent stuck state.
+        if (typeof props.id !== 'number' || !Number.isFinite(props.id)) {
+            throw Error('Must init dashboardLogic with a finite numeric ID key')
         }
         return props.id
     }),
