@@ -146,12 +146,12 @@ class SignupSerializer(serializers.Serializer):
         # Password signup: if a password is provided, use it even if passkey data exists
         if password:
             pass
+        # Social signup: OAuth provider is authoritative; ignore stale passkey state
+        elif self.is_social_signup:
+            pass
         # Passkey signup: credential in session, no password needed
         elif passkey_credential:
             self.is_passkey_signup = True
-        # Social signup: password not required
-        elif self.is_social_signup:
-            pass
         # Demo mode: password not required
         elif settings.DEMO:
             pass
@@ -169,8 +169,9 @@ class SignupSerializer(serializers.Serializer):
         session_email = request.session.get(WEBAUTHN_SIGNUP_EMAIL_KEY) if request else None
         password = request.data.get("password") if request else None
 
-        # For passkey signup (only if no password provided), use the email from session (already validated during registration)
-        if passkey_credential and session_email and not password:
+        # For passkey signup (skip when password is provided or this is social signup, since those
+        # explicit method choices override stale passkey state), use the email from session
+        if passkey_credential and session_email and not password and not self.is_social_signup:
             if session_email.lower() != value.lower():
                 raise serializers.ValidationError(
                     "Email does not match the email used for passkey registration", code="email_mismatch"
@@ -193,8 +194,9 @@ class SignupSerializer(serializers.Serializer):
         passkey_credential = request.session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY)
         password = validated_data.get("password")
 
-        # If a password is provided, clear passkey session data and use password signup
-        if password and passkey_credential:
+        # If a password is provided or this is social signup, clear stale passkey session data so
+        # a switched signup method doesn't drag in an unrelated passkey credential or UUID.
+        if passkey_credential and (password or self.is_social_signup):
             request.session.pop(WEBAUTHN_SIGNUP_CREDENTIAL_KEY, None)
             request.session.pop(WEBAUTHN_SIGNUP_EMAIL_KEY, None)
             request.session.pop(WEBAUTHN_SIGNUP_USER_UUID_KEY, None)

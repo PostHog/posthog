@@ -1740,6 +1740,66 @@ class TestPasskeySignupAPI(APIBaseTest):
         self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
         self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
 
+    @pytest.mark.skip_on_multitenancy
+    def test_social_signup_with_stale_passkey_in_session(self):
+        """
+        When a user starts a passkey registration, abandons it, and then signs up via a social
+        provider (e.g. Google), the stale passkey session data must not be applied to the social
+        user. The OAuth-provided email should be used as-is, no WebauthnCredential should be
+        created, and the passkey session keys should be cleared.
+        """
+        from django.contrib.sessions.backends.db import SessionStore
+
+        from webauthn.helpers import bytes_to_base64url
+
+        from posthog.api.webauthn import (
+            WEBAUTHN_SIGNUP_CREDENTIAL_KEY,
+            WEBAUTHN_SIGNUP_EMAIL_KEY,
+            WEBAUTHN_SIGNUP_USER_UUID_KEY,
+        )
+
+        passkey_email = "passkey_started@posthog.com"
+        social_email = "social_finished@posthog.com"
+
+        session = SessionStore()
+        session["backend"] = "google-oauth2"
+        session["email"] = social_email
+        session["user_name"] = "Social User"
+        session[WEBAUTHN_SIGNUP_EMAIL_KEY] = passkey_email
+        session[WEBAUTHN_SIGNUP_USER_UUID_KEY] = str(uuid.uuid4())
+        session[WEBAUTHN_SIGNUP_CREDENTIAL_KEY] = {
+            "credential_id": bytes_to_base64url(b"stale-passkey-credential"),
+            "public_key": bytes_to_base64url(b"stale-passkey-public-key"),
+            "algorithm": -7,
+            "sign_count": 0,
+            "transports": ["internal"],
+        }
+        session.create()
+        session_key = session.session_key
+
+        self.client.cookies["sessionid"] = session_key or ""
+
+        response = self.client.post(
+            "/api/social_signup/",
+            {
+                "first_name": "Social",
+                "organization_name": "Social Stack Org",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(email=social_email)
+        self.assertFalse(User.objects.filter(email=passkey_email).exists())
+
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+
+        session = SessionStore(session_key=session_key)
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
+        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+
 
 class TestSignupSessionSaveRecovery(unittest.TestCase):
     def test_save_session_with_recovery_uses_save_when_row_exists(self):
