@@ -375,7 +375,7 @@ function PromptResultCard({ item }: { item?: ComparisonItem }): JSX.Element {
     const canAddToConversation = !!item?.response && !item.error && !isStreaming
 
     const handleAddToConversation = (): void => {
-        if (!item?.response || !item.promptId) {
+        if (!item?.response) {
             return
         }
         addResultToConversation(item.response, item.promptId)

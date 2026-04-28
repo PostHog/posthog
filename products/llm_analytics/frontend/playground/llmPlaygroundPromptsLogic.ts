@@ -576,19 +576,14 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                     state: PromptConfig[],
                     { response, promptId }: { response: string; promptId?: string }
                 ) =>
-                    updatePromptConfigs(state, promptId, (prompt) => {
-                        if (!response.trim()) {
-                            return prompt
-                        }
-                        return {
-                            ...prompt,
-                            messages: [
-                                ...prompt.messages,
-                                { role: 'assistant', content: response },
-                                { role: 'user', content: '' },
-                            ],
-                        }
-                    }),
+                    updatePromptConfigs(state, promptId, (prompt) => ({
+                        ...prompt,
+                        messages: [
+                            ...prompt.messages,
+                            { role: 'assistant', content: response },
+                            { role: 'user', content: '' },
+                        ],
+                    })),
                 updateMessage: (
                     state: PromptConfig[],
                     { index, payload, promptId }: { index: number; payload: Partial<Message>; promptId?: string }
