@@ -18,6 +18,8 @@ from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, NodePat
 INSIGHT_TOOL_PROMPT = """
 Use this tool to generate an insight from a structured plan. It will return a visualization that the user can analyze and a textual representation for your analysis. These visualizations are transient and only exist within the current conversation—they are not saved to the project. To save an insight permanently, users should click the open insight icon below the chart in the conversation.
 
+Before creating a new insight, use the search tool with kind="insights" to check if the user's project already has a saved insight that answers their question. If a matching insight is found, use the read_data tool to read and execute it (with execute=true) instead of creating a new transient one. Only use this tool to create a new insight when no suitable existing insight is found.
+
 This tool can also be used to edit the visualization the user is currently viewing on the insight page. In that case, you need to generate a new plan based on the schema of the existing insight.
 
 The tool only generates a single visualization per call. If the user asks for multiple visualizations, you need to decompose a query into multiple subqueries and call the tool for each subquery.
