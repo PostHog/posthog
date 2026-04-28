@@ -1,9 +1,12 @@
+import pytest
 from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
+from google.api_core.exceptions import Forbidden
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from posthog.temporal.data_imports.sources.bigquery import bigquery as bigquery_module
 from posthog.temporal.data_imports.sources.bigquery.source import BigQuerySource
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQueryDatasetProjectConfig,
@@ -32,6 +35,86 @@ def test_bigquery_get_schemas_with_existing_destination_tables():
         schemas = source_cls.get_schemas(mock.ANY, 1)
         assert len(schemas) == 1
         assert schemas[0].name == "table"
+
+
+@pytest.mark.parametrize(
+    "dataset_project,expected_project_in_message,expects_cross_project_hint",
+    [
+        (None, "service-account-project", True),
+        (
+            BigQueryDatasetProjectConfig(dataset_project_id="other-project", enabled=True),
+            "other-project",
+            False,
+        ),
+    ],
+)
+def test_bigquery_get_schemas_raises_actionable_error_on_forbidden(
+    dataset_project, expected_project_in_message, expects_cross_project_hint
+):
+    """When BigQuery returns 403 on INFORMATION_SCHEMA.COLUMNS, surface a clear error.
+
+    Previously this swallowed the Forbidden and returned an empty dict, leaving the
+    source wizard with "No schemas found" and no way for the user to recover.
+    """
+    config = BigQuerySourceConfig(
+        key_file=BigQueryKeyFileConfig(
+            project_id="service-account-project",
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="token-uri",
+        ),
+        dataset_id="my-dataset",
+        dataset_project=dataset_project,
+        temporary_dataset=None,
+    )
+
+    mock_query = mock.MagicMock()
+    mock_query.result.side_effect = Forbidden("permission denied")
+    mock_client = mock.MagicMock()
+    mock_client.query.return_value = mock_query
+
+    with mock.patch.object(bigquery_module, "bigquery_client") as mock_client_cm:
+        mock_client_cm.return_value.__enter__.return_value = mock_client
+
+        with pytest.raises(PermissionError) as exc_info:
+            bigquery_module.get_schemas(config)
+
+    message = str(exc_info.value)
+    assert "INFORMATION_SCHEMA.COLUMNS" in message
+    assert "my-dataset" in message
+    assert expected_project_in_message in message
+    assert ("Use a different project for the dataset" in message) is expects_cross_project_hint
+    # Wrapped exception preserved for debugging.
+    assert isinstance(exc_info.value.__cause__, Forbidden)
+
+
+def test_bigquery_get_schemas_returns_empty_dict_when_dataset_has_no_tables():
+    """An empty INFORMATION_SCHEMA.COLUMNS result should still be treated as success."""
+    config = BigQuerySourceConfig(
+        key_file=BigQueryKeyFileConfig(
+            project_id="project",
+            private_key="private-key",
+            private_key_id="private-key-id",
+            client_email="client-email",
+            token_uri="token-uri",
+        ),
+        dataset_id="empty-dataset",
+        dataset_project=None,
+        temporary_dataset=None,
+    )
+
+    mock_query = mock.MagicMock()
+    mock_query.result.return_value = iter([])
+    mock_client = mock.MagicMock()
+    mock_client.query.return_value = mock_query
+
+    with mock.patch.object(bigquery_module, "bigquery_client") as mock_client_cm:
+        mock_client_cm.return_value.__enter__.return_value = mock_client
+
+        result = bigquery_module.get_schemas(config)
+
+    assert result == {}
 
 
 def test_bigquery_destination_table_default():

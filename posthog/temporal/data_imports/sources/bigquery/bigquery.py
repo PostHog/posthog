@@ -40,6 +40,15 @@ def get_schemas(
     ):
         region = config.use_custom_region.region
 
+    dataset_project_enabled = bool(
+        config.dataset_project and config.dataset_project.enabled and config.dataset_project.dataset_project_id
+    )
+    effective_project_id = (
+        config.dataset_project.dataset_project_id
+        if dataset_project_enabled and config.dataset_project is not None
+        else config.key_file.project_id
+    )
+
     with bigquery_client(
         config.key_file.project_id,
         region,
@@ -50,19 +59,27 @@ def get_schemas(
     ) as bq:
         query = bq.query(
             f"SELECT table_name, column_name, data_type, is_nullable FROM `{config.dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
-            project=config.dataset_project.dataset_project_id
-            if config.dataset_project and config.dataset_project.enabled
-            else config.key_file.project_id,
+            project=effective_project_id,
         )
         try:
             rows = query.result()
-        except Forbidden:
+        except Forbidden as e:
             if logger:
                 logger.warning(
-                    "Could not obtain new schemas from BigQuery due to missing permissions on '%s.INFORMATION_SCHEMA.COLUMNS'",
+                    "BigQuery permission denied while listing schemas for '%s.INFORMATION_SCHEMA.COLUMNS' in project '%s'",
                     config.dataset_id,
+                    effective_project_id,
                 )
-            return {}
+            cross_project_hint = (
+                ""
+                if dataset_project_enabled
+                else " If your dataset lives in a different project from your service account, enable the 'Use a different project for the dataset' option and provide the dataset's project ID."
+            )
+            raise PermissionError(
+                f"BigQuery service account lacks permission to read 'INFORMATION_SCHEMA.COLUMNS' on dataset "
+                f"'{config.dataset_id}' in project '{effective_project_id}'. Grant the service account "
+                f"the 'BigQuery Metadata Viewer' role (or 'bigquery.tables.get' / 'bigquery.tables.list') on this dataset.{cross_project_hint}"
+            ) from e
 
         for row in rows:
             schema_list[row.table_name].append((row.column_name, row.data_type, row.is_nullable == "YES"))
