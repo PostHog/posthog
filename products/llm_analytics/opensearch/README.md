@@ -44,3 +44,4 @@ Idempotent — safe to run any time. Template applies to _new_ indices only; to 
 - **No ISM locally.** Hot → UltraWarm requires UltraWarm-typed nodes (S3-backed); a single-node cluster can't provide them. Local is hot-only; prod uses ISM via Terraform.
 - **Security plugin is off.** Bind is loopback-only (`127.0.0.1`) so the open cluster isn't reachable off-host. AWS OpenSearch Service authenticates via SigV4/IAM at the load balancer instead — no in-cluster RBAC there either.
 - **Schema source of truth:** `llm-traces-v0_1.template.json`. Same file is consumed by the init container locally and (eventually) by Terraform in prod.
+- **Local cluster status is yellow, not green.** Template sets `number_of_replicas: 1` for prod redundancy; the single-node local cluster can't allocate the replica, so the index sits in yellow. Functionally fine for dev.
