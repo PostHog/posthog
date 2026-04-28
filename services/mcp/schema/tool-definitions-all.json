@@ -492,7 +492,7 @@
         }
     },
     "query-error-tracking-issues-list": {
-        "description": "List error tracking issues to find, filter, and prioritize errors in the project. Returns compact issue rows with aggregate counts only, not stack traces or full event payloads. Defaults to active issues from the last 7 days, sorted by occurrences. Prefer typed filters like library, release, environment, fingerprint hash, user, url, filePath, and personId before using the advanced filterGroup escape hatch. Use query-error-tracking-issue for one issue's aggregate metadata, and query-error-tracking-issue-events only when stack traces or sample exception events are needed.",
+        "description": "List error tracking issues to find, filter, and prioritize errors in the project. Returns compact issue rows with aggregate counts only, not stack traces or full event payloads. Defaults to active issues from the last 7 days, sorted by occurrences. Prefer typed filters like library, release, fingerprint hash, user, url, filePath, and personId before using the advanced filterGroup escape hatch. Use query-error-tracking-issue for one issue's aggregate metadata, and query-error-tracking-issue-events only when stack traces or sample exception events are needed.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "List compact error tracking issues with typed common filters.",
