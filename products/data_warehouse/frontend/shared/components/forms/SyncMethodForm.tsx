@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
 import { LemonButton, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
@@ -67,6 +67,14 @@ interface SyncMethodFormProps {
     primaryKeyLocked?: boolean
     saveButtonIsLoading?: boolean
     isNewSource?: boolean
+    /** Hide the built-in Close and Save buttons so a parent can render its own save action outside the form. */
+    hideFooter?: boolean
+    /** Called whenever the form's save validity changes. Useful when rendering an external Save button. */
+    onSaveDisabledReasonChange?: (disabledReason: string | undefined) => void
+}
+
+export interface SyncMethodFormHandle {
+    triggerSave: () => void
 }
 
 const getCdcSyncSupported = (
@@ -125,16 +133,21 @@ const getInitialRadioState = (
     return 'full_refresh'
 }
 
-export const SyncMethodForm = ({
-    schema,
-    onClose,
-    onSave,
-    availableColumns,
-    detectedPrimaryKeys,
-    primaryKeyLocked,
-    saveButtonIsLoading,
-    isNewSource,
-}: SyncMethodFormProps): JSX.Element => {
+export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormProps>(function SyncMethodForm(
+    {
+        schema,
+        onClose,
+        onSave,
+        availableColumns,
+        detectedPrimaryKeys,
+        primaryKeyLocked,
+        saveButtonIsLoading,
+        isNewSource,
+        hideFooter,
+        onSaveDisabledReasonChange,
+    },
+    ref
+): JSX.Element {
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
@@ -142,11 +155,13 @@ export const SyncMethodForm = ({
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
 
+    const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
+
     const [radioValue, setRadioValue] = useState(() =>
         getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled)
     )
-    const [incrementalFieldValue, setIncrementalFieldValue] = useState(schema.incremental_field ?? null)
-    const [appendFieldValue, setAppendFieldValue] = useState(schema.incremental_field ?? null)
+    const [incrementalFieldValue, setIncrementalFieldValue] = useState(defaultField)
+    const [appendFieldValue, setAppendFieldValue] = useState(defaultField)
     // Prefill detected PKs only when the selector is editable. For locked schemas
     // (already synced) the backend rejects any PK diff, so prefilling from detected
     // would silently turn unrelated edits into "Primary key cannot be changed" errors.
@@ -162,8 +177,8 @@ export const SyncMethodForm = ({
             schema.sync_type ??
                 (schema.supports_webhooks ? 'webhook' : incrementalSyncSupported.disabled ? 'append' : 'incremental')
         )
-        setIncrementalFieldValue(schema.incremental_field ?? null)
-        setAppendFieldValue(schema.incremental_field ?? null)
+        setIncrementalFieldValue(defaultField)
+        setAppendFieldValue(defaultField)
         setPrimaryKeyColumns(schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? [])))
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
 
@@ -289,7 +304,10 @@ export const SyncMethodForm = ({
                         <>
                             <LemonSelect
                                 value={incrementalFieldValue}
-                                onChange={(newValue) => setIncrementalFieldValue(newValue)}
+                                onChange={(newValue) => {
+                                    setIncrementalFieldValue(newValue)
+                                    setRadioValue('incremental')
+                                }}
                                 options={
                                     schema.incremental_fields.map((n) => ({
                                         value: n.field,
@@ -385,7 +403,10 @@ export const SyncMethodForm = ({
                         <>
                             <LemonSelect
                                 value={appendFieldValue}
-                                onChange={(newValue) => setAppendFieldValue(newValue)}
+                                onChange={(newValue) => {
+                                    setAppendFieldValue(newValue)
+                                    setRadioValue('append')
+                                }}
                                 options={
                                     schema.incremental_fields.map((n) => ({
                                         value: n.field,
@@ -429,6 +450,75 @@ export const SyncMethodForm = ({
         }
     )
 
+    // The form is "dirty" if the user has deviated from the server-persisted sync config. For a
+    // schema that has never been set up (`schema.sync_type` is null), any selection counts as
+    // dirty — the form's initial `radioValue` comes from the supported-modes default, which never
+    // equals null. For an existing schema we compare each relevant field against the schema.
+    const isDirty = ((): boolean => {
+        if (radioValue !== schema.sync_type) {
+            return true
+        }
+        if (radioValue === 'incremental') {
+            if (incrementalFieldValue !== (schema.incremental_field ?? null)) {
+                return true
+            }
+            const serverPrimaryKeys = schema.primary_key_columns ?? []
+            if (primaryKeyColumns.length !== serverPrimaryKeys.length) {
+                return true
+            }
+            if (primaryKeyColumns.some((pk, index) => pk !== serverPrimaryKeys[index])) {
+                return true
+            }
+        }
+        if (radioValue === 'append' && appendFieldValue !== (schema.incremental_field ?? null)) {
+            return true
+        }
+        if (radioValue === 'cdc' && cdcTableMode !== (schema.cdc_table_mode ?? 'consolidated')) {
+            return true
+        }
+        return false
+    })()
+
+    const validationDisabledReason = getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)
+    const saveDisabledReason = validationDisabledReason ?? (!isDirty ? 'No changes to save' : undefined)
+
+    const handleSave = (): void => {
+        if (radioValue === 'webhook') {
+            onSave('webhook', null, null, null)
+        } else if (radioValue === 'cdc') {
+            onSave('cdc', null, null, null, cdcTableMode)
+        } else if (radioValue === 'incremental') {
+            const fieldSelected = schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
+            if (!fieldSelected) {
+                lemonToast.error('Selected field for incremental replication not found')
+                return
+            }
+
+            onSave(
+                'incremental',
+                incrementalFieldValue,
+                fieldSelected.field_type,
+                primaryKeyColumns.length > 0 ? primaryKeyColumns : null
+            )
+        } else if (radioValue === 'append') {
+            const fieldSelected = schema.incremental_fields.find((n) => n.field === appendFieldValue)
+            if (!fieldSelected) {
+                lemonToast.error('Selected field for append replication not found')
+                return
+            }
+
+            onSave('append', appendFieldValue, fieldSelected.field_type, null)
+        } else {
+            onSave('full_refresh', null, null, null)
+        }
+    }
+
+    useImperativeHandle(ref, () => ({ triggerSave: handleSave }))
+
+    useEffect(() => {
+        onSaveDisabledReasonChange?.(saveDisabledReason)
+    }, [saveDisabledReason, onSaveDisabledReasonChange])
+
     return (
         <>
             <LemonRadio
@@ -437,50 +527,21 @@ export const SyncMethodForm = ({
                 options={radioOptions}
                 onChange={(newValue) => setRadioValue(newValue)}
             />
-            <div className="flex flex-row justify-end w-full">
-                <LemonButton className="mr-3" type="secondary" onClick={onClose}>
-                    Close
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    loading={saveButtonIsLoading}
-                    disabledReason={getSaveDisabledReason(radioValue, incrementalFieldValue, appendFieldValue)}
-                    onClick={() => {
-                        if (radioValue === 'webhook') {
-                            onSave('webhook', null, null, null)
-                        } else if (radioValue === 'cdc') {
-                            onSave('cdc', null, null, null, cdcTableMode)
-                        } else if (radioValue === 'incremental') {
-                            const fieldSelected = schema.incremental_fields.find(
-                                (n) => n.field === incrementalFieldValue
-                            )
-                            if (!fieldSelected) {
-                                lemonToast.error('Selected field for incremental replication not found')
-                                return
-                            }
-
-                            onSave(
-                                'incremental',
-                                incrementalFieldValue,
-                                fieldSelected.field_type,
-                                primaryKeyColumns.length > 0 ? primaryKeyColumns : null
-                            )
-                        } else if (radioValue === 'append') {
-                            const fieldSelected = schema.incremental_fields.find((n) => n.field === appendFieldValue)
-                            if (!fieldSelected) {
-                                lemonToast.error('Selected field for append replication not found')
-                                return
-                            }
-
-                            onSave('append', appendFieldValue, fieldSelected.field_type, null)
-                        } else {
-                            onSave('full_refresh', null, null, null)
-                        }
-                    }}
-                >
-                    Save
-                </LemonButton>
-            </div>
+            {!hideFooter && (
+                <div className="flex flex-row justify-end w-full">
+                    <LemonButton className="mr-3" type="secondary" onClick={onClose}>
+                        Close
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        loading={saveButtonIsLoading}
+                        disabledReason={saveDisabledReason}
+                        onClick={handleSave}
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            )}
         </>
     )
-}
+})
