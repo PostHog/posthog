@@ -510,7 +510,7 @@
         }
     },
     "cohorts-add-persons-to-static-cohort-partial-update": {
-        "description": "",
+        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Add persons to static cohort",

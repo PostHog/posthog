@@ -285,7 +285,8 @@ function mergeWithExisting(
     let matched = 0
     const unmatchedTools: string[] = []
 
-    // Preserve existing tool order and hand-authored operation values
+    // Preserve hand-authored config (enabled, scopes, descriptions, etc.) per tool.
+    // Tool order itself is normalized alphabetically below — see `sortedTools`.
     for (const [name, config] of Object.entries(existingTools)) {
         const base = config.operation.replace(/_\d+$/, '')
         const op = openApiByBase.get(base)
