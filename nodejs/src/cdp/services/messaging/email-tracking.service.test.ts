@@ -114,7 +114,97 @@ describe('EmailTrackingService', () => {
         })
 
         describe('SES webhook log entries', () => {
-            it('writes a per-recipient log entry for a hog_flow delivery', async () => {
+            it('writes a per-recipient log entry for a hog_flow bounce', async () => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+
+                const phId = generateEmailTrackingCode({
+                    functionId: hogFlow.id,
+                    id: invocationId,
+                    teamId: team.id,
+                    state: { actionId: 'act789' },
+                })
+
+                const res = await supertest(app)
+                    .post('/public/m/ses_webhook')
+                    .set('Content-Type', 'text/plain')
+                    .send(
+                        JSON.stringify([
+                            {
+                                eventType: 'Bounce',
+                                mail: {
+                                    timestamp: '2026-04-13T05:58:10Z',
+                                    source: 'sender@example.com',
+                                    messageId: 'msg-1',
+                                    destination: ['user@example.com'],
+                                    tags: { ph_id: [phId] },
+                                },
+                                bounce: {
+                                    bounceType: 'Permanent',
+                                    bouncedRecipients: [
+                                        {
+                                            emailAddress: 'user@example.com',
+                                            status: '5.1.1',
+                                            diagnosticCode: 'mailbox does not exist',
+                                        },
+                                    ],
+                                    timestamp: '2026-04-13T05:58:10Z',
+                                },
+                            },
+                        ])
+                    )
+                expect(res.status).toBe(200)
+
+                const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                expect(logMessages).toHaveLength(1)
+                expect(logMessages[0].value).toMatchObject({
+                    team_id: team.id,
+                    log_source: 'hog_flow',
+                    log_source_id: hogFlow.id,
+                    instance_id: invocationId,
+                    level: 'error',
+                    message: '[Action:act789] Permanent bounce to user@example.com, mailbox does not exist (5.1.1)',
+                })
+            })
+
+            it('does not write log entries for hog_function email bounces', async () => {
+                const phId = generateEmailTrackingCode({
+                    functionId: hogFunction.id,
+                    id: invocationId,
+                    teamId: team.id,
+                })
+
+                const res = await supertest(app)
+                    .post('/public/m/ses_webhook')
+                    .set('Content-Type', 'text/plain')
+                    .send(
+                        JSON.stringify([
+                            {
+                                eventType: 'Bounce',
+                                mail: {
+                                    timestamp: '2026-04-13T05:58:10Z',
+                                    source: 'sender@example.com',
+                                    messageId: 'msg-1',
+                                    destination: ['user@example.com'],
+                                    tags: { ph_id: [phId] },
+                                },
+                                bounce: {
+                                    bounceType: 'Permanent',
+                                    bouncedRecipients: [{ emailAddress: 'user@example.com' }],
+                                    timestamp: '2026-04-13T05:58:10Z',
+                                },
+                            },
+                        ])
+                    )
+                expect(res.status).toBe(200)
+
+                const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+                expect(logMessages).toHaveLength(0)
+            })
+
+            it('does not write log entries for info-level events (Open, Click, Delivery)', async () => {
                 const hogFlow = await insertHogFlow(
                     hub.postgres,
                     new FixtureHogFlowBuilder().withTeamId(team.id).build()
@@ -147,45 +237,6 @@ describe('EmailTrackingService', () => {
                                     processingTimeMillis: 825,
                                     reportingMTA: 'a14-57.smtp-out.amazonses.com',
                                 },
-                            },
-                        ])
-                    )
-                expect(res.status).toBe(200)
-
-                const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
-                expect(logMessages).toHaveLength(1)
-                expect(logMessages[0].value).toMatchObject({
-                    team_id: team.id,
-                    log_source: 'hog_flow',
-                    log_source_id: hogFlow.id,
-                    instance_id: invocationId,
-                    level: 'info',
-                    message: '[Action:act789] Delivered, 250 OK (825ms, reporting MTA a14-57.smtp-out.amazonses.com)',
-                })
-            })
-
-            it('does not write log entries for hog_function email sends', async () => {
-                const phId = generateEmailTrackingCode({
-                    functionId: hogFunction.id,
-                    id: invocationId,
-                    teamId: team.id,
-                })
-
-                const res = await supertest(app)
-                    .post('/public/m/ses_webhook')
-                    .set('Content-Type', 'text/plain')
-                    .send(
-                        JSON.stringify([
-                            {
-                                eventType: 'Delivery',
-                                mail: {
-                                    timestamp: '2026-04-13T05:58:10Z',
-                                    source: 'sender@example.com',
-                                    messageId: 'msg-1',
-                                    destination: ['user@example.com'],
-                                    tags: { ph_id: [phId] },
-                                },
-                                delivery: { timestamp: '2026-04-13T05:58:10Z' },
                             },
                         ])
                     )

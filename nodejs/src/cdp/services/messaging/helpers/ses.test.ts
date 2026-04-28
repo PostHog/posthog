@@ -26,19 +26,16 @@ describe('SesWebhookHandler', () => {
         },
     }
 
-    // Parameterized coverage for single-event-type parses. Each row lists the SES event
-    // body, the expected metric (or `null` when no metric should be emitted), the expected
-    // single log line (or `null` to assert no logs), and — for Bounce — the expected
-    // opt-out recipients.
     type SimpleEventCase = {
         name: string
         body: any
         metricName: string | null
-        log: { level: string; message: string; timestamp: string } | null
+        log: { level: string; message: string } | null
         optOutRecipients?: { teamId: string; emailAddresses: string[] }[]
     }
     const simpleEventCases: SimpleEventCase[] = [
         {
+            // Info-level events still emit metrics, but no log entries.
             name: 'Open',
             body: {
                 eventType: 'Open',
@@ -46,7 +43,7 @@ describe('SesWebhookHandler', () => {
                 open: { ipAddress: '1.2.3.4', userAgent: 'UA', timestamp: '2025-10-03T12:01:00Z' },
             },
             metricName: 'email_opened',
-            log: { level: 'info', message: '[Action:act789] Opened (UA)', timestamp: '2025-10-03T12:01:00Z' },
+            log: null,
         },
         {
             name: 'Click',
@@ -61,14 +58,10 @@ describe('SesWebhookHandler', () => {
                 },
             },
             metricName: 'email_link_clicked',
-            log: {
-                level: 'info',
-                message: '[Action:act789] Link clicked: https://example.com (UA)',
-                timestamp: '2025-10-03T12:02:00Z',
-            },
+            log: null,
         },
         {
-            name: 'Delivery without recipients',
+            name: 'Delivery',
             body: {
                 eventType: 'Delivery',
                 mail: baseMail,
@@ -77,14 +70,11 @@ describe('SesWebhookHandler', () => {
                     smtpResponse: '250 OK',
                     processingTimeMillis: 825,
                     reportingMTA: 'a14-57.smtp-out.amazonses.com',
+                    recipients: ['a@example.com', 'b@example.com'],
                 },
             },
             metricName: 'email_delivered',
-            log: {
-                level: 'info',
-                message: '[Action:act789] Delivered, 250 OK (825ms, reporting MTA a14-57.smtp-out.amazonses.com)',
-                timestamp: '2025-10-03T12:03:00Z',
-            },
+            log: null,
         },
         {
             name: 'Bounce permanent',
@@ -109,7 +99,6 @@ describe('SesWebhookHandler', () => {
             log: {
                 level: 'error',
                 message: '[Action:act789] Permanent bounce to to@example.com, mailbox does not exist (5.1.1)',
-                timestamp: '2025-10-03T12:04:00Z',
             },
             optOutRecipients: [{ teamId: '1', emailAddresses: ['to@example.com'] }],
         },
@@ -131,7 +120,6 @@ describe('SesWebhookHandler', () => {
             log: {
                 level: 'warn',
                 message: '[Action:act789] Transient bounce to to@example.com, temp (4.1.1)',
-                timestamp: '2025-10-03T12:04:00Z',
             },
             optOutRecipients: [],
         },
@@ -150,7 +138,6 @@ describe('SesWebhookHandler', () => {
             log: {
                 level: 'warn',
                 message: '[Action:act789] Complaint from to@example.com, feedback type: abuse',
-                timestamp: '2025-10-03T12:05:00Z',
             },
         },
         {
@@ -164,7 +151,6 @@ describe('SesWebhookHandler', () => {
             log: {
                 level: 'error',
                 message: '[Action:act789] Rendering failure for template welcome: bad template',
-                timestamp: baseMail.timestamp,
             },
         },
         {
@@ -174,7 +160,6 @@ describe('SesWebhookHandler', () => {
             log: {
                 level: 'error',
                 message: '[Action:act789] Message rejected by SES: spam',
-                timestamp: baseMail.timestamp,
             },
         },
         {
@@ -186,11 +171,8 @@ describe('SesWebhookHandler', () => {
             log: null,
         },
         {
-            // DeliveryDelay is accepted but not surfaced: SES retries soft failures on its
-            // own, and surfacing every transient delay would flood the log timeline. The
-            // assertion here guards against a regression that would re-introduce the
-            // ZodError → 500 → SNS retry loop that used to happen before the schema was
-            // added to the union.
+            // DeliveryDelay is accepted so SNS doesn't retry, but not surfaced as a log
+            // (SES retries soft failures on its own).
             name: 'DeliveryDelay (accepted, not logged)',
             body: {
                 eventType: 'DeliveryDelay',
@@ -228,7 +210,6 @@ describe('SesWebhookHandler', () => {
                     teamId: '1',
                     level: log.level,
                     message: log.message,
-                    timestamp: log.timestamp,
                 },
             ])
         } else {
@@ -240,21 +221,26 @@ describe('SesWebhookHandler', () => {
         }
     })
 
-    it('emits one log per recipient listed on a Delivery event', async () => {
+    it('emits one log per bounced recipient', async () => {
         const body = [
             {
-                eventType: 'Delivery',
+                eventType: 'Bounce',
                 mail: baseMail,
-                delivery: {
-                    timestamp: '2025-10-03T12:03:00Z',
-                    recipients: ['a@example.com', 'b@example.com'],
+                bounce: {
+                    bounceType: 'Permanent',
+                    timestamp: '2025-10-03T12:04:00Z',
+                    bouncedRecipients: [
+                        { emailAddress: 'a@example.com', diagnosticCode: 'mailbox full' },
+                        { emailAddress: 'b@example.com', diagnosticCode: 'mailbox full' },
+                    ],
                 },
             },
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.logEntries).toHaveLength(2)
-        expect(result.logEntries?.[0].message).toBe('[Action:act789] Delivered to a@example.com')
-        expect(result.logEntries?.[1].message).toBe('[Action:act789] Delivered to b@example.com')
+        expect(result.logEntries?.[0].message).toBe('[Action:act789] Permanent bounce to a@example.com, mailbox full')
+        expect(result.logEntries?.[1].message).toBe('[Action:act789] Permanent bounce to b@example.com, mailbox full')
+        expect(result.optOutRecipients?.[0].emailAddresses).toEqual(['a@example.com', 'b@example.com'])
     })
 
     it('does not duplicate status when SES inlines it inside diagnosticCode', async () => {
@@ -292,57 +278,18 @@ describe('SesWebhookHandler', () => {
         })
         const body = [
             {
-                eventType: 'Open',
+                eventType: 'Bounce',
                 mail: { ...baseMail, tags: { ph_id: [malicious] } },
-                open: { userAgent: 'UA', timestamp: '2025-10-03T12:01:00Z' },
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: [{ emailAddress: 'to@example.com', diagnosticCode: 'unknown' }],
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
             },
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
         // Prefix omitted entirely since actionId fails the allowlist
-        expect(result.logEntries?.[0].message).toBe('Opened (UA)')
-    })
-
-    it('truncates log fan-out when recipient count exceeds MAX_RECIPIENTS_PER_EVENT', async () => {
-        const body = [
-            {
-                eventType: 'Delivery',
-                mail: baseMail,
-                delivery: {
-                    timestamp: '2025-10-03T12:03:00Z',
-                    recipients: Array.from({ length: 75 }, (_, i) => `user${i}@example.com`),
-                },
-            },
-        ]
-        const result = await handler.handleWebhook({ body, headers: {} })
-        // Metric is still emitted once per event regardless of recipient count
-        expect(result.metrics?.[0].metricName).toBe('email_delivered')
-        // 50 per-recipient lines + 1 summary line = 51 total entries
-        expect(result.logEntries).toHaveLength(51)
-        expect(result.logEntries?.[0].message).toBe('[Action:act789] Delivered to user0@example.com')
-        expect(result.logEntries?.[49].message).toBe('[Action:act789] Delivered to user49@example.com')
-        expect(result.logEntries?.[50].message).toBe('[Action:act789] ... and 25 more recipients omitted from logs')
-    })
-
-    it('preserves full bouncedRecipients list for opt-out even when log fan-out is truncated', async () => {
-        const body = [
-            {
-                eventType: 'Bounce',
-                mail: baseMail,
-                bounce: {
-                    bounceType: 'Permanent',
-                    timestamp: '2025-10-03T12:04:00Z',
-                    bouncedRecipients: Array.from({ length: 55 }, (_, i) => ({
-                        emailAddress: `bad${i}@example.com`,
-                    })),
-                },
-            },
-        ]
-        const result = await handler.handleWebhook({ body, headers: {} })
-        // Opt-out list covers ALL bounced recipients, not just the first 50
-        expect(result.optOutRecipients?.[0].emailAddresses).toHaveLength(55)
-        // Log fan-out is capped at 50 + 1 summary line
-        expect(result.logEntries).toHaveLength(51)
-        expect(result.logEntries?.[50].message).toBe('[Action:act789] ... and 5 more recipients omitted from logs')
+        expect(result.logEntries?.[0].message).toBe('Permanent bounce to to@example.com, unknown')
     })
 
     it('returns 200 and no metrics if tracking code is missing', async () => {
