@@ -104,6 +104,7 @@ import {
     getSessionStartTimestamp,
     getTraceTimestamp,
     hasCostBreakdown,
+    isLikelyMalformedTraceId,
     isLLMEvent,
     normalizeMessages,
     removeMilliseconds,
@@ -488,7 +489,21 @@ function TraceSceneWrapper(): JSX.Element {
             ) : responseError ? (
                 <InsightErrorState />
             ) : !trace ? (
-                <NotFound object="trace" />
+                isLikelyMalformedTraceId(traceId) ? (
+                    <NotFound
+                        object="trace"
+                        caption={
+                            <>
+                                This trace ID looks malformed — it appears to be a JSON object rather than an
+                                identifier. This usually means the SDK call passed a structured value into{' '}
+                                <code>$ai_trace_id</code> instead of a string. Update the SDK call to send a scalar
+                                trace ID.
+                            </>
+                        }
+                    />
+                ) : (
+                    <NotFound object="trace" />
+                )
             ) : (
                 <div className="relative flex flex-col gap-3">
                     <div className="flex flex-col gap-4">

@@ -9,6 +9,7 @@ import {
     getSessionStartTimestamp,
     hasCostBreakdown,
     isLangChainMessage,
+    isLikelyMalformedTraceId,
     looksLikeXml,
     normalizeMessage,
     normalizeMessages,
@@ -65,6 +66,30 @@ describe('LLM Analytics utils', () => {
             ],
         ])('removes trace-scoped URL params', (searchParams, options, expected) => {
             expect(sanitizeTraceUrlSearchParams(searchParams, options)).toEqual(expected)
+        })
+    })
+
+    describe('isLikelyMalformedTraceId', () => {
+        it.each([
+            ['regular UUID', '019dcb5e-3e0c-72a9-8ec8-0e1315adc872', false],
+            ['short alphanumeric', 'abc123', false],
+            ['with hyphens and underscores', 'user_42-trace-9f', false],
+            ['JSON object', '{"device_id":"abc","session_id":"x"}', true],
+            ['JSON array', '[1,2,3]', true],
+            ['contains a quote', 'trace"id', true],
+            ['contains a newline', 'trace\nid', true],
+            ['empty string', '', true],
+            ['whitespace only', '   ', true],
+            ['oversized', 'a'.repeat(250), true],
+        ])('classifies %s as malformed=%s', (_label, id, expected) => {
+            expect(isLikelyMalformedTraceId(id)).toBe(expected)
+        })
+
+        it('treats non-string inputs as malformed', () => {
+            expect(isLikelyMalformedTraceId(undefined)).toBe(true)
+            expect(isLikelyMalformedTraceId(null)).toBe(true)
+            expect(isLikelyMalformedTraceId(123)).toBe(true)
+            expect(isLikelyMalformedTraceId({})).toBe(true)
         })
     })
 

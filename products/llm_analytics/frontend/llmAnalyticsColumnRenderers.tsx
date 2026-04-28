@@ -26,7 +26,10 @@ import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import { TraceReviewValue } from './traceReviews/TraceReviewValue'
 import { CompatMessage } from './types'
-import { normalizeMessages, parseJSONPreview } from './utils'
+import { isLikelyMalformedTraceId, normalizeMessages, parseJSONPreview } from './utils'
+
+const MALFORMED_TRACE_ID_TOOLTIP =
+    'This trace has a malformed ID (it looks like JSON, not an identifier). Update your SDK call to pass a string ID into $ai_trace_id.'
 
 const truncateValue = (value: string): string => {
     if (value.length > 8) {
@@ -430,9 +433,19 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
 
             const visualValue = truncateValue(value)
 
+            if (isLikelyMalformedTraceId(value)) {
+                return (
+                    <Tooltip title={MALFORMED_TRACE_ID_TOOLTIP}>
+                        <span className="text-muted italic" data-attr="generation-trace-id-malformed">
+                            {visualValue}
+                        </span>
+                    </Tooltip>
+                )
+            }
+
             return (
                 <Tooltip title={value}>
-                    <Link to={`/llm-analytics/traces/${value}`} data-attr="generation-trace-link">
+                    <Link to={urls.llmAnalyticsTrace(value)} data-attr="generation-trace-link">
                         {visualValue}
                     </Link>
                 </Tooltip>

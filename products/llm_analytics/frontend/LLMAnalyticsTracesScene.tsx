@@ -29,10 +29,21 @@ import {
     formatLLMLatency,
     formatLLMUsage,
     getTraceTimestamp,
+    isLikelyMalformedTraceId,
     LLM_TRACES_PAGE_SIZE,
     normalizeMessages,
     sanitizeTraceUrlSearchParams,
 } from './utils'
+
+const MALFORMED_TRACE_ID_TOOLTIP =
+    'This trace has a malformed ID (it looks like JSON, not an identifier). Update your SDK call to pass a string ID into $ai_trace_id.'
+
+function shortenTraceIdForDisplay(id: string): string {
+    if (id.length <= 10) {
+        return id
+    }
+    return `${id.slice(0, 4)}...${id.slice(-4)}`
+}
 
 export function LLMAnalyticsTraces(): JSX.Element {
     useMountedLogic(traceReviewsLazyLoaderLogic)
@@ -192,6 +203,21 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
     const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
+    const isMalformed = isLikelyMalformedTraceId(row.id)
+    const display = shortenTraceIdForDisplay(row.id || '')
+
+    if (isMalformed) {
+        return (
+            <strong>
+                <Tooltip title={MALFORMED_TRACE_ID_TOOLTIP}>
+                    <span className="text-muted italic" data-attr="trace-id-malformed">
+                        {display || 'Malformed ID'}
+                    </span>
+                </Tooltip>
+            </strong>
+        )
+    }
+
     return (
         <strong>
             <Tooltip title={row.id}>
@@ -205,7 +231,7 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
                     }
                     data-attr="trace-id-link"
                 >
-                    {row.id.slice(0, 4)}...{row.id.slice(-4)}
+                    {display}
                 </Link>
             </Tooltip>
         </strong>
@@ -216,21 +242,32 @@ const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     const { searchParams } = useValues(router)
     const nonTraceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
+    const isMalformed = isLikelyMalformedTraceId(row.id)
+    const traceName = row.traceName || '–'
+
     return (
         <div className="flex items-center gap-2">
             <strong>
-                <Link
-                    to={
-                        combineUrl(urls.llmAnalyticsTrace(row.id), {
-                            ...nonTraceSearchParams,
-                            back_to: 'traces',
-                            timestamp: getTraceTimestamp(row.createdAt),
-                        }).url
-                    }
-                    data-attr="trace-name-link"
-                >
-                    {row.traceName || '–'}
-                </Link>
+                {isMalformed ? (
+                    <Tooltip title={MALFORMED_TRACE_ID_TOOLTIP}>
+                        <span className="text-muted" data-attr="trace-name-malformed">
+                            {traceName}
+                        </span>
+                    </Tooltip>
+                ) : (
+                    <Link
+                        to={
+                            combineUrl(urls.llmAnalyticsTrace(row.id), {
+                                ...nonTraceSearchParams,
+                                back_to: 'traces',
+                                timestamp: getTraceTimestamp(row.createdAt),
+                            }).url
+                        }
+                        data-attr="trace-name-link"
+                    >
+                        {traceName}
+                    </Link>
+                )}
             </strong>
             {row.isSupportTrace && <LemonTag type="muted">Support</LemonTag>}
         </div>

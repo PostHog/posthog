@@ -97,6 +97,33 @@ export function sanitizeTraceUrlSearchParams(
     return sanitizedSearchParams
 }
 
+// Conservative heuristic for trace IDs that we know cannot resolve to a real
+// trace and would also produce a broken URL if linked. Driven by real
+// ingestion data where SDKs sometimes set `$ai_trace_id` to a serialized
+// JSON object (e.g. a session/device fingerprint) instead of a scalar id.
+const MAX_REASONABLE_TRACE_ID_LENGTH = 200
+
+export function isLikelyMalformedTraceId(id: unknown): boolean {
+    if (typeof id !== 'string' || id.length === 0) {
+        return true
+    }
+    const trimmed = id.trim()
+    if (trimmed.length === 0) {
+        return true
+    }
+    if (trimmed.length > MAX_REASONABLE_TRACE_ID_LENGTH) {
+        return true
+    }
+    const firstChar = trimmed[0]
+    if (firstChar === '{' || firstChar === '[') {
+        return true
+    }
+    if (/["\n\r\t]/.test(trimmed)) {
+        return true
+    }
+    return false
+}
+
 export function cleanPagedSearchOrderParams(
     filters: PagedSearchOrderFilters,
     defaultOrderBy: string = '-created_at'

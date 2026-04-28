@@ -203,7 +203,9 @@ export const manifest: ProductManifest = {
         ): string => {
             const queryParams = new URLSearchParams(params)
             const stringifiedParams = queryParams.toString()
-            return `/llm-analytics/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+            // Encode the path segment so trace IDs containing reserved characters
+            // (?, #, /, spaces, JSON quotes) don't corrupt the resulting URL.
+            return `/llm-analytics/traces/${encodeURIComponent(id)}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsErrors: (): string => '/llm-analytics/errors',
