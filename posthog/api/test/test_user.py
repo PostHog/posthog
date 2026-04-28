@@ -241,12 +241,12 @@ class TestUserAPI(APIBaseTest):
 
     def test_non_admin_filter_users_by_email(self):
         org = Organization.objects.create()
-        user = User.objects.create(
-            email="foo@bar.com",
-            password="<PASSWORD>",
-            organization=org,
-            current_team=Team.objects.create(organization=org, name="Another team"),
+        team = Team.objects.create(organization=org, name="Another team")
+        user = User.objects.create_and_join(
+            org, "foo@bar.com", "<PASSWORD>", first_name="", level=OrganizationMembership.Level.MEMBER
         )
+        user.current_team = team
+        user.save(update_fields=["current_team"])
 
         response = self.client.get(f"/api/users/?email={user.email}")
 
@@ -254,21 +254,20 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.json()["count"], 0, "Should not return users from another orgs")
 
     def test_admin_filter_users_by_email(self):
-        admin = User.objects.create(
-            email="admin@admin.com",
-            password="pw",
-            organization=self.organization,
-            current_team=self.team,
-            is_staff=True,
+        admin = User.objects.create_and_join(
+            self.organization, "admin@admin.com", "pw", first_name="", level=OrganizationMembership.Level.MEMBER
         )
+        admin.current_team = self.team
+        admin.is_staff = True
+        admin.save(update_fields=["current_team", "is_staff"])
         self.client.force_authenticate(admin)
         org = Organization.objects.create()
-        user = User.objects.create(
-            email="foo@bar.com",
-            password="<PASSWORD>",
-            organization=org,
-            current_team=Team.objects.create(organization=org, name="Another team"),
+        team = Team.objects.create(organization=org, name="Another team")
+        user = User.objects.create_and_join(
+            org, "foo@bar.com", "<PASSWORD>", first_name="", level=OrganizationMembership.Level.MEMBER
         )
+        user.current_team = team
+        user.save(update_fields=["current_team"])
 
         response = self.client.get(f"/api/users/?email={user.email}")
 

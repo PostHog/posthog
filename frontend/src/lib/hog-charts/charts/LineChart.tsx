@@ -3,7 +3,12 @@ import React, { useCallback, useMemo, useRef } from 'react'
 import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../core/canvas-renderer'
 import type { DrawContext } from '../core/canvas-renderer'
 import { Chart } from '../core/Chart'
-import { computePercentStackData, computeStackData, createScales as createLineScales } from '../core/scales'
+import {
+    computePercentStackData,
+    computeStackData,
+    createScales as createLineScales,
+    yTickCountForHeight,
+} from '../core/scales'
 import type { ScaleSet, StackedBand } from '../core/scales'
 import { DEFAULT_Y_AXIS_ID } from '../core/types'
 import type {
@@ -42,7 +47,7 @@ export function LineChart<Meta = unknown>({
 }: LineChartProps<Meta>): React.ReactElement {
     const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
 
-    const hasAreaFill = useMemo(() => series.some((s) => s.fillArea), [series])
+    const hasAreaFill = useMemo(() => series.some((s) => s.fill !== undefined && !s.fill.lowerData), [series])
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (percentStackView) {
@@ -85,13 +90,15 @@ export function LineChart<Meta = unknown>({
             })
             d3ScalesRef.current = d3Scales
 
+            const yTickCount = yTickCountForHeight(dimensions.plotHeight)
+
             let yAxes: Record<string, YAxisScale> | undefined
             if (d3Scales.yAxes) {
                 yAxes = {}
                 for (const [axisId, { scale, position }] of Object.entries(d3Scales.yAxes)) {
                     yAxes[axisId] = {
                         scale: (value: number) => scale(value),
-                        ticks: () => scale.ticks?.() ?? [],
+                        ticks: () => scale.ticks?.(yTickCount) ?? [],
                         position,
                     }
                 }
@@ -100,7 +107,7 @@ export function LineChart<Meta = unknown>({
             return {
                 x: (label: string) => d3Scales.x(label),
                 y: (value: number) => d3Scales.y(value),
-                yTicks: () => d3Scales.y.ticks?.() ?? [],
+                yTicks: () => d3Scales.y.ticks?.(yTickCount) ?? [],
                 yAxes,
             }
         },
@@ -137,7 +144,7 @@ export function LineChart<Meta = unknown>({
             }
 
             for (const s of coloredSeries) {
-                if (s.hidden) {
+                if (s.visibility?.excluded) {
                     continue
                 }
 
@@ -145,16 +152,18 @@ export function LineChart<Meta = unknown>({
                 const band = stackedData?.get(s.key)
                 const yValues = band?.top
 
-                if (s.fillArea) {
-                    drawArea(drawCtx, s, yValues, band?.bottom)
+                if (s.fill) {
+                    drawArea(drawCtx, s, yValues, s.fill.lowerData ?? band?.bottom)
                 }
-                drawLine(drawCtx, s, yValues)
-                drawPoints(drawCtx, s, yValues)
+                if (!s.fill?.lowerData) {
+                    drawLine(drawCtx, s, yValues)
+                    drawPoints(drawCtx, s, yValues)
+                }
             }
 
             if (hoverIndex >= 0) {
                 for (const s of coloredSeries) {
-                    if (s.hidden) {
+                    if (s.visibility?.excluded || s.fill?.lowerData) {
                         continue
                     }
                     const data = stackedData?.get(s.key)?.top ?? s.data
@@ -174,8 +183,14 @@ export function LineChart<Meta = unknown>({
         if (!stackedData) {
             return undefined
         }
-        return (s: Series, dataIndex: number): number =>
-            stackedData.get(s.key)?.top[dataIndex] ?? s.data[dataIndex] ?? 0
+        return (s: Series, dataIndex: number): number => {
+            const stacked = stackedData.get(s.key)?.top[dataIndex]
+            if (stacked != null && Number.isFinite(stacked)) {
+                return stacked
+            }
+            const raw = s.data[dataIndex]
+            return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+        }
     }, [stackedData])
 
     return (

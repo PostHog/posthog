@@ -1,5 +1,5 @@
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import type { TooltipContext } from 'lib/hog-charts/core/types'
+import type { TooltipContext } from 'lib/hog-charts'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -44,7 +44,7 @@ export function TrendsTooltip({
     onRowClick,
 }: TrendsTooltipProps): React.ReactElement {
     // TODO: CI bands and moving-average datasets aren't yet built in the hog-charts path. When they
-    // are, the bridge (or TrendsLineChartD3) will need to mark them as non-tooltip rows — legacy
+    // are, the bridge (or TrendsLineChart) will need to mark them as non-tooltip rows — legacy
     // Chart.js path used a `hideTooltip: true` flag on the dataset for this.
     const seriesData: SeriesDatum[] = context.seriesData.map((entry, idx) => {
         const meta = entry.series.meta ?? {}

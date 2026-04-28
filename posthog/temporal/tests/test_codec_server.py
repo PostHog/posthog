@@ -33,8 +33,7 @@ class CodecServerTestCase(TestCase):
             "/decode",
             request_data,
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.test_token}",
-            HTTP_ORIGIN="https://temporal-ui.posthog.orb.local",
+            headers={"authorization": f"Bearer {self.test_token}", "origin": "https://temporal-ui.posthog.orb.local"},
         )
         self.assertEqual(response.status_code, 200)
 
@@ -55,8 +54,7 @@ class CodecServerTestCase(TestCase):
             "/decode",
             request_data,
             content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {self.test_token}",
-            HTTP_ORIGIN="https://temporal-ui.posthog.orb.local",
+            headers={"authorization": f"Bearer {self.test_token}", "origin": "https://temporal-ui.posthog.orb.local"},
         )
 
         self.assertEqual(response.status_code, 200)
