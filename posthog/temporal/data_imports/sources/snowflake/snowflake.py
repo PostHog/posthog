@@ -200,11 +200,14 @@ def _parse_clustering_key_leading_column(clustering_key: str | None) -> str | No
 
     Snowflake stores clustering keys as expressions like ``LINEAR(col1, col2)``.
     We unwrap the optional ``LINEAR(...)`` envelope, take the first comma-
-    separated entry, strip whitespace and any double quotes used to quote
-    case-sensitive identifiers, and return that as the leading column. Returns
-    None if the entry is empty or appears to be a function expression rather
-    than a plain column reference (we can't tell whether `DATE_TRUNC('day', x)`
-    accelerates predicate pruning the same way).
+    separated entry, and return its identifier in the same case Snowflake uses
+    for ``INFORMATION_SCHEMA.COLUMNS.COLUMN_NAME`` so the caller can compare
+    directly: unquoted identifiers are uppercased (matching Snowflake's
+    identifier resolution rules), quoted identifiers have the quotes stripped
+    and their case preserved. Returns None if the entry is empty or appears to
+    be a function expression rather than a plain column reference (we can't
+    tell whether `DATE_TRUNC('day', x)` accelerates predicate pruning the same
+    way).
     """
     if not clustering_key:
         return None
@@ -216,7 +219,9 @@ def _parse_clustering_key_leading_column(clustering_key: str | None) -> str | No
     leading = expr.split(",", 1)[0].strip()
     if not leading or "(" in leading:
         return None
-    return leading.strip('"')
+    if leading.startswith('"') and leading.endswith('"') and len(leading) >= 2:
+        return leading[1:-1]
+    return leading.upper()
 
 
 def get_leading_clustering_columns_for_schemas(
