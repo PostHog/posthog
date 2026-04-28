@@ -195,7 +195,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 "exception": resp[3],
                 "execution_time": resp[4],
                 "profile_events": resp[5],
-                "logComment": json.loads(resp[6]),
+                "logComment": json.loads(resp[6]) if resp[6] else {},
                 "status": resp[7],
                 "path": self._get_path(resp[1]),
             }
