@@ -386,11 +386,13 @@ def _compute_campaign_stats(
     )
 
 
+_NO_TAGGED_EVENTS_HEADLINE = "No events tagged with utm_source='{platform}'"
+
 _HEADLINE_BY_KIND: dict[UtmIssueKind, str] = {
     UtmIssueKind.NOT_LINKED: "No pageview events found for '{campaign}'",
     UtmIssueKind.NAME_COLLISION: "Campaign name also used on {shared}",
-    UtmIssueKind.NO_TAGGED_EVENTS: "No events tagged with utm_source='{platform}'",
-    UtmIssueKind.UNKNOWN_SOURCE: "No events tagged with utm_source='{platform}'",
+    UtmIssueKind.NO_TAGGED_EVENTS: _NO_TAGGED_EVENTS_HEADLINE,
+    UtmIssueKind.UNKNOWN_SOURCE: _NO_TAGGED_EVENTS_HEADLINE,
 }
 
 

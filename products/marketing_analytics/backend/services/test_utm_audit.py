@@ -23,7 +23,7 @@ from products.marketing_analytics.backend.services.utm_audit import (
 NO_MAPPINGS = TeamMappings(source_to_integration={}, campaign_aliases={}, field_preferences={})
 # known_sources set populated from every integration's default utm_source values.
 # Built lazily inside tests via _build_known_sources() so we don't hardcode every value.
-NO_KNOWN_SOURCES: set[str] = _build_known_sources(NO_MAPPINGS)
+DEFAULT_KNOWN_SOURCES: set[str] = _build_known_sources(NO_MAPPINGS)
 
 
 class TestCrossReference:
@@ -31,7 +31,7 @@ class TestCrossReference:
         campaigns = [Campaign("Spring Sale", "123", "google", 100.0, 50, 1000)]
         utm_events = {("spring sale", "google"): 42}
 
-        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, NO_KNOWN_SOURCES)
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
         assert len(results) == 1
         assert results[0].has_utm_events is True
@@ -41,7 +41,7 @@ class TestCrossReference:
     def test_campaign_with_no_utm_events(self):
         campaigns = [Campaign("Summer Promo", "456", "google", 500.0, 100, 5000)]
 
-        results = _cross_reference(campaigns, {}, NO_MAPPINGS, NO_KNOWN_SOURCES)
+        results = _cross_reference(campaigns, {}, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
         assert len(results) == 1
         assert results[0].has_utm_events is False
@@ -54,7 +54,7 @@ class TestCrossReference:
         campaigns = [Campaign("Brand Campaign", "789", "google", 200.0, 80, 2000)]
         utm_events = {("brand campaign", "adwords"): 30}
 
-        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, NO_KNOWN_SOURCES)
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
         assert len(results) == 1
         assert results[0].has_utm_events is False
@@ -66,7 +66,7 @@ class TestCrossReference:
         campaigns = [Campaign("WINTER Sale", "101", "Google", 150.0, 60, 1500)]
         utm_events = {("winter sale", "google"): 25}
 
-        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, NO_KNOWN_SOURCES)
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
         assert len(results) == 1
         assert results[0].has_utm_events is True
@@ -81,7 +81,7 @@ class TestCrossReference:
         ]
         utm_events = {("good campaign", "google"): 100}
 
-        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, NO_KNOWN_SOURCES)
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
         assert len(results) == 3
 
@@ -99,7 +99,7 @@ class TestCrossReference:
         assert worse.issues[0].severity == UtmIssueSeverity.ERROR
 
     def test_empty_campaigns(self):
-        results = _cross_reference([], {}, NO_MAPPINGS, NO_KNOWN_SOURCES)
+        results = _cross_reference([], {}, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
         assert len(results) == 0
 
     def test_custom_source_mapping_resolves_match(self):
@@ -158,14 +158,14 @@ class TestCrossReferenceIssueKinds:
         campaigns = [Campaign("Spring Sale", "1", "google", 100.0, 50, 1000)]
         utm_events = {("spring sale", "google"): 42}
 
-        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, NO_KNOWN_SOURCES)
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
         assert len(results[0].issues) == 0
 
     def test_not_linked_when_no_events_match_and_no_shared_name(self):
         campaigns = [Campaign("Summer Promo", "456", "google", 500.0, 100, 5000)]
 
-        results = _cross_reference(campaigns, {}, NO_MAPPINGS, NO_KNOWN_SOURCES)
+        results = _cross_reference(campaigns, {}, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
         assert len(results[0].issues) == 1
         issue = results[0].issues[0]
@@ -291,13 +291,21 @@ class TestCrossReferenceIssueKinds:
 
 
 class TestBuildKnownSources:
-    def test_includes_all_integration_defaults(self):
+    @pytest.mark.parametrize(
+        "source,expected_present",
+        [
+            # Sanity-check a few well-known defaults from each integration
+            ("google", True),
+            ("bing", True),
+            ("linkedin", True),
+            ("partner_xyz", False),
+            ("completely_made_up", False),
+        ],
+    )
+    def test_membership_for_default_known_sources(self, source, expected_present):
         result = _build_known_sources(NO_MAPPINGS)
 
-        # Sanity-check a few well-known defaults from each integration
-        assert "google" in result
-        assert "bing" in result
-        assert "linkedin" in result
+        assert (source in result) is expected_present
 
     def test_includes_custom_team_mappings(self):
         mappings = TeamMappings(
@@ -310,12 +318,6 @@ class TestBuildKnownSources:
 
         assert "partner_blog" in result
         assert "internal_source" in result
-
-    def test_unknown_sources_are_not_included(self):
-        result = _build_known_sources(NO_MAPPINGS)
-
-        assert "partner_xyz" not in result
-        assert "completely_made_up" not in result
 
 
 class TestCrossReferenceFieldPreferences:
