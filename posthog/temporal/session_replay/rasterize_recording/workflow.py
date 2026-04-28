@@ -47,8 +47,10 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             # recordings that fail-then-succeed.
             info = wf.info()
             retry_policy = info.retry_policy
+
             max_attempts = retry_policy.maximum_attempts if retry_policy else 1
-            is_terminal = max_attempts > 0 and info.attempt >= max_attempts
+            is_terminal = max_attempts is not None and max_attempts > 0 and info.attempt >= max_attempts
+
             if is_terminal:
                 session_recording_id = info.typed_search_attributes.get(POSTHOG_SESSION_RECORDING_ID_KEY)
                 wf.logger.warning(
