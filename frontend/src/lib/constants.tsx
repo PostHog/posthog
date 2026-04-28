@@ -151,6 +151,7 @@ export const FEATURE_FLAGS = {
     // Eternal feature flags, shouldn't be removed, helpful for debugging/maintenance reasons
     BILLING_FORECASTING_ISSUES: 'billing-forecasting-issues', // owner: #team-billing, see `Billing.tsx`, used to raise a warning when billing is having problems
     HOG: 'hog', // owner: #team-data-tools, see `DebugScene.tsx` and also insights
+    KEEP_SCENE_TABS_MOUNTED: 'keep-scene-tabs-mounted', // owner: #team-product-analytics, see `App.tsx`, keeps each tab's scene tree mounted (hidden when inactive) instead of remounting on tab switch
     NAV_PANEL_CAMPAIGN: 'nav-panel-campaign', // owner: #team-growth, sidebar promotional campaign, payload-driven. See NavPanelAdvertisement.tsx
     QUERY_TIMINGS: 'query-timings', // owner: #team-analytics-platform, usage: see `dataTableLogic.ts`
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith, see `signupLogic.ts`
