@@ -641,26 +641,33 @@ class SessionAgeMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
+        # Anonymous requests have no session-auth context — skipping avoids materializing a session
+        # row for every public/API-key-authenticated request. Previously this ran unconditionally,
+        # but the modifications were silently dropped by PostHogTokenCookieMiddleware's session
+        # reset; once that reset is removed, those modifications would persist and cause spurious
+        # session inserts on every anonymous request.
+        if not request.user.is_authenticated:
+            return self.get_response(request)
+
         # NOTE: This should be covered by the post_login signal, but we add it here as a fallback
         get_or_set_session_cookie_created_at(request=request)
 
-        if request.user.is_authenticated:
-            # Get session creation time
-            session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
-            if session_created_at:
-                # Get timeout from Redis cache first, fallback to settings
-                org_id = request.user.current_organization_id
-                session_age = None
-                if org_id:
-                    session_age = cache.get(f"org_session_age:{org_id}")
+        # Get session creation time
+        session_created_at = request.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+        if session_created_at:
+            # Get timeout from Redis cache first, fallback to settings
+            org_id = request.user.current_organization_id
+            session_age = None
+            if org_id:
+                session_age = cache.get(f"org_session_age:{org_id}")
 
-                if session_age is None:
-                    session_age = settings.SESSION_COOKIE_AGE
+            if session_age is None:
+                session_age = settings.SESSION_COOKIE_AGE
 
-                current_time = time.time()
-                if current_time - session_created_at > session_age:
-                    logout(request)
-                    return redirect("/login?message=Your session has expired. Please log in again.")
+            current_time = time.time()
+            if current_time - session_created_at > session_age:
+                logout(request)
+                return redirect("/login?message=Your session has expired. Please log in again.")
 
         response = self.get_response(request)
         return response
