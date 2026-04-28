@@ -11,6 +11,28 @@ from posthog.temporal.data_imports.sources.common.rest_source.typing import Endp
 from products.data_warehouse.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 
 
+def normalize_subdomain(subdomain: str) -> str:
+    """Coerce a user-supplied Zendesk subdomain into the bare subdomain label.
+
+    Accepts inputs like ``acme``, ``acme.zendesk.com``, ``https://acme.zendesk.com/``,
+    or ``acme.zendesk.com/agent/dashboard`` and returns ``acme``. Existing source rows
+    saved before subdomain validation existed can otherwise produce URLs like
+    ``https://acme.zendesk.com.zendesk.com/`` that fail TLS on every sync.
+    """
+    if subdomain is None:
+        return subdomain
+    value = subdomain.strip()
+    for scheme in ("https://", "http://"):
+        if value.lower().startswith(scheme):
+            value = value[len(scheme) :]
+            break
+    value = value.split("/", 1)[0]
+    suffix = ".zendesk.com"
+    if value.lower().endswith(suffix):
+        value = value[: -len(suffix)]
+    return value
+
+
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     resources: dict[str, EndpointResource] = {
         "brands": {
@@ -285,6 +307,7 @@ def zendesk_source(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
 ):
+    subdomain = normalize_subdomain(subdomain)
     config: RESTAPIConfig = {
         "client": {
             "base_url": f"https://{subdomain}.zendesk.com/",
@@ -309,6 +332,7 @@ def zendesk_source(
 
 
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:
+    subdomain = normalize_subdomain(subdomain)
     basic_token = base64.b64encode(f"{email_address}/token:{api_key}".encode("ascii")).decode("ascii")
     res = requests.get(
         f"https://{subdomain}.zendesk.com/api/v2/tickets/count",
