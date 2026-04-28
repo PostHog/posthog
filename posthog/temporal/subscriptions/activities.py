@@ -301,6 +301,18 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
+    # If the subscription is already disabled, return cleanly. Without this guard
+    # an activity retry that fired AFTER the auto-disable UPDATE re-enters the
+    # missing-integration branch and re-fires `disable_invalid_subscription` —
+    # the deterministic `MessagingRecord.campaign_key` blocks the duplicate email,
+    # but skipping is still the cleaner contract.
+    if not subscription.enabled:
+        LOGGER.info(
+            "deliver_subscription.skipped_disabled",
+            subscription_id=inputs.subscription_id,
+        )
+        return DeliverSubscriptionResult(recipient_results=[])
+
     await LOGGER.ainfo(
         "deliver_subscription.starting",
         subscription_id=inputs.subscription_id,
@@ -425,6 +437,13 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
                         status="failed",
                         error=missing_integration_error,
                     )
+                )
+                # Preserve the analytics signal that existed pre-auto-disable so
+                # dashboards built on `subscription delivery failed` events keep
+                # surfacing this case.
+                _capture_delivery_failed_event(
+                    subscription,
+                    ApplicationError(SLACK_INTEGRATION_DISCONNECTED_REASON, non_retryable=True),
                 )
                 # The Slack integration this subscription depends on has been
                 # disconnected. This won't self-resolve, so auto-disable the

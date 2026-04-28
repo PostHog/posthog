@@ -506,6 +506,7 @@ async def test_deliver_subscription_disables_on_missing_slack_integration(team, 
             "posthog.temporal.subscriptions.activities.get_slack_integration_for_team",
             return_value=None,
         ),
+        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
     ):
         result = await env.run(
             deliver_subscription,
@@ -519,6 +520,8 @@ async def test_deliver_subscription_disables_on_missing_slack_integration(team, 
     await sync_to_async(subscription.refresh_from_db)()
     assert subscription.enabled is False
     send_mock.assert_called_once()
+    # `subscription delivery failed` analytics event preserved on the auto-disable path
+    capture_mock.assert_called_once()
     # Must return cleanly — NOT raise
     assert result is not None
     assert result.recipient_results[0].status == "failed"
@@ -526,6 +529,44 @@ async def test_deliver_subscription_disables_on_missing_slack_integration(team, 
         "message": "No Slack integration configured",
         "type": "missing_integration",
     }
+
+
+@pytest.mark.asyncio
+async def test_deliver_subscription_short_circuits_when_already_disabled(team, user):
+    """Activity retries that fire after the subscription is disabled must return
+    cleanly — re-entering the missing-integration branch would re-fire the
+    auto-disable side effects (event capture, email notification).
+    """
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis02", name="Already Disabled")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location="s3://bucket/already-disabled.png",
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+        enabled=False,
+    )
+
+    env = ActivityEnvironment()
+
+    with patch("ee.tasks.subscriptions.auto_disable.disable_invalid_subscription") as disable_mock:
+        result = await env.run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id,
+                exported_asset_ids=[asset.id],
+                total_insight_count=1,
+            ),
+        )
+
+    assert result.recipient_results == []
+    disable_mock.assert_not_called()
 
 
 @patch("posthog.slo.events.posthoganalytics")
