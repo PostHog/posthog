@@ -172,7 +172,14 @@ class AnalyticsCapture:
         page.on("console", self._on_console)
 
     def _is_posthog(self, url: str) -> bool:
-        return any(domain in url for domain in self.posthog_domains)
+        # Match on parsed hostname rather than substring so URLs that merely
+        # contain a PostHog domain in their path (e.g. an open-redirect) are
+        # not misclassified as PostHog ingestion traffic.
+        try:
+            host = (urlparse(url).hostname or "").lower()
+        except ValueError:
+            return False
+        return any(host == d or host.endswith("." + d) for d in self.posthog_domains)
 
     def _on_request(self, request) -> None:
         if not self._is_posthog(request.url):
@@ -224,6 +231,13 @@ class AnalyticsCapture:
 
 def _short_url(url: str, max_len: int = 60) -> str:
     return url if len(url) <= max_len else url[: max_len - 1] + "…"
+
+
+def _redact_api_key(value: str | None) -> str:
+    # PostHog project tokens are public by design, but CodeQL flags raw-token
+    # logging via `py/clear-text-logging-sensitive-data`. Render a fixed
+    # placeholder instead so log output reflects only whether a token is set.
+    return "set" if value else "none"
 
 
 def extract_posthog_events_from_console(lines: list[ConsoleLine]) -> list[str]:
@@ -528,7 +542,7 @@ async def run_check_loading(
                         print(
                             f"  loaded={loaded} method={detection['load_method']} "
                             f"snippet_in={detection.get('snippet_location') or '-'} "
-                            f"api_key={cfg.get('api_key', 'none')} api_host={cfg.get('api_host', 'none')}"
+                            f"api_key={_redact_api_key(cfg.get('api_key'))} api_host={cfg.get('api_host', 'none')}"
                         )
                     else:
                         marker = "✓" if loaded else "✗"
@@ -561,7 +575,7 @@ def _print_check_loading_table(pages: dict[str, dict]) -> None:
         method = data.get("load_method", "-")
         snip = data.get("snippet_location") or "-"
         cfg = data.get("init_config") or {}
-        key = (cfg.get("api_key") or "-")[:14]
+        key = _redact_api_key(cfg.get("api_key"))
         print(f"{label:<55} {loaded:<8} {method:<14} {snip:<12} {key:<14}")
 
 
@@ -651,7 +665,7 @@ def _load_urls_file(path: str) -> list[str]:
 
 
 def resolve_posthog_domains(host: str) -> tuple[str, ...]:
-    """Build the set of substrings we treat as PostHog network traffic.
+    """Build the set of hostnames we treat as PostHog network traffic.
 
     Always includes the cloud defaults (posthog.com / i.posthog.com) so events
     sent to the PostHog cloud are caught even when --posthog-host points at
@@ -659,8 +673,8 @@ def resolve_posthog_domains(host: str) -> tuple[str, ...]:
     """
     extras: tuple[str, ...] = ()
     if host:
-        netloc = urlparse(host).netloc or host
-        if netloc and not any(netloc.endswith(d) for d in DEFAULT_POSTHOG_DOMAINS):
+        netloc = (urlparse(host).hostname or host).lower()
+        if netloc and not any(netloc == d or netloc.endswith("." + d) for d in DEFAULT_POSTHOG_DOMAINS):
             extras = (netloc,)
     return DEFAULT_POSTHOG_DOMAINS + extras
 

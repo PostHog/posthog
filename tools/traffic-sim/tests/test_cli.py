@@ -62,19 +62,17 @@ class TestAddTrackingParams:
 
 
 class TestResolvePosthogDomains:
-    def test_includes_default_domains(self):
-        assert "posthog.com" in cli.resolve_posthog_domains("")
-        assert "i.posthog.com" in cli.resolve_posthog_domains("")
+    def test_empty_host_returns_defaults(self):
+        assert cli.resolve_posthog_domains("") == cli.DEFAULT_POSTHOG_DOMAINS
 
     def test_default_host_does_not_add_extras(self):
-        # us.i.posthog.com endsWith i.posthog.com, so no extra domain needed.
+        # us.i.posthog.com is a subdomain of i.posthog.com, so no extra needed.
         domains = cli.resolve_posthog_domains("https://us.i.posthog.com")
         assert domains == cli.DEFAULT_POSTHOG_DOMAINS
 
     def test_custom_host_adds_netloc(self):
         domains = cli.resolve_posthog_domains("https://ph.example.com")
-        assert "ph.example.com" in domains
-        assert "posthog.com" in domains  # defaults still included
+        assert domains == (*cli.DEFAULT_POSTHOG_DOMAINS, "ph.example.com")
 
     def test_eu_cloud_does_not_add_extras(self):
         domains = cli.resolve_posthog_domains("https://eu.i.posthog.com")
@@ -99,10 +97,14 @@ class TestLoadUrlsFile:
             )
         )
         urls = cli._load_urls_file(str(path))
-        assert "https://example.com/" in urls
-        assert "https://example.com/about" in urls
-        assert "https://example.com/pricing" in urls
-        assert "https://example.com/blog/post-1" in urls
+        assert sorted(urls) == sorted(
+            [
+                "https://example.com/",
+                "https://example.com/about",
+                "https://example.com/pricing",
+                "https://example.com/blog/post-1",
+            ]
+        )
 
     def test_grouped_form_strips_trailing_slash_from_base(self, tmp_path):
         path = tmp_path / "urls.json"
@@ -203,6 +205,22 @@ class TestAnalyticsCapture:
         assert cap._is_posthog("https://ph.example.com/i/v0/e/")
         assert cap._is_posthog("https://us.i.posthog.com/capture/")
         assert not cap._is_posthog("https://other.example.com/api")
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # Hostname containing posthog.com as a path/query component is not a match.
+            "https://evil.com/posthog.com/capture",
+            "https://evil.com/?proxy=us.i.posthog.com",
+            # Hostname that merely ends with posthog.com without a leading dot is not a match.
+            "https://notposthog.com/capture",
+            # Subdomain attack: posthog.com placed before the registered domain.
+            "https://posthog.com.evil.com/capture",
+        ],
+    )
+    def test_is_posthog_rejects_lookalike_urls(self, url):
+        cap = cli.AnalyticsCapture(posthog_domains=cli.DEFAULT_POSTHOG_DOMAINS)
+        assert not cap._is_posthog(url)
 
 
 class TestLoadBrowserstackYaml:
