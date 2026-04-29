@@ -35,7 +35,7 @@ class Migration(migrations.Migration):
                         verbose_name="ID",
                     ),
                 ),
-                ("team_id", models.IntegerField()),
+                ("team_id", models.BigIntegerField()),
                 ("schema_id", models.CharField(max_length=200)),
                 ("source_id", models.CharField(max_length=200)),
                 (
@@ -121,7 +121,7 @@ class Migration(migrations.Migration):
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="statuses",
-                        to="warehouse_sources.sourcebatch",
+                        to="warehouse_sources_queue.sourcebatch",
                     ),
                 ),
             ],

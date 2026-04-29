@@ -17,7 +17,7 @@ class SourceBatch(models.Model):
         APPEND = "append", "append"
         CDC = "cdc", "cdc"
 
-    team_id = models.IntegerField()
+    team_id = models.BigIntegerField()
     schema_id = models.CharField(max_length=200)
     source_id = models.CharField(max_length=200)
     job_id = models.CharField(max_length=200, help_text="FK to ExternalDataJob (UUID as string).")
