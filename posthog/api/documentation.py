@@ -801,7 +801,12 @@ def _fix_pydantic_schema_for_openapi(schema):
         schema["properties"] = {k: _fix_pydantic_schema_for_openapi(v) for k, v in schema["properties"].items()}
 
     if "additionalProperties" in schema and isinstance(schema["additionalProperties"], dict):
-        schema["additionalProperties"] = _fix_pydantic_schema_for_openapi(schema["additionalProperties"])
+        # Empty ``{}`` here means "any type" but trips vacuum's ``oas-missing-type`` since the
+        # inner schema lacks a ``type``. Boolean ``true`` is the spec-blessed equivalent.
+        if schema["additionalProperties"] == {}:
+            schema["additionalProperties"] = True
+        else:
+            schema["additionalProperties"] = _fix_pydantic_schema_for_openapi(schema["additionalProperties"])
 
     if "items" in schema:
         if isinstance(schema["items"], dict):
@@ -1023,9 +1028,14 @@ def custom_postprocessing_hook(result, generator, request, public):
                     if isinstance(media_type, dict) and isinstance(media_type.get("schema"), dict):
                         media_type["schema"] = _fix_pydantic_schema_for_openapi(media_type["schema"])
 
+    # Emit a root-level ``tags`` array listing every tag any operation references. Vacuum's
+    # ``operation-tag-defined`` rule requires this — operations that use undeclared tags
+    # produce a finding per (operation, tag) pair (was 2962 findings for us).
+    sorted_tags = sorted(set(all_tags))
     return {
         **result,
         "info": {"title": "PostHog API", "version": "1.0.0", "description": ""},
         "paths": paths,
-        "x-tagGroups": [{"name": "All endpoints", "tags": sorted(set(all_tags))}],
+        "tags": [{"name": tag} for tag in sorted_tags],
+        "x-tagGroups": [{"name": "All endpoints", "tags": sorted_tags}],
     }
