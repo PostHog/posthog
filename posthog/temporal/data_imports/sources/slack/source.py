@@ -179,8 +179,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
 
         msg_config = messages_endpoint_config()
         webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
-        authed_user = (integration.config or {}).get("authed_user", {}).get("id")
-        channels = get_channels(access_token, authed_user)
+        channels = get_channels(access_token)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue
