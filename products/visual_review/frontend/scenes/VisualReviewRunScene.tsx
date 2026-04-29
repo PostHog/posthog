@@ -186,7 +186,6 @@ function RunInProgressEmptyState({
 export function VisualReviewRunScene(): JSX.Element {
     const {
         run,
-        runLoading,
         snapshots,
         snapshotsLoading,
         selectedSnapshot,
@@ -245,7 +244,10 @@ export function VisualReviewRunScene(): JSX.Element {
         [currentIndex, navSnapshots.length]
     )
 
-    if (runLoading || !run) {
+    // Show skeleton only on initial load — once `run` is populated, keep showing it
+    // even while a background refetch is in flight (e.g. after approve/tolerate),
+    // otherwise the whole scene flashes to skeleton on every mutation.
+    if (!run) {
         return (
             <SceneContent>
                 <div className="space-y-4 py-4">

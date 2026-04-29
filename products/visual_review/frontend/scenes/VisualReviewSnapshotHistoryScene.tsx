@@ -79,10 +79,11 @@ function ThemePane({
     )
 }
 
-// Deep link into the run with the identifier's snapshot pre-selected so the user lands
-// directly on the diff viewer for it, not just the run overview.
+// Deep link into the run with the identifier's snapshot pre-selected. The run scene
+// reads `snapshot` from the URL hash (see `urlToAction` in visualReviewRunSceneLogic),
+// not from the query string — using `?` here would land on the run overview instead.
 function runUrl(entry: SnapshotHistoryEntryApi): string {
-    return `${urls.visualReviewRun(entry.run_id)}?snapshot=${encodeURIComponent(entry.snapshot_id)}`
+    return `${urls.visualReviewRun(entry.run_id)}#snapshot=${encodeURIComponent(entry.snapshot_id)}`
 }
 
 function HistoryRow({
