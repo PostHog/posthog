@@ -59,9 +59,7 @@ export function MetadataHeader({
             {typeof inputTokens === 'number' && typeof outputTokens === 'number' && (
                 <MetadataTag
                     label="Token usage"
-                    tooltipContent={`Prompt: ${inputTokens} · Completion: ${outputTokens} · Total: ${
-                        inputTokens + outputTokens
-                    }`}
+                    tooltipContent="Input and output tokens consumed by this generation call."
                 >
                     {`${inputTokens} prompt tokens → ${outputTokens} completion tokens (∑ ${
                         inputTokens + outputTokens
