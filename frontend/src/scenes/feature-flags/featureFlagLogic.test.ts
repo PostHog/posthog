@@ -49,43 +49,30 @@ describe('payload conversion helpers', () => {
         { key: 'test', rollout_percentage: 50 },
     ]
 
-    it('converts multivariate payloads keyed by variant index', () => {
-        expect(
-            convertIndexBasedPayloadsToVariantKeys(variants, {
-                0: '{"color":"red"}',
-                1: '{"color":"blue"}',
-            })
-        ).toEqual({
-            control: '{"color":"red"}',
-            test: '{"color":"blue"}',
-        })
-    })
-
-    it('preserves payload-to-variant mapping when variant keys are numeric strings', () => {
-        const numericVariants = [
-            { key: '2', rollout_percentage: 50 },
-            { key: '0', rollout_percentage: 50 },
-        ]
-        expect(
-            convertIndexBasedPayloadsToVariantKeys(numericVariants, {
-                0: '{"for":"variant-2"}',
-                1: '{"for":"variant-0"}',
-            })
-        ).toEqual({
-            '2': '{"for":"variant-2"}',
-            '0': '{"for":"variant-0"}',
-        })
-    })
-
-    it('skips indices without a matching variant', () => {
-        expect(
-            convertIndexBasedPayloadsToVariantKeys(variants, {
-                0: '{"color":"red"}',
-                5: '{"orphan":true}',
-            })
-        ).toEqual({
-            control: '{"color":"red"}',
-        })
+    it.each([
+        [
+            'keyed by variant index',
+            variants,
+            { 0: '{"color":"red"}', 1: '{"color":"blue"}' },
+            { control: '{"color":"red"}', test: '{"color":"blue"}' },
+        ],
+        [
+            'numeric-string variant keys (regression)',
+            [
+                { key: '2', rollout_percentage: 50 },
+                { key: '0', rollout_percentage: 50 },
+            ],
+            { 0: '{"for":"variant-2"}', 1: '{"for":"variant-0"}' },
+            { '2': '{"for":"variant-2"}', '0': '{"for":"variant-0"}' },
+        ],
+        [
+            'skips indices without a matching variant',
+            variants,
+            { 0: '{"color":"red"}', 5: '{"orphan":true}' },
+            { control: '{"color":"red"}' },
+        ],
+    ])('converts multivariate payloads %s', (_label, vars, payloads, expected) => {
+        expect(convertIndexBasedPayloadsToVariantKeys(vars, payloads)).toEqual(expected)
     })
 
     it('keeps boolean flag payload handling unchanged', () => {
