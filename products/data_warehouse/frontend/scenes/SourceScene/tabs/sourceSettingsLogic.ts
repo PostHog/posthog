@@ -404,7 +404,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         sourceConfig: {
             // Real defaults are pushed into the form at runtime by `ConfigurationTab` via
             // `buildKeaFormDefaultFromSourceDetails` + `setJobInputs`/`setSourceConfigValue`.
-            defaults: { prefix: '', description: '', payload: {} },
+            // The cast widens the inferred form value type so reads of `access_method`, payload
+            // sub-fields, etc. type-check.
+            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
                     allowBlankSensitiveFields: true,

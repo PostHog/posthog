@@ -1462,8 +1462,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
             // Real defaults come from the `defaultSourceConnectionDetails` selector and are
-            // pushed into the form by the `resetSourceForm` listener.
-            defaults: { prefix: '', description: '', payload: {} },
+            // pushed into the form by the `resetSourceForm` listener. The cast widens the form's
+            // inferred value type so call sites that read fields like `access_method`,
+            // `payload.host`, `cdc_management_mode`, etc. still type-check.
+            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
             errors: (sourceValues) => {
                 const selectedAccessMethod =
                     (sourceValues as Record<string, any>)?.access_method === 'direct' ? 'direct' : 'warehouse'
