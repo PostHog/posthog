@@ -3,7 +3,7 @@ import bigDecimal from 'js-big-decimal'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '../../../utils/logger'
-import { numericProperty } from './modality-tokens'
+import { numericProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'
 
 const matchProvider = (event: PluginEvent, provider: string): boolean => {
@@ -65,10 +65,10 @@ export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
 
 /**
  * Clamp the residual text-token pool to zero when modality tokens are present
- * and the subtraction would push it negative — a sign that modality token
- * counts overlap with cache tokens or exceed the reported input total. Without
- * modality tokens, negatives are passed through unchanged so existing edge-case
- * tests for negative input counts keep working as before.
+ * and the subtraction would push it negative. This guards against modality
+ * counts that overlap with cache tokens or exceed the reported input total —
+ * either case would otherwise produce a negative text contribution that
+ * silently offsets the modality bill.
  */
 const clampTextTokens = (value: string | number, hasModalityTokens: boolean): string | number => {
     if (!hasModalityTokens) {
@@ -78,28 +78,34 @@ const clampTextTokens = (value: string | number, hasModalityTokens: boolean): st
     return Number.isFinite(num) && num < 0 ? 0 : value
 }
 
-/**
- * Bill non-text input modalities (audio, image) at the model's modality rate
- * when one exists, or fall back to `prompt_token` so behavior is unchanged for
- * text-only models. The resulting cost is added to `$ai_input_cost_usd`; we do
- * not surface a separate per-modality breakdown property.
- */
-const computeAudioInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
-    const audioTokens = numericProperty(event, '$ai_audio_input_tokens')
-    if (audioTokens <= 0) {
-        return '0'
-    }
-    const rate = cost.cost.audio ?? cost.cost.prompt_token
-    return bigDecimal.multiply(rate, audioTokens)
+const warnMissingModalityRate = (event: PluginEvent, cost: ResolvedModelCost, modality: 'audio' | 'image'): void => {
+    logger.warn('Missing modality rate; falling back to prompt rate', {
+        modality,
+        model: cost.model,
+        provider: event.properties?.['$ai_provider'] || 'unknown',
+    })
 }
 
-const computeImageInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
-    const imageTokens = numericProperty(event, '$ai_image_input_tokens')
-    if (imageTokens <= 0) {
+const computeAudioInputCost = (event: PluginEvent, cost: ResolvedModelCost, audioInputTokens: number): string => {
+    if (audioInputTokens <= 0) {
         return '0'
     }
-    const rate = cost.cost.image ?? cost.cost.prompt_token
-    return bigDecimal.multiply(rate, imageTokens)
+    if (cost.cost.audio === undefined) {
+        warnMissingModalityRate(event, cost, 'audio')
+        return bigDecimal.multiply(cost.cost.prompt_token, audioInputTokens)
+    }
+    return bigDecimal.multiply(cost.cost.audio, audioInputTokens)
+}
+
+const computeImageInputCost = (event: PluginEvent, cost: ResolvedModelCost, imageInputTokens: number): string => {
+    if (imageInputTokens <= 0) {
+        return '0'
+    }
+    if (cost.cost.image === undefined) {
+        warnMissingModalityRate(event, cost, 'image')
+        return bigDecimal.multiply(cost.cost.prompt_token, imageInputTokens)
+    }
+    return bigDecimal.multiply(cost.cost.image, imageInputTokens)
 }
 
 export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
@@ -110,21 +116,21 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     const exclusive = resolveCacheReportingExclusive(event)
     event.properties['$ai_cache_reporting_exclusive'] = exclusive
 
-    const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
-    const inputTokens = event.properties['$ai_input_tokens'] || 0
+    const inputTokens = numericProperty(event, '$ai_input_tokens')
+    const cacheReadTokens = numericProperty(event, '$ai_cache_read_input_tokens')
     const audioInputTokens = numericProperty(event, '$ai_audio_input_tokens')
     const imageInputTokens = numericProperty(event, '$ai_image_input_tokens')
 
     // Audio/image input tokens are reported by providers (OpenAI, Gemini) as a subset
     // of the total input token count. We bill them separately at modality rates and
     // subtract them from the text pool to avoid double-counting at the prompt rate.
-    const audioInputCost = computeAudioInputCost(event, cost)
-    const imageInputCost = computeImageInputCost(event, cost)
+    const audioInputCost = computeAudioInputCost(event, cost, audioInputTokens)
+    const imageInputCost = computeImageInputCost(event, cost, imageInputTokens)
     const modalityInputCost = bigDecimal.add(audioInputCost, imageInputCost)
     const hasModalityTokens = audioInputTokens > 0 || imageInputTokens > 0
 
     if (matchProvider(event, 'anthropic')) {
-        const cacheWriteTokens = event.properties['$ai_cache_creation_input_tokens'] || 0
+        const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
 
         const writeCost =
             cost.cost.cache_write_token !== undefined

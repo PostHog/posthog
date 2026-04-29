@@ -2,7 +2,8 @@ import bigDecimal from 'js-big-decimal'
 
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { numericProperty } from './modality-tokens'
+import { logger } from '../../../utils/logger'
+import { numericProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'
 
 const REASONING_COST_MODELS = [/^gemini-2\.5-/, /^gemini-3(\.\d+)?-/]
@@ -11,40 +12,45 @@ const mustAddReasoningCost = (model: string): boolean => {
     return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
 }
 
-const computeAudioOutputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
-    const audioTokens = numericProperty(event, '$ai_audio_output_tokens')
-    if (audioTokens <= 0) {
-        return '0'
-    }
-    const rate = cost.cost.audio_output ?? cost.cost.completion_token
-    return bigDecimal.multiply(rate, audioTokens)
+const warnMissingModalityRate = (event: PluginEvent, cost: ResolvedModelCost, modality: 'audio' | 'image'): void => {
+    logger.warn('Missing modality output rate; falling back to completion rate', {
+        modality,
+        model: cost.model,
+        provider: event.properties?.['$ai_provider'] || 'unknown',
+    })
 }
 
-const computeImageOutputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
-    const imageTokens = numericProperty(event, '$ai_image_output_tokens')
-    if (imageTokens <= 0) {
+const computeAudioOutputCost = (event: PluginEvent, cost: ResolvedModelCost, audioOutputTokens: number): string => {
+    if (audioOutputTokens <= 0) {
         return '0'
     }
-    const rate = cost.cost.image_output ?? cost.cost.completion_token
-    return bigDecimal.multiply(rate, imageTokens)
+    if (cost.cost.audio_output === undefined) {
+        warnMissingModalityRate(event, cost, 'audio')
+        return bigDecimal.multiply(cost.cost.completion_token, audioOutputTokens)
+    }
+    return bigDecimal.multiply(cost.cost.audio_output, audioOutputTokens)
+}
+
+const computeImageOutputCost = (event: PluginEvent, cost: ResolvedModelCost, imageOutputTokens: number): string => {
+    if (imageOutputTokens <= 0) {
+        return '0'
+    }
+    if (cost.cost.image_output === undefined) {
+        warnMissingModalityRate(event, cost, 'image')
+        return bigDecimal.multiply(cost.cost.completion_token, imageOutputTokens)
+    }
+    return bigDecimal.multiply(cost.cost.image_output, imageOutputTokens)
 }
 
 /**
  * Calculate output cost. Audio and image output tokens are billed at their
  * dedicated rates when the model exposes them, falling back to the standard
- * completion rate otherwise. Modality tokens are subtracted from the text pool
- * to avoid double-counting.
+ * completion rate otherwise (and emitting a warning so the missing rate is
+ * visible). Modality tokens are subtracted from the text pool to avoid
+ * double-counting.
  *
  * Reasoning tokens are added to the text pool for Gemini 2.5/3 — those models
  * report reasoning separately but still bill it at the completion rate.
- *
- * Example for gemini-2.5-flash-image:
- * - Text output: $2.50/1M tokens
- * - Image output: $30/1M tokens (1290 tokens per image = $0.039/image)
- *
- * Example for gpt-4o-audio-preview:
- * - Text output: $10/1M tokens
- * - Audio output: $80/1M tokens
  */
 export const calculateOutputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
     if (!event.properties) {
@@ -54,21 +60,25 @@ export const calculateOutputCost = (event: PluginEvent, cost: ResolvedModelCost)
     const audioOutputTokens = numericProperty(event, '$ai_audio_output_tokens')
     const imageOutputTokens = numericProperty(event, '$ai_image_output_tokens')
 
-    const audioOutputCost = computeAudioOutputCost(event, cost)
-    const imageOutputCost = computeImageOutputCost(event, cost)
+    const audioOutputCost = computeAudioOutputCost(event, cost, audioOutputTokens)
+    const imageOutputCost = computeImageOutputCost(event, cost, imageOutputTokens)
     const modalityOutputCost = bigDecimal.add(audioOutputCost, imageOutputCost)
 
-    const totalOutputTokens = numericProperty(event, '$ai_output_tokens')
     const explicitTextOutputTokens = event.properties['$ai_text_output_tokens']
 
     let textOutputTokens: number | string
-    if (typeof explicitTextOutputTokens === 'number') {
+    if (explicitTextOutputTokens !== undefined && explicitTextOutputTokens !== null) {
+        // Trust caller-supplied value (number or numeric string). Mirrors the
+        // pre-existing accept-anything-non-undefined behavior so SDK payloads
+        // that serialise token counts as strings continue to work.
         textOutputTokens = explicitTextOutputTokens
     } else {
+        const totalOutputTokens = numericProperty(event, '$ai_output_tokens')
         const derived = totalOutputTokens - audioOutputTokens - imageOutputTokens
-        // Clamp to zero when modality tokens exceed the total output count,
-        // otherwise preserve the sign so existing edge-case tests for negative
-        // output counts continue to pass.
+        // Clamp to zero when modality tokens exceed the total output count.
+        // Without modality tokens, negatives flow through so callers can spot
+        // data-integrity issues via negative totals (some test fixtures rely on
+        // this to assert behaviour against synthetic negative inputs).
         textOutputTokens = audioOutputTokens > 0 || imageOutputTokens > 0 ? Math.max(0, derived) : derived
     }
 

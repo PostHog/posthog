@@ -608,4 +608,48 @@ describe('calculateOutputCost()', () => {
             expectCost(result, 0.0624, 5)
         })
     })
+
+    describe('text output tokens type handling', () => {
+        const basicModel: ResolvedModelCost = {
+            model: 'test-model',
+            provider: 'openai',
+            cost: { prompt_token: 0.000001, completion_token: 0.000002 },
+        }
+
+        it('uses explicit numeric $ai_text_output_tokens when provided', () => {
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'test-model',
+                $ai_output_tokens: 999, // ignored because text is explicit
+                $ai_text_output_tokens: 100,
+            })
+
+            // 100 × 0.000002 = 0.0002
+            expectCost(calculateOutputCost(event, basicModel), 0.0002)
+        })
+
+        it('uses string-encoded $ai_text_output_tokens (some SDKs serialise as strings)', () => {
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'test-model',
+                $ai_output_tokens: 999,
+                $ai_text_output_tokens: '100',
+            })
+
+            // bigDecimal accepts strings; "100" × 0.000002 = 0.0002
+            expectCost(calculateOutputCost(event, basicModel), 0.0002)
+        })
+
+        it('falls back to derivation when $ai_text_output_tokens is null', () => {
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'test-model',
+                $ai_output_tokens: 100,
+                $ai_text_output_tokens: null as any,
+            })
+
+            // Derived = 100; cost = 100 × 0.000002 = 0.0002
+            expectCost(calculateOutputCost(event, basicModel), 0.0002)
+        })
+    })
 })
