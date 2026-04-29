@@ -62,9 +62,10 @@ async def run_prompt(
     step_name: str = "",
     verbose: bool = False,
     output_fn: OutputFn = None,
+    internal: bool = False,
 ) -> tuple[str, str]:
     """Spawn a sandbox agent with the given prompt and return (last_message, full_log)."""
-    task, task_run = await _create_task_and_trigger(prompt, context, branch, step_name)
+    task, task_run = await _create_task_and_trigger(prompt, context, branch, step_name, internal=internal)
     logger.info("custom_prompt: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
     # No try/catch, propagating to the caller, if it fails,
     # to turn into a clear failure instead of JSON parse error
@@ -80,6 +81,7 @@ async def _create_task_and_trigger(
     step_name: str = "",
     origin_product: str | None = None,
     signal_report_id: str | None = None,
+    internal: bool = False,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -94,7 +96,12 @@ async def _create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
+<<<<<<< New base: mark signals tasks as internal
         model=context.model,
+||||||| Common ancestor
+=======
+        internal=internal,
+>>>>>>> Current commit: mark signals tasks as internal
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

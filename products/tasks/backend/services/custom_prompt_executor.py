@@ -21,6 +21,7 @@ async def run_sandbox_agent_get_structured_output(
     step_name: str = "",
     verbose: bool = False,
     output_fn: OutputFn = None,
+    internal: bool = False,
 ) -> _ModelT:
     """Run an agent with a custom prompt in a sandbox and return validated Pydantic output."""
     try:
@@ -31,6 +32,7 @@ async def run_sandbox_agent_get_structured_output(
             step_name=step_name,
             verbose=verbose,
             output_fn=output_fn,
+            internal=internal,
         )
     except Exception:
         logger.exception("Sandbox execution failed")

@@ -533,6 +533,7 @@ async def run_multi_turn_research(
         output_fn=output_fn,
         origin_product="signal_report",
         signal_report_id=signal_report_id,
+        internal=True,
     )
 
     # Record the research task relationship immediately after task creation

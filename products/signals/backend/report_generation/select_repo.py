@@ -129,6 +129,7 @@ async def select_repository_for_report(
         step_name="repo_selection",
         verbose=verbose,
         output_fn=output_fn,
+        internal=True,
     )
     # Validate that the selected repo is actually in the candidate list
     if result.repository is not None:
