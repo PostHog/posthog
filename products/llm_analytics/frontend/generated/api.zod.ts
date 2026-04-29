@@ -1282,7 +1282,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(llmAnalyticsTraceReviewsCreateBodyTraceIdMax)
         .describe('Trace ID for the review. Only one active review can exist per trace and team.'),
-    comment: zod.string().nullish().describe('Optional human comment or reasoning for the review.'),
+    comment: zod.string().nullish().describe('Optional comment or reasoning for the review.'),
     scores: zod
         .array(
             zod.object({
@@ -1328,7 +1328,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
         .max(llmAnalyticsTraceReviewsPartialUpdateBodyTraceIdMax)
         .optional()
         .describe('Trace ID for the review. Only one active review can exist per trace and team.'),
-    comment: zod.string().nullish().describe('Optional human comment or reasoning for the review.'),
+    comment: zod.string().nullish().describe('Optional comment or reasoning for the review.'),
     scores: zod
         .array(
             zod.object({
