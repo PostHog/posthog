@@ -308,7 +308,6 @@ describe('ErrorTrackingPipeline', () => {
             groupTypeManager: mockGroupTypeManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             overflowEnabled: false,
-            rateLimiterReportingMode: true,
             topHog: mockTopHog,
         }
     })

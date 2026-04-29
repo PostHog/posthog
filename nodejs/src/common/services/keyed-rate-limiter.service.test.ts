@@ -56,7 +56,7 @@ describe('KeyedRateLimiterService', () => {
         const limiter = buildLimiter('test-basic')
         await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-        const res = await limiter.rateLimitMany([['team-1', 1]])
+        const res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
 
         expect(res).toEqual([['team-1', { tokens: 99, isRateLimited: false }]])
     })
@@ -65,13 +65,13 @@ describe('KeyedRateLimiterService', () => {
         const limiter = buildLimiter('test-exceed')
         await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-        let res = await limiter.rateLimitMany([['team-1', 99]])
+        let res = await limiter.rateLimitMany([{ id: 'team-1', cost: 99 }])
         expect(res[0][1]).toEqual({ tokens: 1, isRateLimited: false })
 
-        res = await limiter.rateLimitMany([['team-1', 1]])
+        res = await limiter.rateLimitMany([{ id: 'team-1', cost: 1 }])
         expect(res[0][1]).toEqual({ tokens: 0, isRateLimited: true })
 
-        res = await limiter.rateLimitMany([['team-1', 20]])
+        res = await limiter.rateLimitMany([{ id: 'team-1', cost: 20 }])
         expect(res[0][1].isRateLimited).toBe(true)
     })
 
@@ -79,11 +79,11 @@ describe('KeyedRateLimiterService', () => {
         const limiter = buildLimiter('test-refill')
         await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
-        let res = await limiter.rateLimitMany([['team-1', 50]])
+        let res = await limiter.rateLimitMany([{ id: 'team-1', cost: 50 }])
         expect(res[0][1].tokens).toBe(50)
 
         advanceTime(1000)
-        res = await limiter.rateLimitMany([['team-1', 0]])
+        res = await limiter.rateLimitMany([{ id: 'team-1', cost: 0 }])
         expect(res[0][1].tokens).toBe(60)
     })
 
@@ -92,8 +92,8 @@ describe('KeyedRateLimiterService', () => {
         await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
 
         const res = await limiter.rateLimitMany([
-            ['team-1', 1],
-            ['team-2', 5],
+            { id: 'team-1', cost: 1 },
+            { id: 'team-2', cost: 5 },
         ])
 
         expect(res).toEqual([
@@ -109,12 +109,12 @@ describe('KeyedRateLimiterService', () => {
         await deleteKeysWithPrefix(redis, limiterB.getKeyPrefix())
 
         // Drain limiter A entirely.
-        await limiterA.rateLimitMany([['shared-id', 100]])
-        const drainedA = await limiterA.rateLimitMany([['shared-id', 1]])
+        await limiterA.rateLimitMany([{ id: 'shared-id', cost: 100 }])
+        const drainedA = await limiterA.rateLimitMany([{ id: 'shared-id', cost: 1 }])
         expect(drainedA[0][1].isRateLimited).toBe(true)
 
         // Same id under limiter B is untouched — confirms prefix isolation.
-        const freshB = await limiterB.rateLimitMany([['shared-id', 1]])
+        const freshB = await limiterB.rateLimitMany([{ id: 'shared-id', cost: 1 }])
         expect(freshB[0][1]).toEqual({ tokens: 99, isRateLimited: false })
     })
 
@@ -140,13 +140,23 @@ describe('KeyedRateLimiterService', () => {
         )
 
         const res = await limiter.rateLimitMany([
-            ['a', 1],
-            ['b', 2],
+            { id: 'a', cost: 1 },
+            { id: 'b', cost: 2 },
         ])
 
         expect(res).toEqual([
             ['a', { tokens: 50, isRateLimited: false }],
             ['b', { tokens: 50, isRateLimited: false }],
         ])
+    })
+
+    it('honours per-call bucketSize and refillRate overrides', async () => {
+        const limiter = buildLimiter('test-per-call', { bucketSize: 100, refillRate: 10 })
+        await deleteKeysWithPrefix(redis, limiter.getKeyPrefix())
+
+        // Per-call override: tiny bucket of 5, despite the service's default of 100.
+        const res = await limiter.rateLimitMany([{ id: 'tiny-team', cost: 6, bucketSize: 5, refillRate: 1 }])
+
+        expect(res[0][1].isRateLimited).toBe(true)
     })
 })

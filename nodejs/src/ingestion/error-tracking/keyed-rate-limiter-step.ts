@@ -1,7 +1,7 @@
 import { Counter } from 'prom-client'
 
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
+import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 
 import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
 import { drop, ok } from '../pipelines/results'
@@ -27,6 +27,12 @@ export interface KeyedRateLimiterStepOptions<T> {
     getCost?: (input: T) => number
     /** Team id used when emitting `app_metrics2` rows. */
     getTeamId: (input: T) => number
+    /**
+     * Optional per-input override of bucketSize / refillRate / ttlSeconds. When provided,
+     * the values from the first input in each key group win. All inputs sharing a key are
+     * expected to agree (e.g. team-keyed limits where all inputs in a key share a team).
+     */
+    getBucketConfig?: (input: T) => Partial<Pick<KeyedRateLimitRequest, 'bucketSize' | 'refillRate' | 'ttlSeconds'>>
     /** When true, decisions are computed and tracked but never enforced — every input passes through `ok()`. */
     reportingMode: boolean
     /** Drop reason label when enforcing. Defaults to `rate_limited`. */
@@ -60,8 +66,10 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
 
         // Per-input key (null means "skip this input"). Cost summed per unique key
         // so we issue exactly one Redis call per key — same pattern as logs-rate-limiter.
+        // Bucket config (if provided) snapshots the first input per key — all inputs in
+        // a key group are expected to agree (e.g. team-keyed limits all share a team).
         const keyForInput: (string | null)[] = new Array(inputs.length)
-        const costByKey = new Map<string, number>()
+        const requestByKey = new Map<string, KeyedRateLimitRequest>()
 
         for (let i = 0; i < inputs.length; i++) {
             const key = opts.getKey(inputs[i])
@@ -69,14 +77,19 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
             if (key === null) {
                 continue
             }
-            costByKey.set(key, (costByKey.get(key) ?? 0) + costFn(inputs[i]))
+            const inputCost = costFn(inputs[i])
+            const existing = requestByKey.get(key)
+            if (existing) {
+                existing.cost += inputCost
+            } else {
+                const overrides = opts.getBucketConfig?.(inputs[i]) ?? {}
+                requestByKey.set(key, { id: key, cost: inputCost, ...overrides })
+            }
         }
 
         const limitedKeys = new Set<string>()
-        if (costByKey.size > 0) {
-            const rateLimitResults = await opts.rateLimiter.rateLimitMany(
-                Array.from(costByKey.entries()).map(([k, c]) => [k, c])
-            )
+        if (requestByKey.size > 0) {
+            const rateLimitResults = await opts.rateLimiter.rateLimitMany(Array.from(requestByKey.values()))
             for (const [key, result] of rateLimitResults) {
                 if (result.isRateLimited) {
                     limitedKeys.add(key)

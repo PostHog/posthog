@@ -29,9 +29,11 @@ import { CymbalClient } from './cymbal'
 import {
     ErrorTrackingOutputs,
     ErrorTrackingPipelineOutput,
+    PreCymbalRateLimiterInput,
     createErrorTrackingPipeline,
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
+import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
 
 /**
  * Configuration values for ErrorTrackingConsumer.
@@ -258,13 +260,71 @@ export class ErrorTrackingConsumer {
             overflowEnabled: this.config.overflowEnabled,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
-            rateLimiter: this.rateLimiter,
-            rateLimiterReportingMode: this.config.rateLimiterReportingMode,
-            rateLimiterAppMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+            preCymbalRateLimiters: this.buildPreCymbalRateLimiterSpecs(),
             topHog: this.topHog,
         })
 
         logger.info('✅', `${this.name} - pipeline initialized`)
+    }
+
+    /**
+     * Construct the pre-Cymbal rate limiter spec list. Add new specs here as
+     * we extend rate limiting beyond the team-global limit (per-hash, per-event-name etc).
+     */
+    private buildPreCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] {
+        if (!this.rateLimiter) {
+            return []
+        }
+
+        const specs: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] = [
+            // Team-global cap: every $exception event for a team consumes one token
+            // from a per-team bucket.
+            {
+                rateLimiter: this.rateLimiter,
+                appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+                appSource: 'exceptions',
+                getKey: (input) => `${input.team.id}:exceptions:global`,
+                getTeamId: (input) => input.team.id,
+                reportingMode: this.config.rateLimiterReportingMode,
+                dropReason: 'rate_limited:team_global',
+                // TODO: Read per-team bucket overrides from a Team Extension model
+                // (e.g. ErrorTrackingTeamSettings.rate_limit_bucket_size /
+                // .rate_limit_refill_rate). When those columns are nullable and unset,
+                // fall back to the env-configured defaults baked into `this.rateLimiter`.
+                // Wiring would look like:
+                //   getBucketConfig: (input) => {
+                //       const settings = (input as { team: TeamWithErrorTrackingSettings }).team
+                //           .error_tracking_settings
+                //       return {
+                //           bucketSize: settings?.rate_limit_bucket_size ?? undefined,
+                //           refillRate: settings?.rate_limit_refill_rate ?? undefined,
+                //       }
+                //   },
+            },
+            // TODO: Per-exception-hash limit using a coarse pre-Cymbal fingerprint
+            // (Cymbal's proper fingerprint is post-symbolication, so we accept a
+            // weaker-but-cheaper bucket here). Wiring would look like:
+            // {
+            //     rateLimiter: this.rateLimiter,
+            //     appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
+            //     appSource: 'exceptions',
+            //     getKey: (input) => {
+            //         const first = input.event.properties?.$exception_list?.[0]
+            //         if (!first?.type && !first?.value) return null
+            //         const hash = createHash('sha1')
+            //             .update(`${first?.type ?? ''}|${first?.value ?? ''}`)
+            //             .digest('hex')
+            //             .slice(0, 16)
+            //         return `${input.team.id}:exceptions:hash:${hash}`
+            //     },
+            //     getTeamId: (input) => input.team.id,
+            //     reportingMode: this.config.rateLimiterReportingMode,
+            //     dropReason: 'rate_limited:per_hash',
+            //     // getBucketConfig: ... (see TODO above)
+            // },
+        ]
+
+        return specs
     }
 
     public async stop(): Promise<void> {

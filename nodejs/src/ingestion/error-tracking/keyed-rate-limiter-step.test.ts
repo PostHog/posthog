@@ -1,16 +1,20 @@
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { KeyedRateLimit, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
+import {
+    KeyedRateLimit,
+    KeyedRateLimitRequest,
+    KeyedRateLimiterService,
+} from '~/common/services/keyed-rate-limiter.service'
 
 import { isDropResult, isOkResult } from '../pipelines/results'
 import { createKeyedRateLimiterStep } from './keyed-rate-limiter-step'
 
-type Input = { teamId: number; key: string | null; cost?: number }
+type Input = { teamId: number; key: string | null; cost?: number; bucketOverride?: number }
 
 const mkLimiter = (decisions: Record<string, boolean>): KeyedRateLimiterService =>
     ({
-        rateLimitMany: jest.fn((idCosts: [string, number][]) => {
+        rateLimitMany: jest.fn((requests: KeyedRateLimitRequest[]) => {
             return Promise.resolve(
-                idCosts.map(([id]): [string, KeyedRateLimit] => [
+                requests.map(({ id }): [string, KeyedRateLimit] => [
                     id,
                     { tokens: decisions[id] ? 0 : 99, isRateLimited: !!decisions[id] },
                 ])
@@ -113,9 +117,32 @@ describe('createKeyedRateLimiterStep', () => {
         ])
 
         expect(limiter.rateLimitMany).toHaveBeenCalledTimes(1)
-        const calledWith = (limiter.rateLimitMany as jest.Mock).mock.calls[0][0] as [string, number][]
-        const asObj = Object.fromEntries(calledWith)
-        expect(asObj).toEqual({ k1: 7, k2: 5 })
+        const calledWith = (limiter.rateLimitMany as jest.Mock).mock.calls[0][0] as KeyedRateLimitRequest[]
+        const byId = Object.fromEntries(calledWith.map((req) => [req.id, req.cost]))
+        expect(byId).toEqual({ k1: 7, k2: 5 })
+    })
+
+    it('forwards per-input bucket config overrides to the limiter (snapshotted from first input per key)', async () => {
+        const limiter = mkLimiter({})
+        const step = createKeyedRateLimiterStep<Input>(
+            baseOpts({
+                rateLimiter: limiter,
+                getBucketConfig: (i: Input) =>
+                    i.bucketOverride !== undefined ? { bucketSize: i.bucketOverride, refillRate: 1 } : {},
+            })
+        )
+
+        await step([
+            { teamId: 1, key: 'k1', bucketOverride: 5 },
+            { teamId: 1, key: 'k1', bucketOverride: 999 }, // ignored — first wins
+            { teamId: 2, key: 'k2' }, // no override
+        ])
+
+        const requests = (limiter.rateLimitMany as jest.Mock).mock.calls[0][0] as KeyedRateLimitRequest[]
+        const byId = Object.fromEntries(requests.map((req) => [req.id, req]))
+        expect(byId.k1).toMatchObject({ id: 'k1', bucketSize: 5, refillRate: 1 })
+        expect(byId.k2.bucketSize).toBeUndefined()
+        expect(byId.k2.refillRate).toBeUndefined()
     })
 
     it('emits one app_metrics2 row per (team, key, outcome) with summed counts', async () => {
