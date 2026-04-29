@@ -9,7 +9,7 @@ This module provides functions to interact with Cloudflare's API for:
 
 import typing as t
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from django.conf import settings
 
@@ -29,7 +29,7 @@ class CloudflareAPIError(Exception):
         return any(err.get("code") == 10000 for err in self.errors) or "rate limit" in str(self).lower()
 
 
-class CustomHostnameSSLStatus(str, Enum):
+class CustomHostnameSSLStatus(StrEnum):
     """SSL certificate status for a Custom Hostname."""
 
     INITIALIZING = "initializing"
@@ -41,7 +41,7 @@ class CustomHostnameSSLStatus(str, Enum):
     DELETED = "deleted"
 
 
-class CustomHostnameStatus(str, Enum):
+class CustomHostnameStatus(StrEnum):
     """Status for a Custom Hostname."""
 
     ACTIVE = "active"
@@ -122,6 +122,9 @@ def create_custom_hostname(domain: str) -> CustomHostnameInfo:
         "ssl": {
             "method": "http",
             "type": "dv",
+            "settings": {
+                "min_tls_version": "1.2",
+            },
         },
     }
 
