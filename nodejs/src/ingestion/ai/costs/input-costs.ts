@@ -64,16 +64,18 @@ export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
 }
 
 /**
- * Clamp the text-token pool to zero when modality tokens are present and the
- * subtraction would push it negative. Without modality tokens, preserve the
- * pre-existing behavior of letting negative values flow through (some callers
- * rely on that for synthetic test inputs).
+ * Clamp the residual text-token pool to zero when modality tokens are present
+ * and the subtraction would push it negative — a sign that modality token
+ * counts overlap with cache tokens or exceed the reported input total. Without
+ * modality tokens, negatives are passed through unchanged so existing edge-case
+ * tests for negative input counts keep working as before.
  */
 const clampTextTokens = (value: string | number, hasModalityTokens: boolean): string | number => {
     if (!hasModalityTokens) {
         return value
     }
-    return Number(value) < 0 ? 0 : value
+    const num = Number(value)
+    return Number.isFinite(num) && num < 0 ? 0 : value
 }
 
 /**

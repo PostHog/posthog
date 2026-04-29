@@ -66,8 +66,9 @@ export const calculateOutputCost = (event: PluginEvent, cost: ResolvedModelCost)
         textOutputTokens = explicitTextOutputTokens
     } else {
         const derived = totalOutputTokens - audioOutputTokens - imageOutputTokens
-        // Clamp to 0 when modality tokens exceed total, otherwise preserve sign
-        // for the legacy "negative output tokens" code path that flows through here.
+        // Clamp to zero when modality tokens exceed the total output count,
+        // otherwise preserve the sign so existing edge-case tests for negative
+        // output counts continue to pass.
         textOutputTokens = audioOutputTokens > 0 || imageOutputTokens > 0 ? Math.max(0, derived) : derived
     }
 

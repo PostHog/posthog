@@ -7,14 +7,22 @@ export interface EventWithProperties extends PluginEvent {
 }
 
 /**
- * Read a numeric property from the event's properties bag, treating any
- * non-finite or non-number value as zero. Used by the cost calculation pipeline
- * for modality token counts which providers report as numbers but third-party
- * SDKs occasionally serialise as strings or null.
+ * Read a numeric property from the event's properties bag, returning zero for
+ * any value that is missing, non-finite, or not numeric. Accepts numeric
+ * strings (e.g. `"100"`) as well as numbers — third-party SDKs and OTel
+ * collectors occasionally serialise token counts as strings, and the cost
+ * pipeline must bill those tokens correctly rather than silently zeroing them.
  */
 export const numericProperty = (event: PluginEvent, key: string): number => {
     const value = event.properties?.[key]
-    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : 0
+    }
+    if (typeof value === 'string' && value.length > 0) {
+        const parsed = Number(value)
+        return Number.isFinite(parsed) ? parsed : 0
+    }
+    return 0
 }
 
 /**
