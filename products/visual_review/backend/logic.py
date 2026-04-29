@@ -23,6 +23,8 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
+from posthog.models.integration import GitHubRateLimitError
+
 from .classifier import SnapshotClassifier
 from .db import WRITER_DB
 from .facade.enums import ReviewDecision, ReviewState, RunPurpose, RunStatus, SnapshotResult, ToleratedReason
@@ -59,6 +61,12 @@ class GitHubCommitError(Exception):
 
 class PRSHAMismatchError(Exception):
     """PR has new commits since this run was created."""
+
+    pass
+
+
+class HashIntegrityError(Exception):
+    """Uploaded image bytes do not match the claimed content hash."""
 
     pass
 
@@ -295,10 +303,17 @@ def _verify_baseline_hashes(repo: Repo, raw_hashes: dict[str, str]) -> dict[str,
 
     keys = repo.signing_keys or {}
     if not keys:
-        # No signing keys configured yet — pass through as unsigned baselines.
-        # Once the repo's signing keys are generated (on first baseline fetch),
-        # all subsequent baselines must be signed.
-        return dict(raw_hashes)
+        # Legitimate baseline files only exist after the server's approval flow
+        # has written one (which populates signing_keys). Reaching here means a
+        # .snapshots.yml was committed before any approval — likely hand-crafted.
+        # Drop every entry rather than passing it through unsigned. Snapshots
+        # will classify NEW, surfacing the situation to a reviewer.
+        logger.warning(
+            "visual_review.baseline_no_signing_keys",
+            repo_id=str(repo.id),
+            entry_count=len(raw_hashes),
+        )
+        return {}
 
     repo_id = str(repo.id)
     verified: dict[str, str] = {}
@@ -344,15 +359,14 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
     import requests
 
-    access_token = github.integration.sensitive_config["access_token"]
+    from .github import github_request
+
+    access_token = github.get_access_token()
     try:
-        response = requests.get(
+        response = github_request(
+            "GET",
             f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            access_token=access_token,
             timeout=10,
         )
     except requests.RequestException:
@@ -384,15 +398,14 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
     """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
     import requests
 
-    access_token = github.integration.sensitive_config["access_token"]
+    from .github import github_request
+
+    access_token = github.get_access_token()
     try:
-        response = requests.get(
+        response = github_request(
+            "GET",
             f"https://api.github.com/repos/{repo_full_name}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            access_token=access_token,
             timeout=10,
         )
     except requests.RequestException:
@@ -741,19 +754,18 @@ def mark_run_processing(run_id: UUID) -> Run:
 
 def complete_run(run_id: UUID) -> Run:
     """
-    Complete a run: detect removals, verify uploads, trigger diff processing.
+    Complete a run: detect removals, classify snapshots, hand off to the diff task.
 
     1. Fetches baseline from GitHub, diffs against RunSnapshot rows to find removed
     2. Creates REMOVED RunSnapshot rows
-    3. Verifies all expected uploads exist in S3
-    4. Creates Artifact records for verified uploads
-    5. Links artifacts to snapshots
-    6. Triggers async diff processing (only if there are changes to diff)
+    3. Classifies snapshots and updates run counts
+    4. Either verifies uploads + finishes synchronously (no-change fast path) or
+       enqueues process_run_diffs which verifies + diffs + finishes
 
     Idempotent: returns immediately if already processing or completed.
     """
     run = get_run(run_id)
-    if run.status in (RunStatus.PROCESSING, RunStatus.COMPLETED):
+    if run.status in (RunStatus.COMPLETED, RunStatus.PROCESSING):
         return run
 
     # Transition to PROCESSING early so late add_snapshots calls are rejected.
@@ -770,7 +782,12 @@ def complete_run(run_id: UUID) -> Run:
     # Fetch baseline merged with merge-base to heal rebase-induced drift.
     # Branch baseline tracks approvals; merge-base fills entries lost when
     # git rebase replays a full-file bot commit destructively.
-    baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+    try:
+        baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+    except GitHubRateLimitError:
+        # Roll back to PENDING so the caller can retry after the limit resets
+        Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
+        raise
     if healed_count:
         run.metadata["baseline_healed_from_merge_base"] = healed_count
         run.save(using=WRITER_DB, update_fields=["metadata"])
@@ -796,16 +813,26 @@ def complete_run(run_id: UUID) -> Run:
     run.save(using=WRITER_DB, update_fields=["total_snapshots"])
     _update_run_counts(run, using=WRITER_DB)
 
-    verify_uploads_and_create_artifacts(run_id)
-
     run = get_run(run_id)
 
-    # Optimization: if no changes, skip diff processing entirely
+    # No-changes fast path: verify any pending uploads synchronously, then
+    # finish. Skipping verify here would silently drop uploads whenever an
+    # Artifact row is missing for a hash that the baseline still points at
+    # (e.g. DB cleanup removed the row but the GitHub-side baseline file
+    # wasn't updated). The CLI re-uploads via find_missing_hashes, the
+    # snapshot classifies as UNCHANGED, and the bytes never get checked or
+    # recorded — leaving every future run requesting the same upload while
+    # CI posts green.
     if run.changed_count == 0 and run.new_count == 0:
-        finalize_run(run_id)
+        try:
+            verify_uploads_and_create_artifacts(run_id)
+        except HashIntegrityError as e:
+            logger.warning("visual_review.hash_integrity_failed", run_id=str(run_id), error=str(e))
+            finish_processing(run_id, error_message=str(e))
+            return get_run(run_id)
+        finish_processing(run_id)
         return get_run(run_id)
 
-    # Mark as processing and trigger diff task
     mark_run_processing(run_id)
     from .tasks.tasks import process_run_diffs
 
@@ -815,18 +842,32 @@ def complete_run(run_id: UUID) -> Run:
 
 def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
     """
-    Verify S3 uploads exist and create Artifact records.
+    Verify S3 uploads, check hash integrity, and create Artifact records.
 
-    Called when run is completed. Checks S3 for each expected hash,
-    creates Artifact if present, and links to snapshots.
+    For each new upload (no existing Artifact), reads the PNG bytes from S3,
+    decodes to sRGB RGBA, and computes the BLAKE3 hash. The CLI-claimed hash
+    is used only as a lookup key into S3 — once verified, it's discarded and
+    the server-computed hash is used everywhere downstream. This ensures the
+    CLI cannot (accidentally or maliciously) associate wrong hashes with image
+    content.
+
+    Verification runs in two passes so a late failure can't leave a partial
+    set of Artifact rows behind: pass 1 reads + hashes all uploads, pass 2
+    creates Artifact rows from the verified results.
+
+    Raises HashIntegrityError if any upload fails verification.
 
     Returns number of artifacts created.
     """
+    from .hashing import ImageTooLargeError, hash_image
+
     run = get_run_with_snapshots(run_id)
     repo_id = run.repo_id
     storage = ArtifactStorage(str(repo_id))
 
-    # Collect all unique hashes we expect
+    # Collect all unique hashes we expect, keyed by the CLI-claimed value.
+    # The claim is treated as a lookup key only — verification below produces
+    # the server-computed hash that becomes authoritative.
     expected_hashes: dict[str, dict] = {}
     for snapshot in run.snapshots.all():
         if snapshot.current_hash and snapshot.current_hash not in expected_hashes:
@@ -840,30 +881,86 @@ def verify_uploads_and_create_artifacts(run_id: UUID) -> int:
                 "height": None,
             }
 
+    # Pass 1: read + hash all new uploads. Skip existing artifacts. Fail loudly
+    # on any hash mismatch, decode error, or missing upload before any Artifact
+    # row is written.
+    verified: list[tuple[str, bytes, dict]] = []
+    for claimed_hash, metadata in expected_hashes.items():
+        if get_artifact(repo_id, claimed_hash):
+            continue
+
+        png_bytes = storage.read(claimed_hash)
+        if png_bytes is None:
+            # Race: complete_run fired before the CLI's S3 upload landed, or
+            # the upload was never made. Log loudly so we can spot it instead
+            # of silently dropping the artifact and forcing the next run to
+            # re-upload the same content.
+            logger.warning(
+                "visual_review.upload_missing_in_s3",
+                run_id=str(run_id),
+                claimed_hash=claimed_hash,
+            )
+            continue
+        if len(png_bytes) == 0:
+            raise HashIntegrityError(f"Upload rejected: empty file for hash {claimed_hash[:16]}…")
+
+        try:
+            actual_hash = hash_image(png_bytes)
+        except ImageTooLargeError as e:
+            logger.exception(
+                "visual_review.hash_image_too_large",
+                run_id=str(run_id),
+                claimed_hash=claimed_hash,
+                error=str(e),
+            )
+            raise HashIntegrityError(f"Upload rejected: {e}") from e
+        except Exception as e:
+            # Pillow can raise UnidentifiedImageError, DecompressionBombError,
+            # OSError, etc. Funnel everything into HashIntegrityError so the
+            # task handler routes it through the structured-failure path
+            # instead of celery's retry loop.
+            logger.exception(
+                "visual_review.hash_image_failed",
+                run_id=str(run_id),
+                claimed_hash=claimed_hash,
+                error=str(e),
+                error_type=type(e).__name__,
+            )
+            raise HashIntegrityError(
+                f"Upload integrity check failed: could not decode image for hash {claimed_hash[:16]}…"
+            ) from e
+
+        if actual_hash != claimed_hash:
+            logger.error(
+                "visual_review.hash_integrity_failure",
+                run_id=str(run_id),
+                claimed_hash=claimed_hash,
+                actual_hash=actual_hash,
+            )
+            raise HashIntegrityError(
+                f"Upload integrity check failed: claimed {claimed_hash[:16]}… but image hashes to {actual_hash[:16]}…"
+            )
+
+        verified.append((actual_hash, png_bytes, metadata))
+
+    # Pass 2: create Artifact rows from verified server-computed hashes only.
+    # The claimed hash isn't used past this point.
     created_count = 0
-    for content_hash, metadata in expected_hashes.items():
-        # Check if artifact already exists
-        if get_artifact(repo_id, content_hash):
-            continue
-
-        # Check if file exists in S3
-        if not storage.exists(content_hash):
-            continue
-
-        # Create artifact record
-        storage_path = storage._key(content_hash)
+    for actual_hash, png_bytes, metadata in verified:
+        storage_path = storage._key(actual_hash)
         artifact, created = get_or_create_artifact(
             repo_id=repo_id,
-            content_hash=content_hash,
+            content_hash=actual_hash,
             storage_path=storage_path,
             width=metadata.get("width"),
             height=metadata.get("height"),
+            size_bytes=len(png_bytes),
             team_id=run.team_id,
         )
 
         if created:
             created_count += 1
-            link_artifact_to_snapshots(repo_id, content_hash)
+            link_artifact_to_snapshots(repo_id, actual_hash)
 
     return created_count
 
@@ -887,36 +984,41 @@ def _stamp_quarantine(run: Run) -> None:
     snapshots.filter(is_quarantined=True).exclude(identifier__in=quarantined_ids).update(is_quarantined=False)
 
 
-def finalize_run(run_id: UUID, error_message: str = "") -> Run:
-    run = get_run_with_snapshots(run_id)
+def _is_unresolved(s: RunSnapshot) -> bool:
+    """A snapshot is unresolved if it represents a change that hasn't been dealt with."""
+    if s.result == SnapshotResult.UNCHANGED:
+        return False
+    if s.is_quarantined:
+        return False
+    if s.review_state in (ReviewState.TOLERATED, ReviewState.APPROVED):
+        return False
+    return True
 
-    # Stamp quarantine state — evaluated now and frozen on each snapshot
+
+def _update_counts_and_post_status(run: Run) -> int:
+    """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
+
+    Counts on the run (changed_count, new_count, removed_count) reflect the raw
+    classifier output excluding quarantined snapshots. The unresolved count is
+    computed separately for the commit status and CI gate — it further excludes
+    tolerated and approved snapshots.
+
+    Returns the unresolved count.
+    """
     _stamp_quarantine(run)
 
     snapshots = list(run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all())
 
-    # Gating counts exclude quarantined identifiers — they don't block PRs
-    changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
-    new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
-    removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
-    tolerated_match_count = sum(
+    run.changed_count = sum(1 for s in snapshots if s.result == SnapshotResult.CHANGED and not s.is_quarantined)
+    run.new_count = sum(1 for s in snapshots if s.result == SnapshotResult.NEW and not s.is_quarantined)
+    run.removed_count = sum(1 for s in snapshots if s.result == SnapshotResult.REMOVED and not s.is_quarantined)
+    run.tolerated_match_count = sum(
         1
         for s in snapshots
         if s.tolerated_hash_match is not None and s.tolerated_hash_match.reason == ToleratedReason.HUMAN
     )
-
-    run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
-    run.error_message = error_message
-    run.completed_at = timezone.now()
-    run.changed_count = changed_count
-    run.new_count = new_count
-    run.removed_count = removed_count
-    run.tolerated_match_count = tolerated_match_count
     run.save(
         update_fields=[
-            "status",
-            "error_message",
-            "completed_at",
             "changed_count",
             "new_count",
             "removed_count",
@@ -924,25 +1026,105 @@ def finalize_run(run_id: UUID, error_message: str = "") -> Run:
         ]
     )
 
+    unresolved = sum(1 for s in snapshots if _is_unresolved(s))
+
     repo = run.repo
-    if error_message:
-        _post_commit_status(run, repo, "error", f"Visual review failed: {error_message[:100]}")
-    elif changed_count > 0 or new_count > 0 or removed_count > 0:
+    if run.error_message:
+        _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
+    elif unresolved > 0:
         parts = []
-        if changed_count:
-            parts.append(f"{changed_count} changed")
-        if new_count:
-            parts.append(f"{new_count} new")
-        if removed_count:
-            parts.append(f"{removed_count} removed")
-        # During migration VR is observational — always green so drift doesn't block PRs.
-        # Flip to "failure" when VR becomes the gate.
+        if run.changed_count:
+            parts.append(f"{run.changed_count} changed")
+        if run.new_count:
+            parts.append(f"{run.new_count} new")
+        if run.removed_count:
+            parts.append(f"{run.removed_count} removed")
         _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
         _post_review_prompt_comment(run, repo)
     else:
         _post_commit_status(run, repo, "success", "No visual changes")
 
+    return unresolved
+
+
+def finish_processing(run_id: UUID, error_message: str = "") -> Run:
+    run = get_run_with_snapshots(run_id)
+
+    run.status = RunStatus.FAILED if error_message else RunStatus.COMPLETED
+    run.error_message = error_message
+    run.completed_at = timezone.now()
+    run.save(update_fields=["status", "error_message", "completed_at"])
+
+    _update_counts_and_post_status(run)
+
     return run
+
+
+@transaction.atomic(using=WRITER_DB)
+def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
+    """Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
+
+    Returns a dict with counts_changed, ci_rerun_triggered, and ci_rerun_error.
+    """
+    run = _get_run_for_update(run_id, team_id=team_id)
+
+    if run.status != RunStatus.COMPLETED:
+        raise ValueError(f"Can only recompute completed runs (current status: {run.status})")
+
+    if run.approved:
+        raise ValueError("Run is already approved")
+
+    old_counts = (run.changed_count, run.new_count, run.removed_count)
+    unresolved = _update_counts_and_post_status(run)
+    new_counts = (run.changed_count, run.new_count, run.removed_count)
+    counts_changed = old_counts != new_counts
+
+    ci_rerun_triggered = False
+    ci_rerun_error: str | None = None
+
+    check_run_id = (run.metadata or {}).get("github_check_run_id")
+
+    if not check_run_id:
+        ci_rerun_error = "CI job ID not available (set JOB_CHECK_RUN_ID=${{ job.check_run_id }} in workflow)"
+    else:
+        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, check_run_id)
+
+    return {
+        "counts_changed": counts_changed,
+        "unresolved": unresolved,
+        "ci_rerun_triggered": ci_rerun_triggered,
+        "ci_rerun_error": ci_rerun_error,
+    }
+
+
+def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
+    """Rerun a specific GitHub Actions job by its numeric ID. Returns (success, error_message)."""
+    if not check_run_id.isdigit():
+        return False, "Invalid check run ID"
+
+    repo = run.repo
+    if not repo.repo_full_name:
+        return False, "Repo has no GitHub full name configured"
+
+    try:
+        response = _github_api_request(
+            "POST",
+            repo,
+            f"actions/jobs/{check_run_id}/rerun",
+            timeout=10,
+        )
+    except Exception:
+        return False, "Failed to trigger job rerun"
+
+    if response.status_code == 201:
+        logger.info(
+            "visual_review.ci_job_rerun_triggered",
+            run_id=str(run.id),
+            check_run_id=check_run_id,
+        )
+        return True, None
+
+    return False, f"GitHub API returned {response.status_code} when rerunning job"
 
 
 def get_github_integration_for_repo(repo: Repo):
@@ -965,16 +1147,13 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     latest full_name even if the repo was renamed or transferred.
     Returns None if the repo is inaccessible.
     """
-    import requests
+    from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
-    response = requests.get(
+    access_token = github.get_access_token()
+    response = github_request(
+        "GET",
         f"https://api.github.com/repositories/{repo_external_id}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+        access_token=access_token,
         timeout=10,
     )
     if response.status_code == 200:
@@ -995,22 +1174,18 @@ def _github_api_request(
     the current full_name via /repositories/{id}. If it changed, updates
     the stored repo_full_name and retries once.
     """
-    import requests
+    from urllib.parse import quote
+
+    from .github import github_request
+
+    # Prevent path traversal — each segment must be safe
+    safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
 
     github = get_github_integration_for_repo(repo)
-    if github.access_token_expired():
-        github.refresh_access_token()
+    access_token = github.get_access_token()
 
-    access_token = github.integration.sensitive_config["access_token"]
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {access_token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-        **(kwargs.pop("headers", {})),
-    }
-
-    url = f"https://api.github.com/repos/{repo.repo_full_name}/{path}"
-    response = requests.request(method, url, headers=headers, **kwargs)
+    url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
+    response = github_request(method, url, access_token=access_token, **kwargs)
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -1024,8 +1199,8 @@ def _github_api_request(
             repo.repo_full_name = new_full_name
             repo.save(update_fields=["repo_full_name"])
 
-            url = f"https://api.github.com/repos/{new_full_name}/{path}"
-            response = requests.request(method, url, headers=headers, **kwargs)
+            url = f"https://api.github.com/repos/{new_full_name}/{safe_path}"
+            response = github_request(method, url, access_token=access_token, **kwargs)
 
     return response
 
@@ -1036,17 +1211,15 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
 
     Returns dict with head_ref (branch) and head_sha.
     """
-    import requests
+    from .github import github_request
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
 
-    response = requests.get(
+    response = github_request(
+        "GET",
         f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+        access_token=access_token,
+        timeout=10,
     )
 
     if response.status_code != 200:
@@ -1072,18 +1245,16 @@ def _fetch_baseline_file(
     import base64
 
     import yaml
-    import requests
 
-    access_token = github.integration.sensitive_config["access_token"]
+    from .github import github_request
 
-    response = requests.get(
+    access_token = github.get_access_token()
+
+    response = github_request(
+        "GET",
         f"https://api.github.com/repos/{repo_full_name}/contents/{file_path}",
+        access_token=access_token,
         params={"ref": branch},
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {access_token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
         timeout=10,
     )
 
@@ -1172,7 +1343,7 @@ def _post_commit_status(
 
     from django.conf import settings
 
-    import requests
+    from .github import github_request
 
     try:
         github = get_github_integration_for_repo(repo)
@@ -1182,22 +1353,19 @@ def _post_commit_status(
         logger.debug("visual_review.status_check_skipped", run_id=str(run.id), reason="no_github_integration")
         return
 
-    access_token = github.integration.sensitive_config["access_token"]
+    access_token = github.get_access_token()
     target_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
 
     try:
-        response = requests.post(
+        response = github_request(
+            "POST",
             f"https://api.github.com/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
+            access_token=access_token,
             json={
                 "state": state,
                 "description": description[:140],
                 "context": f"PostHog Visual Review / {run.run_type}",
                 "target_url": target_url,
-            },
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
             },
             timeout=10,
         )
@@ -1294,7 +1462,11 @@ def _find_existing_comment_id(repo: Repo, pr_number: int, exclude_run_id: UUID) 
         .first()
     )
     if previous_run:
-        return previous_run.metadata.get("github_comment_id")
+        value = previous_run.metadata.get("github_comment_id")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
     return None
 
 
@@ -1572,6 +1744,38 @@ def _validate_approval(run: Run, approvals: dict[str, str]) -> None:
 # --- Snapshot Operations ---
 
 
+def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | None:
+    """Look up the thumbnail content hash for a snapshot identifier.
+
+    Finds the most recent artifact with a thumbnail for this identifier
+    across all runs. Returns the thumbnail's content_hash or None.
+    """
+    snapshot = (
+        RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            identifier=identifier,
+            current_artifact__thumbnail__isnull=False,
+        )
+        .select_related("current_artifact__thumbnail")
+        .order_by("-run__created_at")
+        .first()
+    )
+
+    if snapshot is None:
+        return None
+
+    artifact = snapshot.current_artifact
+    if artifact is None or artifact.thumbnail is None:
+        return None
+
+    return artifact.thumbnail.content_hash
+
+
+def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
+    storage = ArtifactStorage(str(repo_id))
+    return storage.read(content_hash)
+
+
 def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnapshot]:
     run = get_run(run_id, team_id=team_id)
     return list(
@@ -1718,6 +1922,23 @@ def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_
         run_type=run_type,
         team_id=team_id,
     ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())).update(expires_at=timezone.now())
+
+
+def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
+    now = timezone.now()
+    active = Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+    try:
+        entry = QuarantinedIdentifier.objects.using(WRITER_DB).filter(active).get(id=entry_id, team_id=team_id)
+    except QuarantinedIdentifier.DoesNotExist as e:
+        raise RunNotFoundError(f"Quarantine entry {entry_id} not found or already expired") from e
+
+    # Expire all active entries for the same identifier/run_type, not just this one
+    QuarantinedIdentifier.objects.using(WRITER_DB).filter(
+        repo_id=entry.repo_id,
+        identifier=entry.identifier,
+        run_type=entry.run_type,
+        team_id=team_id,
+    ).filter(active).update(expires_at=now)
 
 
 def update_snapshot_diff(

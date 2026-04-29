@@ -547,10 +547,12 @@ export interface PatchedExternalDataSchemaApi {
  * `Convex` - Convex
  * `ClickHouse` - ClickHouse
  * `Plain` - Plain
+ * `Resend` - Resend
  */
-export type SourceTypeEe8EnumApi = (typeof SourceTypeEe8EnumApi)[keyof typeof SourceTypeEe8EnumApi]
+export type ExternalDataSourceTypeEnumApi =
+    (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
 
-export const SourceTypeEe8EnumApi = {
+export const ExternalDataSourceTypeEnumApi = {
     Ashby: 'Ashby',
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
@@ -694,6 +696,7 @@ export const SourceTypeEe8EnumApi = {
     Convex: 'Convex',
     ClickHouse: 'ClickHouse',
     Plain: 'Plain',
+    Resend: 'Resend',
 } as const
 
 /**
@@ -736,7 +739,7 @@ export interface ExternalDataSourceSerializersApi {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeEe8EnumApi
+    readonly source_type: ExternalDataSourceTypeEnumApi
     /** @nullable */
     readonly latest_error: string | null
     /**
@@ -927,8 +930,9 @@ export interface ExternalDataSourceCreateApi {
 * `BuildBetter` - BuildBetter
 * `Convex` - Convex
 * `ClickHouse` - ClickHouse
-* `Plain` - Plain */
-    source_type: SourceTypeEe8EnumApi
+* `Plain` - Plain
+* `Resend` - Resend */
+    source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
     /**
@@ -963,7 +967,7 @@ export interface PatchedExternalDataSourceSerializersApi {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeEe8EnumApi
+    readonly source_type?: ExternalDataSourceTypeEnumApi
     /** @nullable */
     readonly latest_error?: string | null
     /**
@@ -1213,8 +1217,9 @@ export interface DatabaseSchemaRequestApi {
 * `BuildBetter` - BuildBetter
 * `Convex` - Convex
 * `ClickHouse` - ClickHouse
-* `Plain` - Plain */
-    source_type: SourceTypeEe8EnumApi
+* `Plain` - Plain
+* `Resend` - Resend */
+    source_type: ExternalDataSourceTypeEnumApi
 }
 
 /**
@@ -1399,7 +1404,7 @@ export interface UserBasicApi {
 
 export interface DataWarehouseModelPathApi {
     readonly id: string
-    path: string
+    readonly path: readonly string[]
     team: number
     /** @nullable */
     table?: string | null
@@ -1427,9 +1432,9 @@ export interface PaginatedDataWarehouseModelPathListApi {
  * `Failed` - Failed
  * `Running` - Running
  */
-export type Status550EnumApi = (typeof Status550EnumApi)[keyof typeof Status550EnumApi]
+export type SavedQueryStatusEnumApi = (typeof SavedQueryStatusEnumApi)[keyof typeof SavedQueryStatusEnumApi]
 
-export const Status550EnumApi = {
+export const SavedQueryStatusEnumApi = {
     Cancelled: 'Cancelled',
     Modified: 'Modified',
     Completed: 'Completed',
@@ -1472,7 +1477,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: Status550EnumApi | NullEnumApi | null
+    readonly status: SavedQueryStatusEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1539,7 +1544,7 @@ export interface DataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status: Status550EnumApi | NullEnumApi | null
+    readonly status: SavedQueryStatusEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
     /** @nullable */
@@ -1620,7 +1625,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
 * `Completed` - Completed
 * `Failed` - Failed
 * `Running` - Running */
-    readonly status?: Status550EnumApi | NullEnumApi | null
+    readonly status?: SavedQueryStatusEnumApi | NullEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
     /** @nullable */
@@ -1730,7 +1735,7 @@ export interface SimpleExternalDataSourceSerializersApi {
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeEe8EnumApi
+    readonly source_type: ExternalDataSourceTypeEnumApi
 }
 
 export type TableApiColumnsItem = { [key: string]: unknown }
@@ -1807,6 +1812,17 @@ export interface ViewLinkValidationApi {
     source_table_name: string
     /** @maxLength 255 */
     source_table_key: string
+}
+
+export type FixHogqlListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type WarehouseSavedQueryDraftsListParams = {

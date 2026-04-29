@@ -36,6 +36,7 @@ class VideoSummarySingleSessionInputs(BaseModel):
     redis_key_base: str
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
+    product_context: str | None = None
 
 
 class PrepSessionVideoAssetResult(BaseModel):
@@ -45,6 +46,7 @@ class PrepSessionVideoAssetResult(BaseModel):
 
     asset_id: int
     needs_export: bool
+    team_api_token: str
 
 
 class UploadedVideo(BaseModel):

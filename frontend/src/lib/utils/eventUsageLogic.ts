@@ -322,6 +322,8 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
     return objectClean(payload)
 }
 
+const reportedMissingTaxonomyEntries = new Set<string>()
+
 export const eventUsageLogic = kea<eventUsageLogicType>([
     path(['lib', 'utils', 'eventUsageLogic']),
     connect(() => ({
@@ -591,6 +593,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             warningKey,
         }),
+        reportExperimentBiasWarningShown: (experiment: Experiment) => ({ experiment }),
         reportExperimentMetricsRefreshed: (
             experiment: Experiment,
             forceRefresh: boolean,
@@ -702,9 +705,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 is_retry: boolean
                 refresh_id: string
                 metric_kind: string
-                error_type: 'timeout' | 'out_of_memory' | 'server_error' | 'network_error' | 'unknown'
+                error_type:
+                    | 'timeout'
+                    | 'out_of_memory'
+                    | 'server_error'
+                    | 'network_error'
+                    | 'not_found'
+                    | 'authentication'
+                    | 'authorization'
+                    | 'validation_error'
+                    | 'unknown'
                 error_code: string | null
                 error_message: string | null
+                error_detail: string | null
                 status_code: number | null
             }
         ) => ({
@@ -755,6 +768,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             eventName,
         }),
         reportTaxonomicFilterAddFilterClicked: (eventName?: string) => ({ eventName }),
+        reportMissingTaxonomyEntries: (entries: { name: string; groupType: TaxonomicFilterGroupType }[]) => ({
+            entries,
+        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType, mediaPreviewCount?: number) => ({
             type,
@@ -1061,6 +1077,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportNavbarStarredItemClicked: (itemType: string, itemName: string, isAIFirst: boolean) => ({
             itemType,
             itemName,
+            isAIFirst,
+        }),
+        reportNavbarStarredItemsReordered: (itemCount: number, isAIFirst: boolean) => ({
+            itemCount,
             isAIFirst,
         }),
     }),
@@ -1545,6 +1565,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 warning_key: warningKey,
             })
         },
+        reportExperimentBiasWarningShown: ({ experiment }) => {
+            posthog.capture('experiment bias warning shown', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
         reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
             posthog.capture('experiment metrics refreshed', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -1754,6 +1779,20 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportTaxonomicFilterAddFilterClicked: ({ eventName }) => {
             posthog.capture('taxonomic filter add filter clicked', { eventName })
+        },
+        reportMissingTaxonomyEntries: ({ entries }) => {
+            for (const { name, groupType } of entries) {
+                const key = `${groupType}::${name}`
+                if (reportedMissingTaxonomyEntries.has(key)) {
+                    continue
+                }
+                reportedMissingTaxonomyEntries.add(key)
+                posthog.capture('taxonomy entry missing', {
+                    name,
+                    group_type: groupType,
+                    source: 'taxonomic_filter',
+                })
+            }
         },
         reportDataManagementDefinitionHovered: ({ type, mediaPreviewCount }) => {
             posthog.capture('definition hovered', { type, media_preview_count: mediaPreviewCount ?? 0 })
@@ -2436,6 +2475,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('navbar starred item clicked', {
                 item_type: itemType,
                 item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
+        },
+        reportNavbarStarredItemsReordered: ({ itemCount, isAIFirst }) => {
+            posthog.capture('navbar starred items reordered', {
+                item_count: itemCount,
                 is_ai_first: isAIFirst,
             })
         },
