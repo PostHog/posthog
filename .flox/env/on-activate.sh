@@ -222,10 +222,10 @@ fi
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
 mkdir -p "$HOGLI_COMPLETION_DIR"
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
-  PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
-    -m hogli.core.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
-  PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
-    -m hogli.core.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
+  "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    -m hogli.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
+  "$UV_PROJECT_ENVIRONMENT/bin/python" \
+    -m hogli.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
 fi
 
 # Generate hogli man page into the active environment so `man hogli` works.
@@ -233,8 +233,8 @@ HOGLI_MANPAGE_DIR="$UV_PROJECT_ENVIRONMENT/share/man/man1"
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   (
     mkdir -p "$HOGLI_MANPAGE_DIR"
-    PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
-      "$FLOX_ENV_PROJECT/common/hogli/scripts/generate_man_page.py" \
+    "$UV_PROJECT_ENVIRONMENT/bin/python" \
+      "$FLOX_ENV_PROJECT/tools/hogli/scripts/generate_man_page.py" \
       --output "$HOGLI_MANPAGE_DIR/hogli.1" >/dev/null 2>&1
   ) || true
 fi
@@ -354,8 +354,8 @@ fi
 # Clean old flox log files (>7 days). Fire-and-forget after activation.
 (
   if [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" && -f "$FLOX_ENV_PROJECT/bin/hogli" ]]; then
-    POSTHOG_TELEMETRY_OPT_OUT=1 PYTHONPATH="$FLOX_ENV_PROJECT/common" "$UV_PROJECT_ENVIRONMENT/bin/python" \
-      -m hogli.core doctor:disk --area=flox-logs --yes >/dev/null 2>&1
+    POSTHOG_TELEMETRY_OPT_OUT=1 "$UV_PROJECT_ENVIRONMENT/bin/python" \
+      -m hogli doctor:disk --area=flox-logs --yes >/dev/null 2>&1
   else
     find "$FLOX_ENV_PROJECT/.flox/log" -name "*.log" -type f -mtime +7 -delete 2>/dev/null
   fi

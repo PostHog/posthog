@@ -11,7 +11,7 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from pydantic import (
@@ -81,6 +81,29 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
+
+
+# Mirrors SerializedPerson in posthog/queries/actor_base_query.py.
+# Nullability mirrors the TypedDict: only Optional[...] fields are nullable; matched_recordings
+# and value_at_data_point are always present in the response (always-set keys), even if empty/None.
+class CohortPersonResultSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    uuid = serializers.UUIDField()
+    type = serializers.ChoiceField(choices=["person"])
+    name = serializers.CharField()
+    distinct_ids = serializers.ListField(child=serializers.CharField())
+    properties = serializers.DictField()
+    created_at = serializers.DateTimeField(allow_null=True)
+    last_seen_at = serializers.DateTimeField(allow_null=True)
+    is_identified = serializers.BooleanField(allow_null=True)
+    matched_recordings = serializers.ListField(child=serializers.DictField())
+    value_at_data_point = serializers.FloatField(allow_null=True)
+
+
+class CohortPersonsResponseSerializer(serializers.Serializer):
+    results = CohortPersonResultSerializer(many=True)
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
 
 
 def validate_filters_and_compute_realtime_support(
@@ -1235,6 +1258,25 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return graph, behavioral_cohorts
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of persons to return per page (defaults to 100).",
+            ),
+            OpenApiParameter(
+                name="offset",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Number of persons to skip before starting to return results.",
+            ),
+        ],
+        responses={200: CohortPersonsResponseSerializer},
+    )
     @action(
         methods=["GET"],
         detail=True,

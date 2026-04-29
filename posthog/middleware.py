@@ -227,7 +227,7 @@ class AutoProjectMiddleware:
 
     def __call__(self, request: HttpRequest):
         # Skip project switching for CLI authorization page and account social-link confirmation scene
-        if request.path.startswith("/cli/authorize") or request.path.startswith("/account/social-connected"):
+        if request.path.startswith("/cli/authorize") or request.path.startswith("/account-connected"):
             return self.get_response(request)
 
         if request.user.is_authenticated:

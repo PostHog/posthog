@@ -45,6 +45,11 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
             "Adaptive Server connection failed": None,
             "Login failed for user": None,
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
+            # Raised from the shared `_decimal_array_from_values` fallback in
+            # `pipelines/pipeline/utils.py` when a numeric/decimal/money value exceeds Delta
+            # Lake's decimal budget (precision > 76 or scale > 32). Fixed source-data shape —
+            # retrying won't help.
+            "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
         }
 
     @property

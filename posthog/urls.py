@@ -319,10 +319,12 @@ urlpatterns = [
     opt_slash_path(".well-known/security.txt", security_txt),
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
-    opt_slash_path("complete/github-link", github_link_complete, name="github_link_complete"),
     path(
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
+    # GitHub account linking (identity-only, separate from the login pipeline).
+    # Must precede `social_django.urls` so the latter's `complete/<str:backend>/` doesn't swallow it.
+    path("complete/github-link/", github_link_complete, name="github_link_complete"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),

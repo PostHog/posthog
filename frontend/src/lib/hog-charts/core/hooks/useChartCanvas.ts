@@ -9,18 +9,22 @@ interface UseChartCanvasOptions {
 interface CanvasState {
     dimensions: ChartDimensions
     ctx: CanvasRenderingContext2D
+    overlayCtx: CanvasRenderingContext2D
 }
 
 interface UseChartCanvasResult {
     canvasRef: React.RefObject<HTMLCanvasElement>
+    overlayCanvasRef: React.RefObject<HTMLCanvasElement>
     wrapperRef: React.RefObject<HTMLDivElement>
     dimensions: ChartDimensions | null
     ctx: CanvasRenderingContext2D | null
+    overlayCtx: CanvasRenderingContext2D | null
 }
 
 export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasResult {
     const { margins } = options
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
+    const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null)
     const wrapperRef = useRef<HTMLDivElement | null>(null)
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null)
 
@@ -30,27 +34,35 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             return
         }
 
+        const sizeCanvas = (canvas: HTMLCanvasElement, rect: DOMRect, dpr: number): void => {
+            canvas.width = rect.width * dpr
+            canvas.height = rect.height * dpr
+            canvas.style.width = `${rect.width}px`
+            canvas.style.height = `${rect.height}px`
+        }
+
         const updateSize = (): void => {
             const canvas = canvasRef.current
-            if (!canvas || !wrapper) {
+            const overlayCanvas = overlayCanvasRef.current
+            if (!canvas || !overlayCanvas || !wrapper) {
                 return
             }
 
             const rect = wrapper.getBoundingClientRect()
             const dpr = window.devicePixelRatio || 1
 
-            canvas.width = rect.width * dpr
-            canvas.height = rect.height * dpr
-            canvas.style.width = `${rect.width}px`
-            canvas.style.height = `${rect.height}px`
+            sizeCanvas(canvas, rect, dpr)
+            sizeCanvas(overlayCanvas, rect, dpr)
 
             const context = canvas.getContext('2d')
-            if (!context) {
+            const overlayContext = overlayCanvas.getContext('2d')
+            if (!context || !overlayContext) {
                 return
             }
 
             setCanvasState({
                 ctx: context,
+                overlayCtx: overlayContext,
                 dimensions: {
                     width: rect.width,
                     height: rect.height,
@@ -76,8 +88,10 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
 
     return {
         canvasRef,
+        overlayCanvasRef,
         wrapperRef,
         dimensions: canvasState?.dimensions ?? null,
         ctx: canvasState?.ctx ?? null,
+        overlayCtx: canvasState?.overlayCtx ?? null,
     }
 }

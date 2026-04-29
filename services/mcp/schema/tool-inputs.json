@@ -824,6 +824,10 @@
             "type": "string",
             "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields."
         },
+        "HogQLSchemaInputSchema": {
+            "type": "object",
+            "properties": {}
+        },
         "InsightGenerateHogQLFromQuestionSchema": {
             "type": "object",
             "properties": {
@@ -2655,6 +2659,23 @@
                             "required": ["kind", "query"]
                         }
                     ]
+                }
+            },
+            "required": ["query"]
+        },
+        "QueryValidateInputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost."
+                },
+                "language": {
+                    "default": "hogQL",
+                    "description": "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source.",
+                    "type": "string",
+                    "enum": ["hogQL", "hogQLExpr", "hog", "hogTemplate"]
                 }
             },
             "required": ["query"]
