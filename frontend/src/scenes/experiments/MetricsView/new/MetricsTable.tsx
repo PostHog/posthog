@@ -34,9 +34,12 @@ export function MetricsTable({
     getInsightType,
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
-    const { experiment, exposuresLoading } = useValues(experimentLogic)
+    const { experiment, exposuresLoading, primaryMetricsResultsLoading, secondaryMetricsResultsLoading } =
+        useValues(experimentLogic)
     const { duplicateMetric, updateExperimentMetrics, updateMetricBreakdown, removeMetricBreakdown } =
         useActions(experimentLogic)
+
+    const metricsLoading = isSecondary ? secondaryMetricsResultsLoading : primaryMetricsResultsLoading
 
     // Calculate shared axisRange across all metrics
     let hasBreakdowns = false
@@ -100,7 +103,9 @@ export function MetricsTable({
                         const error = errors[index]
                         const metricIndex = metricIndexes[index]
 
-                        const isLoading = !result && !error && isLaunched(experiment)
+                        const hasNoData = !result && !error && isLaunched(experiment)
+                        const isLoading = hasNoData && metricsLoading
+                        const isPending = hasNoData && !metricsLoading
 
                         return (
                             <MetricRowGroup
@@ -152,6 +157,7 @@ export function MetricsTable({
                                 }}
                                 error={error}
                                 isLoading={isLoading}
+                                isPending={isPending}
                                 exposuresLoading={exposuresLoading}
                                 showDetailsModal={showDetailsModal}
                             />

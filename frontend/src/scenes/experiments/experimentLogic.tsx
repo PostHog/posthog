@@ -450,9 +450,13 @@ const loadMetrics = async ({
                             legacyResults[originalIndex] = {
                                 ...typedResponse,
                                 fakeInsightId: Math.random().toString(36).substring(2, 15),
+                                _metric_uuid: metric.uuid,
                             } as CachedLegacyExperimentQueryResponse & { fakeInsightId: string }
                         } else if (isNewExperimentResponse(typedResponse)) {
-                            results[originalIndex] = typedResponse
+                            // Tag with the metric uuid so callers can detect when the
+                            // results array is stale relative to the current metrics
+                            // (e.g. after a metric was added or removed without a refetch).
+                            results[originalIndex] = Object.assign(typedResponse, { _metric_uuid: metric.uuid })
                         }
                     }
                 } else {
@@ -460,6 +464,7 @@ const loadMetrics = async ({
                     legacyResults[originalIndex] = {
                         ...response,
                         fakeInsightId: Math.random().toString(36).substring(2, 15),
+                        _metric_uuid: metric.uuid,
                     } as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse) & {
                         fakeInsightId: string
                     }
@@ -509,6 +514,7 @@ const loadMetrics = async ({
                     code: errorCode,
                     queryId,
                     timestamp: Date.now(),
+                    _metric_uuid: metric.uuid,
                 }
                 onSetErrors(currentErrors)
 

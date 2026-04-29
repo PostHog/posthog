@@ -27,6 +27,7 @@ import { isLaunched } from '../../experimentsLogic'
 import { useColumnWidthSync } from '../hooks/useColumnWidthSync'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
+import { ChartPendingState } from '../shared/ChartPendingState'
 import { useChartColors } from '../shared/colors'
 import { MetricHeader } from '../shared/MetricHeader'
 import {
@@ -481,6 +482,7 @@ interface MetricRowGroupProps {
     onRemoveBreakdown: (index: number) => void
     error?: any
     isLoading?: boolean
+    isPending?: boolean
     exposuresLoading?: boolean
     showDetailsModal: boolean
 }
@@ -501,6 +503,7 @@ export function MetricRowGroup({
     onRemoveBreakdown,
     error,
     isLoading,
+    isPending,
     exposuresLoading = false,
     showDetailsModal,
 }: MetricRowGroupProps): JSX.Element {
@@ -675,6 +678,8 @@ export function MetricRowGroup({
                     >
                         {isLoading || exposuresLoading ? (
                             <ChartLoadingState height={noResultHeight} />
+                        ) : isPending ? (
+                            <ChartPendingState height={noResultHeight} />
                         ) : (
                             <ChartEmptyState
                                 height={noResultHeight}

@@ -928,8 +928,19 @@ export function getOrderedMetricsWithResults(
     allMetrics.forEach((metric: any, index) => {
         const uuid = metric.uuid || metric.query?.uuid
         if (uuid) {
-            resultsMap.set(uuid, results[index])
-            errorsMap.set(uuid, errors[index])
+            // The results/errors arrays are position-indexed and outlive the
+            // metrics they were computed for — when the user adds or removes a
+            // metric without refetching, the entry at `index` may belong to a
+            // metric that no longer exists. `_metric_uuid` is stamped on each
+            // entry at fetch time; treat the entry as stale (drop it) if its
+            // uuid doesn't match the current metric. Falsy entries (no result
+            // yet, no error) pass through unchanged.
+            const result = results[index] as any
+            const error = errors[index] as any
+            const resultIsStale = result && result._metric_uuid !== uuid
+            const errorIsStale = error && error._metric_uuid !== uuid
+            resultsMap.set(uuid, resultIsStale ? undefined : result)
+            errorsMap.set(uuid, errorIsStale ? undefined : error)
             metricsMap.set(uuid, metric)
             originalIndexMap.set(uuid, index) // Track original position for retry
         }
