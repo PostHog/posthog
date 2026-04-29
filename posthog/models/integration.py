@@ -950,7 +950,7 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        is_sandbox = bool(self.integration.config.get("is_sandbox")) if self.integration.kind == "stripe" else False
+        is_sandbox = self.integration.config.get("is_sandbox") is True if self.integration.kind == "stripe" else False
         oauth_config = self.oauth_config_for_kind(self.integration.kind, is_sandbox=is_sandbox)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
@@ -3077,14 +3077,17 @@ class StripeIntegration:
 
     @property
     def is_sandbox(self) -> bool:
-        return bool(self.integration.config.get("is_sandbox"))
+        # Strict identity check: a malformed string write (e.g. "false") fails closed to live
+        # rather than escalating an integration to sandbox-secret usage.
+        return self.integration.config.get("is_sandbox") is True
 
     def _stripe_client(self) -> StripeClient:
         # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the
         # Apps Secret Store and account-scoped API calls must authenticate with the matching
-        # developer secret. Older live integrations have no flag set and default to live.
-        secret_key = settings.STRIPE_APP_SANDBOX_SECRET_KEY if self.is_sandbox else settings.STRIPE_APP_SECRET_KEY
-        return StripeClient(secret_key)
+        # developer secret. Reusing oauth_config_for_kind keeps secret selection in one place
+        # and inherits its NotImplementedError when the sandbox env vars are missing.
+        oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
+        return StripeClient(oauth_config.client_secret)
 
     def write_posthog_secrets(self, team_id: int, created_by: "User") -> None:
         """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
