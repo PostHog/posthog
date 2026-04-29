@@ -182,7 +182,7 @@ export const LazyEventDetailsRenderer: React.FC<RendererProps<TimelineItem>> = (
         return () => {
             mounted = false
         }
-    }, [item.id, item.category, item.timestamp, sessionId, item])
+    }, [item.id, item.category, item.timestamp, sessionId])
 
     if (loading) {
         return (

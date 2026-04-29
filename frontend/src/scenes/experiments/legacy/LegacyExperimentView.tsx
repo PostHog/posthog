@@ -171,7 +171,7 @@ export function LegacyExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 
         if (!experimentLoading && experiment) {
             refreshExperimentResults(false, 'page_load')
         }
-    }, [experimentLoading, experiment?.id, experiment, refreshExperimentResults])
+    }, [experimentLoading, experiment?.id])
 
     return (
         <BindLogic logic={legacyExperimentLogic} props={legacyLogicProps}>
