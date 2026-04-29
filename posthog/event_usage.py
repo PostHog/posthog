@@ -378,6 +378,23 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
 _tracer = trace.get_tracer(__name__)
 
 
+def _safe_current_team(user: User | AnonymousUser) -> Optional[Team]:
+    # `User.current_team` is a FK with SET_NULL, but a stale `current_team_id`
+    # pointing at a deleted row can still raise `Team.DoesNotExist` when the
+    # descriptor resolves the relation. Treat that as "no team".
+    try:
+        return user.current_team  # type: ignore[union-attr]
+    except Team.DoesNotExist:
+        return None
+
+
+def _safe_current_organization(user: User | AnonymousUser) -> Optional[Organization]:
+    try:
+        return user.current_organization  # type: ignore[union-attr]
+    except Organization.DoesNotExist:
+        return None
+
+
 def report_user_action(
     user: User | AnonymousUser,
     event: str,
@@ -407,7 +424,7 @@ def report_user_action(
             distinct_id=user.distinct_id,
             event=event,
             properties=properties,
-            groups=groups(organization or user.current_organization, team or user.current_team),
+            groups=groups(organization or _safe_current_organization(user), team or _safe_current_team(user)),
             send_feature_flags=send_feature_flags,
         )
 
@@ -438,8 +455,8 @@ def report_user_or_team_action(
     if not distinct_id:
         return
 
-    org = organization or (real_user.current_organization if real_user else None)
-    tm = team or (real_user.current_team if real_user else None)
+    org = organization or (_safe_current_organization(real_user) if real_user else None)
+    tm = team or (_safe_current_team(real_user) if real_user else None)
 
     posthoganalytics.capture(
         distinct_id=distinct_id,

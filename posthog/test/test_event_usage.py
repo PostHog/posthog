@@ -12,8 +12,10 @@ from posthog.event_usage import (
     get_event_source,
     get_mcp_properties,
     report_user_action,
+    report_user_or_team_action,
     sanitize_header_value,
 )
+from posthog.models import Organization, Team
 
 
 class TestReportUserAction(BaseTest):
@@ -203,6 +205,50 @@ class TestReportUserAction(BaseTest):
                 request=request,
                 analytics_props={"source": EventSource.API},
             )
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_tolerates_missing_current_team_for_user(self, mock_capture):
+        # Simulate a stale `current_team_id` whose row no longer exists in the DB —
+        # accessing the FK descriptor raises Team.DoesNotExist. Analytics should
+        # still capture the event without a project group rather than blowing up
+        # the caller (which would take down the user-facing chat stream).
+        with patch.object(
+            type(self.user),
+            "current_team",
+            new=property(lambda _self: (_ for _ in ()).throw(Team.DoesNotExist())),
+        ):
+            report_user_action(self.user, "test event", properties={"key": "val"})
+
+        mock_capture.assert_called_once()
+        groups = mock_capture.call_args[1]["groups"]
+        assert "project" not in groups
+        assert groups["organization"] == str(self.user.current_organization.pk)
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_tolerates_missing_current_organization_for_user(self, mock_capture):
+        with patch.object(
+            type(self.user),
+            "current_organization",
+            new=property(lambda _self: (_ for _ in ()).throw(Organization.DoesNotExist())),
+        ):
+            report_user_action(self.user, "test event", properties={"key": "val"})
+
+        mock_capture.assert_called_once()
+        groups = mock_capture.call_args[1]["groups"]
+        # current_team falls back to its organization_id when the explicit org lookup fails
+        assert groups["organization"] == str(self.user.current_team.organization_id)
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_report_user_or_team_action_tolerates_missing_current_team(self, mock_capture):
+        with patch.object(
+            type(self.user),
+            "current_team",
+            new=property(lambda _self: (_ for _ in ()).throw(Team.DoesNotExist())),
+        ):
+            report_user_or_team_action("test event", properties={"key": "val"}, user=self.user)
+
+        mock_capture.assert_called_once()
+        assert "project" not in mock_capture.call_args[1]["groups"]
 
 
 class TestGetEventSource(BaseTest):

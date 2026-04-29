@@ -623,12 +623,20 @@ class BaseAgentRunner(ABC):
     ):
         if not self._user:
             return
-        await database_sync_to_async(report_user_action)(
-            self._user,
-            event_name,
-            properties,
-            send_feature_flags=True,
-        )
+        # Analytics must never take down the user-facing stream; swallow and log any failure.
+        try:
+            await database_sync_to_async(report_user_action)(
+                self._user,
+                event_name,
+                properties,
+                send_feature_flags=True,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to report conversation state",
+                event_name=event_name,
+                thread_id=self._conversation.id,
+            )
 
     @asynccontextmanager
     async def _lock_conversation(self):

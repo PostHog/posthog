@@ -740,3 +740,48 @@ class TestRunnerConversationTitleAction(BaseTest):
         self.assertEqual(len(conversation_events), 1)
         _, conversation = conversation_events[0]
         self.assertEqual(conversation.title, "Streamed Title")
+
+
+class TestReportConversationStateSwallowsErrors(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+    def _create_runner(self):
+        from ee.hogai.core.runner import BaseAgentRunner
+
+        mock_graph = MagicMock()
+        mock_stream_processor = MagicMock()
+
+        mock_graph_class = MagicMock()
+        mock_graph_instance = MagicMock()
+        mock_graph_instance.compile_full_graph = MagicMock(return_value=mock_graph)
+        mock_graph_class.return_value = mock_graph_instance
+
+        class TestRunner(BaseAgentRunner):
+            def get_initial_state(self):
+                return AssistantState(messages=[])
+
+            def get_resumed_state(self):
+                return PartialAssistantState(messages=[])
+
+        return TestRunner(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            graph_class=cast(type[BaseAssistantGraph], mock_graph_class),
+            state_type=AssistantState,
+            partial_state_type=PartialAssistantState,
+            stream_processor=mock_stream_processor,
+        )
+
+    async def test_report_conversation_state_swallows_analytics_errors(self):
+        """An analytics failure must never propagate out of the redis-stream generator."""
+        runner = self._create_runner()
+
+        with patch(
+            "ee.hogai.core.runner.report_user_action",
+            side_effect=RuntimeError("Team.DoesNotExist"),
+        ):
+            # Should not raise — analytics is best-effort and must not take down the stream.
+            await runner._report_conversation_state("chat with ai", {"prompt": "hi"})
