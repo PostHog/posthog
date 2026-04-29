@@ -93,9 +93,13 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
 
     const activeTab = sidePanelOpen && selectedTab
+    const canRenderActiveTab = activeTab
+        ? enabledTabs.includes(activeTab) || activeTab === SidePanelTab.Settings
+        : false
 
-    // Use enabledTabs (not visibleTabs) so programmatically-opened tabs like Support render
-    const PanelContent = activeTab && enabledTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    // Use enabledTabs (not visibleTabs) so programmatically-opened tabs like Support render.
+    // Settings can also be opened programmatically from controls like test-account filter switches.
+    const PanelContent = canRenderActiveTab && activeTab ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -128,7 +132,7 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         }
     }, [desiredSize, sidePanelOpen, setMainContentRect, mainContentRef])
 
-    const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && enabledTabs.includes(selectedTab)
+    const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && canRenderActiveTab
 
     // If the selected tab is no longer available (e.g. navigating away from a scene
     // with Settings or Info), fall back to Info or Max instead of closing
