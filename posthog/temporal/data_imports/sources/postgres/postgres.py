@@ -596,6 +596,7 @@ def get_connection_metadata(
 
             function_source = "duckdb_functions" if is_duckdb else "pg_proc"
             available_functions: list[str] = []
+            available_table_functions: list[str] = []
 
             try:
                 if is_duckdb:
@@ -606,12 +607,29 @@ def get_connection_metadata(
             except Exception as error:
                 capture_exception(error)
 
+            try:
+                if is_duckdb:
+                    cursor.execute(
+                        "SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type = 'table'"
+                    )
+                else:
+                    # prokind='f' excludes aggregates/windows/procedures; proretset=true selects set-returning fns,
+                    # which is how Postgres exposes table functions in pg_proc.
+                    cursor.execute(
+                        "SELECT DISTINCT proname FROM pg_proc "
+                        "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'"
+                    )
+                available_table_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
+            except Exception as error:
+                capture_exception(error)
+
             return {
                 "database": current_database,
                 "version": version,
                 "engine": "duckdb" if is_duckdb else "postgres",
                 "function_source": function_source,
                 "available_functions": available_functions,
+                "available_table_functions": available_table_functions,
             }
 
 
