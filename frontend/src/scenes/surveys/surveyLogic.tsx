@@ -132,7 +132,7 @@ type SurveyTranslationDraftQuestion = {
     choices?: string[]
     lowerBoundLabel?: string
     upperBoundLabel?: string
-    link?: string
+    link?: string | null
     translations?: SurveyQuestion['translations']
 }
 type SurveyTranslationDraftPayload = {
