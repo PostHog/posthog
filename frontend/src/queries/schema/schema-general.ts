@@ -4581,6 +4581,8 @@ export interface LLMTrace {
     outputCost?: number
     requestCost?: number
     webSearchCost?: number
+    audioCost?: number
+    imageCost?: number
     totalCost?: number
     inputState?: any
     outputState?: any

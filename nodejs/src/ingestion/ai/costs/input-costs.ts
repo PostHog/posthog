@@ -62,6 +62,51 @@ export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
     return inputTokens < cacheReadTokens + cacheWriteTokens
 }
 
+const numericProperty = (event: PluginEvent, key: string): number => {
+    const value = event.properties?.[key]
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+/**
+ * Cost attributable to non-text input modalities (audio, image). Computed as
+ * `tokens × modality_rate` when the model has a dedicated rate, or
+ * `tokens × prompt_rate` otherwise — matching the implicit behavior of the
+ * regular text path so the total stays consistent regardless of whether the
+ * provider exposes per-modality pricing.
+ */
+export interface InputModalityCost {
+    audio: string
+    image: string
+}
+
+const computeAudioInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
+    const audioTokens = numericProperty(event, '$ai_audio_input_tokens')
+    if (audioTokens <= 0) {
+        return '0'
+    }
+    const rate = cost.cost.audio ?? cost.cost.prompt_token
+    return bigDecimal.multiply(rate, audioTokens)
+}
+
+const computeImageInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
+    const imageTokens = numericProperty(event, '$ai_image_input_tokens')
+    if (imageTokens <= 0) {
+        return '0'
+    }
+    const rate = cost.cost.image ?? cost.cost.prompt_token
+    return bigDecimal.multiply(rate, imageTokens)
+}
+
+export const calculateInputModalityCosts = (event: PluginEvent, cost: ResolvedModelCost): InputModalityCost => {
+    if (!event.properties) {
+        return { audio: '0', image: '0' }
+    }
+    return {
+        audio: computeAudioInputCost(event, cost),
+        image: computeImageInputCost(event, cost),
+    }
+}
+
 export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
     if (!event.properties) {
         return '0'
@@ -72,6 +117,15 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
 
     const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
     const inputTokens = event.properties['$ai_input_tokens'] || 0
+    const audioInputTokens = numericProperty(event, '$ai_audio_input_tokens')
+    const imageInputTokens = numericProperty(event, '$ai_image_input_tokens')
+
+    // Audio/image input tokens are reported by providers (OpenAI, Gemini) as a subset
+    // of the total input token count. We bill them separately at modality rates and
+    // subtract them from the text pool to avoid double-counting at the prompt rate.
+    const audioInputCost = computeAudioInputCost(event, cost)
+    const imageInputCost = computeImageInputCost(event, cost)
+    const modalityInputCost = bigDecimal.add(audioInputCost, imageInputCost)
 
     if (matchProvider(event, 'anthropic')) {
         const cacheWriteTokens = event.properties['$ai_cache_creation_input_tokens'] || 0
@@ -87,15 +141,23 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
                 : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
 
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
-        const uncachedTokens = exclusive
+        const baseUncachedTokens = exclusive
             ? inputTokens
             : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cacheReadTokens), cacheWriteTokens)
-        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, uncachedTokens)
+        const uncachedTextTokens = bigDecimal.subtract(
+            bigDecimal.subtract(baseUncachedTokens, audioInputTokens),
+            imageInputTokens
+        )
+        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, uncachedTextTokens)
 
-        return bigDecimal.add(totalCacheCost, uncachedCost)
+        return bigDecimal.add(bigDecimal.add(totalCacheCost, uncachedCost), modalityInputCost)
     }
 
-    const regularTokens = exclusive ? inputTokens : bigDecimal.subtract(inputTokens, cacheReadTokens)
+    const baseRegularTokens = exclusive ? inputTokens : bigDecimal.subtract(inputTokens, cacheReadTokens)
+    const regularTextTokens = bigDecimal.subtract(
+        bigDecimal.subtract(baseRegularTokens, audioInputTokens),
+        imageInputTokens
+    )
 
     let cacheReadCost: string
 
@@ -117,7 +179,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, multiplier), cacheReadTokens)
     }
 
-    const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTokens)
+    const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTextTokens)
 
-    return bigDecimal.add(cacheReadCost, regularCost)
+    return bigDecimal.add(bigDecimal.add(cacheReadCost, regularCost), modalityInputCost)
 }

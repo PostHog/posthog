@@ -10,9 +10,9 @@ import {
     getNewModelName,
     requireSpecialCost,
 } from './cost-model-matching'
-import { calculateInputCost } from './input-costs'
+import { calculateInputCost, calculateInputModalityCosts } from './input-costs'
 import { extractModalityTokens } from './modality-tokens'
-import { calculateOutputCost } from './output-costs'
+import { calculateOutputCost, calculateOutputModalityCosts } from './output-costs'
 import { ResolvedModelCost } from './providers/types'
 import { calculateRequestCost } from './request-costs'
 import { calculateWebSearchCost } from './web-search-costs'
@@ -52,11 +52,26 @@ const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): v
     const outputCost = calculateOutputCost(event, cost)
     const requestCost = calculateRequestCost(event, cost)
     const webSearchCost = calculateWebSearchCost(event, cost)
+    const inputModality = calculateInputModalityCosts(event, cost)
+    const outputModality = calculateOutputModalityCosts(event, cost)
 
     setPropertyIfValidOrMissing(event.properties, '$ai_input_cost_usd', parseFloat(inputCost))
     setPropertyIfValidOrMissing(event.properties, '$ai_output_cost_usd', parseFloat(outputCost))
     setPropertyIfValidOrMissing(event.properties, '$ai_request_cost_usd', parseFloat(requestCost))
     setPropertyIfValidOrMissing(event.properties, '$ai_web_search_cost_usd', parseFloat(webSearchCost))
+
+    // Modality breakdowns: sum of input + output for each modality. These are
+    // informational — the totals are already captured in $ai_input_cost_usd /
+    // $ai_output_cost_usd, so they are NOT added to $ai_total_cost_usd to
+    // avoid double-counting.
+    const audioCost = parseFloat(bigDecimal.add(inputModality.audio, outputModality.audio))
+    const imageCost = parseFloat(bigDecimal.add(inputModality.image, outputModality.image))
+    if (audioCost > 0) {
+        setPropertyIfValidOrMissing(event.properties, '$ai_audio_cost_usd', audioCost)
+    }
+    if (imageCost > 0) {
+        setPropertyIfValidOrMissing(event.properties, '$ai_image_cost_usd', imageCost)
+    }
 
     const existingTotal = event.properties['$ai_total_cost_usd']
     if (existingTotal !== null && existingTotal !== undefined && isBigDecimalInput(existingTotal)) {

@@ -1,6 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { calculateInputCost, resolveCacheReportingExclusive } from './input-costs'
+import { calculateInputCost, calculateInputModalityCosts, resolveCacheReportingExclusive } from './input-costs'
 import { ResolvedModelCost } from './providers/types'
 
 // Test helper functions
@@ -759,6 +759,184 @@ describe('calculateInputCost()', () => {
             const event = createAnthropicTestEvent(1000)
             calculateInputCost(event, ANTHROPIC_MODEL)
             expect(event.properties!['$ai_cache_reporting_exclusive']).toBe(true)
+        })
+    })
+
+    describe('audio input - modality cost handling', () => {
+        // gpt-4o-audio-preview pricing:
+        // - text input: $2.50/1M ($0.0000025/token)
+        // - audio input: $40/1M ($0.00004/token)
+        const audioModel: ResolvedModelCost = {
+            model: 'gpt-4o-audio-preview',
+            provider: 'openai',
+            cost: {
+                prompt_token: 0.0000025,
+                completion_token: 0.00001,
+                audio: 0.00004,
+            },
+        }
+
+        it('bills audio input tokens at the audio rate, not the prompt rate', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-4o-audio-preview',
+                    $ai_input_tokens: 1000, // 800 text + 200 audio
+                    $ai_audio_input_tokens: 200,
+                },
+            })
+
+            const result = calculateInputCost(event, audioModel)
+
+            // Text: (1000 - 200) × 0.0000025 = 0.002
+            // Audio: 200 × 0.00004 = 0.008
+            // Total: 0.010
+            expectCostToBeCloseTo(result, 0.01)
+        })
+
+        it('falls back to prompt rate when no audio rate is defined', () => {
+            const modelWithoutAudioRate: ResolvedModelCost = {
+                model: 'some-text-model',
+                provider: 'openai',
+                cost: { prompt_token: 0.000001, completion_token: 0.000002 },
+            }
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'some-text-model',
+                    $ai_input_tokens: 1000,
+                    $ai_audio_input_tokens: 200,
+                },
+            })
+
+            const result = calculateInputCost(event, modelWithoutAudioRate)
+
+            // Audio falls back to prompt rate, so total stays at 1000 × 0.000001 = 0.001
+            expectCostToBeCloseTo(result, 0.001)
+        })
+
+        it('handles audio input combined with cache read tokens', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-4o-audio-preview',
+                    $ai_input_tokens: 1000, // 500 text + 200 audio + 300 cached (inclusive)
+                    $ai_cache_read_input_tokens: 300,
+                    $ai_audio_input_tokens: 200,
+                },
+            })
+
+            const result = calculateInputCost(event, {
+                ...audioModel,
+                cost: { ...audioModel.cost, cache_read_token: 0.00000125 },
+            })
+
+            // Text (uncached): (1000 - 300 - 200) × 0.0000025 = 0.00125
+            // Cache read: 300 × 0.00000125 = 0.000375
+            // Audio: 200 × 0.00004 = 0.008
+            // Total: 0.00125 + 0.000375 + 0.008 = 0.009625
+            expectCostToBeCloseTo(result, 0.009625)
+        })
+    })
+
+    describe('image input - modality cost handling', () => {
+        const imageInputModel: ResolvedModelCost = {
+            model: 'gemini-2.5-flash',
+            provider: 'google',
+            cost: {
+                prompt_token: 3e-7,
+                completion_token: 0.0000025,
+                image: 3e-7,
+            },
+        }
+
+        it('bills image input tokens separately when image rate is defined', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'google',
+                    $ai_model: 'gemini-2.5-flash',
+                    $ai_input_tokens: 1000,
+                    $ai_image_input_tokens: 400,
+                },
+            })
+
+            const result = calculateInputCost(event, imageInputModel)
+
+            // Text: (1000 - 400) × 3e-7 = 0.00018
+            // Image: 400 × 3e-7 = 0.00012
+            // Total: 0.0003
+            expectCostToBeCloseTo(result, 0.0003)
+        })
+
+        it('handles audio + image input together for multimodal calls', () => {
+            const multiModalCost: ResolvedModelCost = {
+                model: 'gemini-2.5-flash',
+                provider: 'google',
+                cost: {
+                    prompt_token: 3e-7,
+                    completion_token: 0.0000025,
+                    image: 3e-7,
+                    audio: 0.000001,
+                },
+            }
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'google',
+                    $ai_model: 'gemini-2.5-flash',
+                    $ai_input_tokens: 1000, // 400 text + 200 audio + 400 image
+                    $ai_audio_input_tokens: 200,
+                    $ai_image_input_tokens: 400,
+                },
+            })
+
+            const result = calculateInputCost(event, multiModalCost)
+
+            // Text: 400 × 3e-7 = 0.00012
+            // Audio: 200 × 0.000001 = 0.0002
+            // Image: 400 × 3e-7 = 0.00012
+            // Total: 0.00044
+            expectCostToBeCloseTo(result, 0.00044)
+        })
+    })
+
+    describe('calculateInputModalityCosts()', () => {
+        const multiModalCost: ResolvedModelCost = {
+            model: 'gemini-2.5-flash',
+            provider: 'google',
+            cost: {
+                prompt_token: 3e-7,
+                completion_token: 0.0000025,
+                image: 3e-7,
+                audio: 0.000001,
+            },
+        }
+
+        it('returns the audio and image input components separately', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'google',
+                    $ai_audio_input_tokens: 200,
+                    $ai_image_input_tokens: 400,
+                },
+            })
+
+            const result = calculateInputModalityCosts(event, multiModalCost)
+
+            expectCostToBeCloseTo(result.audio, 0.0002) // 200 × 0.000001
+            expectCostToBeCloseTo(result.image, 0.00012) // 400 × 3e-7
+        })
+
+        it('returns zeros when no modality tokens are present', () => {
+            const event = createTestEvent({ properties: { $ai_input_tokens: 1000 } })
+            const result = calculateInputModalityCosts(event, multiModalCost)
+            expect(parseFloat(result.audio)).toBe(0)
+            expect(parseFloat(result.image)).toBe(0)
+        })
+
+        it('returns zeros when properties are missing', () => {
+            const event = { ...createTestEvent(), properties: undefined }
+            const result = calculateInputModalityCosts(event, multiModalCost)
+            expect(result).toEqual({ audio: '0', image: '0' })
         })
     })
 })

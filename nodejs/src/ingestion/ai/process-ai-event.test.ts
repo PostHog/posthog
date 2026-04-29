@@ -73,6 +73,24 @@ const costsByModel: Record<string, MockModelRow> = {
         model: 'model-with-request-only',
         cost: { prompt_token: 0.0000015, completion_token: 0.000006, request: 0.002 },
     },
+    'openai/gpt-4o-audio-preview': {
+        model: 'openai/gpt-4o-audio-preview',
+        cost: {
+            prompt_token: 0.0000025,
+            completion_token: 0.00001,
+            audio: 0.00004,
+            audio_output: 0.00008,
+        },
+    },
+    'google/gemini-2.5-flash-image': {
+        model: 'google/gemini-2.5-flash-image',
+        cost: {
+            prompt_token: 3e-7,
+            completion_token: 0.0000025,
+            image: 3e-7,
+            image_output: 0.00003,
+        },
+    },
 }
 
 jest.mock('./costs/providers', () => {
@@ -94,6 +112,8 @@ jest.mock('./costs/providers', () => {
         'mistralai/mistral-7b-instruct-v0.1': 'mistralai',
         'perplexity/sonar-pro': 'perplexity',
         'model-with-request-only': 'custom',
+        'openai/gpt-4o-audio-preview': 'openai',
+        'google/gemini-2.5-flash-image': 'google-ai-studio',
     }
 
     let cachedMocks:
@@ -225,6 +245,58 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
             expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
             expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+        })
+    })
+
+    describe('modality cost breakdown', () => {
+        it('sets $ai_audio_cost_usd for audio-capable models without inflating the total', () => {
+            event.properties!.$ai_model = 'gpt-4o-audio-preview'
+            event.properties!.$ai_input_tokens = 1000 // 800 text + 200 audio
+            event.properties!.$ai_output_tokens = 1000 // 200 text + 800 audio
+            event.properties!.$ai_audio_input_tokens = 200
+            event.properties!.$ai_audio_output_tokens = 800
+
+            const result = processAiEvent(event)
+
+            // Input: text (800 × 0.0000025) + audio (200 × 0.00004) = 0.002 + 0.008 = 0.01
+            // Output: text (200 × 0.00001) + audio (800 × 0.00008) = 0.002 + 0.064 = 0.066
+            // Total: 0.076 (request and web search are 0)
+            // Audio breakdown: 0.008 + 0.064 = 0.072
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.01, 5)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.066, 5)
+            expect(result.properties!.$ai_audio_cost_usd).toBeCloseTo(0.072, 5)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.076, 5)
+            // Total must NOT include the modality breakdown — it lives inside input + output already
+            expect(result.properties!.$ai_total_cost_usd).toBeLessThan(
+                result.properties!.$ai_input_cost_usd + result.properties!.$ai_output_cost_usd + 0.073
+            )
+        })
+
+        it('sets $ai_image_cost_usd for image-capable models without inflating the total', () => {
+            event.properties!.$ai_model = 'gemini-2.5-flash-image'
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_input_tokens = 600 // 200 text + 400 image
+            event.properties!.$ai_output_tokens = 1300 // 10 text + 1290 image
+            event.properties!.$ai_image_input_tokens = 400
+            event.properties!.$ai_image_output_tokens = 1290
+
+            const result = processAiEvent(event)
+
+            // Input: text (200 × 3e-7) + image (400 × 3e-7) = 6e-5 + 0.00012 = 0.00018
+            // Output: text (10 × 0.0000025) + image (1290 × 0.00003) = 0.000025 + 0.0387 = 0.038725
+            // Image breakdown: 0.00012 + 0.0387 = 0.03882
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00018, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.038725, 6)
+            expect(result.properties!.$ai_image_cost_usd).toBeCloseTo(0.03882, 6)
+            expect(result.properties!.$ai_audio_cost_usd).toBeUndefined()
+        })
+
+        it('does not set modality cost properties when there are no modality tokens', () => {
+            // Default event uses gpt-4 (text only), no audio/image tokens
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_audio_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_image_cost_usd).toBeUndefined()
         })
     })
 

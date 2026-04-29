@@ -11,9 +11,9 @@ survive. Costs live on `$ai_generation` and `$ai_embedding` only.
 | `$ai_output_cost_usd`             | generation, embedding | Cost attributable to output tokens                                      |
 | `$ai_request_cost_usd`            | generation, embedding | Per-request flat cost (e.g. Anthropic per-request fee); often `0`       |
 | `$ai_web_search_cost_usd`         | generation, embedding | Cost of web-search tool calls inside the generation; often `0`          |
-| `$ai_audio_cost_usd`              | generation            | Audio-modality cost when the model charges a separate rate; often `0`   |
-| `$ai_image_cost_usd`              | generation            | Image-modality cost; often `0`                                          |
-| `$ai_video_cost_usd`              | generation            | Video-modality cost; often `0`                                          |
+| `$ai_audio_cost_usd`              | generation            | Audio-modality breakdown (input + output); already inside input/output  |
+| `$ai_image_cost_usd`              | generation            | Image-modality breakdown (input + output); already inside input/output  |
+| `$ai_video_cost_usd`              | generation            | Video-modality breakdown; already inside input/output; often `0`        |
 | `$ai_input_tokens`                | generation, embedding | Tokens sent to the model (total across modalities)                      |
 | `$ai_output_tokens`               | generation            | Tokens returned by the model (total across modalities)                  |
 | `$ai_total_tokens`                | generation, embedding | Input + output tokens                                                   |
@@ -28,12 +28,16 @@ survive. Costs live on `$ai_generation` and `$ai_embedding` only.
 
 ## Always sum `$ai_total_cost_usd`, not the components
 
-At ingestion, `$ai_total_cost_usd = input + output + request + web_search` (plus
-any modality costs). Summing only `$ai_input_cost_usd + $ai_output_cost_usd`
-silently drops request and web-search fees — real and non-zero for Anthropic
-request fees and any tool-augmented generation. The UI's cost cells sum
-`$ai_total_cost_usd` over `event IN ('$ai_generation', '$ai_embedding')`;
-mirror that. See [Calculating LLM costs](https://posthog.com/docs/llm-analytics/calculating-costs)
+At ingestion, `$ai_total_cost_usd = input + output + request + web_search`.
+Modality costs (`$ai_audio_cost_usd`, `$ai_image_cost_usd`,
+`$ai_video_cost_usd`) are a **breakdown** of `$ai_input_cost_usd` and
+`$ai_output_cost_usd` — they are not added separately. Summing only
+`$ai_input_cost_usd + $ai_output_cost_usd` silently drops request and
+web-search fees, which are real and non-zero for Anthropic request fees and
+any tool-augmented generation. Adding modality costs on top of input/output
+double-counts. The UI's cost cells sum `$ai_total_cost_usd` over
+`event IN ('$ai_generation', '$ai_embedding')`; mirror that. See
+[Calculating LLM costs](https://posthog.com/docs/llm-analytics/calculating-costs)
 for the full derivation.
 
 ## Cache costs vary by provider reporting style

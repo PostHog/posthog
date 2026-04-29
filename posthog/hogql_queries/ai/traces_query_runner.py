@@ -243,6 +243,16 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     ), 10
                 ) AS web_search_cost,
                 round(
+                    sumIf(toFloat(properties.$ai_audio_cost_usd),
+                          event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
+                ) AS audio_cost,
+                round(
+                    sumIf(toFloat(properties.$ai_image_cost_usd),
+                          event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
+                ) AS image_cost,
+                round(
                     sumIf(toFloat(properties.$ai_total_cost_usd),
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
@@ -322,7 +332,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 6,
+            "schema_version": 7,
         }
 
     @cached_property
@@ -383,6 +393,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "output_cost": "outputCost",
             "request_cost": "requestCost",
             "web_search_cost": "webSearchCost",
+            "audio_cost": "audioCost",
+            "image_cost": "imageCost",
             "total_cost": "totalCost",
             "events": "events",
             "trace_name": "traceName",

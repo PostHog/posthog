@@ -1,6 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { calculateOutputCost } from './output-costs'
+import { calculateOutputCost, calculateOutputModalityCosts } from './output-costs'
 import { ResolvedModelCost } from './providers/types'
 
 // Helper function to create a PluginEvent with default values
@@ -526,6 +526,124 @@ describe('calculateOutputCost()', () => {
 
             // Should include reasoning tokens: (100 + 200) * 0.0000025 = 0.00075
             expectCost(result, 0.00075)
+        })
+    })
+
+    describe('audio output tokens - modality cost calculation', () => {
+        // gpt-4o-audio-preview pricing:
+        // - text output: $10/1M ($0.00001/token)
+        // - audio output: $80/1M ($0.00008/token)
+        const audioModel: ResolvedModelCost = {
+            model: 'gpt-4o-audio-preview',
+            provider: 'openai',
+            cost: {
+                prompt_token: 0.0000025,
+                completion_token: 0.00001,
+                audio: 0.00004,
+                audio_output: 0.00008,
+            },
+        }
+
+        it('bills audio output at the audio_output rate, separate from text', () => {
+            const event = createAIEvent({
+                $ai_provider: 'openai',
+                $ai_model: 'gpt-4o-audio-preview',
+                $ai_output_tokens: 1000, // 200 text + 800 audio
+                $ai_audio_output_tokens: 800,
+            })
+
+            const result = calculateOutputCost(event, audioModel)
+
+            // Text: (1000 - 800) × 0.00001 = 0.002
+            // Audio: 800 × 0.00008 = 0.064
+            // Total: 0.066
+            expectCost(result, 0.066, 5)
+        })
+
+        it('falls back to completion rate when no audio_output rate is defined', () => {
+            const modelWithoutAudioOutput: ResolvedModelCost = {
+                model: 'some-model',
+                provider: 'unknown',
+                cost: { prompt_token: 0.000001, completion_token: 0.000002 },
+            }
+            const event = createAIEvent({
+                $ai_provider: 'unknown',
+                $ai_model: 'some-model',
+                $ai_output_tokens: 1000,
+                $ai_audio_output_tokens: 800,
+            })
+
+            const result = calculateOutputCost(event, modelWithoutAudioOutput)
+
+            // No separate rate, audio falls back to completion rate.
+            // Total stays at 1000 × 0.000002 = 0.002
+            expectCost(result, 0.002)
+        })
+
+        it('combines audio output with image output for fully multimodal models', () => {
+            const multiModalModel: ResolvedModelCost = {
+                model: 'multi-modal',
+                provider: 'imaginary',
+                cost: {
+                    prompt_token: 0.000001,
+                    completion_token: 0.000002,
+                    image_output: 0.00003,
+                    audio_output: 0.00004,
+                },
+            }
+            const event = createAIEvent({
+                $ai_provider: 'imaginary',
+                $ai_model: 'multi-modal',
+                $ai_output_tokens: 2000, // 200 text + 800 audio + 1000 image
+                $ai_audio_output_tokens: 800,
+                $ai_image_output_tokens: 1000,
+            })
+
+            const result = calculateOutputCost(event, multiModalModel)
+
+            // Text: 200 × 0.000002 = 0.0004
+            // Audio: 800 × 0.00004 = 0.032
+            // Image: 1000 × 0.00003 = 0.03
+            // Total: 0.0624
+            expectCost(result, 0.0624, 5)
+        })
+    })
+
+    describe('calculateOutputModalityCosts()', () => {
+        const multiModalModel: ResolvedModelCost = {
+            model: 'multi-modal',
+            provider: 'imaginary',
+            cost: {
+                prompt_token: 0.000001,
+                completion_token: 0.000002,
+                image_output: 0.00003,
+                audio_output: 0.00004,
+            },
+        }
+
+        it('returns audio and image output components separately', () => {
+            const event = createAIEvent({
+                $ai_audio_output_tokens: 800,
+                $ai_image_output_tokens: 1000,
+            })
+
+            const result = calculateOutputModalityCosts(event, multiModalModel)
+
+            expectCost(result.audio, 0.032)
+            expectCost(result.image, 0.03)
+        })
+
+        it('returns zeros when no modality tokens are present', () => {
+            const event = createAIEvent({ $ai_output_tokens: 100 })
+            const result = calculateOutputModalityCosts(event, multiModalModel)
+            expect(parseFloat(result.audio)).toBe(0)
+            expect(parseFloat(result.image)).toBe(0)
+        })
+
+        it('returns zeros when properties are missing', () => {
+            const event = { ...createAIEvent(), properties: undefined }
+            const result = calculateOutputModalityCosts(event, multiModalModel)
+            expect(result).toEqual({ audio: '0', image: '0' })
         })
     })
 })

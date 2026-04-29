@@ -4327,12 +4327,14 @@
             "default": {
                 "prompt_token": 0.0000025,
                 "completion_token": 0.00001,
-                "audio": 0.00004
+                "audio": 0.00004,
+                "audio_output": 0.00008
             },
             "openai": {
                 "prompt_token": 0.0000025,
                 "completion_token": 0.00001,
-                "audio": 0.00004
+                "audio": 0.00004,
+                "audio_output": 0.00008
             }
         }
     },
@@ -4928,12 +4930,14 @@
             "default": {
                 "prompt_token": 0.0000025,
                 "completion_token": 0.00001,
-                "audio": 0.000032
+                "audio": 0.000032,
+                "audio_output": 0.000064
             },
             "openai": {
                 "prompt_token": 0.0000025,
                 "completion_token": 0.00001,
-                "audio": 0.000032
+                "audio": 0.000032,
+                "audio_output": 0.000064
             }
         }
     },
@@ -4943,12 +4947,14 @@
             "default": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000024,
-                "audio": 6e-7
+                "audio": 6e-7,
+                "audio_output": 0.0000024
             },
             "openai": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000024,
-                "audio": 6e-7
+                "audio": 6e-7,
+                "audio_output": 0.0000024
             }
         }
     },
