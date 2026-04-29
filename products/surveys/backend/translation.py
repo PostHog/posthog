@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from products.surveys.backend.llm import generate_structured_output
 
 DEFAULT_TRANSLATION_MODEL = "gemini-3.1-flash-lite-preview"
+DRAFT_TRANSLATION_QUESTION_ID_PREFIX = "__draft_question_"
 
 
 class SurveyRootTranslation(BaseModel):
@@ -62,7 +63,17 @@ def _root_source(survey: dict[str, Any]) -> dict[str, Any]:
 
 def _questions_source(survey: dict[str, Any]) -> list[dict[str, Any]]:
     questions = survey.get("questions")
-    return questions if isinstance(questions, list) else []
+    if not isinstance(questions, list):
+        return []
+
+    return [
+        {
+            **question,
+            "id": question.get("id") or f"{DRAFT_TRANSLATION_QUESTION_ID_PREFIX}{index}",
+        }
+        for index, question in enumerate(questions)
+        if isinstance(question, dict)
+    ]
 
 
 def _is_missing(value: Any) -> bool:

@@ -72,3 +72,52 @@ def test_generate_survey_translation_preserves_manual_translations(mock_generate
     ]
     assert trace_id == "trace-1"
     assert "description_or_goal" in mock_generate_structured_output.call_args.kwargs["user_prompt"]
+
+
+@patch("products.surveys.backend.translation.generate_structured_output")
+def test_generate_survey_translation_matches_questions_without_ids(mock_generate_structured_output: Mock) -> None:
+    mock_generate_structured_output.return_value = (
+        SurveyTranslationResponse.model_validate(
+            {
+                "questions": [
+                    {"id": "__draft_question_0", "question": "Primera pregunta"},
+                    {"id": "__draft_question_1", "question": "Segunda pregunta", "buttonText": "Enviar"},
+                ]
+            }
+        ),
+        "trace-2",
+    )
+    survey = {
+        "name": "Draft survey",
+        "questions": [
+            {
+                "type": "open",
+                "question": "First question",
+                "translations": {"es": {"question": "First question"}},
+            },
+            {
+                "type": "open",
+                "question": "Second question",
+                "buttonText": "Submit",
+                "translations": {"es": {"question": "Second question", "buttonText": "Submit"}},
+            },
+        ],
+    }
+
+    _translations, questions, generated_paths, trace_id = generate_survey_translation(
+        survey=survey,
+        target_language="es",
+        overwrite=False,
+    )
+
+    assert questions == [
+        {"id": "__draft_question_0", "translations": {"es": {"question": "Primera pregunta"}}},
+        {"id": "__draft_question_1", "translations": {"es": {"question": "Segunda pregunta", "buttonText": "Enviar"}}},
+    ]
+    assert generated_paths == [
+        "questions.0.translations.es.question",
+        "questions.1.translations.es.question",
+        "questions.1.translations.es.buttonText",
+    ]
+    assert trace_id == "trace-2"
+    assert "__draft_question_1" in mock_generate_structured_output.call_args.kwargs["user_prompt"]

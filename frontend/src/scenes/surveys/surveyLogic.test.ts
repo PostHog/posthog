@@ -36,6 +36,13 @@ import {
     SurveyType,
 } from '~/types'
 
+import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
+
+jest.mock('products/surveys/frontend/generated/api', () => ({
+    __esModule: true,
+    surveysGenerateTranslationsCreate: jest.fn(),
+}))
+
 const MULTIPLE_CHOICE_SURVEY: Survey = {
     id: '018b22a3-09b1-0000-2f5b-1bd8352ceec9',
     name: 'Multiple Choice survey',
@@ -179,6 +186,7 @@ describe('translation validation', () => {
 
     beforeEach(() => {
         initKeaTests()
+        jest.clearAllMocks()
         logic = surveyLogic({ id: 'new' })
         logic.mount()
     })
@@ -264,7 +272,10 @@ describe('translation validation', () => {
     })
 
     it('deep merges generated translation drafts without dropping manual fields', async () => {
-        const generateTranslations = jest.spyOn(api.surveys, 'generateTranslations').mockResolvedValue({
+        const generateTranslations = surveysGenerateTranslationsCreate as jest.MockedFunction<
+            typeof surveysGenerateTranslationsCreate
+        >
+        generateTranslations.mockResolvedValue({
             translations: { es: { thankYouMessageHeader: 'Gracias' } },
             questions: [{ id: '__draft_question_0', translations: { es: { buttonText: 'Enviar' } } }],
             generated_field_paths: ['translations.es.thankYouMessageHeader'],
@@ -287,7 +298,14 @@ describe('translation validation', () => {
             logic.actions.generateTranslationDrafts('es')
         }).toFinishAllListeners()
 
-        const draftSurvey = generateTranslations.mock.calls[0][1].survey as Record<string, unknown>
+        const requestBody = generateTranslations.mock.calls[0][2]
+        const draftSurvey = requestBody.survey as Record<string, unknown>
+        expect(requestBody).toEqual(
+            expect.objectContaining({
+                target_language: 'es',
+                overwrite: true,
+            })
+        )
         expect(draftSurvey).toEqual(
             expect.objectContaining({
                 name: 'Saved survey',

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonInputSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonInputSelect, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -42,19 +42,45 @@ function GuidedTranslationInput({
     source,
     onChange,
     multiline = false,
+    aiGenerated = false,
 }: {
     label: string
     value: string
     source?: string | null
     onChange: (value: string) => void
     multiline?: boolean
+    aiGenerated?: boolean
 }): JSX.Element {
+    const labelWithState = aiGenerated ? (
+        <span className="flex items-center gap-1">
+            <span>{label}</span>
+            <LemonTag type="highlight">AI draft</LemonTag>
+        </span>
+    ) : (
+        label
+    )
+    const aiGeneratedClassName = aiGenerated
+        ? 'border border-dashed border-accent bg-accent-highlight-secondary'
+        : undefined
+
     return (
-        <LemonField.Pure label={label} className="gap-1">
+        <LemonField.Pure label={labelWithState} className="gap-1">
             {multiline ? (
-                <LemonTextArea value={value} onChange={onChange} placeholder={source || undefined} minRows={2} />
+                <LemonTextArea
+                    value={value}
+                    onChange={onChange}
+                    placeholder={source || undefined}
+                    minRows={2}
+                    className={aiGeneratedClassName}
+                />
             ) : (
-                <LemonInput value={value} onChange={onChange} placeholder={source || undefined} fullWidth />
+                <LemonInput
+                    value={value}
+                    onChange={onChange}
+                    placeholder={source || undefined}
+                    fullWidth
+                    className={aiGeneratedClassName}
+                />
             )}
         </LemonField.Pure>
     )
@@ -66,8 +92,9 @@ interface TranslationsSectionProps {
 }
 
 export function TranslationsSection({ editingLanguage, setEditingLanguage }: TranslationsSectionProps): JSX.Element {
-    const { survey, generatingTranslationDrafts, dataProcessingAccepted } = useValues(surveyLogic)
-    const { setSurveyValue, generateTranslationDrafts } = useActions(surveyLogic)
+    const { survey, generatingTranslationDrafts, dataProcessingAccepted, aiGeneratedTranslationFields } =
+        useValues(surveyLogic)
+    const { setSurveyValue, generateTranslationDrafts, clearAiGeneratedTranslationField } = useActions(surveyLogic)
 
     const translations = survey.translations ?? {}
     const addedLanguages = Object.keys(translations)
@@ -148,6 +175,10 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
             return
         }
 
+        for (const field of Object.keys(updates)) {
+            clearAiGeneratedTranslationField(`translations.${activeLanguage}.${field}`)
+        }
+
         setSurveyValue('translations', {
             ...translations,
             [activeLanguage]: {
@@ -160,6 +191,10 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
     const updateQuestionTranslation = (questionIndex: number, updates: Partial<QuestionTranslation>): void => {
         if (!activeLanguage) {
             return
+        }
+
+        for (const field of Object.keys(updates)) {
+            clearAiGeneratedTranslationField(`questions.${questionIndex}.translations.${activeLanguage}.${field}`)
         }
 
         setSurveyValue(
@@ -193,8 +228,27 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
 
         const translatedChoices = [...(question.translations?.[activeLanguage]?.choices || question.choices || [])]
         translatedChoices[choiceIndex] = value
+        clearAiGeneratedTranslationField(
+            `questions.${questionIndex}.translations.${activeLanguage}.choices.${choiceIndex}`
+        )
         updateQuestionTranslation(questionIndex, { choices: translatedChoices })
     }
+
+    const isGeneratedSurveyField = (field: string): boolean =>
+        !!activeLanguage && aiGeneratedTranslationFields.includes(`translations.${activeLanguage}.${field}`)
+
+    const isGeneratedQuestionField = (questionIndex: number, field: string): boolean =>
+        !!activeLanguage &&
+        aiGeneratedTranslationFields.includes(`questions.${questionIndex}.translations.${activeLanguage}.${field}`)
+
+    const isGeneratedChoiceField = (questionIndex: number, choiceIndex: number): boolean =>
+        !!activeLanguage &&
+        aiGeneratedTranslationFields.includes(
+            `questions.${questionIndex}.translations.${activeLanguage}.choices.${choiceIndex}`
+        )
+
+    const hasGeneratedFieldsForActiveLanguage =
+        !!activeLanguage && aiGeneratedTranslationFields.some((path) => path.includes(`.${activeLanguage}.`))
 
     return (
         <WizardSection
@@ -236,9 +290,9 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                     ? 'AI data processing must be approved to generate translations'
                                     : undefined
                         }
-                        onClick={() => activeLanguage && generateTranslationDrafts(activeLanguage, false)}
+                        onClick={() => activeLanguage && generateTranslationDrafts(activeLanguage)}
                     >
-                        Fill missing with AI
+                        Fill with AI
                     </LemonButton>
                 </div>
 
@@ -300,6 +354,13 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                             </LemonButton>
                         </div>
 
+                        {hasGeneratedFieldsForActiveLanguage ? (
+                            <div className="flex items-center gap-2 rounded border border-dashed border-accent bg-accent-highlight-secondary p-2 text-xs text-secondary">
+                                <LemonTag type="highlight">AI draft</LemonTag>
+                                <span>AI-generated fields are highlighted. Double-check them before saving.</span>
+                            </div>
+                        ) : null}
+
                         <div className="space-y-3">
                             {survey.questions.map((question, questionIndex) => {
                                 const questionTranslation = question.translations?.[activeLanguage] ?? {}
@@ -318,6 +379,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                             label="Question"
                                             value={questionTranslation.question || ''}
                                             source={question.question}
+                                            aiGenerated={isGeneratedQuestionField(questionIndex, 'question')}
                                             onChange={(questionText) =>
                                                 updateQuestionTranslation(questionIndex, { question: questionText })
                                             }
@@ -327,6 +389,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                                 label="Description"
                                                 value={questionTranslation.description || ''}
                                                 source={question.description}
+                                                aiGenerated={isGeneratedQuestionField(questionIndex, 'description')}
                                                 onChange={(description) =>
                                                     updateQuestionTranslation(questionIndex, { description })
                                                 }
@@ -338,6 +401,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                                 label="Button text"
                                                 value={questionTranslation.buttonText || ''}
                                                 source={question.buttonText}
+                                                aiGenerated={isGeneratedQuestionField(questionIndex, 'buttonText')}
                                                 onChange={(buttonText) =>
                                                     updateQuestionTranslation(questionIndex, { buttonText })
                                                 }
@@ -349,6 +413,10 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                                     label="Lower label"
                                                     value={questionTranslation.lowerBoundLabel || ''}
                                                     source={ratingQuestion.lowerBoundLabel}
+                                                    aiGenerated={isGeneratedQuestionField(
+                                                        questionIndex,
+                                                        'lowerBoundLabel'
+                                                    )}
                                                     onChange={(lowerBoundLabel) =>
                                                         updateQuestionTranslation(questionIndex, { lowerBoundLabel })
                                                     }
@@ -357,6 +425,10 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                                     label="Upper label"
                                                     value={questionTranslation.upperBoundLabel || ''}
                                                     source={ratingQuestion.upperBoundLabel}
+                                                    aiGenerated={isGeneratedQuestionField(
+                                                        questionIndex,
+                                                        'upperBoundLabel'
+                                                    )}
                                                     onChange={(upperBoundLabel) =>
                                                         updateQuestionTranslation(questionIndex, { upperBoundLabel })
                                                     }
@@ -371,6 +443,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                                         label={`Choice ${choiceIndex + 1}`}
                                                         value={questionTranslation.choices?.[choiceIndex] || ''}
                                                         source={choice}
+                                                        aiGenerated={isGeneratedChoiceField(questionIndex, choiceIndex)}
                                                         onChange={(value) =>
                                                             updateChoiceTranslation(questionIndex, choiceIndex, value)
                                                         }
@@ -383,6 +456,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                                 label="Link URL"
                                                 value={questionTranslation.link || ''}
                                                 source={linkQuestion.link}
+                                                aiGenerated={isGeneratedQuestionField(questionIndex, 'link')}
                                                 onChange={(link) => updateQuestionTranslation(questionIndex, { link })}
                                             />
                                         ) : null}
@@ -398,6 +472,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                     label="Header"
                                     value={translations[activeLanguage]?.thankYouMessageHeader || ''}
                                     source={appearance.thankYouMessageHeader}
+                                    aiGenerated={isGeneratedSurveyField('thankYouMessageHeader')}
                                     onChange={(thankYouMessageHeader) =>
                                         updateSurveyTranslation({ thankYouMessageHeader })
                                     }
@@ -407,6 +482,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                         label="Description"
                                         value={translations[activeLanguage]?.thankYouMessageDescription || ''}
                                         source={appearance.thankYouMessageDescription}
+                                        aiGenerated={isGeneratedSurveyField('thankYouMessageDescription')}
                                         onChange={(thankYouMessageDescription) =>
                                             updateSurveyTranslation({ thankYouMessageDescription })
                                         }
@@ -418,6 +494,7 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
                                         label="Close button"
                                         value={translations[activeLanguage]?.thankYouMessageCloseButtonText || ''}
                                         source={appearance.thankYouMessageCloseButtonText}
+                                        aiGenerated={isGeneratedSurveyField('thankYouMessageCloseButtonText')}
                                         onChange={(thankYouMessageCloseButtonText) =>
                                             updateSurveyTranslation({ thankYouMessageCloseButtonText })
                                         }

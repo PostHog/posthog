@@ -74,6 +74,8 @@ import {
     SurveyStats,
 } from '~/types'
 
+import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
+
 import {
     LOADING_SURVEY_RESULTS_TOAST_ID,
     NEW_SURVEY,
@@ -661,7 +663,7 @@ export const surveyLogic = kea<surveyLogicType>([
             enabled,
         }),
         setPersonNames: (personNames: Record<string, string>) => ({ personNames }),
-        generateTranslationDrafts: (language: string, overwrite: boolean = false) => ({ language, overwrite }),
+        generateTranslationDrafts: (language: string, overwrite: boolean = true) => ({ language, overwrite }),
         setGeneratingTranslationDrafts: (generating: boolean) => ({ generating }),
         setAiGeneratedTranslationFields: (paths: string[]) => ({ paths }),
         clearAiGeneratedTranslationField: (path: string) => ({ path }),
@@ -1233,9 +1235,15 @@ export const surveyLogic = kea<surveyLogicType>([
                     return
                 }
 
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    lemonToast.error('Select a project before generating translations')
+                    return
+                }
+
                 actions.setGeneratingTranslationDrafts(true)
                 try {
-                    const result = await api.surveys.generateTranslations(values.survey.id, {
+                    const result = await surveysGenerateTranslationsCreate(String(teamId), values.survey.id, {
                         target_language: language,
                         overwrite,
                         survey: getSurveyTranslationDraftPayload(values.survey),

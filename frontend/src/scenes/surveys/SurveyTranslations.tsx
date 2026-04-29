@@ -178,9 +178,9 @@ export function SurveyTranslations(): JSX.Element {
                                 ? 'AI data processing must be approved to generate translations'
                                 : undefined
                     }
-                    onClick={() => editingLanguage && generateTranslationDrafts(editingLanguage, false)}
+                    onClick={() => editingLanguage && generateTranslationDrafts(editingLanguage)}
                 >
-                    Fill missing with AI
+                    Fill with AI
                 </LemonButton>
             </div>
 
