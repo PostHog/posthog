@@ -15,8 +15,8 @@ use crate::backend::{LeaderBackend, LeaderOps};
 ///   order, then clear the stash so subsequent writes route normally via the
 ///   routing table.
 ///
-/// We also clear the cached gRPC client for the old owner so new requests
-/// force a reconnect to the new leader pod.
+/// We also clear the cached gRPC client for the new owner so the first
+/// post-handoff request opens a fresh connection to the new leader pod.
 pub struct RouterStashHandler {
     leader_backend: Arc<LeaderBackend>,
 }
@@ -54,8 +54,10 @@ impl StashHandler for RouterStashHandler {
         );
         metrics::histogram!("personhog_router_stash_drain_batch_size").record(batch_size as f64);
 
-        // Drop the cached client for the old owner so next request reconnects
-        // to whatever pod the routing table now points at.
+        // Drop the cached gRPC client for the new owner so the first
+        // post-handoff request opens a fresh connection. The old owner's
+        // client entry will simply age out — the routing table no longer
+        // points at it, so it's never reused.
         self.leader_backend.clear_client_cache(new_owner);
 
         // Drain through the same forwarding path as live requests. By the

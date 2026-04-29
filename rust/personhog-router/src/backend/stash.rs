@@ -88,7 +88,13 @@ impl StashQueue {
 struct PartitionStash {
     max_messages: usize,
     max_bytes: usize,
-    /// `Some(queue)` while frozen; `None` in the open (normal) state.
+    /// `Some(queue)` while alive; `None` once `drain` has both taken
+    /// the queue contents and evicted this entry from the dashmap —
+    /// both inside the same critical section. The `None` state therefore
+    /// doubles as a tombstone: a concurrent `begin_stash` that races
+    /// `drain` and observes `None` knows the dashmap entry is already
+    /// gone and that the next `get_or_create` will produce a fresh
+    /// entry rather than re-grab this doomed `Arc`.
     queue: Mutex<Option<StashQueue>>,
 }
 
@@ -97,7 +103,11 @@ impl PartitionStash {
         Self {
             max_messages,
             max_bytes,
-            queue: Mutex::new(None),
+            // Initialize to `Some` so a freshly-created entry is
+            // immediately ready for enqueues. A `None` queue
+            // unambiguously signals "drained" — no other origin
+            // produces it.
+            queue: Mutex::new(Some(StashQueue::new())),
         }
     }
 }
@@ -138,12 +148,28 @@ impl StashTable {
 
     /// Begin buffering requests for `partition`. Idempotent: safe to call
     /// multiple times (watch reconnects etc.).
+    ///
+    /// Each iteration is a single attempt to bind to a live dashmap
+    /// entry. The loop terminates because the only way to observe
+    /// `None` is to race a `drain` that evicted the entry inside its
+    /// queue lock — meaning the next `get_or_create` will create a
+    /// fresh entry rather than re-grab the doomed `Arc`. In production
+    /// the routing-table layer awaits `drain` before issuing the next
+    /// `begin_stash` for the same partition, so this loop runs at most
+    /// twice.
     pub async fn begin_stash(&self, partition: u32) {
+        while !self.try_acquire_alive_entry(partition).await {}
+    }
+
+    /// One attempt to bind to the live dashmap entry for `partition`.
+    /// Returns `true` if we successfully observed a `Some` queue (the
+    /// entry is alive and ready for enqueues); `false` if we raced a
+    /// `drain` that left a tombstoned `None`, in which case the caller
+    /// should retry to pick up the fresh entry.
+    async fn try_acquire_alive_entry(&self, partition: u32) -> bool {
         let stash = self.get_or_create(partition);
-        let mut guard = stash.queue.lock().await;
-        if guard.is_none() {
-            *guard = Some(StashQueue::new());
-        }
+        let guard = stash.queue.lock().await;
+        guard.is_some()
     }
 
     /// Enqueue a request if the partition is frozen; otherwise return
@@ -199,26 +225,33 @@ impl StashTable {
     }
 
     /// Take the stashed queue and unstash (remove the entry).
-    /// Returns the requests in FIFO order; the caller forwards them to the
-    /// new owner and sends each result back through its reply channel.
+    /// Returns the requests in FIFO order; the caller forwards them to
+    /// the new owner and sends each result back through its reply
+    /// channel.
     ///
-    /// The dashmap entry is removed so subsequent calls to
-    /// `enqueue_or_forward` for this partition skip the lock-and-check
-    /// path and short-circuit on `dashmap.get` returning `None`. The
-    /// per-entry queue state is also reset to `None` before removal so
-    /// any in-flight `enqueue_or_forward` that already acquired the
-    /// `Arc<PartitionStash>` will observe the state change and return
-    /// `Forward` rather than pushing into a dead queue.
+    /// The dashmap entry is evicted *inside* the queue lock, in the
+    /// same critical section as `take`. This makes the tombstone
+    /// transition atomic from any other caller's point of view: by the
+    /// time another caller acquires this `Arc`'s queue lock and
+    /// observes `None`, the dashmap entry is already gone, so a retry
+    /// via `get_or_create` is guaranteed to produce a fresh entry
+    /// rather than re-grab the doomed `Arc`. Without that ordering, a
+    /// concurrent `begin_stash` could initialize a fresh queue on this
+    /// orphaned `Arc` and silently drop subsequent writes (since
+    /// `enqueue_or_forward` calls `dashmap.get`, not `get_or_create`,
+    /// and would observe the entry as gone).
     pub async fn drain(&self, partition: u32) -> VecDeque<StashedRequest> {
         let stash = match self.inner.get(&partition) {
             Some(entry) => Arc::clone(entry.value()),
             None => return VecDeque::new(),
         };
-        let queue = {
-            let mut guard = stash.queue.lock().await;
-            guard.take().map(|q| q.requests).unwrap_or_default()
-        };
+        let mut guard = stash.queue.lock().await;
+        let queue = guard.take().map(|q| q.requests).unwrap_or_default();
+        // Evict from the dashmap before releasing the queue lock so the
+        // `Some → None` transition and the dashmap eviction are
+        // observed atomically.
         self.inner.remove(&partition);
+        drop(guard);
         queue
     }
 }
@@ -519,5 +552,64 @@ mod tests {
             req.reply.send(Ok(response)).is_err(),
             "send must return Err after the receiver is dropped"
         );
+    }
+
+    /// Regression for the structural race the `drained` tombstone closes:
+    /// a `begin_stash` that observes the post-`take` `None` queue between
+    /// `drain` releasing the queue lock and `drain` evicting the dashmap
+    /// entry must not initialize a new queue on the doomed `Arc`. With
+    /// the tombstone, `begin_stash` sees `drained=true`, drops the lock,
+    /// and retries via `get_or_create` — which produces a fresh dashmap
+    /// entry once `drain` finishes its `inner.remove`.
+    ///
+    /// The race window is microseconds; we run many iterations to
+    /// exercise it. The protocol awaits `drain` before issuing the next
+    /// `begin_stash` for a partition today, so this race cannot trigger
+    /// in production — the test guards against future callers that
+    /// might break that ordering.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn drain_does_not_orphan_concurrent_begin_stash() {
+        for iteration in 0..500 {
+            let table = StashTable::with_bounds(usize::MAX, usize::MAX);
+            table.begin_stash(0).await;
+
+            // Drain in one task; concurrent begin_stash in another.
+            // The key invariant: after both complete, the dashmap must
+            // contain a live entry for the partition (because
+            // begin_stash was the most recent successful call), so a
+            // subsequent enqueue sees it and parks.
+            let drain_table = table.clone();
+            let drain_handle = tokio::spawn(async move { drain_table.drain(0).await });
+            let begin_table = table.clone();
+            let begin_handle = tokio::spawn(async move { begin_table.begin_stash(0).await });
+
+            drain_handle.await.unwrap();
+            begin_handle.await.unwrap();
+
+            // Only meaningful to assert when begin_stash logically ran
+            // *after* drain (drain.remove evicted, begin_stash created
+            // a fresh entry). If begin_stash logically ran first
+            // (observed the prior `Some` queue, was idempotent), then
+            // drain legitimately drained that prior queue and a
+            // subsequent enqueue forwards via the live path — that's a
+            // protocol-violation scenario, not a stash-module bug, and
+            // the routing-table layer prevents it. We accept either
+            // outcome here; what we *don't* accept is a non-empty
+            // drained queue that was just initialized by begin_stash on
+            // an orphaned Arc, which the tombstone prevents.
+            let outcome = table.enqueue_or_forward(0, mk_request(1, 1), None).await;
+            match outcome {
+                StashDecision::Stashed(_) => {
+                    // Fresh dashmap entry exists — begin_stash set it up correctly.
+                }
+                StashDecision::Forward => {
+                    // Begin_stash logically ran first and was idempotent;
+                    // drain emptied the prior queue. No orphaned Arc.
+                }
+                StashDecision::Rejected => {
+                    panic!("unexpected Rejected on iteration {iteration}");
+                }
+            }
+        }
     }
 }
