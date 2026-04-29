@@ -170,12 +170,13 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
 
         // Emit one counter increment per source that found something. An event
         // with both Gemini output and Gemini cache extraction increments twice
-        // (once with source=gemini_output, once with source=gemini_cache) — see
-        // the metric help text for the cardinality model.
+        // (once with source=gemini_output, once with source=gemini_cache). Sort
+        // for deterministic ordering across runs — useful for tests and for
+        // anyone reasoning about the metric stream.
         if (extractedSources.size === 0) {
             aiCostModalityExtractionCounter.labels({ status: 'no_details', source: 'none' }).inc()
         } else {
-            for (const source of extractedSources) {
+            for (const source of [...extractedSources].sort()) {
                 aiCostModalityExtractionCounter.labels({ status: 'extracted', source }).inc()
             }
         }

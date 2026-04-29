@@ -57,9 +57,9 @@ export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
         return true
     }
 
-    const inputTokens = Number(event.properties['$ai_input_tokens'] || 0)
-    const cacheReadTokens = Number(event.properties['$ai_cache_read_input_tokens'] || 0)
-    const cacheWriteTokens = Number(event.properties['$ai_cache_creation_input_tokens'] || 0)
+    const inputTokens = numericProperty(event, '$ai_input_tokens')
+    const cacheReadTokens = numericProperty(event, '$ai_cache_read_input_tokens')
+    const cacheWriteTokens = numericProperty(event, '$ai_cache_creation_input_tokens')
     return inputTokens < cacheReadTokens + cacheWriteTokens
 }
 
@@ -81,7 +81,7 @@ const clampTextTokens = (value: string | number, hasModalityTokens: boolean): st
 const warnMissingModalityRate = (
     event: PluginEvent,
     cost: ResolvedModelCost,
-    modality: 'audio' | 'image' | 'audio-cache'
+    modality: 'audio' | 'image' | 'audio_cache'
 ): void => {
     logger.warn('Missing modality rate; falling back to default rate', {
         modality,
@@ -129,7 +129,7 @@ const computeCachedAudioInputCost = (
     if (cost.cost.input_audio_cache !== undefined) {
         return bigDecimal.multiply(cost.cost.input_audio_cache, cachedAudioTokens)
     }
-    warnMissingModalityRate(event, cost, 'audio-cache')
+    warnMissingModalityRate(event, cost, 'audio_cache')
     if (cost.cost.cache_read_token !== undefined) {
         return bigDecimal.multiply(cost.cost.cache_read_token, cachedAudioTokens)
     }
@@ -153,11 +153,10 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     // Clamp defensively so a malformed event can't produce a deduction that
     // exceeds either parent pool. The clamp is load-bearing — `cachedTextTokens`
     // below relies on `cachedAudioInputTokens <= cacheReadTokens` to stay
-    // non-negative. Note this assumes audio_input is reported as the *total*
-    // audio (cached + uncached), which is the OpenAI/Gemini convention; if a
-    // future Anthropic-style provider reports audio_input as uncached-only with
-    // cached audio living in a separate pool, this clamp would under-bill. No
-    // such provider exists today.
+    // non-negative. This assumes audio_input is reported as the *total* audio
+    // (cached + uncached), matching the OpenAI/Gemini convention; providers
+    // that report audio_input as uncached-only with a disjoint cached pool
+    // would under-bill here.
     const rawCachedAudioTokens = numericProperty(event, '$ai_cache_read_audio_tokens')
     const cachedAudioInputTokens = Math.max(0, Math.min(rawCachedAudioTokens, audioInputTokens, cacheReadTokens))
 

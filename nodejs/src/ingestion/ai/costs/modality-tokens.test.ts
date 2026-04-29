@@ -1,3 +1,4 @@
+import { aiCostModalityExtractionCounter } from '../metrics'
 import { EventWithProperties, extractModalityTokens } from './modality-tokens'
 
 function createAIEvent(properties?: Record<string, any>): EventWithProperties {
@@ -548,6 +549,83 @@ describe('extractModalityTokens()', () => {
             const result = extractModalityTokens(event)
 
             expect(result.properties['$ai_cache_read_audio_tokens']).toBeUndefined()
+        })
+    })
+
+    describe('extraction counter labels', () => {
+        const labelsSpy = jest.spyOn(aiCostModalityExtractionCounter, 'labels')
+
+        beforeEach(() => {
+            labelsSpy.mockClear()
+        })
+
+        afterAll(() => {
+            labelsSpy.mockRestore()
+        })
+
+        it('emits status=no_details, source=none when nothing extracts', () => {
+            extractModalityTokens(createAIEvent({ $ai_usage: { candidatesTokenCount: 100 } }))
+
+            expect(labelsSpy).toHaveBeenCalledTimes(1)
+            expect(labelsSpy).toHaveBeenCalledWith({ status: 'no_details', source: 'none' })
+        })
+
+        it('emits source=gemini_output for output-only extractions', () => {
+            extractModalityTokens(
+                createAIEvent({
+                    $ai_usage: {
+                        candidatesTokensDetails: [{ modality: 'IMAGE', tokenCount: 1290 }],
+                    },
+                })
+            )
+
+            expect(labelsSpy).toHaveBeenCalledTimes(1)
+            expect(labelsSpy).toHaveBeenCalledWith({ status: 'extracted', source: 'gemini_output' })
+        })
+
+        it('emits source=gemini_cache for cache-only Gemini extractions', () => {
+            extractModalityTokens(
+                createAIEvent({
+                    $ai_usage: {
+                        cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 50 }],
+                    },
+                })
+            )
+
+            expect(labelsSpy).toHaveBeenCalledTimes(1)
+            expect(labelsSpy).toHaveBeenCalledWith({ status: 'extracted', source: 'gemini_cache' })
+        })
+
+        it('emits source=openai_cache for OpenAI cached_tokens_details extractions', () => {
+            extractModalityTokens(
+                createAIEvent({
+                    $ai_usage: {
+                        prompt_tokens_details: { cached_tokens_details: { audio_tokens: 50 } },
+                    },
+                })
+            )
+
+            expect(labelsSpy).toHaveBeenCalledTimes(1)
+            expect(labelsSpy).toHaveBeenCalledWith({ status: 'extracted', source: 'openai_cache' })
+        })
+
+        it('emits one increment per source when an event hits multiple extractors', () => {
+            extractModalityTokens(
+                createAIEvent({
+                    $ai_usage: {
+                        candidatesTokensDetails: [{ modality: 'IMAGE', tokenCount: 1290 }],
+                        cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 50 }],
+                        prompt_tokens_details: { cached_tokens_details: { audio_tokens: 60 } },
+                    },
+                })
+            )
+
+            // Three different sources fire; each gets its own increment.
+            // Order is alphabetical by source for determinism.
+            expect(labelsSpy).toHaveBeenCalledTimes(3)
+            expect(labelsSpy).toHaveBeenNthCalledWith(1, { status: 'extracted', source: 'gemini_cache' })
+            expect(labelsSpy).toHaveBeenNthCalledWith(2, { status: 'extracted', source: 'gemini_output' })
+            expect(labelsSpy).toHaveBeenNthCalledWith(3, { status: 'extracted', source: 'openai_cache' })
         })
     })
 })

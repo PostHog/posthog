@@ -1270,6 +1270,9 @@ describe('calculateInputCost()', () => {
             // Cached audio: 30 × 5e-7 = 0.000015
             // Total: 0.000051 + 0.00249 + 0.00035 + 0.000015 = 0.002906
             expectCostToBeCloseTo(result, 0.002906, 6)
+            // The auto-detector should have flipped cache reporting to inclusive
+            // because the Vercel gateway sums input + cache.
+            expect(event.properties!['$ai_cache_reporting_exclusive']).toBe(false)
         })
     })
 })
