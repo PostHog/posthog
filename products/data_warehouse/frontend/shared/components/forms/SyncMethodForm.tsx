@@ -440,6 +440,16 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                         will not be synced.
                                     </LemonBanner>
                                 )}
+                            {radioValue === 'append' &&
+                                appendFieldValue &&
+                                schema.incremental_fields.find((n) => n.field === appendFieldValue)?.is_indexed ===
+                                    false && (
+                                    <LemonBanner type="warning" className="mt-2">
+                                        No index detected on <code>{appendFieldValue}</code>. Append only syncs query
+                                        this column on every run; without an index the source database may scan the full
+                                        table on each sync. Consider adding an index, or pick a different field.
+                                    </LemonBanner>
+                                )}
                         </>
                     )}
                 </div>
