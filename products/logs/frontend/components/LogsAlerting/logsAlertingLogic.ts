@@ -76,7 +76,7 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
             {
                 loadAlerts: async () => {
                     const projectId = String(values.currentTeamId)
-                    const response = await logsAlertsList(projectId)
+                    const response = await logsAlertsList(projectId, { limit: 500 })
                     return response.results
                 },
             },

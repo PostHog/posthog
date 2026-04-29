@@ -79,22 +79,26 @@ export const OutputTypeEnumApi = {
  * `gemini` - Gemini
  * `openrouter` - Openrouter
  * `fireworks` - Fireworks
+ * `azure_openai` - Azure OpenAI
+ * `together_ai` - Together AI
  */
-export type Provider2f4EnumApi = (typeof Provider2f4EnumApi)[keyof typeof Provider2f4EnumApi]
+export type LLMProviderEnumApi = (typeof LLMProviderEnumApi)[keyof typeof LLMProviderEnumApi]
 
-export const Provider2f4EnumApi = {
+export const LLMProviderEnumApi = {
     Openai: 'openai',
     Anthropic: 'anthropic',
     Gemini: 'gemini',
     Openrouter: 'openrouter',
     Fireworks: 'fireworks',
+    AzureOpenai: 'azure_openai',
+    TogetherAi: 'together_ai',
 } as const
 
 /**
  * Nested serializer for model configuration.
  */
 export interface ModelConfigurationApi {
-    provider: Provider2f4EnumApi
+    provider: LLMProviderEnumApi
     /** @maxLength 100 */
     model: string
     /** @nullable */
@@ -543,58 +547,58 @@ export interface EvaluationReportApi {
     readonly id: string
     /** UUID of the evaluation this report config belongs to. */
     evaluation: string
-    /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
 * `scheduled` - Scheduled
 * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
-    /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
+    /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
     /**
-     * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+     * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
      * @nullable
      */
     starts_at?: string | null
     /**
-     * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+     * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
      * @maxLength 64
      */
     timezone_name?: string
     /** @nullable */
     readonly next_delivery_date: string | null
-    /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
+    /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
     delivery_targets?: unknown
     /**
-     * Max number of evaluation runs included in each report. Defaults to 100.
+     * Maximum number of evaluation runs included in each report. Defaults to 200.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     max_sample_size?: number
-    /** Whether report delivery is active. */
+    /** Whether report delivery is active. Disabled configs do not fire. */
     enabled?: boolean
     /** Set to true to soft-delete this report config. */
     deleted?: boolean
     /** @nullable */
     readonly last_delivered_at: string | null
-    /** Optional custom instructions injected into the AI report prompt to focus analysis. */
+    /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
-     * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+     * @minimum 10
+     * @maximum 10000
      * @nullable
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * @minimum 60
+     * @maximum 1440
      */
     cooldown_minutes?: number
     /**
-     * Max reports generated per day. Defaults to 3.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+     * @minimum 1
+     * @maximum 24
      */
     daily_run_cap?: number
     /** @nullable */
@@ -615,58 +619,58 @@ export interface PatchedEvaluationReportApi {
     readonly id?: string
     /** UUID of the evaluation this report config belongs to. */
     evaluation?: string
-    /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+    /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
 * `scheduled` - Scheduled
 * `every_n` - Every N */
     frequency?: EvaluationReportFrequencyEnumApi
-    /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
+    /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
     rrule?: string
     /**
-     * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+     * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
      * @nullable
      */
     starts_at?: string | null
     /**
-     * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+     * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
      * @maxLength 64
      */
     timezone_name?: string
     /** @nullable */
     readonly next_delivery_date?: string | null
-    /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
+    /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
     delivery_targets?: unknown
     /**
-     * Max number of evaluation runs included in each report. Defaults to 100.
+     * Maximum number of evaluation runs included in each report. Defaults to 200.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     max_sample_size?: number
-    /** Whether report delivery is active. */
+    /** Whether report delivery is active. Disabled configs do not fire. */
     enabled?: boolean
     /** Set to true to soft-delete this report config. */
     deleted?: boolean
     /** @nullable */
     readonly last_delivered_at?: string | null
-    /** Optional custom instructions injected into the AI report prompt to focus analysis. */
+    /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
     report_prompt_guidance?: string
     /**
-     * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+     * @minimum 10
+     * @maximum 10000
      * @nullable
      */
     trigger_threshold?: number | null
     /**
-     * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+     * @minimum 60
+     * @maximum 1440
      */
     cooldown_minutes?: number
     /**
-     * Max reports generated per day. Defaults to 3.
-     * @minimum -2147483648
-     * @maximum 2147483647
+     * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+     * @minimum 1
+     * @maximum 24
      */
     daily_run_cap?: number
     /** @nullable */
@@ -800,7 +804,7 @@ export const LLMProviderKeyStateEnumApi = {
 
 export interface LLMProviderKeyApi {
     readonly id: string
-    provider: Provider2f4EnumApi
+    provider: LLMProviderEnumApi
     /** @maxLength 255 */
     name: string
     readonly state: LLMProviderKeyStateEnumApi
@@ -808,6 +812,23 @@ export interface LLMProviderKeyApi {
     readonly error_message: string | null
     api_key?: string
     readonly api_key_masked: string
+    /** Azure OpenAI endpoint URL */
+    azure_endpoint?: string
+    /**
+     * Azure OpenAI API version
+     * @maxLength 20
+     */
+    api_version?: string
+    /**
+     * Azure endpoint (read-only, for display)
+     * @nullable
+     */
+    readonly azure_endpoint_display: string | null
+    /**
+     * Azure API version (read-only, for display)
+     * @nullable
+     */
+    readonly api_version_display: string | null
     set_as_active?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -826,7 +847,7 @@ export interface PaginatedLLMProviderKeyListApi {
 
 export interface PatchedLLMProviderKeyApi {
     readonly id?: string
-    provider?: Provider2f4EnumApi
+    provider?: LLMProviderEnumApi
     /** @maxLength 255 */
     name?: string
     readonly state?: LLMProviderKeyStateEnumApi
@@ -834,6 +855,23 @@ export interface PatchedLLMProviderKeyApi {
     readonly error_message?: string | null
     api_key?: string
     readonly api_key_masked?: string
+    /** Azure OpenAI endpoint URL */
+    azure_endpoint?: string
+    /**
+     * Azure OpenAI API version
+     * @maxLength 20
+     */
+    api_version?: string
+    /**
+     * Azure endpoint (read-only, for display)
+     * @nullable
+     */
+    readonly azure_endpoint_display?: string | null
+    /**
+     * Azure API version (read-only, for display)
+     * @nullable
+     */
+    readonly api_version_display?: string | null
     set_as_active?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -847,7 +885,7 @@ export interface ReviewQueueItemApi {
     readonly queue_id: string
     /** Human-readable name of the queue that currently owns this pending trace. */
     readonly queue_name: string
-    /** Trace ID currently pending human review. */
+    /** Trace ID currently pending review. */
     readonly trace_id: string
     readonly created_at: string
     /** @nullable */
@@ -925,9 +963,9 @@ export interface PatchedReviewQueueUpdateApi {
  * `numeric` - numeric
  * `boolean` - boolean
  */
-export type KindD08EnumApi = (typeof KindD08EnumApi)[keyof typeof KindD08EnumApi]
+export type ExperimentMetricKindEnumApi = (typeof ExperimentMetricKindEnumApi)[keyof typeof ExperimentMetricKindEnumApi]
 
-export const KindD08EnumApi = {
+export const ExperimentMetricKindEnumApi = {
     Categorical: 'categorical',
     Numeric: 'numeric',
     Boolean: 'boolean',
@@ -1013,7 +1051,7 @@ export interface ScoreDefinitionApi {
     readonly id: string
     readonly name: string
     readonly description: string
-    readonly kind: KindD08EnumApi
+    readonly kind: ExperimentMetricKindEnumApi
     readonly archived: boolean
     /** Current immutable configuration version number. */
     readonly current_version: number
@@ -1052,7 +1090,7 @@ export interface ScoreDefinitionCreateApi {
 * `categorical` - categorical
 * `numeric` - numeric
 * `boolean` - boolean */
-    kind: KindD08EnumApi
+    kind: ExperimentMetricKindEnumApi
     /** New scorers are always created as active. */
     archived?: boolean
     /** Initial immutable scorer configuration. */
@@ -1093,15 +1131,27 @@ export const SentimentRequestAnalysisLevelEnumApi = {
 
 export interface SentimentRequestApi {
     /**
+     * Trace IDs or generation IDs to classify, depending on analysis_level.
      * @minItems 1
      * @maxItems 5
      */
     ids: string[]
+    /** Whether the IDs are 'trace' IDs or 'generation' IDs.
+
+* `trace` - trace
+* `generation` - generation */
     analysis_level?: SentimentRequestAnalysisLevelEnumApi
+    /** If true, bypass cache and reclassify. */
     force_refresh?: boolean
-    /** @nullable */
+    /**
+     * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+     * @nullable
+     */
     date_from?: string | null
-    /** @nullable */
+    /**
+     * End of date range for the lookup. Defaults to now.
+     * @nullable
+     */
     date_to?: string | null
 }
 
@@ -1146,9 +1196,9 @@ export const SummarizeTypeEnumApi = {
  * * `minimal` - minimal
  * `detailed` - detailed
  */
-export type ModeE35EnumApi = (typeof ModeE35EnumApi)[keyof typeof ModeE35EnumApi]
+export type DetailModeValueEnumApi = (typeof DetailModeValueEnumApi)[keyof typeof DetailModeValueEnumApi]
 
-export const ModeE35EnumApi = {
+export const DetailModeValueEnumApi = {
     Minimal: 'minimal',
     Detailed: 'detailed',
 } as const
@@ -1163,7 +1213,7 @@ export interface SummarizeRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeE35EnumApi
+    mode?: DetailModeValueEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id. */
     data?: unknown
     /** Force regenerate summary, bypassing cache */
@@ -1229,7 +1279,7 @@ export interface BatchCheckRequestApi {
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeE35EnumApi
+    mode?: DetailModeValueEnumApi
     /**
      * LLM model used for cached summaries
      * @nullable
@@ -1354,7 +1404,7 @@ export interface TraceReviewApi {
     /** Trace ID for the review. */
     readonly trace_id: string
     /**
-     * Optional human comment or reasoning for the review.
+     * Optional comment or reasoning for the review.
      * @nullable
      */
     readonly comment: string | null
@@ -1412,7 +1462,7 @@ export interface TraceReviewCreateApi {
      */
     trace_id: string
     /**
-     * Optional human comment or reasoning for the review.
+     * Optional comment or reasoning for the review.
      * @nullable
      */
     comment?: string | null
@@ -1432,7 +1482,7 @@ export interface PatchedTraceReviewUpdateApi {
      */
     trace_id?: string
     /**
-     * Optional human comment or reasoning for the review.
+     * Optional comment or reasoning for the review.
      * @nullable
      */
     comment?: string | null
@@ -1443,6 +1493,19 @@ export interface PatchedTraceReviewUpdateApi {
      * @nullable
      */
     queue_id?: string | null
+}
+
+export interface TranslateRequestApi {
+    /**
+     * The text to translate
+     * @maxLength 10000
+     */
+    text: string
+    /**
+     * Target language code (default: 'en' for English)
+     * @maxLength 10
+     */
+    target_language?: string
 }
 
 export interface LLMPromptOutlineEntryApi {
@@ -1983,6 +2046,8 @@ export interface PatchedDatasetApi {
     readonly team?: number
 }
 
+export type EvaluationRunsCreate200 = { [key: string]: unknown }
+
 export type EvaluationsListParams = {
     /**
      * Filter by enabled status
@@ -2017,6 +2082,10 @@ export type EvaluationsListParams = {
     search?: string
 }
 
+export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown }
+
+export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown }
+
 export type LlmAnalyticsClusteringJobsListParams = {
     /**
      * Number of results to return per page.
@@ -2027,6 +2096,10 @@ export type LlmAnalyticsClusteringJobsListParams = {
      */
     offset?: number
 }
+
+export type LlmAnalyticsEvaluationConfigRetrieve200 = { [key: string]: unknown }
+
+export type LlmAnalyticsEvaluationConfigSetActiveKeyCreate200 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationReportsListParams = {
     /**
@@ -2057,6 +2130,10 @@ export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
 export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsModelsRetrieve200 = { [key: string]: unknown }
+
+export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 
 export type LlmAnalyticsProviderKeysListParams = {
     /**
@@ -2202,6 +2279,8 @@ export type LlmAnalyticsTraceReviewsListParams = {
     trace_id__in?: string
 }
 
+export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown }
+
 export type LlmPromptsListParams = {
     /**
  * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
@@ -2293,6 +2372,10 @@ export type LlmPromptsResolveNameRetrieveParams = {
 }
 
 export type LlmSkillsListParams = {
+    /**
+     * Filter skills by the ID of the user who created them.
+     */
+    created_by_id?: number
     /**
      * Number of results to return per page.
      */

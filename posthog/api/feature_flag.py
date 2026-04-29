@@ -1758,7 +1758,7 @@ class FeatureFlagSerializer(
 
                 if group_keys:
                     group_names: dict[str, str] = {}
-                    for group in Group.objects.filter(
+                    for group in Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
                         team_id=instance.team_id,
                         group_type_index__in=group_type_indices,
                         group_key__in=group_keys,
@@ -2981,8 +2981,8 @@ class FeatureFlagViewSet(
         query_serializer=LocalEvaluationQuerySerializer,
         responses={
             200: OpenApiResponse(response=LocalEvaluationResponseSerializer()),
-            402: OpenApiResponse(response=serializers.DictField()),
-            500: OpenApiResponse(response=serializers.DictField()),
+            402: OpenApiResponse(description="Payment required"),
+            500: OpenApiResponse(description="Internal server error"),
         },
     )
     @action(
@@ -3281,6 +3281,7 @@ class FeatureFlagViewSet(
         cohort_serializer.save()
         return Response({"cohort": cohort_serializer.data}, status=201)
 
+    @extend_schema(operation_id="feature_flags_all_activity_retrieve")
     @validated_request(
         query_serializer=ActivityQuerySerializer,
         responses={

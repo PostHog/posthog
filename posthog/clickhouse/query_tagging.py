@@ -58,10 +58,12 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    ALERTING = "alerting"
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
     QUERY = "query"  # customer-facing queries only
+    DEBUG_QUERY = "debug_query"  # /debug/query and related internal engineering tooling
     DIGEST = "digest"
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
@@ -73,9 +75,20 @@ class Feature(StrEnum):
     DATA_DELETION = "data_deletion"
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     SCHEMA_INTROSPECTION = "schema_introspection"
+    # Specific scenes that fan out into multiple ad-hoc queries; tagged separately so query
+    # usage analysis can attribute load to the originating product surface.
+    EVENT_DEFINITION_SCENE = "event_definition_scene"
+    PROPERTY_DEFINITION_SCENE = "property_definition_scene"
+    EXPLORE_EVENTS_SCENE = "explore_events_scene"
+    # Specific endpoints whose load is worth analysing on its own. The `/events/values` endpoint
+    # is hit from every taxonomic property-value picker across the app, so attribution by scene
+    # would be misleading; tagging by endpoint name keeps the signal honest.
+    EVENTS_VALUES_API = "events_values_api"
     USAGE_REPORT = "usage_report"
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
+    MIGRATION = "migration"
+    MANAGEMENT_COMMAND = "management_command"
 
 
 class TemporalTags(BaseModel):
@@ -151,6 +164,9 @@ class QueryTags(BaseModel):
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
+    endpoint_materialization_behind: Optional[bool] = (
+        None  # set when a materialized endpoint is past its data_freshness SLA
+    )
 
     http_referer: Optional[str] = None
     http_request_id: Optional[uuid.UUID] = None
@@ -315,27 +331,16 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
-def get_team_query_tags(team: "int | Team") -> dict[str, Any]:
+def get_team_query_tags(team: "Team") -> dict[str, Any]:
     from posthog.models.organization import Organization
-    from posthog.models.team import Team
 
-    team_team: Team
-    if isinstance(team, int):
-        resolved = Team.objects.select_related("organization").filter(id=team).first()
-        if resolved is None:
-            logger.warning("get_team_query_tags_team_not_found", team_id=team)
-            return {"team_id": team}
-        team_team = resolved
-    else:
-        team_team = team
-
-    tags: dict[str, Any] = {"team_id": team_team.pk}
+    tags: dict[str, Any] = {"team_id": team.pk}
     try:
-        organization = team_team.organization
+        organization = team.organization
         tags["org_id"] = organization.pk
         tags["ai_data_processing_approved"] = organization.is_ai_data_processing_approved
     except Organization.DoesNotExist:
-        logger.warning("get_team_query_tags_org_not_found", team_id=team_team.pk)
+        logger.warning("get_team_query_tags_org_not_found", team_id=team.pk)
     return tags
 
 

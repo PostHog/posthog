@@ -7,7 +7,7 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 
 import type { LogsSettings } from '../types'
 import { type LogBodyParseResult, parseLogBodyForIngestion } from './log-body-parse'
-import { scrubLogRecord } from './log-pii-scrub'
+import { EMPTY_PII, type PiiScrubStats, scrubLogRecord } from './log-pii-scrub'
 
 const MAX_JSON_ATTRIBUTES = 50
 
@@ -16,6 +16,7 @@ const SPAN_LOGS_PARSE_BODIES = 'logsIngestionConsumer.handleEachBatch.parseLogBo
 const SPAN_LOGS_ENRICH_JSON = 'logsIngestionConsumer.handleEachBatch.enrichJsonAttributes'
 const SPAN_LOGS_PII_SCRUB = 'logsIngestionConsumer.handleEachBatch.piiScrubLogRecords'
 const SPAN_LOGS_ENCODE = 'logsIngestionConsumer.handleEachBatch.encodeLogRecords'
+const SPAN_LOGS_PROCESS_BUFFER = 'logsIngestionConsumer.handleEachBatch.processLogMessageBuffer'
 
 const logRecordProcessInstrumentOpts = { measureTime: false, sendException: false } as const
 
@@ -254,11 +255,12 @@ const enrichBatchJsonAttributes = instrumented({
 const scrubBatch = instrumented({
     key: SPAN_LOGS_PII_SCRUB,
     ...logRecordProcessInstrumentOpts,
-})((records: LogRecord[]): Promise<void> => {
+})((records: LogRecord[]): Promise<PiiScrubStats> => {
+    let piiReplacements = 0
     for (const record of records) {
-        scrubLogRecord(record)
+        piiReplacements += scrubLogRecord(record).piiReplacements
     }
-    return Promise.resolve()
+    return Promise.resolve({ piiReplacements })
 })
 
 /**
@@ -269,12 +271,18 @@ const scrubBatch = instrumented({
  * When both `json_parse_logs` and `pii_scrub_logs` are on, scrub runs **before** parse/enrich so flattened JSON
  * attributes are derived from the redacted body string. `parseLogBodiesForIngestion` runs only when JSON parse is on.
  */
-export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSettings): Promise<Buffer> {
+export const processLogMessageBuffer = instrumented({
+    key: SPAN_LOGS_PROCESS_BUFFER,
+    ...logRecordProcessInstrumentOpts,
+})(async function processLogMessageBufferImpl(
+    buffer: Buffer,
+    settings: LogsSettings
+): Promise<{ value: Buffer; pii: PiiScrubStats }> {
     const jsonParse = settings.json_parse_logs ?? false
     const piiScrub = settings.pii_scrub_logs ?? false
 
     if (!jsonParse && !piiScrub) {
-        return buffer
+        return { value: buffer, pii: EMPTY_PII }
     }
 
     const startTime = Date.now()
@@ -288,18 +296,21 @@ export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSett
             throw new Error('avro schema metadata not found')
         }
 
+        let pii: PiiScrubStats = EMPTY_PII
+
         if (jsonParse && piiScrub) {
-            await scrubBatch(records)
+            pii = await scrubBatch(records)
             const bodyParses = await parseLogBodiesForIngestion(records)
             await enrichBatchJsonAttributes(records, bodyParses)
         } else if (jsonParse) {
             const bodyParses = await parseLogBodiesForIngestion(records)
             await enrichBatchJsonAttributes(records, bodyParses)
         } else if (piiScrub) {
-            await scrubBatch(records)
+            pii = await scrubBatch(records)
         }
 
-        return encodeLogRecordsInstrumented(logRecordType, codec, records)
+        const value = await encodeLogRecordsInstrumented(logRecordType, codec, records)
+        return { value, pii }
     } finally {
         const durationSeconds = (Date.now() - startTime) / 1000
         logProcessingDurationHistogram.observe(
@@ -311,4 +322,4 @@ export async function processLogMessageBuffer(buffer: Buffer, settings: LogsSett
             durationSeconds
         )
     }
-}
+}) as (buffer: Buffer, settings: LogsSettings) => Promise<{ value: Buffer; pii: PiiScrubStats }>

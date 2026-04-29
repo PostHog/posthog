@@ -174,6 +174,13 @@ pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
         kafka_producer_queue_messages: 1000,
         kafka_client_rack: String::new(),
         kafka_client_id: String::new(),
+        kafka_producer_batch_size: None,
+        kafka_producer_batch_num_messages: None,
+        kafka_producer_enable_idempotence: None,
+        kafka_producer_max_in_flight_requests_per_connection: None,
+        kafka_producer_topic_metadata_refresh_interval_ms: None,
+        kafka_producer_message_max_bytes: None,
+        kafka_producer_sticky_partitioning_linger_ms: None,
     };
     create_kafka_producer(&config, handle)
         .await

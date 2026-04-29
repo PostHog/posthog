@@ -19,6 +19,8 @@ import type {
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
     LogsAttributesRetrieveParams,
+    LogsExportCreate201,
+    LogsHasLogsRetrieve200,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -29,8 +31,18 @@ import type {
     PatchedLogsAlertConfigurationApi,
     PatchedLogsViewApi,
     PluginConfigsLogsListParams,
+    _LogsAttributesResponseApi,
+    _LogsCountRangesRequestApi,
+    _LogsCountRangesResponseApi,
+    _LogsCountRequestApi,
+    _LogsCountResponseApi,
     _LogsQueryRequestApi,
+    _LogsQueryResponseApi,
+    _LogsServicesRequestApi,
+    _LogsServicesResponseApi,
     _LogsSparklineRequestApi,
+    _LogsSparklineResponseApi,
+    _LogsValuesResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -430,10 +442,44 @@ export const logsAttributesRetrieve = async (
     projectId: string,
     params?: LogsAttributesRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getLogsAttributesRetrieveUrl(projectId, params), {
+): Promise<_LogsAttributesResponseApi> => {
+    return apiMutator<_LogsAttributesResponseApi>(getLogsAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsCountCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/count/`
+}
+
+export const logsCountCreate = async (
+    projectId: string,
+    _logsCountRequestApi: _LogsCountRequestApi,
+    options?: RequestInit
+): Promise<_LogsCountResponseApi> => {
+    return apiMutator<_LogsCountResponseApi>(getLogsCountCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsCountRequestApi),
+    })
+}
+
+export const getLogsCountRangesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/count-ranges/`
+}
+
+export const logsCountRangesCreate = async (
+    projectId: string,
+    _logsCountRangesRequestApi: _LogsCountRangesRequestApi,
+    options?: RequestInit
+): Promise<_LogsCountRangesResponseApi> => {
+    return apiMutator<_LogsCountRangesResponseApi>(getLogsCountRangesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsCountRangesRequestApi),
     })
 }
 
@@ -441,8 +487,8 @@ export const getLogsExportCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/export/`
 }
 
-export const logsExportCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsExportCreateUrl(projectId), {
+export const logsExportCreate = async (projectId: string, options?: RequestInit): Promise<LogsExportCreate201> => {
+    return apiMutator<LogsExportCreate201>(getLogsExportCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })
@@ -452,8 +498,11 @@ export const getLogsHasLogsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/has_logs/`
 }
 
-export const logsHasLogsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsHasLogsRetrieveUrl(projectId), {
+export const logsHasLogsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsHasLogsRetrieve200> => {
+    return apiMutator<LogsHasLogsRetrieve200>(getLogsHasLogsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -467,8 +516,8 @@ export const logsQueryCreate = async (
     projectId: string,
     _logsQueryRequestApi: _LogsQueryRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getLogsQueryCreateUrl(projectId), {
+): Promise<_LogsQueryResponseApi> => {
+    return apiMutator<_LogsQueryResponseApi>(getLogsQueryCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -480,10 +529,16 @@ export const getLogsServicesCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/services/`
 }
 
-export const logsServicesCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsServicesCreateUrl(projectId), {
+export const logsServicesCreate = async (
+    projectId: string,
+    _logsServicesRequestApi: _LogsServicesRequestApi,
+    options?: RequestInit
+): Promise<_LogsServicesResponseApi> => {
+    return apiMutator<_LogsServicesResponseApi>(getLogsServicesCreateUrl(projectId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsServicesRequestApi),
     })
 }
 
@@ -495,8 +550,8 @@ export const logsSparklineCreate = async (
     projectId: string,
     _logsSparklineRequestApi: _LogsSparklineRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getLogsSparklineCreateUrl(projectId), {
+): Promise<_LogsSparklineResponseApi> => {
+    return apiMutator<_LogsSparklineResponseApi>(getLogsSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -524,8 +579,8 @@ export const logsValuesRetrieve = async (
     projectId: string,
     params: LogsValuesRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getLogsValuesRetrieveUrl(projectId, params), {
+): Promise<_LogsValuesResponseApi> => {
+    return apiMutator<_LogsValuesResponseApi>(getLogsValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

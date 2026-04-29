@@ -671,7 +671,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 primary_dashboard=instance,
                 id=instance.team_id,
             ).update(primary_dashboard=None)
-            group_type_mapping = GroupTypeMapping.objects.filter(
+            group_type_mapping = GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
                 team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
             if group_type_mapping:
@@ -747,7 +747,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
         tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
-        return DashboardTile.objects.update_or_create(
+        return DashboardTile.objects_including_soft_deleted.update_or_create(
             id=tile_data.get("id", None),
             dashboard=instance,
             defaults={**tile_defaults, **extra_defaults, "dashboard": instance},

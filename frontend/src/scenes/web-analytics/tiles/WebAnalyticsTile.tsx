@@ -33,6 +33,7 @@ import {
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+import { botAnalyticsLogic } from 'scenes/web-analytics/botAnalyticsLogic'
 import {
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_REFERRER_PREFIX,
@@ -1210,6 +1211,90 @@ export const WebVitalsPathBreakdownTile = ({
     )
 }
 
+interface HogQLTableTileProps {
+    uniqueKey: string
+    attachTo?: BuiltLogic | LogicWrapper
+    query: DataTableNode
+    insightProps: InsightLogicProps
+    tileId: TileId
+}
+
+// Bot tiles get their own variant so botAnalyticsLogic only mounts on the Bot Analytics tab —
+// `HogQLTableTile` is reused for any HogQLQuery DataTableNode and shouldn't depend on bot state.
+const BOT_HOGQL_TILES = new Set<TileId>([TileId.BOT_CRAWLERS, TileId.BOT_PATHS])
+
+const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }: HogQLTableTileProps): JSX.Element => {
+    const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
+    const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
+
+    const context = useMemo((): QueryContext => {
+        // Single-select toggle: clicking the same value clears it, any other click replaces.
+        const toggleFilter = (key: string, value: string): void => {
+            const existing = rawBotAnalyticsFilters.find((f) => 'key' in f && f.key === key)
+            const otherFilters = rawBotAnalyticsFilters.filter((f) => !('key' in f && f.key === key))
+            const existingValues =
+                existing && 'value' in existing
+                    ? Array.isArray(existing.value)
+                        ? existing.value
+                        : [existing.value]
+                    : []
+            if (existingValues.length === 1 && existingValues[0] === value) {
+                setBotAnalyticsFilters(otherFilters)
+                return
+            }
+            setBotAnalyticsFilters([
+                ...otherFilters,
+                {
+                    key,
+                    value: [value],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            ])
+        }
+
+        const filterKey = tileId === TileId.BOT_CRAWLERS ? '$virt_bot_name' : '$pathname'
+        return {
+            ...webAnalyticsDataTableQueryContext,
+            insightProps,
+            rowProps: (record: unknown) => {
+                const result = (record as { result?: unknown[] })?.result
+                const value = Array.isArray(result) ? (result[0] as string) : null
+                if (!value) {
+                    return {}
+                }
+                return {
+                    className: 'cursor-pointer',
+                    onClick: () => toggleFilter(filterKey, value),
+                }
+            },
+        }
+    }, [insightProps, tileId, rawBotAnalyticsFilters, setBotAnalyticsFilters])
+
+    return (
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+            <Query uniqueKey={uniqueKey} attachTo={attachTo} query={query} readOnly={true} context={context} />
+        </div>
+    )
+}
+
+const HogQLTableTile = (props: HogQLTableTileProps): JSX.Element => {
+    if (BOT_HOGQL_TILES.has(props.tileId)) {
+        return <BotHogQLTableTile {...props} />
+    }
+    return (
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+            <Query
+                uniqueKey={props.uniqueKey}
+                attachTo={props.attachTo}
+                query={props.query}
+                readOnly={true}
+                context={{ ...webAnalyticsDataTableQueryContext, insightProps: props.insightProps }}
+            />
+        </div>
+    )
+}
+
 export const WebQuery = ({
     query,
     showIntervalSelect,
@@ -1321,6 +1406,18 @@ export const WebQuery = ({
 
     if (query.kind === NodeKind.DataVisualizationNode) {
         return <AveragePageViewVisualizationTile attachTo={attachTo} query={query} insightProps={insightProps} />
+    }
+
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.HogQLQuery) {
+        return (
+            <HogQLTableTile
+                uniqueKey={uniqueKey}
+                attachTo={attachTo}
+                query={query}
+                insightProps={insightProps}
+                tileId={tileId}
+            />
+        )
     }
 
     return (

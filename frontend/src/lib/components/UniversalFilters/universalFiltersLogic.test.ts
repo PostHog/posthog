@@ -120,6 +120,29 @@ describe('universalFiltersLogic', () => {
         })
     })
 
+    it('addGroupFilter pre-fills value when search matched on a property value', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.addGroupFilter(
+                { type: TaxonomicFilterGroupType.PersonProperties } as TaxonomicFilterGroup,
+                'user.email',
+                { matchedOn: 'value', matchedValue: 'frank@posthog.com' } as any
+            )
+        }).toMatchValues({
+            filterGroup: {
+                ...defaultFilter,
+                values: [
+                    ...defaultFilter.values,
+                    {
+                        key: 'user.email',
+                        value: ['frank@posthog.com'],
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Person,
+                    },
+                ],
+            },
+        })
+    })
+
     it('addGroupFilter', async () => {
         const property = {
             key: 'property_key',
