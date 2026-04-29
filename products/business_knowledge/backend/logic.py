@@ -22,6 +22,7 @@ from . import crawl, discover, html_parse, url_fetch
 from .facade.enums import (
     CHUNK_HARD_MAX_CHARS,
     CHUNK_TARGET_CHARS,
+    CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
     MAX_CHUNKS_PER_TEAM,
@@ -394,6 +395,7 @@ def _resolve_crawl_config(raw: dict | None) -> discover.CrawlConfig:
     max_pages = int(raw.get("max_pages", DEFAULT_MAX_PAGES))
     max_pages = max(1, min(max_pages, MAX_URLS_PER_SOURCE))
     max_depth = int(raw.get("max_depth", DEFAULT_CRAWL_MAX_DEPTH))
+    max_depth = max(0, min(max_depth, CRAWL_HARD_MAX_DEPTH))
     return discover.CrawlConfig(
         include_globs=tuple(raw.get("include_globs", []) or []),
         exclude_globs=tuple(raw.get("exclude_globs", []) or []),

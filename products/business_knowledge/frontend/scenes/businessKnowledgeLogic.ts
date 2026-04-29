@@ -164,13 +164,13 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             },
         ],
         editingSourceText: [
-            '' as string,
+            { id: '', text: '' } as { id: string; text: string },
             {
                 loadEditingSourceText: async ({ id }: { id: string }) => {
                     const response = await api.get<{ text: string }>(`${apiUrl()}/${id}/text`)
-                    return response.text ?? ''
+                    return { id, text: response.text ?? '' }
                 },
-                resetEditingSourceText: () => '',
+                resetEditingSourceText: () => ({ id: '', text: '' }),
             },
         ],
     })),
@@ -302,8 +302,8 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             actions.loadEditingSourceText({ id: source.id })
         },
         loadEditingSourceTextSuccess: ({ editingSourceText }) => {
-            if (values.editingSource) {
-                actions.setEditSourceValue('text', editingSourceText)
+            if (values.editingSource && values.editingSource.id === editingSourceText.id) {
+                actions.setEditSourceValue('text', editingSourceText.text)
             }
         },
         closeEditModal: () => {

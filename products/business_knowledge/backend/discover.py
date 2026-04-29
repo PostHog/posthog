@@ -119,14 +119,16 @@ def _http_get_text(url: str, *, max_bytes: int = URL_MAX_BYTES) -> str:
                 if response.status_code >= 400:
                     raise DiscoverError(f"Remote responded with status {response.status_code}.")
 
-                body = b""
+                parts: list[bytes] = []
+                total = 0
                 for chunk in response.iter_content(chunk_size=64 * 1024):
                     if not chunk:
                         continue
-                    body += chunk
-                    if len(body) > max_bytes:
+                    total += len(chunk)
+                    if total > max_bytes:
                         raise DiscoverError("Remote response exceeds the maximum allowed size.")
-                return body.decode("utf-8", errors="replace")
+                    parts.append(chunk)
+                return b"".join(parts).decode("utf-8", errors="replace")
             finally:
                 response.close()
 
