@@ -82,8 +82,11 @@
   }
 
   let loadMethod = "none";
-  if (runtimeState.loaded && hasPosthogInitId) loadMethod = "snippet";
-  else if (runtimeState.loaded) loadMethod = "npm";
+  if (runtimeState.loaded && hasPosthogInitId) {
+    loadMethod = "snippet";
+  } else if (runtimeState.loaded) {
+    loadMethod = "npm";
+  }
 
   const result = {
     url: window.location.href,
@@ -102,6 +105,6 @@
     })),
   };
 
-  console.log(JSON.stringify(result, null, 2));
+  console.info(JSON.stringify(result, null, 2));
   return result;
 })();
