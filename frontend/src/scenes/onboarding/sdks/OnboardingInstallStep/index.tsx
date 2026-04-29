@@ -1,22 +1,24 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isMobile } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from '~/types'
 
 import { OnboardingStepComponentType } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
 import { useAdblockDetection } from '../hooks/useAdblockDetection'
 import { useInstallationComplete } from '../hooks/useInstallationComplete'
+import { LogsSDKInstructions } from '../logs/LogsSDKInstructions'
 import { AdblockWarning, RealtimeCheckIndicator } from '../RealtimeCheckIndicator'
 import { sdksLogic } from '../sdksLogic'
 import { MobileInstallHandoff } from './MobileInstallHandoff'
 import { SDKGrid } from './SDKGrid'
-import { SDKInstructionsModal } from './SDKInstructionsModal'
+import { AdditionalSdkInstructions, SDKInstructionsModal } from './SDKInstructionsModal'
 import { SDKGridProps, VariantProps } from './types'
 import { WizardHeroVariant } from './variants/WizardHeroVariant'
 import { WizardOnlyVariant } from './variants/WizardOnlyVariant'
@@ -123,6 +125,19 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const showSkipAtBottom = isSkipButtonExperiment && !installationComplete
     const showTopSkipButton = !isSkipButtonExperiment || installationComplete
 
+    // When Logs is a secondary product intent (e.g. "Find and fix issues"
+    // includes Session Replay + Error Tracking + Logs), surface the Logs OTel
+    // setup inside this step's SDK modal so users don't miss it.
+    const additionalInstructions = useMemo<AdditionalSdkInstructions[]>(() => {
+        const hasLogsIntent = currentTeam?.product_intents?.some(
+            (intent) => intent.product_type === ProductKey.LOGS
+        )
+        if (!hasLogsIntent || sdkInstructionMap === LogsSDKInstructions) {
+            return []
+        }
+        return [{ title: 'Set up Logs', instructionMap: LogsSDKInstructions }]
+    }, [currentTeam?.product_intents, sdkInstructionMap])
+
     const handleSDKClick = (sdk: SDK): void => {
         selectSDK(sdk)
         setInstructionsModalOpen(true)
@@ -167,6 +182,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             verifyingProperty={teamPropertyToVerify}
             verifyingName={listeningForName}
             hideInstallationCheck={hideInstallationCheck}
+            additionalInstructions={additionalInstructions}
         />
     )
 

@@ -250,16 +250,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
 
             if (nextUrl && nextUrl !== '/') {
                 actions.setOnCompleteOnboardingRedirectUrl(nextUrl)
-            } else if (
-                values.firstProductOnboarding !== ProductKey.LOGS &&
-                values.selectedProducts.includes(ProductKey.LOGS)
-            ) {
-                // Logs uses standard OTel packages (not the PostHog SDK), so its install
-                // step isn't covered by the first product's onboarding. Chain it as the
-                // post-onboarding redirect so users still see the Logs setup screen.
-                actions.setOnCompleteOnboardingRedirectUrl(
-                    urls.onboarding({ productKey: ProductKey.LOGS, stepKey: OnboardingStepKey.INSTALL })
-                )
             }
 
             if (!values.firstProductOnboarding) {
