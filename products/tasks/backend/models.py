@@ -61,6 +61,8 @@ class Task(DeletedMetaFields, models.Model):
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
+        # Headless Signals scout agent — proactively explores a project and emits signals.
+        SIGNALS_AGENT = "signals_agent", "Signals Agent"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
