@@ -239,3 +239,42 @@ class LogsAlertEvent(UUIDModel):
         oldest = datetime.now(UTC) - timedelta(days=cls.EVENT_RETENTION_DAYS)
         count, _ = cls.objects.filter(created_at__lt=oldest).delete()
         return count
+
+
+class LogsSamplingRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """User-defined logs sampling / drop rules evaluated in the ingestion worker (when enabled)."""
+
+    class RuleType(models.TextChoices):
+        SEVERITY_SAMPLING = "severity_sampling", "Severity sampling"
+        PATH_DROP = "path_drop", "Path drop"
+        RATE_LIMIT = "rate_limit", "Rate limit"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    enabled = models.BooleanField(default=False)
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text="Lower values run first; first matching rule wins.",
+    )
+    rule_type = models.CharField(max_length=32, choices=RuleType.choices)
+    scope_service = models.CharField(max_length=512, null=True, blank=True)
+    scope_path_pattern = models.CharField(max_length=1024, null=True, blank=True)
+    scope_attribute_filters = models.JSONField(default=list)
+    config = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=1)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        db_table = "logs_logssamplingrule"
+        indexes = [
+            models.Index(fields=["team_id", "enabled", "priority"], name="logs_sampling_team_en_pr_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} (team={self.team_id})"

@@ -214,6 +214,7 @@ export type SettingId =
     | 'logs-pii-scrub'
     | 'logs-retention'
     | 'logs-alerting'
+    | 'logs-sampling'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'

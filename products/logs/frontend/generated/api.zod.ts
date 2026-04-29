@@ -610,6 +610,168 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
         .describe('The logs query to execute.'),
 })
 
+export const logsSamplingRulesCreateBodyNameMax = 255
+
+export const logsSamplingRulesCreateBodyEnabledDefault = false
+export const logsSamplingRulesCreateBodyPriorityMin = 0
+
+export const logsSamplingRulesCreateBodyScopeServiceMax = 512
+
+export const logsSamplingRulesCreateBodyScopePathPatternMax = 1024
+
+export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsSamplingRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
+    enabled: zod
+        .boolean()
+        .default(logsSamplingRulesCreateBodyEnabledDefault)
+        .describe('When false, the rule is ignored by ingestion and listing UIs that show active rules only.'),
+    priority: zod
+        .number()
+        .min(logsSamplingRulesCreateBodyPriorityMin)
+        .nullish()
+        .describe(
+            'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
+        ),
+    rule_type: zod
+        .enum(['severity_sampling', 'path_drop', 'rate_limit'])
+        .describe('* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit')
+        .describe(
+            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit'
+        ),
+    scope_service: zod
+        .string()
+        .max(logsSamplingRulesCreateBodyScopeServiceMax)
+        .nullish()
+        .describe('If set, the rule applies only to this service name; null means all services.'),
+    scope_path_pattern: zod
+        .string()
+        .max(logsSamplingRulesCreateBodyScopePathPatternMax)
+        .nullish()
+        .describe('Optional regex matched against a path-like log attribute when present.'),
+    scope_attribute_filters: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
+        ),
+    config: zod
+        .unknown()
+        .describe('Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings).'),
+})
+
+export const logsSamplingRulesUpdateBodyNameMax = 255
+
+export const logsSamplingRulesUpdateBodyEnabledDefault = false
+export const logsSamplingRulesUpdateBodyPriorityMin = 0
+
+export const logsSamplingRulesUpdateBodyScopeServiceMax = 512
+
+export const logsSamplingRulesUpdateBodyScopePathPatternMax = 1024
+
+export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsSamplingRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
+    enabled: zod
+        .boolean()
+        .default(logsSamplingRulesUpdateBodyEnabledDefault)
+        .describe('When false, the rule is ignored by ingestion and listing UIs that show active rules only.'),
+    priority: zod
+        .number()
+        .min(logsSamplingRulesUpdateBodyPriorityMin)
+        .nullish()
+        .describe(
+            'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
+        ),
+    rule_type: zod
+        .enum(['severity_sampling', 'path_drop', 'rate_limit'])
+        .describe('* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit')
+        .describe(
+            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit'
+        ),
+    scope_service: zod
+        .string()
+        .max(logsSamplingRulesUpdateBodyScopeServiceMax)
+        .nullish()
+        .describe('If set, the rule applies only to this service name; null means all services.'),
+    scope_path_pattern: zod
+        .string()
+        .max(logsSamplingRulesUpdateBodyScopePathPatternMax)
+        .nullish()
+        .describe('Optional regex matched against a path-like log attribute when present.'),
+    scope_attribute_filters: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
+        ),
+    config: zod
+        .unknown()
+        .describe('Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings).'),
+})
+
+export const logsSamplingRulesPartialUpdateBodyNameMax = 255
+
+export const logsSamplingRulesPartialUpdateBodyEnabledDefault = false
+export const logsSamplingRulesPartialUpdateBodyPriorityMin = 0
+
+export const logsSamplingRulesPartialUpdateBodyScopeServiceMax = 512
+
+export const logsSamplingRulesPartialUpdateBodyScopePathPatternMax = 1024
+
+export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(logsSamplingRulesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('User-visible label for this rule.'),
+    enabled: zod
+        .boolean()
+        .default(logsSamplingRulesPartialUpdateBodyEnabledDefault)
+        .describe('When false, the rule is ignored by ingestion and listing UIs that show active rules only.'),
+    priority: zod
+        .number()
+        .min(logsSamplingRulesPartialUpdateBodyPriorityMin)
+        .nullish()
+        .describe(
+            'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
+        ),
+    rule_type: zod
+        .enum(['severity_sampling', 'path_drop', 'rate_limit'])
+        .describe('* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit')
+        .optional()
+        .describe(
+            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit'
+        ),
+    scope_service: zod
+        .string()
+        .max(logsSamplingRulesPartialUpdateBodyScopeServiceMax)
+        .nullish()
+        .describe('If set, the rule applies only to this service name; null means all services.'),
+    scope_path_pattern: zod
+        .string()
+        .max(logsSamplingRulesPartialUpdateBodyScopePathPatternMax)
+        .nullish()
+        .describe('Optional regex matched against a path-like log attribute when present.'),
+    scope_attribute_filters: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
+        ),
+    config: zod
+        .unknown()
+        .optional()
+        .describe('Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings).'),
+})
+
+/**
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ */
+export const LogsSamplingRulesReorderCreateBody = /* @__PURE__ */ zod.object({
+    ordered_ids: zod
+        .array(zod.uuid())
+        .describe('Rule IDs in the desired evaluation order (first element is highest priority / lowest order index).'),
+})
+
 export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({

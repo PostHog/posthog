@@ -22,6 +22,7 @@ import {
     getDefaultKafkaWarpstreamLogsProducerEnvConfig,
 } from '../logs-ingestion/outputs/producers'
 import { createLogsOutputsRegistry } from '../logs-ingestion/outputs/registry'
+import { SamplingRulesCache } from '../logs-ingestion/sampling/sampling-rules-cache'
 import { PluginServerService, RedisPool } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
@@ -103,6 +104,7 @@ export class IngestionLogsServer implements NodeServer {
 
         const teamManager = new TeamManager(this.postgres)
         const quotaLimiting = new QuotaLimiting(this.posthogRedisPool, teamManager)
+        const samplingRulesCache = new SamplingRulesCache(this.postgres)
 
         // 2. Resolve outputs (topic + producer per logical name, env-controlled)
         const outputs = createLogsOutputsRegistry().build(this.producerRegistry, this.config)
@@ -115,6 +117,7 @@ export class IngestionLogsServer implements NodeServer {
                 teamManager,
                 quotaLimiting,
                 outputs,
+                samplingRulesCache,
             })
             await consumer.start()
             return consumer.service

@@ -264,6 +264,31 @@ const scrubBatch = instrumented({
 })
 
 /**
+ * Applies PII scrub and optional JSON parse + attribute enrichment to decoded records in place.
+ * Used by the main buffer processor and by the sampling path (which must decode even when
+ * json_parse / pii_scrub are off, then optionally runs this when either flag is on).
+ */
+export async function transformDecodedLogRecordsInPlace(
+    records: LogRecord[],
+    settings: LogsSettings
+): Promise<PiiScrubStats> {
+    const jsonParse = settings.json_parse_logs ?? false
+    const piiScrub = settings.pii_scrub_logs ?? false
+    let pii: PiiScrubStats = EMPTY_PII
+    if (jsonParse && piiScrub) {
+        pii = await scrubBatch(records)
+        const bodyParses = await parseLogBodiesForIngestion(records)
+        await enrichBatchJsonAttributes(records, bodyParses)
+    } else if (jsonParse) {
+        const bodyParses = await parseLogBodiesForIngestion(records)
+        await enrichBatchJsonAttributes(records, bodyParses)
+    } else if (piiScrub) {
+        pii = await scrubBatch(records)
+    }
+    return pii
+}
+
+/**
  * Processes an AVRO-encoded log message buffer containing multiple records.
  * Passthrough (no decode) when both json_parse_logs and pii_scrub_logs are off.
  * Otherwise: decode → optional PII scrub on `body` → optional parse bodies → optional JSON enrich → encode.
@@ -296,18 +321,7 @@ export const processLogMessageBuffer = instrumented({
             throw new Error('avro schema metadata not found')
         }
 
-        let pii: PiiScrubStats = EMPTY_PII
-
-        if (jsonParse && piiScrub) {
-            pii = await scrubBatch(records)
-            const bodyParses = await parseLogBodiesForIngestion(records)
-            await enrichBatchJsonAttributes(records, bodyParses)
-        } else if (jsonParse) {
-            const bodyParses = await parseLogBodiesForIngestion(records)
-            await enrichBatchJsonAttributes(records, bodyParses)
-        } else if (piiScrub) {
-            pii = await scrubBatch(records)
-        }
+        const pii = await transformDecodedLogRecordsInPlace(records, settings)
 
         const value = await encodeLogRecordsInstrumented(logRecordType, codec, records)
         return { value, pii }
