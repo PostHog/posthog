@@ -231,14 +231,16 @@ const IngestionStatusCheck = (): JSX.Element | null => {
     return (
         <LemonBanner type="warning" className="my-2">
             <p>
-                <strong>No Exception events have been detected!</strong>
+                <strong>No exception events have been detected yet</strong>
             </p>
             <p>
-                To use the Error tracking product, please{' '}
-                <Link to="https://posthog.com/docs/error-tracking/installation">
-                    enable exception capture within the PostHog SDK
-                </Link>{' '}
-                (otherwise it'll be a little empty!)
+                Error tracking works with both frontend and backend PostHog SDKs. If your errors come from the server,
+                instrument the matching SDK – for example{' '}
+                <Link to="https://posthog.com/docs/error-tracking/installation/python">Python</Link>,{' '}
+                <Link to="https://posthog.com/docs/error-tracking/installation/node">Node.js</Link>, or{' '}
+                <Link to="https://posthog.com/docs/error-tracking/installation/ruby">Ruby</Link>. See the{' '}
+                <Link to="https://posthog.com/docs/error-tracking/installation">full installation guide</Link> for every
+                supported platform.
             </p>
         </LemonBanner>
     )

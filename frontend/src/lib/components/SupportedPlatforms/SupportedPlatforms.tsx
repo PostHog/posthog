@@ -18,6 +18,10 @@ const PLATFORM_LABELS: Record<string, string> = {
     ios: 'iOS',
     reactNative: 'React Native',
     flutter: 'Flutter',
+    python: 'Python',
+    node: 'Node.js',
+    ruby: 'Ruby',
+    go: 'Go',
 }
 
 function SupportedPlatform({ label, platform }: { label: string; platform: PlatformSupport | undefined }): JSX.Element {

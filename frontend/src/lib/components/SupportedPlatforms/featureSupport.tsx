@@ -37,6 +37,39 @@ export const FEATURE_SUPPORT: Record<Feature, PlatformSupportConfig> = {
                 </>
             ),
         },
+        python: {
+            note: (
+                <>
+                    <Link to="https://posthog.com/docs/error-tracking/installation/python">
+                        Exception autocapture is supported on Python
+                    </Link>{' '}
+                    via <code>enable_exception_autocapture=True</code> on the client. It is not controlled remotely by
+                    this toggle.
+                </>
+            ),
+        },
+        node: {
+            note: (
+                <>
+                    <Link to="https://posthog.com/docs/error-tracking/installation/node">
+                        Exception autocapture is supported on Node.js
+                    </Link>{' '}
+                    via <code>enableExceptionAutocapture: true</code>. Express apps additionally need{' '}
+                    <code>setupExpressErrorHandler</code>. Not controlled remotely by this toggle.
+                </>
+            ),
+        },
+        ruby: {
+            note: (
+                <>
+                    <Link to="https://posthog.com/docs/error-tracking/installation/ruby">
+                        Exception autocapture is supported on Ruby
+                    </Link>{' '}
+                    via <code>auto_capture_exceptions = true</code>. Rails apps can use the bundled middleware. Not
+                    controlled remotely by this toggle.
+                </>
+            ),
+        },
     },
     sessionReplayLogCapture: {
         android: {

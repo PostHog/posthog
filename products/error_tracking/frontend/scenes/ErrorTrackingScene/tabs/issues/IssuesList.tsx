@@ -1,7 +1,7 @@
 import { BindLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -20,6 +20,7 @@ import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
 import { IssueQueryOptions } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
+import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { errorTrackingVolumeSparklineLogic } from 'products/error_tracking/frontend/components/VolumeSparkline/errorTrackingVolumeSparklineLogic'
 import {
@@ -134,6 +135,27 @@ const defaultColumns: Record<string, QueryContextColumn> = {
 }
 
 export const useIssueQueryContext = (): QueryContext => {
+    const { hasSentExceptionEvent } = useValues(exceptionIngestionLogic)
+
+    if (hasSentExceptionEvent === false) {
+        return {
+            columns: defaultColumns,
+            showOpenEditorButton: false,
+            insightProps: insightProps,
+            emptyStateHeading: 'No exceptions captured yet',
+            emptyStateDetail: (
+                <>
+                    Error tracking is wired up but no <code>$exception</code> events have arrived. Backend exceptions
+                    need their own SDK setup – see the{' '}
+                    <Link to="https://posthog.com/docs/error-tracking/installation" targetBlank>
+                        installation guide
+                    </Link>{' '}
+                    for Python, Node.js, Ruby, and other server SDKs.
+                </>
+            ),
+        }
+    }
+
     return {
         columns: defaultColumns,
         showOpenEditorButton: false,

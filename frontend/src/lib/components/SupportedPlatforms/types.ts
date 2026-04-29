@@ -17,5 +17,5 @@ export type Feature =
 
 export type PlatformSupport = false | { note?: ReactNode; version?: string }
 
-type SupportedPlatform = 'android' | 'ios' | 'flutter' | 'web' | 'reactNative'
+type SupportedPlatform = 'android' | 'ios' | 'flutter' | 'web' | 'reactNative' | 'python' | 'node' | 'ruby' | 'go'
 export type PlatformSupportConfig = Partial<Record<SupportedPlatform, PlatformSupport>>

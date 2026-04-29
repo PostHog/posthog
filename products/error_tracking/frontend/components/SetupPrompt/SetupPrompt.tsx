@@ -46,7 +46,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
             productName="Error tracking"
             thingName="issue"
             titleOverride="You haven't captured any exceptions"
-            description="To start capturing exceptions you need to enable exception autocapture. Exception autocapture only applies to the JS SDK. Installation for other platforms are described in the docs."
+            description="Error tracking captures exceptions from frontend and backend SDKs. Toggle JS exception autocapture in one click below, or follow the docs to instrument Python, Node.js, Ruby, or any other SDK."
             isEmpty={true}
             productKey={ProductKey.ERROR_TRACKING}
             className={className}
@@ -63,7 +63,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
                             updateCurrentTeam({ autocapture_exceptions_opt_in: true })
                         }}
                     >
-                        Enable exception autocapture
+                        Enable JS exception autocapture
                     </LemonButton>
                     <LemonButton
                         targetBlank
@@ -76,7 +76,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
                             })
                         }}
                     >
-                        Read the docs
+                        Set up a backend SDK
                     </LemonButton>
                 </>
             }
