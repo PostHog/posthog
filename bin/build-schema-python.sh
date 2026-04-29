@@ -16,3 +16,9 @@ datamodel-codegen \
 # Format and lint
 ruff format posthog/schema.py
 ruff check --fix posthog/schema.py
+
+# Regenerate the guest-mode override whitelist from schema.json. See the generator
+# script for details. Kept separate from the Pydantic codegen so changes to the
+# whitelist don't churn posthog/schema.py.
+python3 bin/generate-guest-overridable.py
+ruff format posthog/rbac/_generated_guest_overridable.py

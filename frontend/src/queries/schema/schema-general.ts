@@ -1305,25 +1305,33 @@ interface InsightVizNodeViewProps {
 
 /** Base class for insight query nodes. Should not be used directly. */
 export interface InsightsQueryBase<R extends AnalyticsQueryResponseBase> extends Node<R> {
-    /** Date range for the query */
+    /**
+     * Date range for the query
+     * @guestOverridable
+     */
     dateRange?: DateRange
     /**
      * Exclude internal and test users by applying the respective filters
      *
      * @default false
+     * @guestOverridable
      */
     filterTestAccounts?: boolean
     /**
      * Property filters for all series
      *
      * @default []
+     * @guestOverridable
      */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     /**
      * Groups aggregation
      */
     aggregation_group_type_index?: integer | null
-    /** Sampling rate */
+    /**
+     * Sampling rate
+     * @guestOverridable
+     */
     samplingFactor?: number | null
     /** Colors used in the insight's visualization */
     dataColorTheme?: number | null
@@ -1474,11 +1482,20 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
     interval?: IntervalType
     /** Events and actions to include */
     series: (AnyEntityNode | GroupNode)[]
-    /** Properties specific to the trends insight */
+    /**
+     * Properties specific to the trends insight
+     * @guestOverridable
+     */
     trendsFilter?: TrendsFilter
-    /** Breakdown of the events and actions */
+    /**
+     * Breakdown of the events and actions
+     * @guestOverridable
+     */
     breakdownFilter?: BreakdownFilter
-    /** Compare to date range */
+    /**
+     * Compare to date range
+     * @guestOverridable
+     */
     compareFilter?: CompareFilter
     /**  Whether we should be comparing against a specific conversion goal */
     conversionGoal?: WebAnalyticsConversionGoal | null
@@ -1593,9 +1610,15 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     interval?: IntervalType
     /** Events and actions to include */
     series: (AnyEntityNode<FunnelsDataWarehouseNode> | GroupNode)[]
-    /** Properties specific to the funnels insight */
+    /**
+     * Properties specific to the funnels insight
+     * @guestOverridable
+     */
     funnelsFilter?: FunnelsFilter
-    /** Breakdown of the events and actions */
+    /**
+     * Breakdown of the events and actions
+     * @guestOverridable
+     */
     breakdownFilter?: BreakdownFilter
 }
 
@@ -1679,9 +1702,15 @@ export type CachedRetentionQueryResponse = CachedQueryResponse<RetentionQueryRes
 
 export interface RetentionQuery extends InsightsQueryBase<RetentionQueryResponse> {
     kind: NodeKind.RetentionQuery
-    /** Properties specific to the retention insight */
+    /**
+     * Properties specific to the retention insight
+     * @guestOverridable
+     */
     retentionFilter: RetentionFilter
-    /** Breakdown of the events and actions */
+    /**
+     * Breakdown of the events and actions
+     * @guestOverridable
+     */
     breakdownFilter?: BreakdownFilter
 }
 
@@ -1736,7 +1765,10 @@ export type FunnelPathsFilter = {
 
 export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     kind: NodeKind.PathsQuery
-    /** Properties specific to the paths insight */
+    /**
+     * Properties specific to the paths insight
+     * @guestOverridable
+     */
     pathsFilter: PathsFilter
     /** Used for displaying paths in relation to funnel steps. */
     funnelPathsFilter?: FunnelPathsFilter
@@ -1810,9 +1842,15 @@ export interface StickinessQuery extends Omit<
     intervalCount?: positive_integer
     /** Events and actions to include */
     series: AnyEntityNode[]
-    /** Properties specific to the stickiness insight */
+    /**
+     * Properties specific to the stickiness insight
+     * @guestOverridable
+     */
     stickinessFilter?: StickinessFilter
-    /** Compare to date range */
+    /**
+     * Compare to date range
+     * @guestOverridable
+     */
     compareFilter?: CompareFilter
 }
 
@@ -2102,7 +2140,10 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
     interval?: IntervalType
     /** Events and actions to include */
     series: AnyEntityNode<LifecycleDataWarehouseNode>[]
-    /** Properties specific to the lifecycle insight */
+    /**
+     * Properties specific to the lifecycle insight
+     * @guestOverridable
+     */
     lifecycleFilter?: LifecycleFilter
     /** For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups. */
     customAggregationTarget?: boolean

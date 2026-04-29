@@ -794,3 +794,7 @@ environment:
         bin_script: rust-jumphost
         description: 'Shell into the flags-cache-jumphost pod (uses $KUBE_NAMESPACE, defaults to posthog)'
         hidden: true
+    generate:guest:overridable:
+        bin_script: generate-guest-overridable.py
+        description: 'Regenerate posthog/rbac/_generated_guest_overridable.py from @guestOverridable JSDoc tags in schema.json (run after hogli build:schema)'
+        hidden: true

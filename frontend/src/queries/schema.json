@@ -9885,11 +9885,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "interval": {
@@ -9918,13 +9920,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/CalendarHeatmapResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "series": {
@@ -19469,7 +19473,8 @@
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
-                    "description": "Breakdown of the events and actions"
+                    "description": "Breakdown of the events and actions",
+                    "guestOverridable": true
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -19477,16 +19482,19 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "funnelsFilter": {
                     "$ref": "#/definitions/FunnelsFilter",
-                    "description": "Properties specific to the funnels insight"
+                    "description": "Properties specific to the funnels insight",
+                    "guestOverridable": true
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
@@ -19513,13 +19521,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/FunnelsQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "series": {
@@ -21192,11 +21202,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "kind": {
@@ -21219,13 +21231,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/CalendarHeatmapResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "tags": {
@@ -21261,11 +21275,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "kind": {
@@ -21288,13 +21304,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/FunnelsQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "tags": {
@@ -21330,11 +21348,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "kind": {
@@ -21357,13 +21377,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/LifecycleQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "tags": {
@@ -21399,11 +21421,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "kind": {
@@ -21426,13 +21450,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/PathsQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "tags": {
@@ -21468,11 +21494,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "kind": {
@@ -21495,13 +21523,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/RetentionQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "tags": {
@@ -21537,11 +21567,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "kind": {
@@ -21564,13 +21596,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/TrendsQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "tags": {
@@ -22072,11 +22106,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "interval": {
@@ -22090,7 +22126,8 @@
                 },
                 "lifecycleFilter": {
                     "$ref": "#/definitions/LifecycleFilter",
-                    "description": "Properties specific to the lifecycle insight"
+                    "description": "Properties specific to the lifecycle insight",
+                    "guestOverridable": true
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -22109,13 +22146,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/LifecycleQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "series": {
@@ -26163,11 +26202,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "funnelPathsFilter": {
@@ -26184,7 +26225,8 @@
                 },
                 "pathsFilter": {
                     "$ref": "#/definitions/PathsFilter",
-                    "description": "Properties specific to the paths insight"
+                    "description": "Properties specific to the paths insight",
+                    "guestOverridable": true
                 },
                 "properties": {
                     "anyOf": [
@@ -26199,13 +26241,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/PathsQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "tags": {
@@ -32645,7 +32689,8 @@
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
-                    "description": "Breakdown of the events and actions"
+                    "description": "Breakdown of the events and actions",
+                    "guestOverridable": true
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -32653,11 +32698,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "kind": {
@@ -32681,17 +32728,20 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/RetentionQueryResponse"
                 },
                 "retentionFilter": {
                     "$ref": "#/definitions/RetentionFilter",
-                    "description": "Properties specific to the retention insight"
+                    "description": "Properties specific to the retention insight",
+                    "guestOverridable": true
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "tags": {
@@ -35729,7 +35779,8 @@
             "properties": {
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
-                    "description": "Compare to date range"
+                    "description": "Compare to date range",
+                    "guestOverridable": true
                 },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
@@ -35737,11 +35788,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "interval": {
@@ -35774,13 +35827,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/StickinessQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "series": {
@@ -35792,7 +35847,8 @@
                 },
                 "stickinessFilter": {
                     "$ref": "#/definitions/StickinessFilter",
-                    "description": "Properties specific to the stickiness insight"
+                    "description": "Properties specific to the stickiness insight",
+                    "guestOverridable": true
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags",
@@ -37404,11 +37460,13 @@
                 },
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
-                    "description": "Breakdown of the events and actions"
+                    "description": "Breakdown of the events and actions",
+                    "guestOverridable": true
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
-                    "description": "Compare to date range"
+                    "description": "Compare to date range",
+                    "guestOverridable": true
                 },
                 "conversionGoal": {
                     "anyOf": [
@@ -37427,11 +37485,13 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
+                    "description": "Date range for the query",
+                    "guestOverridable": true
                 },
                 "filterTestAccounts": {
                     "default": false,
                     "description": "Exclude internal and test users by applying the respective filters",
+                    "guestOverridable": true,
                     "type": "boolean"
                 },
                 "interval": {
@@ -37460,13 +37520,15 @@
                         }
                     ],
                     "default": [],
-                    "description": "Property filters for all series"
+                    "description": "Property filters for all series",
+                    "guestOverridable": true
                 },
                 "response": {
                     "$ref": "#/definitions/TrendsQueryResponse"
                 },
                 "samplingFactor": {
                     "description": "Sampling rate",
+                    "guestOverridable": true,
                     "type": ["number", "null"]
                 },
                 "series": {
@@ -37489,7 +37551,8 @@
                 },
                 "trendsFilter": {
                     "$ref": "#/definitions/TrendsFilter",
-                    "description": "Properties specific to the trends insight"
+                    "description": "Properties specific to the trends insight",
+                    "guestOverridable": true
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",

@@ -11,6 +11,10 @@ const config = {
     tsconfig: 'tsconfig.json',
     discriminatorType: 'open-api',
     skipTypeCheck: true,
+    // Pass custom JSDoc tags through into the generated JSON Schema as field-level
+    // properties. Used by the guest-mode query rescoper to identify which query fields
+    // a viewer-level user may override. See posthog/rbac/guest_query_scope.py.
+    extraTags: ['guestOverridable'],
 }
 
 const output_path = 'src/queries/schema.json'

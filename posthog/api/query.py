@@ -63,6 +63,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
     HogQLQueryThrottle,
 )
+from posthog.rbac.guest_query_scope import rescope_guest_query, user_is_guest_for_request
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
 
@@ -204,6 +205,13 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
         self._validate_query_kind(request, kwargs.get("query_kind"))
+        # Guest users may only run queries whose kind and structure match one of their
+        # granted insights. The rescoper replaces the client-supplied query body with
+        # the saved query from the granted resource, overlaying only whitelisted
+        # fields (date range, property filters, breakdown, etc). See
+        # posthog/rbac/guest_query_scope.py for the whitelist source.
+        if user_is_guest_for_request(request):
+            rescope_guest_query(request, team_id=self.team.id)
         start_time = perf_counter()
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, QueryRequest)
