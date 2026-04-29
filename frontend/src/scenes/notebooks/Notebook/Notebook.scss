@@ -623,3 +623,34 @@
         padding: 0;
     }
 }
+
+// Google-Docs-style remote presence carets + name flag.
+.NotebookRemotePresence {
+    position: relative;
+    display: inline-block;
+    width: 0;
+    height: 1.1em;
+    margin: 0;
+    vertical-align: text-bottom;
+    pointer-events: none;
+    border-left: 2px solid var(--remote-presence-color, currentColor);
+
+    &__flag {
+        position: absolute;
+        bottom: 100%;
+        left: -2px; // aligned with the bar's left edge
+        z-index: 5;
+        max-width: 12rem;
+        padding: 1px 6px;
+        overflow: hidden;
+        font-size: 0.7rem;
+        font-weight: 500;
+        line-height: 1.2;
+        color: var(--white);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        user-select: none;
+        background: var(--remote-presence-color, currentColor);
+        border-radius: 3px 3px 3px 0;
+    }
+}

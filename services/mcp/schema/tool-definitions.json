@@ -74,6 +74,36 @@
             "readOnlyHint": true
         }
     },
+    "query-validate": {
+        "description": "Dry-run a HogQL query: parse and type-check it without executing, so there is no ClickHouse cost and no 202 polling. Returns structured errors (with character positions), warnings, notices, and the list of tables the query references. Use this before 'query-run' on any non-trivial HogQL to catch column typos, missing tables, and syntax issues up front instead of iterating on opaque execution errors. Accepts the same language values as the HogQL editor: 'hogQL' (default, full SELECT), 'hogQLExpr' (bare expression), 'hog', or 'hogTemplate'.",
+        "category": "Insights & analytics",
+        "summary": "Validate a HogQL query without executing it.",
+        "feature": "insights",
+        "title": "Validate query",
+        "required_scopes": ["query:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "hogql-schema": {
+        "description": "Return the HogQL catalog for the active project: every queryable table (PostHog, system, warehouse, view, materialized view, batch export, endpoint) keyed by name, with each table's fields, plus the join graph between data-warehouse tables. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap — no ClickHouse cost.",
+        "category": "Insights & analytics",
+        "summary": "List tables and columns available to HogQL queries.",
+        "feature": "insights",
+        "title": "HogQL schema",
+        "required_scopes": ["query:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "query-generate-hogql-from-question": {
         "description": "This is a slow tool, and you should only use it once you have tried to create a query using the 'query-run' tool, or the query is too complicated to create a trend / funnel. Queries project's PostHog data based on a provided natural language question - don't provide SQL query as input but describe the output you want. When giving the results back to the user, first show the SQL query that was used, then provide results in easily readable format. You should also offer to save the query as an insight if the user wants to.",
         "category": "Insights & analytics",

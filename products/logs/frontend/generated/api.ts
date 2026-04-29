@@ -32,6 +32,8 @@ import type {
     PatchedLogsViewApi,
     PluginConfigsLogsListParams,
     _LogsAttributesResponseApi,
+    _LogsCountRangesRequestApi,
+    _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
     _LogsQueryRequestApi,
@@ -461,6 +463,23 @@ export const logsCountCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsCountRequestApi),
+    })
+}
+
+export const getLogsCountRangesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/count-ranges/`
+}
+
+export const logsCountRangesCreate = async (
+    projectId: string,
+    _logsCountRangesRequestApi: _LogsCountRangesRequestApi,
+    options?: RequestInit
+): Promise<_LogsCountRangesResponseApi> => {
+    return apiMutator<_LogsCountRangesResponseApi>(getLogsCountRangesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsCountRangesRequestApi),
     })
 }
 

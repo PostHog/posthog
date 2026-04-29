@@ -41,6 +41,7 @@ class TestProviderRouting(SimpleTestCase):
             ("openai",),
             ("anthropic",),
             ("gemini",),
+            ("together_ai",),
             ("openrouter",),
             ("fireworks",),
         ]
@@ -119,6 +120,7 @@ class TestProviderMismatchValidation(SimpleTestCase):
         client._validate_provider("openai")
         client._validate_provider("anthropic")
         client._validate_provider("gemini")
+        client._validate_provider("together_ai")
         client._validate_provider("openrouter")
         client._validate_provider("fireworks")
 
