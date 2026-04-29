@@ -953,4 +953,219 @@ describe('calculateInputCost()', () => {
             expectCostToBeCloseTo(result, 0.00044)
         })
     })
+
+    describe('cached audio input - cache modality cost handling', () => {
+        // gpt-audio-mini pricing (representative — real numbers from llm-costs.json):
+        // - text input: $0.15/1M
+        // - text cache read: $0.075/1M
+        // - audio input: $1.00/1M
+        // - cached audio: $0.10/1M
+        const audioCacheModel: ResolvedModelCost = {
+            model: 'gpt-audio-mini',
+            provider: 'openai',
+            cost: {
+                prompt_token: 0.00000015,
+                completion_token: 0.0000006,
+                cache_read_token: 0.000000075,
+                audio: 0.000001,
+                input_audio_cache: 0.0000001,
+            },
+        }
+
+        it('bills cached audio at the cache rate and uncached audio at the audio rate', () => {
+            // 1000 input total: 500 text uncached, 250 text cached, 50 audio cached, 150 audio uncached, 50 image
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-audio-mini',
+                    $ai_input_tokens: 1000,
+                    $ai_cache_read_input_tokens: 300, // 250 text + 50 audio
+                    $ai_audio_input_tokens: 200, // 150 uncached + 50 cached
+                    $ai_cache_read_audio_tokens: 50,
+                },
+            })
+
+            const result = calculateInputCost(event, audioCacheModel)
+
+            // Cached text: 250 × 0.000000075 = 0.00001875
+            // Uncached text: (1000 - 250 - 200) × 0.00000015 = 550 × 0.00000015 = 0.0000825
+            // Uncached audio: 150 × 0.000001 = 0.00015
+            // Cached audio: 50 × 0.0000001 = 0.000005
+            // Total: 0.00001875 + 0.0000825 + 0.00015 + 0.000005 = 0.00025625
+            expectCostToBeCloseTo(result, 0.00025625, 8)
+        })
+
+        it('falls back to text cache rate when input_audio_cache is undefined', () => {
+            const modelWithoutAudioCacheRate: ResolvedModelCost = {
+                model: 'mystery-audio-model',
+                provider: 'openai',
+                cost: {
+                    prompt_token: 0.00000015,
+                    completion_token: 0.0000006,
+                    cache_read_token: 0.000000075,
+                    audio: 0.000001,
+                    // no input_audio_cache
+                },
+            }
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'mystery-audio-model',
+                    $ai_input_tokens: 1000,
+                    $ai_cache_read_input_tokens: 300,
+                    $ai_audio_input_tokens: 200,
+                    $ai_cache_read_audio_tokens: 50,
+                },
+            })
+
+            const result = calculateInputCost(event, modelWithoutAudioCacheRate)
+
+            // Cached text: 250 × 0.000000075 = 0.00001875
+            // Cached audio (falls back to text cache rate): 50 × 0.000000075 = 0.000003750
+            // Uncached text: 550 × 0.00000015 = 0.0000825
+            // Uncached audio: 150 × 0.000001 = 0.00015
+            // Total: 0.00001875 + 0.00000375 + 0.0000825 + 0.00015 = 0.000255
+            expectCostToBeCloseTo(result, 0.000255, 7)
+        })
+
+        it('falls back to prompt × 0.5 when no cache rate is configured at all', () => {
+            const modelWithNoCacheRates: ResolvedModelCost = {
+                model: 'no-cache-model',
+                provider: 'openai',
+                cost: {
+                    prompt_token: 0.000001,
+                    completion_token: 0.000002,
+                    audio: 0.00004,
+                    // no cache_read_token, no input_audio_cache
+                },
+            }
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'no-cache-model',
+                    $ai_input_tokens: 1000,
+                    $ai_cache_read_input_tokens: 300,
+                    $ai_audio_input_tokens: 200,
+                    $ai_cache_read_audio_tokens: 50,
+                },
+            })
+
+            const result = calculateInputCost(event, modelWithNoCacheRates)
+
+            // Cached text (default 0.5 multiplier): 250 × 0.000001 × 0.5 = 0.000125
+            // Cached audio (default 0.5 multiplier on prompt): 50 × 0.000001 × 0.5 = 0.000025
+            // Uncached text: 550 × 0.000001 = 0.00055
+            // Uncached audio: 150 × 0.00004 = 0.006
+            // Total: 0.000125 + 0.000025 + 0.00055 + 0.006 = 0.0067
+            expectCostToBeCloseTo(result, 0.0067, 6)
+        })
+
+        it('clamps cached_audio when it exceeds audio_input', () => {
+            // Malformed event: cached_audio claims to be 300 but audio_input is only 100.
+            // Bound it at 100 so we don't subtract more audio than we have.
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-audio-mini',
+                    $ai_input_tokens: 500,
+                    $ai_cache_read_input_tokens: 400,
+                    $ai_audio_input_tokens: 100,
+                    $ai_cache_read_audio_tokens: 300, // > audio_input
+                },
+            })
+
+            const result = calculateInputCost(event, audioCacheModel)
+
+            // Effective cached_audio = min(300, 100, 400) = 100
+            // Cached text: (400 - 100) × 0.000000075 = 300 × 0.000000075 = 0.0000225
+            // Uncached text: (500 - 300 - 100) × 0.00000015 = 100 × 0.00000015 = 0.000015
+            // Uncached audio: 0 × audio_rate = 0
+            // Cached audio: 100 × 0.0000001 = 0.00001
+            // Total: 0.0000225 + 0.000015 + 0.00001 = 0.0000475
+            expectCostToBeCloseTo(result, 0.0000475, 8)
+        })
+
+        it('clamps cached_audio when it exceeds cache_read total', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-audio-mini',
+                    $ai_input_tokens: 1000,
+                    $ai_cache_read_input_tokens: 50, // smaller than claimed cached_audio
+                    $ai_audio_input_tokens: 200,
+                    $ai_cache_read_audio_tokens: 200, // > cache_read total
+                },
+            })
+
+            const result = calculateInputCost(event, audioCacheModel)
+
+            // Effective cached_audio = min(200, 200, 50) = 50
+            // Cached text: (50 - 50) × cache_rate = 0
+            // Uncached text: (1000 - 0 - 200) × 0.00000015 = 800 × 0.00000015 = 0.00012
+            // Uncached audio: (200 - 50) × 0.000001 = 0.00015
+            // Cached audio: 50 × 0.0000001 = 0.000005
+            // Total: 0.00012 + 0.00015 + 0.000005 = 0.000275
+            expectCostToBeCloseTo(result, 0.000275, 7)
+        })
+
+        it('handles cached_audio = 0 (no-op)', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-audio-mini',
+                    $ai_input_tokens: 1000,
+                    $ai_cache_read_input_tokens: 300,
+                    $ai_audio_input_tokens: 200,
+                    $ai_cache_read_audio_tokens: 0,
+                },
+            })
+
+            const result = calculateInputCost(event, audioCacheModel)
+
+            // Same as no $ai_cache_read_audio_tokens at all:
+            // Cached text: 300 × 0.000000075 = 0.0000225
+            // Uncached text: 500 × 0.00000015 = 0.000075
+            // Audio: 200 × 0.000001 = 0.0002
+            // Total: 0.0000225 + 0.000075 + 0.0002 = 0.0002975
+            expectCostToBeCloseTo(result, 0.0002975, 7)
+        })
+
+        it('still works in Anthropic exclusive mode (cache and input pools are disjoint)', () => {
+            // Hypothetical: Anthropic ever adds audio + cache. The exclusive flag
+            // means cache_read is its own bucket, separate from input_tokens.
+            const anthropicWithAudioCache: ResolvedModelCost = {
+                model: 'claude-with-audio',
+                provider: 'anthropic',
+                cost: {
+                    prompt_token: 0.000003,
+                    completion_token: 0.000015,
+                    cache_read_token: 3e-7,
+                    cache_write_token: 0.00000375,
+                    audio: 0.000005,
+                    input_audio_cache: 5e-7,
+                },
+            }
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'anthropic',
+                    $ai_model: 'claude-with-audio',
+                    $ai_input_tokens: 800, // text + audio (cache is separate in exclusive mode)
+                    $ai_cache_read_input_tokens: 200,
+                    $ai_audio_input_tokens: 100,
+                    $ai_cache_read_audio_tokens: 30,
+                },
+            })
+
+            const result = calculateInputCost(event, anthropicWithAudioCache)
+
+            // Anthropic exclusive: input_tokens does NOT include cached.
+            // Cached text: (200 - 30) × 3e-7 = 170 × 3e-7 = 0.000051
+            // Uncached text: (800 - 100) × 0.000003 = 700 × 0.000003 = 0.0021
+            // Uncached audio: (100 - 30) × 0.000005 = 70 × 0.000005 = 0.00035
+            // Cached audio: 30 × 5e-7 = 0.000015
+            // No cache_write tokens.
+            // Total: 0.000051 + 0.0021 + 0.00035 + 0.000015 = 0.002516
+            expectCostToBeCloseTo(result, 0.002516, 6)
+        })
+    })
 })

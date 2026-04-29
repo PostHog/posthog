@@ -441,4 +441,113 @@ describe('extractModalityTokens()', () => {
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
     })
+
+    describe('cache modality extraction', () => {
+        it('extracts cached audio tokens from Gemini cacheTokensDetails array format', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    promptTokenCount: 1000,
+                    cachedContentTokenCount: 300,
+                    cacheTokensDetails: [
+                        { modality: 'TEXT', tokenCount: 250 },
+                        { modality: 'AUDIO', tokenCount: 50 },
+                    ],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it('extracts cached audio from Gemini cacheTokensDetails object format (defensive)', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    promptTokenCount: 1000,
+                    cacheTokensDetails: { audioTokens: 50 },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+        })
+
+        it('does not set $ai_cache_read_audio_tokens when cacheTokensDetails has no audio entry', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    cacheTokensDetails: [{ modality: 'TEXT', tokenCount: 300 }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBeUndefined()
+        })
+
+        it('extracts cached audio from OpenAI prompt_tokens_details.cached_tokens_details', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_tokens: 1000,
+                    prompt_tokens_details: {
+                        cached_tokens: 300,
+                        audio_tokens: 200,
+                        cached_tokens_details: {
+                            audio_tokens: 50,
+                        },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it('does not set $ai_cache_read_audio_tokens when OpenAI cached_tokens_details has no audio', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    prompt_tokens: 1000,
+                    prompt_tokens_details: {
+                        cached_tokens: 300,
+                        cached_tokens_details: { text_tokens: 300 },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBeUndefined()
+        })
+
+        it('extracts cached audio from Vercel-wrapped Gemini metadata', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    rawResponse: {
+                        usageMetadata: {
+                            cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 100 }],
+                        },
+                    },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBe(100)
+        })
+
+        it('ignores zero or negative cached audio counts', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    cacheTokensDetails: [{ modality: 'AUDIO', tokenCount: 0 }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_audio_tokens']).toBeUndefined()
+        })
+    })
 })
