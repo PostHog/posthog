@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
@@ -61,6 +62,9 @@ export type UsageStatsByTeam = Map<number, UsageStats>
 
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
+
+/** Cap concurrent per-message processing within a single kafka batch. */
+const MAX_CONCURRENT_MESSAGE_PROCESSES = 50
 
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
@@ -334,72 +338,79 @@ export class LogsIngestionConsumer {
         messages: LogsIngestionMessage[],
         usageStats: UsageStatsByTeam
     ): Promise<void> {
+        const limit = pLimit(MAX_CONCURRENT_MESSAGE_PROCESSES)
         const results = await Promise.allSettled(
-            messages.map(async (message) => {
-                try {
-                    // Fetch team to get logs_settings
-                    const team = await this.deps.teamManager.getTeam(message.teamId)
-                    const logsSettings = team?.logs_settings || {}
+            messages.map((message) =>
+                limit(async () => {
+                    try {
+                        // Fetch team to get logs_settings
+                        const team = await this.deps.teamManager.getTeam(message.teamId)
+                        const logsSettings = team?.logs_settings || {}
 
-                    // Extract settings with defaults
-                    const jsonParse = logsSettings.json_parse_logs ?? false
-                    const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+                        // Extract settings with defaults
+                        const jsonParse = logsSettings.json_parse_logs ?? false
+                        const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
 
-                    // ignore empty messages
-                    if (message.message.value === null) {
-                        return Promise.resolve()
-                    }
-                    let processedValue: Buffer
-                    let pii: PiiScrubStats
-                    const samplingCache = this.deps.samplingRulesCache
-                    let ruleSet: CompiledRuleSet | null = null
-                    if (samplingCache && this.isSamplingEvalEnabledForTeam(message.teamId)) {
-                        ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
-                    }
-                    const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
-                    if (useSamplingPipeline && ruleSet) {
-                        const sampled = await processBufferWithSampling(message.message.value, logsSettings, ruleSet)
-                        pii = sampled.pii
-                        if (sampled.recordsDropped > 0) {
-                            logsSamplingRecordsDroppedCounter.inc(
-                                { team_id: message.teamId.toString() },
-                                sampled.recordsDropped
-                            )
-                        }
-                        if (sampled.allDropped) {
-                            logMessageDroppedCounter.inc(
-                                { reason: 'sampling_all_dropped', team_id: message.teamId.toString() },
-                                1
-                            )
+                        // ignore empty messages
+                        if (message.message.value === null) {
                             return Promise.resolve()
                         }
-                        processedValue = sampled.value
-                    } else {
-                        const res = await processLogMessageBuffer(message.message.value, logsSettings)
-                        processedValue = res.value
-                        pii = res.pii
-                    }
-                    this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
+                        let processedValue: Buffer
+                        let pii: PiiScrubStats
+                        const samplingCache = this.deps.samplingRulesCache
+                        let ruleSet: CompiledRuleSet | null = null
+                        if (samplingCache && this.isSamplingEvalEnabledForTeam(message.teamId)) {
+                            ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
+                        }
+                        const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
+                        if (useSamplingPipeline && ruleSet) {
+                            const sampled = await processBufferWithSampling(
+                                message.message.value,
+                                logsSettings,
+                                ruleSet
+                            )
+                            pii = sampled.pii
+                            if (sampled.recordsDropped > 0) {
+                                logsSamplingRecordsDroppedCounter.inc(
+                                    { team_id: message.teamId.toString() },
+                                    sampled.recordsDropped
+                                )
+                            }
+                            if (sampled.allDropped) {
+                                logMessageDroppedCounter.inc(
+                                    { reason: 'sampling_all_dropped', team_id: message.teamId.toString() },
+                                    1
+                                )
+                                return Promise.resolve()
+                            }
+                            processedValue = sampled.value
+                        } else {
+                            const res = await processLogMessageBuffer(message.message.value, logsSettings)
+                            processedValue = res.value
+                            pii = res.pii
+                        }
+                        this.addPiiStatsIntoUsage(usageStats, message.teamId, pii)
 
-                    // Await so a rejection here lands in the catch and routes to the DLQ.
-                    await this.deps.outputs.queueMessages(LOGS_OUTPUT, [
-                        {
-                            value: processedValue,
-                            key: null,
-                            headers: {
-                                ...parseKafkaHeaders(message.message.headers),
-                                token: message.token,
-                                team_id: message.teamId.toString(),
-                                'json-parse': jsonParse.toString(),
-                                'retention-days': retentionDays.toString(),
+                        // Await so a rejection here lands in the catch and routes to the DLQ.
+                        await this.deps.outputs.queueMessages(LOGS_OUTPUT, [
+                            {
+                                value: processedValue,
+                                key: null,
+                                headers: {
+                                    ...parseKafkaHeaders(message.message.headers),
+                                    token: message.token,
+                                    team_id: message.teamId.toString(),
+                                    'json-parse': jsonParse.toString(),
+                                    'retention-days': retentionDays.toString(),
+                                },
                             },
-                        },
-                    ])
-                } catch (error) {
-                    await this.produceToDlq(message, error)
-                    throw error
-                }
-            })
+                        ])
+                    } catch (error) {
+                        await this.produceToDlq(message, error)
+                        throw error
+                    }
+                })
+            )
         )
 
         const failures = results.filter((r) => r.status === 'rejected')
