@@ -6,6 +6,8 @@ on:
             - .github/workflows/**
             - .github/scripts/**
             - services/**
+            - tools/hogli-commands/hogli_commands/workflow_lint/**
+            - hogli.yaml
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -15,7 +17,7 @@ permissions:
     contents: read
 
 jobs:
-    check-timeouts:
+    lint-workflows:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
@@ -23,34 +25,4 @@ jobs:
             - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   version: '0.10.2'
-            - run: uv run .github/scripts/check-ci-timeouts.py
-
-    check-semgrep-services-coverage:
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        steps:
-            - uses: actions/checkout@v6
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2'
-            - run: uv run .github/scripts/check-semgrep-services-coverage.py
-
-    check-dorny-paths-filter:
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        steps:
-            - uses: actions/checkout@v6
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2'
-            - run: uv run .github/scripts/check-dorny-paths-filter.py
-
-    check-concurrency:
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        steps:
-            - uses: actions/checkout@v6
-            - uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
-              with:
-                  version: '0.10.2'
-            - run: uv run .github/scripts/check-ci-concurrency.py
+            - run: uv run .github/scripts/lint-workflows.py
