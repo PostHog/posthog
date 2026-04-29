@@ -12,8 +12,8 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        PostHog logs uses the standard OpenTelemetry SDK — no PostHog-specific packages required. Install
-                        the OTel SDK and the logs signal package:
+                        PostHog logs uses the standard OpenTelemetry SDK — no PostHog-specific packages required.
+                        Install the OTel SDK and the logs signal package:
                     </Markdown>
                     <CodeBlock
                         blocks={[
