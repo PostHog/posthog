@@ -209,7 +209,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                             </LemonButton>
                         )}
                         {currentTab === 'channels' && (
-                            <LemonMenu items={newChannelMenuItems} matchWidth disabled={!!newChannelRestrictedReason}>
+                            <LemonMenu items={newChannelMenuItems} matchWidth>
                                 <LemonButton
                                     data-attr="new-channel-button"
                                     icon={<IconPlusSmall />}
