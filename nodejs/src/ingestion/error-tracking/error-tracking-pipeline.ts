@@ -201,22 +201,21 @@ export function createErrorTrackingPipeline(
                     (b) =>
                         b
                             .teamAware((b) => {
-                                // Pre-Cymbal rate limit chain: each spec becomes its own batch step,
-                                // applied in array order. Empty / undefined → no-op.
-                                const preCymbal = applyKeyedRateLimiters(
-                                    b
-                                        .gather()
-                                        // Rate limit high-volume token:distinct_id pairs to overflow
-                                        .pipeBatch(
-                                            createRateLimitToOverflowStep(
-                                                true, // preservePartitionLocality
-                                                overflowRedirectService
-                                            )
+                                // Pre-Cymbal rate limit chain runs FIRST so that events we'd drop
+                                // never consume overflow-redirect cycles or symbolication budget.
+                                // Each spec becomes its own batch step, applied in array order.
+                                // Empty / undefined → no-op.
+                                const afterRateLimit = applyKeyedRateLimiters(b.gather(), preCymbalRateLimiters ?? [])
+                                const preCymbal = afterRateLimit
+                                    // Rate limit high-volume token:distinct_id pairs to overflow
+                                    .pipeBatch(
+                                        createRateLimitToOverflowStep(
+                                            true, // preservePartitionLocality
+                                            overflowRedirectService
                                         )
-                                        // Refresh TTLs for overflow lane events (keeps Redis flags alive)
-                                        .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService)),
-                                    preCymbalRateLimiters ?? []
-                                )
+                                    )
+                                    // Refresh TTLs for overflow lane events (keeps Redis flags alive)
+                                    .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                                 return (
                                     preCymbal
                                         // Process through Cymbal as a batch (before enrichment - Cymbal only
