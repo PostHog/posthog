@@ -57,11 +57,6 @@ from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtec
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_response_by_key
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import (
-    Feature as QueryFeature,
-    Product,
-    tag_queries,
-)
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
@@ -936,8 +931,6 @@ class InsightSerializer(InsightBasicSerializer):
                     expected_cache_key=expected_cache_key,
                     message="Expected cache key not found during export - falling back to normal calculation",
                 )
-
-        tag_queries(product=Product.PRODUCT_ANALYTICS, feature=QueryFeature.INSIGHT)
 
         with upgrade_query(insight):
             try:

@@ -85,7 +85,6 @@ _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
     "Cohort": {"product": ProductKey.COHORTS, "feature": Feature.COHORT},
     "Dashboard": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.INSIGHT},
     "Insight": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.INSIGHT},
-    "SavedInsights": {"product": ProductKey.PRODUCT_ANALYTICS, "feature": Feature.INSIGHT},
     "EndpointScene": {"product": ProductKey.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": ProductKey.ENDPOINTS, "feature": Feature.QUERY},
     # Data management surfaces fan out into ad-hoc queries (e.g. the promoted-property picker
