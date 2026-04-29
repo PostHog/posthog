@@ -158,10 +158,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             )
         else:
             sandbox_environment_name = sandbox_environment.name
-            effective_domains = sandbox_environment.get_effective_domains()
-            allowed_domains = effective_domains or None
+            if sandbox_environment.network_access_level == SandboxEnvironment.NetworkAccessLevel.FULL:
+                allowed_domains = None
+            else:
+                allowed_domains = sandbox_environment.get_effective_domains()
 
-            if allowed_domains:
+            if allowed_domains is not None:
                 emit_agent_log(
                     run_id,
                     "debug",

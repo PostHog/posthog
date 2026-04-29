@@ -50,7 +50,6 @@ catalog:
     # Storybook
     '@storybook/addon-actions': ^7.6.4
     '@storybook/react': ^7.6.4
-    '@storybook/testing-library': ^0.2.2
     '@storybook/types': ^7.6.4
     # Common utilities
     fast-deep-equal: ^3.1.3
