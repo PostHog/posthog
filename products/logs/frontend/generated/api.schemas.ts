@@ -607,10 +607,31 @@ export interface _LogPropertyFilterApi {
     value?: unknown | null
 }
 
+/**
+ * * `key` - key
+ * `value` - value
+ */
+export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
+
+export const MatchedOnEnumApi = {
+    Key: 'key',
+    Value: 'value',
+} as const
+
 export interface _LogAttributeEntryApi {
     name: string
     /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
     propertyFilterType: string
+    /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+
+* `key` - key
+* `value` - value */
+    matchedOn: MatchedOnEnumApi
+    /**
+     * Sample matching value — only set when matchedOn is "value".
+     * @nullable
+     */
+    matchedValue?: string | null
 }
 
 export interface _LogsAttributesResponseApi {
@@ -660,6 +681,46 @@ export interface _LogsCountRequestApi {
 export interface _LogsCountResponseApi {
     /** Number of log entries matching the filters. */
     count: number
+}
+
+export interface _LogsCountRangesBodyApi {
+    /** Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range. */
+    dateRange?: _DateRangeApi
+    /**
+     * Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    targetBuckets?: number
+    /** Filter by log severity levels. Applied before bucketing. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names. Applied before bucketing. */
+    serviceNames?: string[]
+    /** Full-text search across log bodies. Applied before bucketing. */
+    searchTerm?: string
+    /** Property filters applied before bucketing. Same shape as `query-logs`. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsCountRangesRequestApi {
+    /** The bucketed-count query to execute. */
+    query: _LogsCountRangesBodyApi
+}
+
+export interface _LogsCountRangeBucketApi {
+    /** Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in. */
+    date_from: string
+    /** Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in. */
+    date_to: string
+    /** Log entries matching the filters within this bucket. */
+    count: number
+}
+
+export interface _LogsCountRangesResponseApi {
+    /** Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`. */
+    ranges: _LogsCountRangeBucketApi[]
+    /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
+    interval: string
 }
 
 /**
@@ -981,6 +1042,10 @@ export type LogsAttributesRetrieveParams = {
      * @minLength 1
      */
     search?: string
+    /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean
     /**
      * Filter attributes to those appearing in logs from these services.
      */

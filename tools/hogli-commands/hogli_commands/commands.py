@@ -51,6 +51,7 @@ from . import (  # noqa: F401
     devbox,
     doctor,
     hints,
+    metabase,
     migrations,
     product,
     quickstart,
