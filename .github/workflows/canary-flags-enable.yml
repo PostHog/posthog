@@ -76,12 +76,22 @@ jobs:
                           content: 'eyes'
                       });
 
+            # GitHub App token is required because GITHUB_TOKEN can't read
+            # org-private team memberships (returns 404, looks like "not a member").
+            - name: Get app token for team membership check
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
             - name: Parse command and validate
               id: command
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   ACTOR: ${{ github.actor }}
               with:
+                  github-token: ${{ steps.app-token.outputs.token }}
                   script: |
                       const prNumber = context.payload.issue.number;
                       const body = context.payload.comment.body.trim();
@@ -141,7 +151,7 @@ jobs:
                               } else {
                                   core.setFailed(
                                       `Failed to check team membership for PostHog/${team}: ${e.message}. ` +
-                                      `The GITHUB_TOKEN may lack Organization > Members > Read permission.`
+                                      `The GH_APP_POSTHOG_ASSIGN_REVIEWERS app may lack Organization > Members > Read permission.`
                                   );
                                   return;
                               }
@@ -377,12 +387,24 @@ jobs:
 
                       console.log(`PR #${prNumber} approved. SHA: ${headSha}`);
 
+            # GitHub App token is required because GITHUB_TOKEN can't read
+            # org-private team memberships (returns 404, looks like "not a member").
+            # Shared by "Verify canary label was authorized" and "Verify team membership".
+            - name: Get app token for team membership check
+              id: app-token
+              if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+
             - name: Verify canary label was authorized
               if: github.event_name == 'pull_request'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   PR_NUMBER: ${{ steps.pr_info.outputs.pr_number }}
               with:
+                  github-token: ${{ steps.app-token.outputs.token }}
                   script: |
                       const prNumber = parseInt(process.env.PR_NUMBER);
 
@@ -476,6 +498,7 @@ jobs:
               env:
                   ACTOR: ${{ github.actor }}
               with:
+                  github-token: ${{ steps.app-token.outputs.token }}
                   script: |
                       const actor = process.env.ACTOR;
                       const allowedTeams = ['team-feature-flags', 'team-flags-platform'];
@@ -495,7 +518,7 @@ jobs:
                               } else {
                                   core.setFailed(
                                       `Failed to check team membership for PostHog/${team}: ${e.message}. ` +
-                                      `The GITHUB_TOKEN may lack Organization > Members > Read permission.`
+                                      `The GH_APP_POSTHOG_ASSIGN_REVIEWERS app may lack Organization > Members > Read permission.`
                                   );
                                   return;
                               }

@@ -374,6 +374,43 @@ tools:
     roles-update:
         operation: roles_update
         enabled: false
+    user-home-settings-get:
+        operation: user_home_settings_retrieve
+        enabled: true
+        scopes:
+            - user:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get pinned tabs and homepage.
+        description: >
+            Get the authenticated user's pinned navigation tabs and configured homepage for the current team. The
+            homepage is the page opened when the user clicks the PostHog logo or hits `/` — it can point at any PostHog
+            destination (dashboard, insight, search, scene, etc.). Pass `@me` as the UUID.
+        param_overrides:
+            uuid:
+                description: User UUID, or `@me` to target the authenticated user.
+    user-home-settings-update:
+        operation: user_home_settings_partial_update
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update pinned tabs and homepage.
+        description: >
+            Update the authenticated user's pinned tabs and/or homepage for the current team. Pass `@me` as the UUID.
+            The homepage can be set to any PostHog destination by passing a tab descriptor with `pathname` (and optional
+            `search`/`hash`) — for example `{ "pathname": "/project/123/dashboard/45" }` to make a dashboard the home,
+            or `{ "pathname": "/project/123/insights", "search": "?q=funnel" }` for a search. Send `homepage: null` to
+            clear it and fall back to the project default. `tabs` replaces the full pinned list when provided. Always
+            confirm the destination with the user before applying — this changes their landing page on every login.
+        param_overrides:
+            uuid:
+                description: User UUID, or `@me` to target the authenticated user.
     welcome-current-retrieve:
         operation: welcome_current_retrieve
         enabled: false

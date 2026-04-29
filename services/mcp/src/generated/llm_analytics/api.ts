@@ -101,14 +101,27 @@ export const llmAnalyticsSentimentCreateBodyAnalysisLevelDefault = `trace`
 export const llmAnalyticsSentimentCreateBodyForceRefreshDefault = false
 
 export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod.array(zod.string()).min(1).max(llmAnalyticsSentimentCreateBodyIdsMax),
+    ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(llmAnalyticsSentimentCreateBodyIdsMax)
+        .describe('Trace IDs or generation IDs to classify, depending on analysis_level.'),
     analysis_level: zod
         .enum(['trace', 'generation'])
         .describe('* `trace` - trace\n* `generation` - generation')
-        .default(llmAnalyticsSentimentCreateBodyAnalysisLevelDefault),
-    force_refresh: zod.boolean().default(llmAnalyticsSentimentCreateBodyForceRefreshDefault),
-    date_from: zod.string().nullish(),
-    date_to: zod.string().nullish(),
+        .default(llmAnalyticsSentimentCreateBodyAnalysisLevelDefault)
+        .describe(
+            "Whether the IDs are 'trace' IDs or 'generation' IDs.\n\n* `trace` - trace\n* `generation` - generation"
+        ),
+    force_refresh: zod
+        .boolean()
+        .default(llmAnalyticsSentimentCreateBodyForceRefreshDefault)
+        .describe('If true, bypass cache and reclassify.'),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe("Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."),
+    date_to: zod.string().nullish().describe('End of date range for the lookup. Defaults to now.'),
 })
 
 /**
