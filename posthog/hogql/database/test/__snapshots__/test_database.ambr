@@ -7519,6 +7519,104 @@
           "name": "system.teams",
           "row_count": null,
           "type": "system"
+      },
+      "system.usage_metrics": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_type_index": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_type_index",
+                  "id": null,
+                  "name": "group_type_index",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "format": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "format",
+                  "id": null,
+                  "name": "format",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "interval": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "interval",
+                  "id": null,
+                  "name": "interval",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "display": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "display",
+                  "id": null,
+                  "name": "display",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "math": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "math",
+                  "id": null,
+                  "name": "math",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "math_property": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "math_property",
+                  "id": null,
+                  "name": "math_property",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.usage_metrics",
+          "name": "system.usage_metrics",
+          "row_count": null,
+          "type": "system"
       }
   }
   '''
@@ -14075,6 +14173,104 @@
           },
           "id": "system.teams",
           "name": "system.teams",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.usage_metrics": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "group_type_index": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "group_type_index",
+                  "id": null,
+                  "name": "group_type_index",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "format": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "format",
+                  "id": null,
+                  "name": "format",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "interval": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "interval",
+                  "id": null,
+                  "name": "interval",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "display": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "display",
+                  "id": null,
+                  "name": "display",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "filters": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "filters",
+                  "id": null,
+                  "name": "filters",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "math": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "math",
+                  "id": null,
+                  "name": "math",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "math_property": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "math_property",
+                  "id": null,
+                  "name": "math_property",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              }
+          },
+          "id": "system.usage_metrics",
+          "name": "system.usage_metrics",
           "row_count": null,
           "type": "system"
       }
