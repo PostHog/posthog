@@ -11,34 +11,31 @@ import { SDKInstructionsMap, SDKKey } from '~/types'
 
 import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
 
+// Logs uses standard OTel packages — the posthog-wizard doesn't support OTLP
+// log setup, so wizardIntegrationName is intentionally omitted for all wrappers.
+
 const LogsNodeJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NodeJSInstallation,
-    wizardIntegrationName: 'Node.js',
 })
 
 const LogsNextJSInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: NextJSInstallation,
-    wizardIntegrationName: 'Next.js',
 })
 
 const LogsPythonInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PythonInstallation,
-    wizardIntegrationName: 'Python',
 })
 
 const LogsGoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: GoInstallation,
-    wizardIntegrationName: 'Go',
 })
 
 const LogsJavaInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: JavaInstallation,
-    wizardIntegrationName: 'Java',
 })
 
 const LogsOpenTelemetryInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: OpenTelemetryInstallation,
-    wizardIntegrationName: 'OpenTelemetry',
 })
 
 export const LogsSDKInstructions: SDKInstructionsMap = {
