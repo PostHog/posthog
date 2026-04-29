@@ -6,7 +6,7 @@ use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition
 
 use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
-    frames::Frame,
+    frames::{record_frame_resolution_failure, Frame},
     langs::CommonFrameMetadata,
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
@@ -239,6 +239,8 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
 // mark it as a failed resolve and emit an "unresolved" frame
 impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
     fn from((raw_frame, err, location): (&RawJSFrame, JsResolveErr, &FrameLocation)) -> Self {
+        record_frame_resolution_failure("javascript", err.metric_reason(), &err);
+
         // TODO - extremely rough
         let was_minified = match err {
             JsResolveErr::NoSourceUrl | JsResolveErr::NoUrlOrChunkId => false, // This frame's `source` didn't exist
@@ -253,6 +255,8 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             Some(raw_frame.fn_name.clone())
         };
 
+        let resolve_failure = Some(err.to_string());
+
         let mut res = Self {
             frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
@@ -266,7 +270,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             // Regardless of whather we think this was a minified frame or not, we still put
             // the error message in resolve_failure, so if a user comes along and want to know
             // why we thought a frame wasn't minified, they can see the error message
-            resolve_failure: Some(FrameError::from(err)),
+            resolve_failure,
             junk_drawer: None,
             code_variables: None,
             context: None,
