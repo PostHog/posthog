@@ -512,7 +512,8 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
         properties = json.loads(properties)
 
     if _is_errored_trace(properties):
-        increment_errors("trace_errored_skipped")
+        # Visibility for skipped evaluations comes from the workflow-level SKIPPED status emitted
+        # by the metrics interceptor; there is no error to record here.
         return _build_errored_trace_result(allows_na)
 
     # Fetch provider key configuration (BYOK or trial)

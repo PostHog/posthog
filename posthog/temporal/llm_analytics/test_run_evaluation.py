@@ -298,18 +298,17 @@ class TestRunEvaluationWorkflow:
             assert result["reasoning"] == "This is a greeting, not a math problem"
             assert result["allows_na"] is True
 
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "ai_is_error_value",
         [
-            ("bool_true", True),
-            ("string_true", "true"),
-            ("string_True_capitalized", "True"),
-        ]
+            pytest.param(True, id="bool_true"),
+            pytest.param("true", id="string_true"),
+            pytest.param("True", id="string_True_capitalized"),
+        ],
     )
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_llm_judge_activity_skips_errored_traces(
-        self, _name: str, ai_is_error_value: Any, setup_data
-    ):
+    async def test_execute_llm_judge_activity_skips_errored_traces(self, ai_is_error_value: Any, setup_data):
         """Errored traces have no meaningful output — the judge must short-circuit instead of
         producing a verdict against an empty Output (which historically defaulted to true)."""
         evaluation_obj = setup_data["evaluation"]
@@ -386,17 +385,18 @@ class TestRunEvaluationWorkflow:
         assert result["allows_na"] is True
         assert result["skipped"] is True
 
-    @parameterized.expand(
+    @pytest.mark.parametrize(
+        "error_props",
         [
-            ("missing", {}),
-            ("explicit_false", {"$ai_is_error": False}),
-            ("string_false", {"$ai_is_error": "false"}),
-        ]
+            pytest.param({}, id="missing"),
+            pytest.param({"$ai_is_error": False}, id="explicit_false"),
+            pytest.param({"$ai_is_error": "false"}, id="string_false"),
+        ],
     )
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     async def test_execute_llm_judge_activity_does_not_skip_when_not_errored(
-        self, _name: str, error_props: dict[str, Any], setup_data
+        self, error_props: dict[str, Any], setup_data
     ):
         """Sanity check: traces without `$ai_is_error=true` still flow through to the LLM judge."""
         evaluation_obj = setup_data["evaluation"]
