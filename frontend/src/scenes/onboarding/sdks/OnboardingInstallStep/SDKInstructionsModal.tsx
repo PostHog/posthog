@@ -57,11 +57,13 @@ export function SDKInstructionsModal({
                         </div>
                     )}
                     <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
-                        {!hideInstallationCheck && (
+                        {!hideInstallationCheck ? (
                             <RealtimeCheckIndicator
                                 teamPropertyToVerify={verifyingProperty}
                                 listeningForName={verifyingName}
                             />
+                        ) : (
+                            <span />
                         )}
                         <NextButton installationComplete={installationComplete} />
                     </footer>
