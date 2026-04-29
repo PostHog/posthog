@@ -460,6 +460,13 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/llm-analytics/manual-capture',
     },
     {
+        name: 'OpenTelemetry',
+        key: SDKKey.OPENTELEMETRY,
+        tags: [SDKTag.INTEGRATION],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/opentelemetry_afb29df5ab.svg',
+        docsLink: 'https://posthog.com/docs/llm-analytics/installation/opentelemetry',
+    },
+    {
         name: 'iOS',
         key: SDKKey.IOS,
         tags: [SDKTag.MOBILE],

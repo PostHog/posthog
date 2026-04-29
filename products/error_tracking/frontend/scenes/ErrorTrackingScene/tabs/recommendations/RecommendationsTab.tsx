@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconChevronRight } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
+import { AlertsRecommendationCard } from './AlertsRecommendationCard'
 import { CrossSellRecommendationCard } from './CrossSellRecommendationCard'
-import { isCrossSellRecommendation, recommendationsTabLogic } from './recommendationsTabLogic'
+import { isAlertsRecommendation, isCrossSellRecommendation, recommendationsTabLogic } from './recommendationsTabLogic'
 
 export function RecommendationsTab(): JSX.Element {
     const {
@@ -44,6 +45,13 @@ export function RecommendationsTab(): JSX.Element {
                                 </div>
                             )
                         }
+                        if (isAlertsRecommendation(recommendation)) {
+                            return (
+                                <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                    <AlertsRecommendationCard recommendation={recommendation} />
+                                </div>
+                            )
+                        }
                         return null
                     })}
                 </div>
@@ -73,6 +81,13 @@ export function RecommendationsTab(): JSX.Element {
                                     return (
                                         <div key={recommendation.id} className="break-inside-avoid mb-4">
                                             <CrossSellRecommendationCard recommendation={recommendation} dismissed />
+                                        </div>
+                                    )
+                                }
+                                if (isAlertsRecommendation(recommendation)) {
+                                    return (
+                                        <div key={recommendation.id} className="break-inside-avoid mb-4">
+                                            <AlertsRecommendationCard recommendation={recommendation} dismissed />
                                         </div>
                                     )
                                 }

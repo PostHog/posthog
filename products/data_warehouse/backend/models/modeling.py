@@ -360,10 +360,13 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         Raises:
             ValueError: If no paths exists for the provided `DataWarehouseSavedQuery`.
         """
+        model_query_value = saved_query.query.get("query") if isinstance(saved_query.query, dict) else None
+        model_query = model_query_value if isinstance(model_query_value, str) else ""
+
         return self.create_leaf_paths_from_query(
             team=saved_query.team,
             model_name=saved_query.name,
-            model_query=saved_query.query["query"],
+            model_query=model_query,
             saved_query_id=saved_query.id,
             created_by=saved_query.created_by,
             label=saved_query.id.hex,
@@ -515,10 +518,13 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         if not self.filter(team=saved_query.team, saved_query=saved_query).exists():
             raise ValueError("Provided saved query contains no paths to update.")
 
+        model_query_value = saved_query.query.get("query") if isinstance(saved_query.query, dict) else None
+        model_query = model_query_value if isinstance(model_query_value, str) else ""
+
         self.update_paths_from_query(
             team=saved_query.team,
             model_name=saved_query.name,
-            model_query=saved_query.query["query"],
+            model_query=model_query,
             label=saved_query.id.hex,
             saved_query_id=saved_query.id,
         )

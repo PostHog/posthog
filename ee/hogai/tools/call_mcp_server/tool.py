@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Literal, Self
 
 import structlog
@@ -18,8 +19,17 @@ from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
-from .installations import _build_server_headers, _get_installations, _mark_needs_reauth_sync, _refresh_token_sync
+from .installations import (
+    _build_server_headers,
+    _get_cached_tools,
+    _get_installations,
+    _get_tool_approval_states,
+    _mark_needs_reauth_sync,
+    _refresh_token_sync,
+)
 from .mcp_client import MCPClient, MCPClientError
+
+_APPROVAL_DEFAULT = "needs_approval"
 
 logger = structlog.get_logger(__name__)
 
@@ -74,6 +84,8 @@ class CallMCPServerTool(MaxTool):
     _installations: list
     _installations_by_url: dict[str, dict]
     _server_headers: dict[str, dict[str, str]]
+    # {server_url: {tool_name: approval_state}} — lazily populated to minimize DB reads; also seeded by _get_cached_tool_list to avoid double lookup when calling __list_tools__
+    _approval_cache: dict[str, dict[str, str]]
 
     @classmethod
     async def create_tool_class(
@@ -116,10 +128,59 @@ class CallMCPServerTool(MaxTool):
         instance._installations = installations
         instance._installations_by_url = {inst["url"]: inst for inst in installations}
         instance._server_headers = server_headers
+        instance._approval_cache = {}
         return instance
+
+    async def _get_approval_states(self, server_url: str) -> dict[str, str]:
+        cached = self._approval_cache.get(server_url)
+        if cached is not None:
+            return cached
+        inst = self._get_installation(server_url)
+        states = await database_sync_to_async(_get_tool_approval_states)(str(inst["id"]))
+        self._approval_cache[server_url] = states
+        return states
+
+    async def _resolve_approval_state(self, server_url: str, tool_name: str) -> str:
+        states = await self._get_approval_states(server_url)
+        return states.get(tool_name, _APPROVAL_DEFAULT)
+
+    async def is_dangerous_operation(
+        self, *, server_url: str, tool_name: str, arguments: dict | None = None, **_kwargs
+    ) -> bool:
+        # Tool discovery should never require approval
+        if tool_name == "__list_tools__":
+            return False
+        # Unknown server_url will be rejected by _validate_server_url during
+        # execution; don't gate approval on it.
+        if server_url not in self._allowed_server_urls:
+            return False
+        state = await self._resolve_approval_state(server_url, tool_name)
+        return state == "needs_approval"
+
+    async def format_dangerous_operation_preview(
+        self, *, server_url: str, tool_name: str, arguments: dict | None = None, **_kwargs
+    ) -> str:
+        inst = self._installations_by_url.get(server_url, {})
+        display = inst.get("display_name") or server_url
+        if arguments:
+            try:
+                args_str = json.dumps(arguments, indent=2, default=str)
+            except (TypeError, ValueError):
+                args_str = repr(arguments)
+            args_block = f"\n\n```json\n{args_str}\n```"
+        else:
+            args_block = "\n\n*(no arguments)*"
+        return f"Max wants to call **{tool_name}** on **{display}**.{args_block}"
 
     async def _arun_impl(self, server_url: str, tool_name: str, arguments: dict | None = None) -> tuple[str, None]:
         self._validate_server_url(server_url)
+
+        # Use per-installation cache for `__list_tools__` if available to avoid unnecessary server calls and token refreshes.
+        if tool_name == "__list_tools__":
+            cached = await self._get_cached_tool_list(server_url)
+            if cached is not None:
+                return cached, None
+
         await self._try_proactive_token_refresh(server_url)
 
         try:
@@ -127,6 +188,17 @@ class CallMCPServerTool(MaxTool):
             return result, None
         except MCPClientError as e:
             raise MaxToolRetryableError(f"MCP server error: {e}")
+
+    async def _get_cached_tool_list(self, server_url: str) -> str | None:
+        """Return a formatted tool list from Postgres, or None if the cache is empty."""
+        inst = self._get_installation(server_url)
+        rows = await database_sync_to_async(_get_cached_tools)(str(inst["id"]))
+        if not rows:
+            return None
+        approval_states = {row["name"]: row["approval_state"] for row in rows}
+        # Seed the approval cache so a subsequent `tools/call` doesn't re-query.
+        self._approval_cache.setdefault(server_url, dict(approval_states))
+        return self._format_tool_list(server_url, rows, approval_states)
 
     async def _call_server(self, server_url: str, tool_name: str, arguments: dict | None) -> str:
         try:
@@ -159,21 +231,52 @@ class CallMCPServerTool(MaxTool):
         raw_tools = await client.list_tools()
         if not raw_tools:
             return "This MCP server has no tools available."
+        approval_states = await self._get_approval_states(server_url)
+        return self._format_tool_list(server_url, raw_tools, approval_states)
 
+    def _format_tool_list(self, server_url: str, raw_tools: list[dict], approval_states: dict[str, str]) -> str:
         tools: list[MCPToolDefinition] = []
+        hidden_do_not_use = 0
+        needs_approval_names: list[str] = []
         for raw in raw_tools:
             try:
-                tools.append(MCPToolDefinition.model_validate(raw))
+                tool = MCPToolDefinition.model_validate(raw)
             except ValidationError:
                 logger.warning("Skipping malformed tool definition from MCP server", server_url=server_url, raw=raw)
+                continue
+            state = approval_states.get(tool.name, _APPROVAL_DEFAULT)
+            if state == "do_not_use":
+                # Invisible to the agent — matches the `do_not_use` semantics in the proxy path.
+                hidden_do_not_use += 1
+                continue
+            if state == "needs_approval":
+                needs_approval_names.append(tool.name)
+            tools.append(tool)
 
         if not tools:
             return "This MCP server has no tools available."
 
         formatted = "\n\n".join(t.format_for_llm() for t in tools)
-        return f"Tools available on {server_url}:\n\n{formatted}"
+        notes: list[str] = []
+        if needs_approval_names:
+            notes.append(
+                "The following tools require explicit user approval before each call; the user will be "
+                "prompted when you invoke them: " + ", ".join(sorted(needs_approval_names))
+            )
+        if hidden_do_not_use:
+            notes.append(f"{hidden_do_not_use} tool(s) on this server were hidden because the user disabled them.")
+        footer = ("\n\n" + "\n".join(notes)) if notes else ""
+        return f"Tools available on {server_url}:\n\n{formatted}{footer}"
 
     async def _call_tool(self, client: MCPClient, server_url: str, tool_name: str, arguments: dict | None) -> str:
+        state = await self._resolve_approval_state(server_url, tool_name)
+        if state == "do_not_use":
+            raise MaxToolFatalError(
+                f"Tool '{tool_name}' on {server_url} has been disabled by the user. "
+                "It cannot be called. Choose a different tool or explain the limitation."
+            )
+        # needs_approval is handled earlier via `is_dangerous_operation` + LangGraph
+        # interrupt; by the time we reach _call_tool we've already been approved.
         return await client.call_tool(tool_name, arguments or {})
 
     def _validate_server_url(self, server_url: str) -> None:

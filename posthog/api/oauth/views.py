@@ -36,7 +36,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.api.oauth.cimd import (
-    CIMD_THROTTLES,
+    CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
     CIMDValidationError,
     get_application_by_client_id,
@@ -51,6 +51,18 @@ from posthog.utils import render_template
 from posthog.views import login_required
 
 logger = structlog.get_logger(__name__)
+
+
+# Clients for which we must NOT issue refresh tokens. The token response will omit
+# "refresh_token" and no OAuthRefreshToken row will be created. Entries are matched
+# against the app's cimd_metadata_url for CIMD clients, and against client_id otherwise.
+CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
+    {
+        # PostHog Wizard CLI (CIMD) — short-lived auth, no persistent session needed.
+        "https://us.posthog.com/api/oauth/wizard/client-metadata",
+        "https://eu.posthog.com/api/oauth/wizard/client-metadata",
+    }
+)
 
 
 def get_region_info() -> dict | None:
@@ -142,6 +154,18 @@ class OAuthValidator(OAuth2Validator):
         if hasattr(request, "client") and request.client:
             return getattr(request.client, "is_dcr_client", False) or getattr(request.client, "is_cimd_client", False)
         return False
+
+    def _should_skip_refresh_token(self, request) -> bool:
+        if not hasattr(request, "client") or not request.client:
+            return False
+        # CIMD clients expose their canonical id via cimd_metadata_url (the model's
+        # client_id is an auto-generated UUID for those). Gate on is_cimd_client so
+        # a stray cimd_metadata_url on a non-CIMD app can't flip the behavior.
+        if getattr(request.client, "is_cimd_client", False):
+            client_key = getattr(request.client, "cimd_metadata_url", None)
+        else:
+            client_key = getattr(request.client, "client_id", None)
+        return bool(client_key and client_key in CLIENT_IDS_WITHOUT_REFRESH_TOKEN)
 
     def _load_application(self, client_id, request):
         """
@@ -262,12 +286,18 @@ class OAuthValidator(OAuth2Validator):
         """
         expires_in = self._get_token_expires_in(request)
         token["expires_in"] = expires_in
+        skip_refresh = self._should_skip_refresh_token(request)
+        if skip_refresh:
+            # Dropping the key short-circuits DOT's refresh-token branch so no
+            # OAuthRefreshToken is created and none is returned in the response.
+            token.pop("refresh_token", None)
         client_id = getattr(request.client, "client_id", None) if hasattr(request, "client") else None
         logger.info(
             "oauth_save_bearer_token",
             client_id_prefix=str(client_id)[:8] if client_id else "unknown",
             is_dcr_client=expires_in != oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS,
             expires_in=expires_in,
+            refresh_token_suppressed=skip_refresh,
             grant_type=getattr(request, "grant_type", "unknown"),
         )
         return super().save_bearer_token(token, request, *args, **kwargs)
@@ -379,7 +409,9 @@ class OAuthValidator(OAuth2Validator):
             except OAuthGrant.DoesNotExist:
                 pass
 
-        if scoped_teams is None or scoped_organizations is None:
+        # Only raise when we have no scope information at all. A token scoped to just
+        # teams or just organizations is valid — we treat `None` and `[]` as equivalent.
+        if scoped_teams is None and scoped_organizations is None:
             raise OAuthToolkitError("Unable to find scoped_teams or scoped_organizations")
 
         return scoped_teams, scoped_organizations
@@ -417,7 +449,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # only receives an oauthlib Request which lacks request.META for IP extraction.
         client_id = request.query_params.get("client_id")
         if is_cimd_client_id(client_id) and not OAuthApplication.objects.filter(cimd_metadata_url=client_id).exists():
-            for throttle in CIMD_THROTTLES:
+            for throttle_cls in CIMD_THROTTLE_CLASSES:
+                throttle = throttle_cls()
                 if not throttle.allow_request(request, view=self):
                     logger.warning("cimd_rate_limited", client_id=client_id, scope=throttle.scope, wait=throttle.wait())
                     return Response(

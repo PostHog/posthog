@@ -229,7 +229,8 @@ def log_query_sql(
 def setup_accuracy_check_config(
     context: AssetCheckExecutionContext, check_name: str
 ) -> tuple[float, int, int, str, str]:
-    run_config = cast(dict[str, Any], context.run.run_config.get("ops", {}).get(check_name, {}).get("config", {}))
+    full_run_config = cast(dict[str, Any], context.run.run_config)
+    run_config = cast(dict[str, Any], full_run_config.get("ops", {}).get(check_name, {}).get("config", {}))
     tolerance_percentage = float(run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT))
     days_back = int(run_config.get("days_back", DEFAULT_DAYS_BACK))
     team_id = int(TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS)

@@ -242,11 +242,6 @@ async fn load_personal_key_from_pg(
         INNER JOIN posthog_user u ON pak.user_id = u.id
         WHERE pak.secure_value = $1
           AND u.is_active = true
-          AND (
-              '*' = ANY(pak.scopes)
-              OR 'feature_flag:read' = ANY(pak.scopes)
-              OR 'feature_flag:write' = ANY(pak.scopes)
-          )
     "#;
 
     match sqlx::query(query)
@@ -273,7 +268,7 @@ async fn load_personal_key_from_pg(
             }))
         }
         None => {
-            warn!("Personal API key not found or doesn't have required scopes");
+            warn!("Personal API key not found");
             Ok(None)
         }
     }
@@ -314,15 +309,11 @@ fn validate_personal_key_metadata(data: &TokenAuthData, team: &Team) -> Result<(
                 }
             }
 
-            // Check scopes
+            // Check scopes — return 403 (not 401) when the key is valid but lacks permissions
             if let Some(scope_list) = scopes {
                 if scope_list.is_empty() {
-                    // In Django, an explicit empty scopes list means "no access".
-                    // Mirror that behavior here instead of treating it as "no restriction".
-                    debug!(
-                        "Cached personal API key has an explicit empty scopes list; treating as no access"
-                    );
-                    return Err(FlagError::PersonalApiKeyInvalid);
+                    debug!("Personal API key has an explicit empty scopes list; no access");
+                    return Err(FlagError::PersonalApiKeyInsufficientScopes);
                 }
 
                 let has_access = scope_list.iter().any(|s| {
@@ -331,8 +322,8 @@ fn validate_personal_key_metadata(data: &TokenAuthData, team: &Team) -> Result<(
                         || s == SCOPE_FEATURE_FLAG_WRITE
                 });
                 if !has_access {
-                    debug!(scopes = ?scope_list, "Cached personal API key lacks feature flag scopes");
-                    return Err(FlagError::PersonalApiKeyInvalid);
+                    debug!(scopes = ?scope_list, "Personal API key lacks feature flag scopes");
+                    return Err(FlagError::PersonalApiKeyInsufficientScopes);
                 }
             }
 
@@ -926,7 +917,7 @@ mod tests {
 
         assert!(matches!(
             validate_personal_key_metadata(&data, &team),
-            Err(FlagError::PersonalApiKeyInvalid)
+            Err(FlagError::PersonalApiKeyInsufficientScopes)
         ));
     }
 

@@ -134,7 +134,7 @@ def _web_analytics_team_selection_impl(
 
     context.log.info(f"Successfully materialized team selection for {len(stored_team_ids)} teams")
 
-    metadata = {
+    metadata: dict[str, int | str] = {
         "team_count": len(stored_team_ids),
         "team_ids": str(stored_team_ids),
     }

@@ -1,3 +1,5 @@
+import './styles/layers.css'
+
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './accordion'
 export { Badge, badgeVariants } from './badge'
 export { Button, buttonVariants, type ButtonProps } from './button'
@@ -7,7 +9,7 @@ export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
 export { Collapsible, CollapsibleTrigger, CollapsibleContent } from './collapsible'
-export { MenuLabel } from './menuLabel'
+export { MenuLabel } from './menu-label'
 export {
     Combobox,
     ComboboxInput,
@@ -72,10 +74,11 @@ export { Dot, dotVariants } from './dot'
 export {
     Drawer,
     DrawerPortal,
-    DrawerOverlay,
+    DrawerBackdrop,
     DrawerTrigger,
     DrawerClose,
     DrawerContent,
+    DrawerHandle,
     DrawerHeader,
     DrawerFooter,
     DrawerTitle,

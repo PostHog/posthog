@@ -18,14 +18,15 @@ const AssistantGroupMultipleBreakdownFilter = z.object({
 })
 
 const AssistantEventMultipleBreakdownFilterType = z.enum([
-    'cohort',
     'person',
     'event',
     'event_metadata',
     'session',
     'hogql',
-    'data_warehouse_person_property',
+    'cohort',
     'revenue_analytics',
+    'data_warehouse',
+    'data_warehouse_person_property',
 ])
 
 const AssistantGenericMultipleBreakdownFilter = z.object({
@@ -653,6 +654,13 @@ const AssistantFunnelsEventsNode = z.object({
     math: AssistantFunnelsMath.describe(
         'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
+    optionalInFunnel: z.coerce
+        .boolean()
+        .describe(
+            "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required)."
+        )
+        .default(false)
+        .optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
@@ -664,6 +672,13 @@ const AssistantFunnelsActionsNode = z.object({
         'Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.'
     ).optional(),
     name: z.string().describe('Action name from the plan.'),
+    optionalInFunnel: z.coerce
+        .boolean()
+        .describe(
+            "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required)."
+        )
+        .default(false)
+        .optional(),
     properties: z.array(AssistantPropertyFilter).optional(),
     version: z.coerce.number().describe('version of the node, used for schema migrations').optional(),
 })
@@ -702,14 +717,33 @@ const RetentionType = z.enum(['retention_recurring', 'retention_first_time', 're
 
 const AssistantRetentionEventsNode = z.object({
     custom_name: z.string().describe('Custom name for the event if it is needed to be renamed.').optional(),
-    name: z.string().describe('Event name from the plan.'),
+    id: z
+        .string()
+        .describe(
+            'The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.'
+        ),
+    name: z
+        .string()
+        .describe(
+            'Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.'
+        )
+        .optional(),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for the event.').optional(),
     type: z.literal('events').default('events'),
 })
 
 const AssistantRetentionActionsNode = z.object({
-    id: z.coerce.number().describe('Action ID from the plan.'),
-    name: z.string().describe('Action name from the plan.'),
+    id: z.coerce
+        .number()
+        .describe(
+            'The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.'
+        ),
+    name: z
+        .string()
+        .describe(
+            "Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching."
+        )
+        .optional(),
     properties: z.array(AssistantPropertyFilter).describe('Property filters for the action.').optional(),
     type: z.literal('actions').default('actions'),
 })
@@ -1097,7 +1131,7 @@ const AssistantTraceQuery = z.object({
         .describe('The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results).'),
 })
 
-const AssistantInsightActorsQuery = z.object({
+const AssistantTrendsActorsQuery = z.object({
     breakdown: z
         .array(z.string())
         .describe(
@@ -1109,12 +1143,86 @@ const AssistantInsightActorsQuery = z.object({
         .describe('Whether to pull from the previous period when `compare` is enabled in the source.')
         .optional(),
     day: z
-        .union([z.string(), integer])
-        .describe('Bucket date for the data point. Accepts ISO date or integer offset.')
+        .string()
+        .describe("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+    includeRecordings: z.coerce
+        .boolean()
+        .describe('Whether to include matched session recordings for each actor.')
+        .default(true)
         .optional(),
     kind: z.literal('InsightActorsQuery').default('InsightActorsQuery'),
     series: integer.describe('Series index (0-based) when the source has multiple series.').optional(),
     source: AssistantTrendsQuery.describe('The source insight query whose data point we are drilling into.'),
+})
+
+const QueryTrendsSchema = AssistantTrendsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryFunnelSchema = AssistantFunnelsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryRetentionSchema = AssistantRetentionQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryStickinessSchema = AssistantStickinessQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryPathsSchema = AssistantPathsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryLifecycleSchema = AssistantLifecycleQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
+})
+
+const QueryTrendsActorsSchema = AssistantTrendsActorsQuery.extend({
+    output_format: z
+        .enum(['optimized', 'json'])
+        .default('optimized')
+        .optional()
+        .describe(
+            'Output format. "optimized" returns a human-readable summary from server-side formatters (recommended for analysis). "json" returns the raw query results as JSON.'
+        ),
 })
 
 // --- Tool registrations ---
@@ -1122,65 +1230,72 @@ const AssistantInsightActorsQuery = z.object({
 export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrapper<ZodObjectAny>>> = {
     'query-trends': createQueryWrapper({
         name: 'query-trends',
-        schema: AssistantTrendsQuery,
+        schema: QueryTrendsSchema,
         kind: 'TrendsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-funnel': createQueryWrapper({
         name: 'query-funnel',
-        schema: AssistantFunnelsQuery,
+        schema: QueryFunnelSchema,
         kind: 'FunnelsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-retention': createQueryWrapper({
         name: 'query-retention',
-        schema: AssistantRetentionQuery,
+        schema: QueryRetentionSchema,
         kind: 'RetentionQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-stickiness': createQueryWrapper({
         name: 'query-stickiness',
-        schema: AssistantStickinessQuery,
+        schema: QueryStickinessSchema,
         kind: 'StickinessQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-paths': createQueryWrapper({
         name: 'query-paths',
-        schema: AssistantPathsQuery,
+        schema: QueryPathsSchema,
         kind: 'PathsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-lifecycle': createQueryWrapper({
         name: 'query-lifecycle',
-        schema: AssistantLifecycleQuery,
+        schema: QueryLifecycleSchema,
         kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
     'query-llm-traces-list': createQueryWrapper({
         name: 'query-llm-traces-list',
         schema: AssistantTracesQuery,
         kind: 'TracesQuery',
-        responseFormat: 'json',
+        outputFormat: 'json',
         mcpVersion: 2,
     }),
     'query-llm-trace': createQueryWrapper({
         name: 'query-llm-trace',
         schema: AssistantTraceQuery,
         kind: 'TraceQuery',
-        responseFormat: 'json',
+        outputFormat: 'json',
         mcpVersion: 2,
     }),
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',
-        schema: AssistantInsightActorsQuery,
+        schema: QueryTrendsActorsSchema,
         kind: 'InsightActorsQuery',
-        uiResourceUri: 'ui://posthog/query-results.html',
+        uiResourceUri: 'ui://posthog/insight-actors.html',
+        outputFormat: 'optimized',
         mcpVersion: 2,
     }),
 }

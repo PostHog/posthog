@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "skill_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "version": {
+            "description": "Specific skill version to fetch. If omitted, the latest version is returned.",
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "required": ["skill_name"],
+    "type": "object"
+}

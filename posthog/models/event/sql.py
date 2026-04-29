@@ -314,7 +314,7 @@ def KAFKA_EVENTS_TABLE_JSON_WS_SQL():
     return (
         EVENTS_TABLE_BASE_SQL
         + """
-    SETTINGS kafka_skip_broken_messages = 100
+    SETTINGS kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_num_consumers = 1
 """
     ).format(
         table_name=KAFKA_EVENTS_JSON_WS_TABLE,

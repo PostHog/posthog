@@ -18,7 +18,6 @@ from posthog.schema import (
     Breakdown,
     BreakdownFilter,
     BreakdownType,
-    DataWarehouseSyncInterval,
     EventsNode,
     HogQLQueryResponse,
     LifecycleQuery,
@@ -77,7 +76,7 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         """Enable materialization and set up a completed saved query with table."""
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -421,3 +420,191 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         for i, result in enumerate(mat_results):
             assert result["data"] == [1.0] * 10, f"Series {i}: unexpected data values: {result['data']}"
             assert result["count"] == 10.0, f"Series {i}: unexpected count: {result['count']}"
+
+    # =========================================================================
+    # DATE STRING COERCION (materialized tables return Array(Date) as strings)
+    # =========================================================================
+
+    def test_materialized_trends_date_strings_are_coerced(self):
+        """Reproduces the `'str' object has no attribute 'strftime'` AttributeError.
+
+        When ClickHouse reads a materialized Parquet table and returns the results
+        through the HogQL pipeline, Array(Date) columns can arrive as arrays of ISO
+        strings (not date/datetime objects). The inline path returns native dates,
+        so TrendsQueryRunner.build_series_response unconditionally calls
+        .strftime() — which blows up on strings. The transformer must coerce.
+        """
+        endpoint = create_endpoint_with_version(
+            name="trends_date_coercion",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self._materialize_endpoint(endpoint)
+
+        # Real production format (ISO datetime at midnight), not bare dates.
+        date_strings = [f"2026-01-{d:02d}T00:00:00" for d in range(1, 11)]
+        flat_response = HogQLQueryResponse(
+            results=[(date_strings, [1.0] * 10)],
+            columns=["date", "total"],
+            types=["Array(Date)", "Array(Float64)"],
+            hasMore=False,
+        )
+
+        with mock.patch(
+            "products.endpoints.backend.api.process_query_model",
+            return_value=flat_response,
+        ):
+            mat_resp = self._run_endpoint(endpoint)
+
+        assert mat_resp.status_code == status.HTTP_200_OK, mat_resp.json()
+        mat_results = mat_resp.json()["results"]
+        assert len(mat_results) > 0
+
+        first = mat_results[0]
+        for field in TRENDS_REQUIRED_FIELDS:
+            assert field in first, f"Materialized response missing '{field}'"
+        assert len(first["labels"]) == 10
+        assert len(first["days"]) == 10
+        assert first["days"][0].startswith("2026-01-01")
+
+    def test_coerce_temporal_columns_works_for_any_column_name(self):
+        """Type-driven coercion must not depend on the column being named 'date'.
+
+        Custom queries could name a timestamp column anything (e.g. 'bucket',
+        'ts', 'event_time'); as long as HogQL tags it with a Date/DateTime type,
+        we coerce the stringified values back to datetime.
+        """
+        from datetime import datetime as dt
+
+        from products.endpoints.backend.insight_transformers import _coerce_temporal_columns
+
+        # Both types shapes: real API uses [[name, type], ...]; mocks use [type, ...].
+        for types in (
+            [["bucket", "Array(DateTime64(6))"], ["series_total", "Array(Float64)"], ["label", "String"]],
+            ["Array(DateTime64(6))", "Array(Float64)", "String"],
+        ):
+            rows = [
+                (["2026-01-01T00:00:00", "2026-01-02T00:00:00"], [1.0, 2.0], "hello"),
+            ]
+            _coerce_temporal_columns(rows, types)
+            assert rows[0][0] == [dt(2026, 1, 1), dt(2026, 1, 2)], f"types shape {types} failed"
+            assert rows[0][1] == [1.0, 2.0]
+            assert rows[0][2] == "hello"
+
+    def test_coerce_temporal_columns_handles_scalar_and_nullable(self):
+        """Scalar DateTime, Nullable wrapping, and mixed None values must all work."""
+        from datetime import datetime as dt
+
+        from products.endpoints.backend.insight_transformers import _coerce_temporal_columns
+
+        rows = [["2026-01-05T12:30:00", ["2026-01-01T00:00:00", None], 42]]
+        types = ["DateTime64(6)", "Array(Nullable(DateTime64(6)))", "Int64"]
+        _coerce_temporal_columns(rows, types)
+        assert rows[0][0] == dt(2026, 1, 5, 12, 30)
+        assert rows[0][1] == [dt(2026, 1, 1), None]
+        assert rows[0][2] == 42
+
+    def test_coerce_temporal_columns_noop_when_no_temporal_columns(self):
+        from products.endpoints.backend.insight_transformers import _coerce_temporal_columns
+
+        rows = [("hello", 1.0)]
+        _coerce_temporal_columns(rows, ["String", "Float64"])
+        # Rows unchanged (still tuples, no substitution happened)
+        assert rows == [("hello", 1.0)]
+        assert isinstance(rows[0], tuple)
+
+    def test_materialized_trends_series_with_no_rows_is_not_a_mismatch(self):
+        """A WHERE clause (e.g. a breakdown filter) can legitimately drop every row
+        for one or more series. The materialized table still holds all series —
+        it's just that the filtered read returned zero rows for some of them.
+        That must be treated as an empty series, not as query/table drift.
+
+        Regression for MaterializedSeriesMismatchError being raised when a
+        breakdown-value filter eliminated a full series' rows.
+        """
+        endpoint = create_endpoint_with_version(
+            name="trends_sparse_series",
+            team=self.team,
+            query=TrendsQuery(
+                series=[
+                    EventsNode(event="$pageview"),
+                    EventsNode(event="$pageview", math="dau"),
+                    EventsNode(event="$pageleave"),  # third series with no matching rows
+                ],
+                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        self._materialize_endpoint(endpoint)
+
+        # Only series 0 and 1 have rows — series 2 got filtered out entirely.
+        dates = [date(2026, 1, d) for d in range(1, 11)]
+        flat_response = HogQLQueryResponse(
+            results=[
+                (0, dates, [1.0] * 10),
+                (1, dates, [1.0] * 10),
+            ],
+            columns=["__series_index", "date", "total"],
+            types=["Int64", "Array(Date)", "Array(Float64)"],
+            hasMore=False,
+        )
+
+        with mock.patch(
+            "products.endpoints.backend.api.process_query_model",
+            return_value=flat_response,
+        ):
+            mat_resp = self._run_endpoint(endpoint)
+
+        assert mat_resp.status_code == status.HTTP_200_OK, mat_resp.json()
+        mat_results = mat_resp.json()["results"]
+        # Two series have data, the third is empty — all three should be represented
+        # in the shape, but the empty one may collapse to no result rows.
+        assert len(mat_results) >= 2, f"Expected at least 2 series in response, got {len(mat_results)}"
+        for r in mat_results:
+            assert "data" in r and "labels" in r and "days" in r
+
+    def test_materialized_trends_extra_series_index_still_raises(self):
+        """Genuine drift — materialized table has a series index the current query
+        doesn't define — must still trip the mismatch guard so we re-materialize.
+        """
+        from products.endpoints.backend.insight_transformers import (
+            MaterializedSeriesMismatchError,
+            transform_materialized_insight_response,
+        )
+
+        endpoint = create_endpoint_with_version(
+            name="trends_genuine_drift",
+            team=self.team,
+            query=TrendsQuery(
+                series=[EventsNode(event="$pageview")],
+                dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
+            ).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        dates = [date(2026, 1, d) for d in range(1, 11)]
+        # Materialized table contains 2 series (0 and 1) but current query only defines 1.
+        result_dict = {
+            "columns": ["__series_index", "date", "total"],
+            "types": ["Int64", "Array(Date)", "Array(Float64)"],
+            "results": [
+                [0, dates, [1.0] * 10],
+                [1, dates, [1.0] * 10],
+            ],
+        }
+
+        with pytest.raises(MaterializedSeriesMismatchError):
+            transform_materialized_insight_response(
+                result_dict,
+                endpoint.get_version().query,
+                self.team,
+            )

@@ -1,18 +1,11 @@
 from datetime import timedelta
 from typing import Any
 
-from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 
+from products.logs.backend.has_logs_query_runner import team_has_logs
+
 from .base import Recommendation
-
-
-def _team_has_logs(team_id: int) -> bool:
-    result = sync_execute(
-        "SELECT 1 FROM logs_distributed WHERE team_id = %(team_id)s LIMIT 1",
-        {"team_id": team_id},
-    )
-    return len(result) > 0
 
 
 class CrossSellRecommendation(Recommendation):
@@ -28,7 +21,7 @@ class CrossSellRecommendation(Recommendation):
                 },
                 {
                     "key": "logs",
-                    "enabled": _team_has_logs(team.id),
+                    "enabled": team_has_logs(team),
                 },
             ]
         }

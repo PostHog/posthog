@@ -1,7 +1,9 @@
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from typing import Optional
 
 import structlog
+import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -29,6 +31,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import get_experiment_date_range
+from posthog.hogql_queries.experiments.cuped_config import get_cuped_config
 from posthog.hogql_queries.experiments.error_handling import experiment_error_handler
 from posthog.hogql_queries.experiments.experiment_query_builder import (
     ExperimentQueryBuilder,
@@ -120,6 +123,11 @@ class ExperimentQueryRunner(QueryRunner):
         # Check if this is a data warehouse query
         if isinstance(self.query.metric, ExperimentMeanMetric):
             self.is_data_warehouse_query = self.query.metric.source.kind == "ExperimentDataWarehouseNode"
+        elif isinstance(self.query.metric, ExperimentFunnelMetric):
+            # For funnel metrics, check if any step uses data warehouse
+            self.is_data_warehouse_query = any(
+                isinstance(step, ExperimentDataWarehouseNode) for step in self.query.metric.series
+            )
         elif isinstance(self.query.metric, ExperimentRatioMetric):
             # For ratio metrics, check if either numerator or denominator uses data warehouse
             numerator_is_dw = isinstance(self.query.metric.numerator, ExperimentDataWarehouseNode)
@@ -130,8 +138,6 @@ class ExperimentQueryRunner(QueryRunner):
             start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
             completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
             self.is_data_warehouse_query = start_is_dw or completion_is_dw
-        else:
-            self.is_data_warehouse_query = False
         self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
 
         self.stats_method = get_experiment_stats_method(self.experiment)
@@ -142,6 +148,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         # Just to simplify access
         self.metric = self.query.metric
+        self.cuped_config = get_cuped_config(self.experiment.stats_config, self.metric)
 
         self.clickhouse_sql: str | None = None
         self.hogql: str | None = None
@@ -221,6 +228,10 @@ class ExperimentQueryRunner(QueryRunner):
             placeholders=placeholders,
         )
 
+    @cached_property
+    def _team_experiments_config(self) -> TeamExperimentsConfig:
+        return get_or_create_team_extension(self.team, TeamExperimentsConfig)
+
     def _should_precompute(self) -> bool:
         """Resolve whether to use precomputation: query-level override > team-level default."""
         if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
@@ -228,8 +239,15 @@ class ExperimentQueryRunner(QueryRunner):
         if self.query.precomputation_mode == PrecomputationMode.DIRECT:
             return False
 
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        return config.experiment_precomputation_enabled
+        return self._team_experiments_config.experiment_precomputation_enabled
+
+    def _resolve_funnel_steps_data_disabled(self) -> bool:
+        """Resolve funnel_steps_data_disabled: experiment parameter > team config."""
+        parameters = self.experiment.parameters or {}
+        if "funnel_steps_data_disabled" in parameters:
+            return bool(parameters["funnel_steps_data_disabled"])
+
+        return self._team_experiments_config.funnel_steps_data_disabled
 
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
@@ -247,7 +265,9 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
-        funnel_steps_data_disabled = (self.experiment.parameters or {}).get("funnel_steps_data_disabled", False)
+        funnel_steps_data_disabled = (
+            self._resolve_funnel_steps_data_disabled() if isinstance(self.metric, ExperimentFunnelMetric) else False
+        )
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -262,6 +282,7 @@ class ExperimentQueryRunner(QueryRunner):
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
             funnel_steps_data_disabled=funnel_steps_data_disabled,
+            cuped_config=self.cuped_config,
         )
 
         should_precompute = self._should_precompute()
@@ -279,12 +300,15 @@ class ExperimentQueryRunner(QueryRunner):
             except Exception:
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
-            # Precompute metric events for ordered funnel metrics
+            # Precompute metric events for ordered funnel metrics. CUPED extends the
+            # funnel scan back by `lookback_days` to source the pre-exposure covariate;
+            # the precomputed metric_events table only covers the experiment window, so
+            # skip precomputation here and let the builder issue a fresh scan.
             if (
                 isinstance(self.metric, ExperimentFunnelMetric)
                 and (self.metric.funnel_order_type or "ordered") == "ordered"
                 and not self._get_breakdowns_for_builder()
-                and self.query.metric_events_precomputation
+                and not self.cuped_config.enabled
             ):
                 try:
                     metric_result = self._ensure_metric_events_precomputed(builder)
@@ -299,7 +323,7 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _evaluate_experiment_query(
         self,
-    ) -> list[tuple]:
+    ) -> tuple[list[tuple], list[str]]:
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         metric_name = self.metric.name or get_default_metric_title(self.metric.model_dump())
@@ -324,17 +348,34 @@ class ExperimentQueryRunner(QueryRunner):
         self.hogql = experiment_query_debug[0]
         self.clickhouse_sql = experiment_query_debug[1]
 
+        modifiers = create_default_modifiers_for_team(self.team)
+        if posthoganalytics.feature_enabled(
+            "hogql-session-id-pushdown",
+            str(self.team.id),
+            groups={"project": str(self.team.id)},
+            group_properties={"project": {"id": str(self.team.id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            modifiers.sessionIdPushdown = True
+
+        settings = HogQLGlobalSettings(
+            max_execution_time=self.max_execution_time,
+            enable_analyzer=True,
+            max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
+        )
+        # Mean metric queries join exposures with a potentially large metric-events table and
+        # can exceed memory with the default hash join. grace_hash spills to disk when needed.
+        if isinstance(self.metric, ExperimentMeanMetric):
+            settings.join_algorithm = "grace_hash"
+
         response = execute_hogql_query(
             query_type="ExperimentQuery",
             query=experiment_query_ast,
             team=self.team,
             timings=self.timings,
-            modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(
-                max_execution_time=self.max_execution_time,
-                enable_analyzer=True,
-                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-            ),
+            modifiers=modifiers,
+            settings=settings,
             workload=self.workload,
         )
 
@@ -344,7 +385,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
-        return sorted_results
+        return sorted_results, response.columns or []
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
@@ -373,8 +414,8 @@ class ExperimentQueryRunner(QueryRunner):
 
     def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
         """Fetch and prepare variant results with missing variants added."""
-        sorted_results = self._evaluate_experiment_query()
-        variant_results = get_variant_results(sorted_results, self.metric)
+        sorted_results, columns = self._evaluate_experiment_query()
+        variant_results = get_variant_results(sorted_results, columns)
         return self._add_missing_variants(variant_results)
 
     def _has_breakdown(self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]) -> bool:
@@ -391,6 +432,7 @@ class ExperimentQueryRunner(QueryRunner):
                 control_variant=control_variant,
                 test_variants=test_variants,
                 stats_config=self.experiment.stats_config,
+                cuped_config=self.cuped_config,
             )
 
         return get_bayesian_experiment_result(
@@ -398,6 +440,7 @@ class ExperimentQueryRunner(QueryRunner):
             control_variant=control_variant,
             test_variants=test_variants,
             stats_config=self.experiment.stats_config,
+            cuped_config=self.cuped_config,
         )
 
     def _process_breakdown_results(

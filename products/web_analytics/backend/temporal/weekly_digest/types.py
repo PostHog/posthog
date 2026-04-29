@@ -18,8 +18,15 @@ class BuildAndSendDigestForOrgInput:
 
 @dataclasses.dataclass
 class SendTestDigestInput:
-    """Input for the test activity: send a single digest for one team."""
+    """Input for the test activity.
 
-    team_id: int
+    Two modes:
+    - email only: send the user's full real digest (one email per org they're in)
+    - email + team_id: preview that single team's digest as if the user were receiving it
+
+    Bypasses notification settings and feature flags. Always enforces org membership
+    and team access.
+    """
+
     email: str
-    force: bool = False
+    team_id: int | None = None

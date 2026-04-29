@@ -11,7 +11,7 @@ from django.core.cache import cache
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.temporal.oauth import PosthogMcpScopes, has_write_scopes
+from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.constants import InitialPermissionMode
@@ -44,6 +44,7 @@ class ReasoningEffort(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    XHIGH = "xhigh"
     MAX = "max"
 
 
@@ -51,6 +52,7 @@ PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     ReasoningEffort.LOW,
     ReasoningEffort.MEDIUM,
     ReasoningEffort.HIGH,
+    ReasoningEffort.XHIGH,
     ReasoningEffort.MAX,
 )
 
@@ -71,6 +73,14 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+    ),
+    "claude-opus-4-7": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
         ReasoningEffort.MAX,
     ),
     "claude-sonnet-4-6": (
@@ -147,12 +157,14 @@ class RunState(BaseModel, extra="allow"):
     model: str | None = None
     reasoning_effort: ReasoningEffort | None = None
     resume_from_run_id: str | None = None
+    handoff_resumed: bool = False
     snapshot_external_id: str | None = None
     sandbox_id: str | None = None
     sandbox_url: str | None = None
     sandbox_connect_token: str | None = None
     sandbox_environment_id: str | None = None
     pending_user_message: str | None = None
+    pending_user_artifact_ids: list[str] | None = None
     pending_user_message_ts: str | None = None
     initial_permission_mode: InitialPermissionMode | None = None
     slack_thread_url: str | None = None
@@ -165,6 +177,30 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
 
 
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
+
+# Minimum interval between MCP token refreshes pushed to a live sandbox. The
+# OAuth tokens themselves are valid for 6h; we only need to rotate periodically
+# so a long-running sandbox doesn't accumulate stale credentials.
+MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
+
+
+def _mcp_token_issued_cache_key(run_id: str) -> str:
+    return f"posthog_ai:task-run-mcp-token-issued:{run_id}"
+
+
+def mark_mcp_token_issued(run_id: str) -> None:
+    """Record that a fresh MCP token was issued to the sandbox for this run.
+
+    The cache entry self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so
+    `should_refresh_mcp_token` returns True again past that window.
+    """
+    cache.set(_mcp_token_issued_cache_key(run_id), True, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+
+
+def should_refresh_mcp_token(run_id: str) -> bool:
+    """Return True if no MCP token has been issued for this run within the
+    last MCP_TOKEN_REFRESH_INTERVAL_SECONDS window."""
+    return cache.get(_mcp_token_issued_cache_key(run_id)) is None
 
 
 @dataclass(frozen=True)
@@ -225,11 +261,25 @@ def get_user_mcp_server_configs(
     return configs
 
 
+def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
+    """Map the task's interaction origin to the `x-posthog-mcp-consumer` value.
+
+    Slack-launched runs send `"slack"`; everything else (the PostHog Code UI,
+    API callers, missing origin) is treated as PostHog Code. The MCP server
+    gates UI-apps payloads on the literal `"posthog-code"` — keep in sync with
+    `POSTHOG_CODE_CONSUMER` in `services/mcp/src/lib/client-detection.ts`.
+    """
+    if interaction_origin == "slack":
+        return "slack"
+    return "posthog-code"
+
+
 def get_sandbox_ph_mcp_configs(
     token: str,
     project_id: int,
     *,
     scopes: PosthogMcpScopes = "read_only",
+    interaction_origin: str | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
@@ -247,6 +297,7 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-project-id", "value": str(project_id)},
         {"name": "x-posthog-mcp-version", "value": "2"},
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
+        {"name": "x-posthog-mcp-consumer", "value": _resolve_mcp_consumer(interaction_origin)},
     ]
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
 
@@ -311,6 +362,9 @@ def get_sandbox_github_token(
 
 
 def format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:
+    if not domains:
+        return "no custom domains"
+
     preview = ", ".join(domains[:limit])
     remaining = len(domains) - limit
     if remaining > 0:

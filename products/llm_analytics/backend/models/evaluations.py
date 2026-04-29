@@ -1,5 +1,5 @@
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -41,12 +41,12 @@ class Evaluation(UUIDTModel):
     # Lifecycle state. `status` is authoritative; `enabled` is a boolean projection kept in sync by save() for
     # backwards compatibility with existing API / DB callers. When status is ERROR, status_reason must be set.
     enabled = models.BooleanField(default=False)
-    status = models.CharField(max_length=20, choices=EvaluationStatus.choices, default=EvaluationStatus.PAUSED)
-    status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason.choices, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=EvaluationStatus, default=EvaluationStatus.PAUSED)
+    status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason, null=True, blank=True)
 
-    evaluation_type = models.CharField(max_length=50, choices=EvaluationType.choices)
+    evaluation_type = models.CharField(max_length=50, choices=EvaluationType)
     evaluation_config = models.JSONField(default=dict)
-    output_type = models.CharField(max_length=50, choices=OutputType.choices)
+    output_type = models.CharField(max_length=50, choices=OutputType)
     output_config = models.JSONField(default=dict)
 
     conditions = models.JSONField(default=list)
@@ -189,4 +189,10 @@ class Evaluation(UUIDTModel):
 def evaluation_saved(sender, instance, created, **kwargs):
     from posthog.plugins.plugin_server_api import reload_evaluations_on_workers
 
-    reload_evaluations_on_workers(team_id=instance.team_id, evaluation_ids=[str(instance.id)])
+    # Defer publishing to workers until the surrounding transaction commits — otherwise
+    # workers can fire before the row is visible, especially now that perform_create wraps
+    # the save + EvaluationReport create in transaction.atomic(). In auto-commit mode
+    # on_commit fires synchronously, preserving prior behavior.
+    team_id = instance.team_id
+    evaluation_id = str(instance.id)
+    transaction.on_commit(lambda: reload_evaluations_on_workers(team_id=team_id, evaluation_ids=[evaluation_id]))

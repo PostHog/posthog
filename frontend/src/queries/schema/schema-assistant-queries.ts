@@ -565,6 +565,12 @@ export interface AssistantFunnelNodeShared {
      */
     math?: AssistantFunnelsMath
     properties?: AssistantPropertyFilter[]
+    /**
+     * If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen.
+     * Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).
+     * @default false
+     */
+    optionalInFunnel?: boolean
 }
 
 export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'>, AssistantFunnelNodeShared {
@@ -728,9 +734,13 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
 export interface AssistantRetentionEventsNode {
     type: 'events'
     /**
-     * Event name from the plan.
+     * The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID.
      */
-    name: string
+    id: string
+    /**
+     * Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching.
+     */
+    name?: string
     /**
      * Custom name for the event if it is needed to be renamed.
      */
@@ -744,13 +754,13 @@ export interface AssistantRetentionEventsNode {
 export interface AssistantRetentionActionsNode {
     type: 'actions'
     /**
-     * Action ID from the plan.
+     * The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string.
      */
     id: number
     /**
-     * Action name from the plan.
+     * Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching.
      */
-    name: string
+    name?: string
     /**
      * Property filters for the action.
      */
@@ -1147,21 +1157,20 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 }
 
 /**
- * Drills into an insight to list the persons behind a specific data point. Returned rows are
- * trimmed to `distinct_id`, `name`, `email`, and an optional per-actor `count`.
+ * Drills into a trends insight to list the persons behind a specific data point. Returned rows
+ * are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.
  *
- * Currently supports trends as the source; other insight kinds will be added incrementally.
  * Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific
- * cell in the source insight. Omit them to get all actors for the query.
+ * cell in the source insight.
  */
-export interface AssistantInsightActorsQuery {
+export interface AssistantTrendsActorsQuery {
     kind: NodeKind.InsightActorsQuery
 
     /** The source insight query whose data point we are drilling into. */
     source: AssistantTrendsQuery
 
-    /** Bucket date for the data point. Accepts ISO date or integer offset. */
-    day?: string | integer
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
 
     /** Series index (0-based) when the source has multiple series. */
     series?: integer
@@ -1174,6 +1183,12 @@ export interface AssistantInsightActorsQuery {
 
     /** Whether to pull from the previous period when `compare` is enabled in the source. */
     compare?: 'current' | 'previous'
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
 }
 
 /**
@@ -1326,6 +1341,7 @@ export interface AssistantRecordingsQuery {
      * - `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).
      * - `event`: Filter by properties of events in the session (e.g. $current_url, $browser).
      * - `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).
+     * - `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`.
      */
     properties?: AssistantRecordingsQueryPropertyFilter[]
     /** Exclude internal and test users. Default: false. */
@@ -1340,6 +1356,8 @@ export interface AssistantRecordingsQuery {
     after?: string
     /** Filter recordings to a specific person by their UUID. */
     person_uuid?: string
+    /** Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call. */
+    session_ids?: string[]
 }
 
 export interface AssistantInsightVizNode {

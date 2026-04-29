@@ -82,7 +82,7 @@ export function copyIndexHtml(
     const cssFile =
         relativeFiles.length > 0 ? relativeFiles.find((e) => e.endsWith('.css')) : `${entry}.css?t=${buildId}`
 
-    const jsFileFallback = `${entry}.js`
+    const jsFileFallback = `${entry}.js?t=${buildId}`
     const scriptCode = `
         window.ESBUILD_LOAD_SCRIPT = async function (file) {
             try {
@@ -119,12 +119,28 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
-    // Modified CSS loader to handle both files
+    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
+    // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
+    const cssFileFallback = `${entry}.css?t=${buildId}`
+    const needsCssFallback = cssFile !== cssFileFallback
     const cssLoader = `
         const link = document.createElement("link");
         link.rel = "stylesheet";
         link.crossOrigin = "anonymous";
         link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
+        ${
+            needsCssFallback
+                ? `link.onerror = function() {
+            link.onerror = null;
+            console.warn('Failed to load stylesheet "' + ${JSON.stringify(cssFile)} + '", trying fallback');
+            var fallbackLink = document.createElement("link");
+            fallbackLink.rel = "stylesheet";
+            fallbackLink.crossOrigin = "anonymous";
+            fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
+            document.head.appendChild(fallbackLink);
+        };`
+                : ''
+        }
         document.head.appendChild(link)
     `
 
@@ -270,6 +286,50 @@ function getChunks(result) {
         }
     }
     return chunks
+}
+
+function formatBytes(bytes) {
+    if (bytes >= 1_000_000) {
+        return `${(bytes / 1_000_000).toFixed(2)} MB`
+    }
+    if (bytes >= 1_000) {
+        return `${(bytes / 1_000).toFixed(1)} KB`
+    }
+    return `${bytes} B`
+}
+
+function shortenInputPath(inputPath) {
+    const pnpmMatch = inputPath.match(/node_modules\/\.pnpm\/([^/]+)\/node_modules\/(.+)$/)
+    if (pnpmMatch) {
+        const pkg = pnpmMatch[1].replace(/_.*$/, '')
+        return `${pkg} (${pnpmMatch[2]})`
+    }
+    return inputPath
+}
+
+export function reportTopChunks(outputs, { topChunks = 10, topContributors = 5, label = 'chunks' } = {}) {
+    if (!outputs) {
+        return
+    }
+    const chunkEntries = Object.entries(outputs)
+        .filter(([outputPath]) => /\/chunk-[A-Za-z0-9]+\.js$/.test(outputPath))
+        .sort((a, b) => b[1].bytes - a[1].bytes)
+        .slice(0, topChunks)
+    if (chunkEntries.length === 0) {
+        return
+    }
+    const lines = [`Top ${chunkEntries.length} ${label} by uncompressed size:`]
+    for (const [outputPath, output] of chunkEntries) {
+        const inputCount = Object.keys(output.inputs || {}).length
+        lines.push(`  ${formatBytes(output.bytes).padStart(9)}  ${path.basename(outputPath)}  (${inputCount} inputs)`)
+        const contributors = Object.entries(output.inputs || {})
+            .sort((a, b) => b[1].bytesInOutput - a[1].bytesInOutput)
+            .slice(0, topContributors)
+        for (const [inputPath, info] of contributors) {
+            lines.push(`               ${formatBytes(info.bytesInOutput).padStart(9)}  ${shortenInputPath(inputPath)}`)
+        }
+    }
+    console.info(lines.join('\n'))
 }
 
 export async function buildInParallel(configs, { onBuildStart, onBuildComplete } = {}) {

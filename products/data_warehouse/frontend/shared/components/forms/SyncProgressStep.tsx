@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconWarning } from '@posthog/icons'
 import {
@@ -12,25 +13,37 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { ExternalDataSourceSchema } from '~/types'
+
+import { buildTableQueryUrl } from 'products/data_warehouse/frontend/utils'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { sourceManagementLogic } from '../../logics/sourceManagementLogic'
 
+export function getSourceAccessMethod(
+    wizardAccessMethod: 'warehouse' | 'direct',
+    sourceAccessMethod?: 'warehouse' | 'direct'
+): 'warehouse' | 'direct' {
+    return sourceAccessMethod ?? wizardAccessMethod
+}
+
+export function getPreviewQueryUrl(
+    tableName: string,
+    accessMethod: 'warehouse' | 'direct' | undefined,
+    sourceId?: string | null
+): string {
+    return buildTableQueryUrl(tableName, accessMethod === 'direct' ? (sourceId ?? undefined) : undefined)
+}
+
 export const SyncProgressStep = (): JSX.Element => {
-    const { sourceId, isWrapped } = useValues(sourceWizardLogic)
+    const { sourceId, isWrapped, source: wizardSource } = useValues(sourceWizardLogic)
     const { cancelWizard } = useActions(sourceWizardLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(sourceManagementLogic)
     const source = dataWarehouseSources?.results.find((n) => n.id === sourceId)
     const schemas = source?.schemas ?? []
-    const isDirectQuerySource = source?.access_method === 'direct'
-
-    const getPreviewQuery = (tableName: string): string =>
-        `SELECT * FROM ${escapePropertyAsHogQLIdentifier(tableName)} LIMIT 100`
+    const sourceAccessMethod = getSourceAccessMethod(wizardSource.access_method, source?.access_method)
+    const isDirectQuerySource = sourceAccessMethod === 'direct'
 
     const getSyncStatus = (schema: ExternalDataSourceSchema): { status: string; tagType: LemonTagType } => {
         if (isDirectQuerySource) {
@@ -91,7 +104,7 @@ export const SyncProgressStep = (): JSX.Element => {
 
                 return (
                     <Link
-                        to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}
+                        to={getPreviewQueryUrl(schema.table.name, sourceAccessMethod, sourceId)}
                         onClick={() => cancelWizard()}
                     >
                         {schema.label ?? schema.name}
@@ -128,13 +141,18 @@ export const SyncProgressStep = (): JSX.Element => {
             key: 'actions',
             width: 0,
             render: function RenderStatus(_, schema) {
-                if (schema.table && (isDirectQuerySource || schema.status === 'Completed')) {
+                const table = schema.table
+
+                if (table && (isDirectQuerySource || schema.status === 'Completed')) {
                     return (
                         <LemonButton
                             className="my-1"
                             type="primary"
-                            onClick={cancelWizard}
-                            to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}
+                            onClick={() => {
+                                const previewUrl = getPreviewQueryUrl(table.name, sourceAccessMethod, sourceId)
+                                cancelWizard()
+                                router.actions.push(previewUrl)
+                            }}
                         >
                             Query
                         </LemonButton>

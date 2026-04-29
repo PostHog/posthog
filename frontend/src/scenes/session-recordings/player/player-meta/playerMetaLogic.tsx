@@ -17,7 +17,7 @@ import {
 } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
-import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { Timestamp } from 'scenes/session-recordings/player/controller/PlayerControllerTime'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayerLogicProps,
@@ -27,7 +27,6 @@ import {
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from '~/taxonomy/helpers'
 import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
-import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import { SeekbarSegmentRange } from '../controller/SeekbarSegments'
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
@@ -118,7 +117,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             sessionRecordingPinnedPropertiesLogic,
             ['pinnedProperties'],
             sessionSummaryProgressLogic,
-            ['loadingBySessionId', 'progressBySessionId', 'summaryBySessionId', 'feedbackBySessionId'],
+            [
+                'loadingBySessionId',
+                'progressBySessionId',
+                'summaryBySessionId',
+                'feedbackBySessionId',
+                'errorBySessionId',
+                'retryStateBySessionId',
+            ],
             playerInspectorLogic(props),
             ['allItemsByMiniFilterKey'],
         ],
@@ -166,6 +172,14 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             (s) => [s.progressBySessionId],
             (progressBySessionId): SummarizationProgress | null =>
                 progressBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryError: [
+            (s) => [s.errorBySessionId],
+            (errorBySessionId): string | null => errorBySessionId[props.sessionRecordingId] ?? null,
+        ],
+        sessionSummaryHasRetried: [
+            (s) => [s.retryStateBySessionId],
+            (retryStateBySessionId): boolean => !!retryStateBySessionId[props.sessionRecordingId]?.hasRetried,
         ],
         summaryHasHadFeedback: [
             (s) => [s.feedbackBySessionId],
@@ -279,14 +293,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     items.push({
                         label: 'Start',
                         icon: <IconClock />,
-                        value: (
-                            <SimpleTimeLabel
-                                muted={false}
-                                size="small"
-                                timestampFormat={TimestampFormat.UTC}
-                                startTime={startTime}
-                            />
-                        ),
+                        value: <Timestamp size="small" noPadding hideIcon fixedTimestamp={startTime} />,
                         type: 'text',
                     })
                 }

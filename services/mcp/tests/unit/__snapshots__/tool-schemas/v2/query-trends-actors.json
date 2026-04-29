@@ -14,21 +14,23 @@
             "type": "string"
         },
         "day": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "maximum": 9007199254740991,
-                    "minimum": -9007199254740991,
-                    "type": "integer"
-                }
-            ],
-            "description": "Bucket date for the data point. Accepts ISO date or integer offset."
+            "description": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+            "type": "string"
+        },
+        "includeRecordings": {
+            "default": true,
+            "description": "Whether to include matched session recordings for each actor.",
+            "type": "boolean"
         },
         "kind": {
             "const": "InsightActorsQuery",
             "default": "InsightActorsQuery",
+            "type": "string"
+        },
+        "output_format": {
+            "default": "optimized",
+            "description": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+            "enum": ["optimized", "json"],
             "type": "string"
         },
         "series": {
@@ -103,14 +105,15 @@
                                             },
                                             "type": {
                                                 "enum": [
-                                                    "cohort",
                                                     "person",
                                                     "event",
                                                     "event_metadata",
                                                     "session",
                                                     "hogql",
-                                                    "data_warehouse_person_property",
-                                                    "revenue_analytics"
+                                                    "cohort",
+                                                    "revenue_analytics",
+                                                    "data_warehouse",
+                                                    "data_warehouse_person_property"
                                                 ],
                                                 "type": "string"
                                             }
@@ -2174,6 +2177,6 @@
             "type": "object"
         }
     },
-    "required": ["source"],
+    "required": ["day", "source"],
     "type": "object"
 }

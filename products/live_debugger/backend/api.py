@@ -4,6 +4,7 @@ from django_filters.rest_framework import DjangoFilterBackend, FilterSet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
+from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -17,10 +18,19 @@ from products.live_debugger.backend.models import LiveDebuggerBreakpoint
 class LiveDebuggerBreakpointSerializer(serializers.ModelSerializer):
     class Meta:
         model = LiveDebuggerBreakpoint
-        fields = ["id", "repository", "filename", "line_number", "enabled", "condition", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "repository",
+            "filename",
+            "line_number",
+            "enabled",
+            "condition",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
-    def create(self, validated_data):
+    def create(self, validated_data: dict) -> LiveDebuggerBreakpoint:
         validated_data["team"] = self.context["team"]
         return super().create(validated_data)
 
@@ -111,10 +121,10 @@ class LiveDebuggerBreakpointViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     filter_backends = [DjangoFilterBackend]
     filterset_class = LiveDebuggerBreakpointFilterSet
 
-    def safely_get_queryset(self, queryset) -> QuerySet:
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.order_by("-created_at")
 
-    def get_serializer_context(self):
+    def get_serializer_context(self) -> dict:
         context = super().get_serializer_context()
         context["team"] = self.team
         return context
@@ -155,7 +165,7 @@ class LiveDebuggerBreakpointViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         },
     )
     @action(methods=["GET"], detail=False)
-    def breakpoint_hits(self, request, *args, **kwargs) -> Response:
+    def breakpoint_hits(self, request: Request, *args, **kwargs) -> Response:
         """
         Get breakpoint hit events from ClickHouse.
 
@@ -234,12 +244,15 @@ class LiveDebuggerBreakpointViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     @action(
         methods=["GET"],
         detail=False,
-        authentication_classes=[ProjectSecretAPIKeyAuthentication, SessionAuthentication],
+        authentication_classes=[
+            ProjectSecretAPIKeyAuthentication,
+            SessionAuthentication,
+        ],
         required_scopes=["live_debugger:read"],
         permission_classes=[ProjectSecretAPITokenPermission],
         url_path="active",
     )
-    def active_breakpoints(self, request, *args, **kwargs) -> Response:
+    def active_breakpoints(self, request: Request, *args, **kwargs) -> Response:
         """
         External API endpoint for client applications to fetch active breakpoints using Project API key.
 

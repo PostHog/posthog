@@ -13,7 +13,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
-from openai.types.chat.chat_completion import ChatCompletion, ChatCompletionMessage, Choice
+from openai.types.responses import (
+    Response as OpenAIResponse,
+    ResponseOutputMessage,
+    ResponseOutputText,
+)
 from pytest_mock import MockerFixture
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.exceptions import ApplicationError
@@ -32,9 +36,6 @@ from posthog.temporal.session_replay.session_summary.activities.patterns import 
     combine_patterns_from_chunks_activity,
     extract_session_group_patterns_activity,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
-)
-from posthog.temporal.session_replay.session_summary.activities.video_validation import (
-    validate_llm_single_session_summary_with_videos_activity,
 )
 from posthog.temporal.session_replay.session_summary.state import (
     StateActivitiesEnum,
@@ -60,7 +61,7 @@ from posthog.temporal.session_replay.session_summary.types.group import (
 from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.tests.session_replay.session_summary.conftest import AsyncRedisTestContext
 
-from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_SYNC_MODEL
+from ee.hogai.session_summaries.constants import SESSION_SUMMARIES_MODEL
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
@@ -75,24 +76,32 @@ from ee.models.session_summaries import SessionGroupSummary, SingleSessionSummar
 pytestmark = pytest.mark.django_db
 
 
+def _build_openai_response(content: str) -> OpenAIResponse:
+    """Build a minimal OpenAIResponse with the given text content."""
+    return OpenAIResponse(
+        id="test_id",
+        created_at=datetime.now().timestamp(),
+        model=SESSION_SUMMARIES_MODEL,
+        object="response",
+        output=[
+            ResponseOutputMessage(
+                id="msg_test",
+                type="message",
+                role="assistant",
+                status="completed",
+                content=[ResponseOutputText(type="output_text", text=content, annotations=[])],
+            )
+        ],
+        parallel_tool_calls=False,
+        tool_choice="auto",
+        tools=[],
+    )
+
+
 @pytest.fixture
 def mock_call_llm(mock_valid_llm_yaml_response: str) -> Callable:
-    def _mock_call_llm(custom_content: str | None = None) -> ChatCompletion:
-        return ChatCompletion(
-            id="test_id",
-            model=SESSION_SUMMARIES_SYNC_MODEL,
-            object="chat.completion",
-            created=int(datetime.now().timestamp()),
-            choices=[
-                Choice(
-                    finish_reason="stop",
-                    index=0,
-                    message=ChatCompletionMessage(
-                        content=custom_content or mock_valid_llm_yaml_response, role="assistant"
-                    ),
-                )
-            ],
-        )
+    def _mock_call_llm(custom_content: str | None = None) -> OpenAIResponse:
+        return _build_openai_response(custom_content or mock_valid_llm_yaml_response)
 
     return _mock_call_llm
 
@@ -149,68 +158,6 @@ async def test_get_llm_single_session_summary_activity_standalone(
         # The new flow checks DB first, then gets input from Redis, no output storage to Redis
         assert spy_get.call_count == 1  # Get input data from Redis
         assert spy_setex.call_count == 1  # Only initial setup, output goes to the DB
-        # Verify summary was stored in DB after the activity
-        summary_after = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
-            team_id=ateam.id,
-            session_id=mock_session_id,
-            extra_summary_context=input_data.extra_summary_context,
-        )
-        assert summary_after is not None, "Summary should exist in DB after the activity"
-        assert summary_after.session_id == mock_session_id
-        assert summary_after.team_id == ateam.id
-
-
-@pytest.mark.asyncio
-async def test_validate_llm_single_session_summary_with_videos_activity_standalone(
-    mocker: MockerFixture,
-    mock_session_id: str,
-    mock_intermediate_session_summary_serializer: SessionSummarySerializer,
-    mock_single_session_summary_inputs: Callable,
-    mock_call_llm: Callable,
-    auser: User,
-    ateam: Team,
-):
-    # Prepare input data
-    input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id)
-    # Store summary in the DB
-    await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
-        team_id=ateam.id,
-        session_id=mock_session_id,
-        summary=mock_intermediate_session_summary_serializer,
-        exception_event_ids=[],
-        extra_summary_context=input_data.extra_summary_context,
-        created_by=auser,
-    )
-    # Verify summary exists in DB before the activity
-    summary_exists = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
-        team_id=ateam.id,
-        session_id=mock_session_id,
-        extra_summary_context=input_data.extra_summary_context,
-    )
-    assert summary_exists
-    # Create mock for video validation class to avoid LLM calls and video generation
-    mocket_video_validator = mocker.MagicMock()
-    updated_summary = deepcopy(mock_intermediate_session_summary_serializer.data)
-    # Replace a regular event with a blocking exception
-    updated_summary["key_actions"][0]["events"][0]["exception"] = "blocking"
-    updated_summary["key_actions"][0]["events"][0]["description"] = "Something terribly wrong happened"
-    # Replace a blocking exception with a non-blocking exception
-    updated_summary["key_actions"][1]["events"][1]["exception"] = "non-blocking"
-    updated_summary["key_actions"][1]["events"][1]["description"] = "Something not so bad happened"
-    # Simulate an updated summary and run metadata
-    mocket_video_validator.validate_session_summary_with_videos = mocker.AsyncMock(return_value=None)
-    # Execute the activity and verify results
-    with (
-        patch("ee.hogai.session_summaries.llm.consume.call_llm", new=AsyncMock(return_value=mock_call_llm())),
-        patch("temporalio.activity.info") as mock_activity_info,
-        mocker.patch(
-            "posthog.temporal.session_replay.session_summary.activities.video_validation.SessionSummaryVideoValidator",
-            return_value=mocket_video_validator,
-        ),
-    ):
-        mock_activity_info.return_value.workflow_id = "test_workflow_id"
-        # If no exception is raised, the activity completed successfully
-        await validate_llm_single_session_summary_with_videos_activity(input_data)
         # Verify summary was stored in DB after the activity
         summary_after = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
             team_id=ateam.id,
@@ -286,22 +233,7 @@ async def test_extract_session_group_patterns_activity_standalone(
         mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
         mock_async_connect.return_value = mock_client
         # Mock the LLM response with valid YAML patterns
-        mock_llm_response = ChatCompletion(
-            id="test_id",
-            model="test_model",
-            object="chat.completion",
-            created=int(datetime.now().timestamp()),
-            choices=[
-                Choice(
-                    finish_reason="stop",
-                    index=0,
-                    message=ChatCompletionMessage(
-                        content=mock_patterns_extraction_yaml_response,
-                        role="assistant",
-                    ),
-                )
-            ],
-        )
+        mock_llm_response = _build_openai_response(mock_patterns_extraction_yaml_response)
         mock_call_llm.return_value = mock_llm_response
         # If no exception is raised, the activity completed successfully
         result = await extract_session_group_patterns_activity(activity_inputs)
@@ -400,22 +332,7 @@ async def test_assign_events_to_patterns_activity_standalone(
         mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
         mock_async_connect.return_value = mock_client
         # Mock the LLM response for pattern assignment
-        mock_llm_response = ChatCompletion(
-            id="test_id",
-            model="test_model",
-            object="chat.completion",
-            created=int(datetime.now().timestamp()),
-            choices=[
-                Choice(
-                    finish_reason="stop",
-                    index=0,
-                    message=ChatCompletionMessage(
-                        content=mock_patterns_assignment_yaml_response,
-                        role="assistant",
-                    ),
-                )
-            ],
-        )
+        mock_llm_response = _build_openai_response(mock_patterns_assignment_yaml_response)
         mock_call_llm.return_value = mock_llm_response
         result = await assign_events_to_patterns_activity(activity_input)
         # Verify the activity completed successfully - now returns just the summary id
@@ -534,22 +451,7 @@ async def test_assign_events_to_patterns_threshold_check(
   - pattern_id: 2
     event_ids: ["ghij7890"]
 """
-        mock_llm_response = ChatCompletion(
-            id="test_id",
-            model="test_model",
-            object="chat.completion",
-            created=int(datetime.now().timestamp()),
-            choices=[
-                Choice(
-                    finish_reason="stop",
-                    index=0,
-                    message=ChatCompletionMessage(
-                        content=patterns_assignment_fail,
-                        role="assistant",
-                    ),
-                )
-            ],
-        )
+        mock_llm_response = _build_openai_response(patterns_assignment_fail)
         mock_call_llm.return_value = mock_llm_response
 
         # Should raise ApplicationError due to threshold failure
@@ -582,22 +484,7 @@ async def test_assign_events_to_patterns_threshold_check(
   - pattern_id: 3
     event_ids: ["mnop3456"]
 """
-        mock_llm_response = ChatCompletion(
-            id="test_id",
-            model="test_model",
-            object="chat.completion",
-            created=int(datetime.now().timestamp()),
-            choices=[
-                Choice(
-                    finish_reason="stop",
-                    index=0,
-                    message=ChatCompletionMessage(
-                        content=patterns_assignment_success,
-                        role="assistant",
-                    ),
-                )
-            ],
-        )
+        mock_llm_response = _build_openai_response(patterns_assignment_success)
         mock_call_llm.return_value = mock_llm_response
 
         # Should succeed - now returns just the summary id
@@ -694,22 +581,7 @@ async def test_assign_events_to_patterns_filters_non_blocking_exceptions(
     event_ids: ["mnop3456", "xyz98765"]  # mnop3456 is blocking, xyz98765 is non-blocking
   - pattern_id: 2
     event_ids: ["stuv9012"]  # stuv9012 has abandonment"""
-    mock_llm_response = ChatCompletion(
-        id="test_id",
-        model="test_model",
-        object="chat.completion",
-        created=int(datetime.now().timestamp()),
-        choices=[
-            Choice(
-                finish_reason="stop",
-                index=0,
-                message=ChatCompletionMessage(
-                    content=patterns_assignment_yaml,
-                    role="assistant",
-                ),
-            )
-        ],
-    )
+    mock_llm_response = _build_openai_response(patterns_assignment_yaml)
     # Mock LLM calls and Temporal context
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
@@ -882,22 +754,7 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
     event_ids: ["block001"]  # Only blocking
   - pattern_id: 3
     event_ids: ["nonb0001", "block001"]  # Both from same session, only first will be kept"""
-    mock_llm_response = ChatCompletion(
-        id="test_id",
-        model="test_model",
-        object="chat.completion",
-        created=int(datetime.now().timestamp()),
-        choices=[
-            Choice(
-                finish_reason="stop",
-                index=0,
-                message=ChatCompletionMessage(
-                    content=patterns_assignment_yaml,
-                    role="assistant",
-                ),
-            )
-        ],
-    )
+    mock_llm_response = _build_openai_response(patterns_assignment_yaml)
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
@@ -1051,7 +908,6 @@ class TestSummarizeSessionGroupWorkflow:
                         fetch_session_batch_events_activity,
                         combine_patterns_from_chunks_activity,
                         split_session_summaries_into_chunks_for_patterns_extraction_activity,
-                        validate_llm_single_session_summary_with_videos_activity,
                         capture_timing_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
@@ -1405,94 +1261,6 @@ class TestSummarizeSessionGroupWorkflow:
                     found_status_patterns.append(status_pattern)
             assert len(found_status_patterns) > 0
 
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("video_validation_enabled", [True, False])
-    async def test_video_validation_called_when_enabled(
-        self,
-        mocker: MockerFixture,
-        mock_session_id: str,
-        auser: User,
-        ateam: Team,
-        mock_call_llm: Callable,
-        mock_raw_metadata: dict[str, Any],
-        mock_valid_event_ids: list[str],
-        mock_session_group_summary_inputs: Callable,
-        mock_patterns_extraction_yaml_response: str,
-        mock_patterns_assignment_yaml_response: str,
-        mock_cached_session_batch_events_query_response_factory: Callable,
-        redis_test_setup: AsyncRedisTestContext,
-        mock_session_summary_serializer: SessionSummarySerializer,
-        video_validation_enabled: bool,
-    ):
-        """Test that the workflow completes successfully and returns the expected result"""
-        session_ids, workflow_id, workflow_input = self.setup_workflow_test(
-            mock_session_id, mock_session_group_summary_inputs, "success", auser.id, ateam.id
-        )
-        # Enable video validation
-        workflow_input = SessionGroupSummaryInputs(
-            session_ids=workflow_input.session_ids,
-            user_id=workflow_input.user_id,
-            team_id=workflow_input.team_id,
-            redis_key_base=workflow_input.redis_key_base,
-            min_timestamp_str=workflow_input.min_timestamp_str,
-            max_timestamp_str=workflow_input.max_timestamp_str,
-            model_to_use=workflow_input.model_to_use,
-            extra_summary_context=workflow_input.extra_summary_context,
-            local_reads_prod=workflow_input.local_reads_prod,
-            video_validation_enabled=video_validation_enabled,
-            summary_title="Test summary",
-        )
-        # Store session summaries in DB for each session (following the new approach)
-        for session_id in session_ids:
-            # Create a copy of the mock data with the correct session_id for each session
-            modified_data = deepcopy(mock_session_summary_serializer.data)
-            for segment_actions in modified_data.get("key_actions", []):
-                for event in segment_actions.get("events", []):
-                    event["session_id"] = session_id
-            modified_serializer = SessionSummarySerializer(data=modified_data)
-            modified_serializer.is_valid(raise_exception=True)
-
-            await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
-                team_id=ateam.id,
-                session_id=session_id,
-                summary=modified_serializer,
-                exception_event_ids=[],
-                extra_summary_context=workflow_input.extra_summary_context,
-                created_by=auser,
-            )
-        # Create mock for video validation class to avoid LLM calls and video generation
-        mocket_video_validator = mocker.MagicMock()
-        mocket_video_validator.validate_session_summary_with_videos = mocker.AsyncMock(return_value=None)
-        # Run the workflow to verify the activity was called
-        async with self.temporal_workflow_test_environment(
-            session_ids,
-            mock_call_llm,
-            ateam,
-            mock_raw_metadata,
-            mock_valid_event_ids,
-            mock_patterns_extraction_yaml_response,
-            mock_patterns_assignment_yaml_response,
-            mock_cached_session_batch_events_query_response_factory,
-            custom_content=None,
-        ) as (activity_environment, worker):
-            with mocker.patch(
-                "posthog.temporal.session_replay.session_summary.activities.video_validation.SessionSummaryVideoValidator",
-                return_value=mocket_video_validator,
-            ):
-                # Wait for workflow to complete and get result
-                await activity_environment.client.execute_workflow(
-                    SummarizeSessionGroupWorkflow.run,
-                    workflow_input,
-                    id=workflow_id,
-                    task_queue=worker.task_queue,
-                )
-                if video_validation_enabled:
-                    # Verify video validation was called for each session
-                    assert mocket_video_validator.validate_session_summary_with_videos.call_count == len(session_ids)
-                else:
-                    # Verify video validation was not called
-                    assert mocket_video_validator.validate_session_summary_with_videos.call_count == 0
-
 
 @pytest.mark.asyncio
 class TestPatternExtractionChunking:
@@ -1502,7 +1270,7 @@ class TestPatternExtractionChunking:
             single_session_summaries_inputs=[],
             user_id=auser.id,
             team_id=ateam.id,
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
             summary_title="Test summary",
@@ -1555,7 +1323,7 @@ class TestPatternExtractionChunking:
             single_session_summaries_inputs=single_session_inputs,
             user_id=auser.id,
             team_id=ateam.id,
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
             extra_summary_context=ExtraSummaryContext(focus_area="test"),
             redis_key_base="test",
             summary_title="Test summary",
@@ -1615,7 +1383,7 @@ class TestPatternExtractionChunking:
             single_session_summaries_inputs=single_session_inputs,
             user_id=auser.id,
             team_id=ateam.id,
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
             summary_title="Test summary",
@@ -1678,7 +1446,7 @@ class TestPatternExtractionChunking:
             single_session_summaries_inputs=single_session_inputs,
             user_id=auser.id,
             team_id=ateam.id,
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
             extra_summary_context=None,
             redis_key_base="test",
             summary_title="Test summary",
@@ -1854,7 +1622,7 @@ async def test_run_patterns_extraction_with_chunking_and_redis_keys(
             user_id=auser.id,
             team_id=ateam.id,
             redis_key_base=redis_key_base,
-            model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+            model_to_use=SESSION_SUMMARIES_MODEL,
         )
         for session_id in session_ids
     ]
@@ -2150,7 +1918,7 @@ class TestSessionBatchFetchExpectedSkips:
             redis_key_base="test_key_base",
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
-            model_to_use="gpt-4.1",
+            model_to_use=SESSION_SUMMARIES_MODEL,
             summary_title="Test summary",
         )
 
@@ -2194,7 +1962,7 @@ class TestSessionBatchFetchExpectedSkips:
             redis_key_base="test_key_base",
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
-            model_to_use="gpt-4.1",
+            model_to_use=SESSION_SUMMARIES_MODEL,
             summary_title="Test summary",
         )
 
@@ -2238,7 +2006,7 @@ class TestSessionBatchFetchExpectedSkips:
             redis_key_base="test_key_base",
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
-            model_to_use="gpt-4.1",
+            model_to_use=SESSION_SUMMARIES_MODEL,
             summary_title="Test summary",
         )
 
@@ -2286,7 +2054,7 @@ class TestSessionBatchFetchExpectedSkips:
             redis_key_base="test_key_base",
             min_timestamp_str="2025-03-30T00:00:00.000000+00:00",
             max_timestamp_str="2025-04-01T23:59:59.999999+00:00",
-            model_to_use="gpt-4.1",
+            model_to_use=SESSION_SUMMARIES_MODEL,
             summary_title="Test summary",
         )
 
