@@ -5,6 +5,7 @@ import { isNotNil } from 'lib/utils'
 
 import {
     EventsNode,
+    GroupNode,
     NodeKind,
     TrendsFilter,
     WebAnalyticsPropertyFilter,
@@ -14,6 +15,7 @@ import {
     BaseMathType,
     BreakdownType,
     ChartDisplayType,
+    FilterLogicalOperator,
     InsightLogicProps,
     PropertyFilterBaseValue,
     PropertyFilterType,
@@ -172,13 +174,24 @@ export const botAnalyticsLogic = kea<botAnalyticsLogicType>([
                     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
                 })
 
-                const botTrendsSeries: EventsNode[] = BOT_ANALYTICS_EVENTS.map((event) => ({
+                const botTrendsNodes: EventsNode[] = BOT_ANALYTICS_EVENTS.map((event) => ({
                     event,
                     kind: NodeKind.EventsNode as const,
                     math: BaseMathType.TotalCount,
                     name: event,
-                    custom_name: 'Requests',
                 }))
+                // Combine bot events into a single "Requests" series so the tooltip shows one
+                // unified value per breakdown bucket instead of one column per underlying event.
+                const botTrendsSeries: GroupNode[] = [
+                    {
+                        kind: NodeKind.GroupNode,
+                        name: BOT_ANALYTICS_EVENTS.join(', '),
+                        custom_name: 'Requests',
+                        operator: FilterLogicalOperator.Or,
+                        nodes: botTrendsNodes,
+                        math: BaseMathType.TotalCount,
+                    },
+                ]
 
                 const createBotTrendsTab = (
                     id: string,
