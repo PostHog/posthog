@@ -908,7 +908,6 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                         type="primary"
                                         icon={<IconPlus />}
                                         onClick={() => setNewKeyModalOpen(true)}
-                                        disabledReason={restrictionReason}
                                     >
                                         Add API key
                                     </LemonButton>
