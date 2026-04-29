@@ -31,7 +31,6 @@
  * the popover is open so 'All' search has data ready.
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
-import { PreviewCard } from '@base-ui/react/preview-card'
 import FuseClass from 'fuse.js'
 import { useActions, useValues } from 'kea'
 import {
@@ -59,6 +58,9 @@ import {
     PopoverContent,
     PopoverTrigger,
     ScrollArea,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from '@posthog/quill'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -972,15 +974,17 @@ function List({ className, children }: TaxonomicAutocompleteListProps): JSX.Elem
         // against the top/bottom edge after scroll.
         <ScrollArea
             showScrollToButton={['bottom']}
-            // ScrollArea Root grows into the pinned popover envelope. Default
-            // viewport drops the legacy `max-h-*` cap — popover height pins
-            // the surface, the list takes whatever's left after Header /
-            // Input / Chips. Consumer-passed `className` still appends to
-            // viewport for advanced overrides.
+            // ScrollArea Root grows into the pinned popover envelope.
+            // Padding lives on `Autocomplete.List` because Quill's main
+            // `ScrollArea` (the published dist) doesn't expose
+            // `viewportClassName` — passing it silently drops onto the
+            // root div as an unknown DOM attribute.
             className="flex-1 min-h-0"
-            viewportClassName={cn('p-2 scroll-b-3 scroll-t-2', ctx.listClassName, className)}
         >
-            <Autocomplete.List data-quill>
+            <Autocomplete.List
+                data-quill
+                className={cn('p-2 scroll-b-3 scroll-t-2', ctx.listClassName, className)}
+            >
                 {children ?? (
                     <>
                         <Empty />
@@ -1037,16 +1041,18 @@ function DefaultRow({ entry }: DefaultRowProps): JSX.Element {
     // the items array can cause two rows to share an id → both match
     // `data-[highlighted]` styling.
     const stableId = `taxonomic-${group.type}-${String(group.getValue?.(item) ?? rawName)}`
-    const showHover = ctx.detailsTypes.has(group.type)
     // Group badge is only useful in 'all' search — it tells the user which
     // group an item came from when results from multiple groups are
     // interleaved. Inside a drilled category, every row is from the same
     // group, so the badge is just noise.
     const showGroupLabel = ctx.category === 'all'
     // Rows whose group has a `<ConfigureView>` registered (DWH, HogQL) get
-    // a subtle hint that selecting them opens an inline editor instead of
-    // committing immediately.
+    // a chevron + click-to-edit semantics.
     const hasConfigure = ctx.configuredTypes.has(group.type)
+    // Hover popover by default for everything except Configure rows — the
+    // chevron tells the user clicking opens an editor, a hovercard would
+    // compete with that intent.
+    const showHover = !hasConfigure
     const rowContent = (
         <>
             <div className="flex items-baseline gap-2 w-full">
@@ -1063,50 +1069,59 @@ function DefaultRow({ entry }: DefaultRowProps): JSX.Element {
             {subtitle && <span className="text-xs text-secondary">{subtitle}</span>}
         </>
     )
+    const itemClassName = cn(
+        'flex flex-col items-start gap-0 rounded-sm px-2 py-1 cursor-pointer outline-none',
+        'data-[highlighted]:bg-[var(--fill-selected)]'
+    )
+
+    if (!showHover) {
+        return (
+            <Autocomplete.Item
+                id={stableId}
+                value={entry}
+                onClick={(e) => {
+                    e.preventDefault()
+                    ctx.onSelectEntry(entry)
+                }}
+                className={itemClassName}
+            >
+                {rowContent}
+            </Autocomplete.Item>
+        )
+    }
+
+    // Quill `Tooltip` is base-ui Tooltip with hoverable popup enabled by
+    // default — user can move the cursor into the tooltip without it
+    // closing. PreviewCard's render-composition with Autocomplete.Item
+    // wasn't dispatching hover events; Tooltip's compose path is simpler.
     return (
-        <Autocomplete.Item
-            id={stableId}
-            value={entry}
-            onClick={(e) => {
-                e.preventDefault()
-                ctx.onSelectEntry(entry)
-            }}
-            className={cn(
-                'flex flex-col items-start gap-0 rounded-sm px-2 py-1 cursor-pointer outline-none',
-                'data-[highlighted]:bg-[var(--fill-selected)]'
-            )}
-        >
-            {showHover ? (
-                // Hover popover surfaces metadata without leaving the list.
-                // PreviewCard.Trigger renders a `display: contents` wrapper
-                // so hover detection lives on the row content but the Item's
-                // click + highlight still control selection / arrow nav.
-                <PreviewCard.Root>
-                    <PreviewCard.Trigger
-                        render={<div className="contents" />}
-                        delay={350}
-                        closeDelay={120}
+        <Tooltip>
+            <TooltipTrigger
+                delay={350}
+                render={(triggerProps) => (
+                    <Autocomplete.Item
+                        {...triggerProps}
+                        id={stableId}
+                        value={entry}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            ctx.onSelectEntry(entry)
+                        }}
+                        className={itemClassName}
                     >
                         {rowContent}
-                    </PreviewCard.Trigger>
-                    <PreviewCard.Portal>
-                        <PreviewCard.Positioner side="right" align="start" sideOffset={12}>
-                            <PreviewCard.Popup
-                                className={cn(
-                                    'rounded-md border bg-surface-primary shadow-md max-w-[320px]',
-                                    'data-[starting-style]:opacity-0 data-[ending-style]:opacity-0',
-                                    'transition-opacity duration-150'
-                                )}
-                            >
-                                <DefaultHoverBody entry={entry} />
-                            </PreviewCard.Popup>
-                        </PreviewCard.Positioner>
-                    </PreviewCard.Portal>
-                </PreviewCard.Root>
-            ) : (
-                rowContent
-            )}
-        </Autocomplete.Item>
+                    </Autocomplete.Item>
+                )}
+            />
+            <TooltipContent
+                side="right"
+                align="start"
+                sideOffset={12}
+                className="rounded-md border bg-popover text-popover-foreground shadow-md max-w-[320px] p-0"
+            >
+                <DefaultHoverBody entry={entry} />
+            </TooltipContent>
+        </Tooltip>
     )
 }
 
@@ -1574,11 +1589,19 @@ export function useTaxonomicAutocompleteItemDetails(
         const example = def?.examples?.[0] != null ? String(def.examples[0]) : undefined
         const groupLabel = group.name.toUpperCase()
         const isPinnable = value != null && !CURATION_META_GROUP_TYPES.has(group.type)
+        // Prefer taxonomy core description (canonical events/props), fall
+        // back to the item's own description (Actions, custom events, DWH
+        // tables — user-authored).
+        const itemDescription =
+            (item as { description?: unknown })?.description &&
+            typeof (item as { description?: unknown }).description === 'string'
+                ? ((item as { description?: string }).description as string)
+                : undefined
         return {
             title,
             groupLabel,
             rawName: name,
-            description: def?.description,
+            description: def?.description ?? itemDescription,
             example,
             propertyType: propertyType ? String(propertyType) : undefined,
             isPinned: isPinnable ? isPinned(group.type, value) : false,

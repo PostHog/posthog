@@ -110,19 +110,28 @@ const SCENARIOS: Scenario[] = [
         label: 'Series + Data Warehouse tables',
         consumers: 'ActionFilterRow when DWH series enabled',
         notes:
-            'DataWarehouse selection demands extra config (ID / Timestamp / Distinct ID columns). New picker handles this via `<ConfigureDialog>` — clicking a DWH row opens a nested Quill Dialog before commit. Try clicking a table row.',
+            'DataWarehouse selection demands extra config (ID / Timestamp / Distinct ID columns). HogQL row also opens an editor sub-view. Both groups show the trailing chevron because they have a `<ConfigureView>` registered.',
         groupTypes: [
             TaxonomicFilterGroupType.Events,
             TaxonomicFilterGroupType.Actions,
             TaxonomicFilterGroupType.DataWarehouse,
+            TaxonomicFilterGroupType.HogQLExpression,
         ],
         extras: (
-            <TaxonomicAutocomplete.ConfigureView
-                for={[TaxonomicFilterGroupType.DataWarehouse]}
-                title="Configure data warehouse table"
-            >
-                {(state) => <DwhFieldsForm {...state} />}
-            </TaxonomicAutocomplete.ConfigureView>
+            <>
+                <TaxonomicAutocomplete.ConfigureView
+                    for={[TaxonomicFilterGroupType.DataWarehouse]}
+                    title="Configure data warehouse table"
+                >
+                    {(state) => <DwhFieldsForm {...state} />}
+                </TaxonomicAutocomplete.ConfigureView>
+                <TaxonomicAutocomplete.ConfigureView
+                    for={[TaxonomicFilterGroupType.HogQLExpression]}
+                    title="Write SQL expression"
+                >
+                    {(state) => <HogQLExpressionForm {...state} />}
+                </TaxonomicAutocomplete.ConfigureView>
+            </>
         ),
     },
     {
@@ -320,7 +329,7 @@ export function TaxonomicFilterPreview(): JSX.Element {
 
             <SeriesParityCard />
 
-            <div className="grid grid-cols-1 @4xl/scene:grid-cols-2 gap-3 mt-3">
+            <div className="grid grid-cols-1 @4xl/scene:grid-cols-2 gap-128 mt-3">
                 {SCENARIOS.map((scenario) => (
                     <ScenarioCard key={scenario.id} scenario={scenario} />
                 ))}
@@ -419,10 +428,10 @@ function ScenarioCard({ scenario }: { scenario: Scenario }): JSX.Element {
                 </div>
             </div>
 
-            <footer className="grid grid-cols-2 gap-2 text-[11px] border-t pt-2 mt-1">
+            {/* <footer className="grid grid-cols-2 gap-2 text-[11px] border-t pt-2 mt-1">
                 <SelectionEcho label="Legacy" state={legacy} />
                 <SelectionEcho label="Autocomplete" state={autocomplete} />
-            </footer>
+            </footer> */}
         </div>
     )
 }
