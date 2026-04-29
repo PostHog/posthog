@@ -243,14 +243,12 @@ class BatchQueue:
             )
             rows = await cur.fetchall()
 
-        # Release the locks immediately — we only needed them to detect orphans.
-        for row in rows:
-            await conn.execute(
-                "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
-                {"ns": ADVISORY_LOCK_NAMESPACE, "key": f"{row['team_id']}:{row['schema_id']}"},
-            )
+        result = [PendingBatch(**row) for row in rows]
 
-        return [PendingBatch(**row) for row in rows]
+        # Release the locks immediately — we only needed them to detect orphans.
+        await BatchQueue.unlock_for_batches(conn, batches=result)
+
+        return result
 
     @staticmethod
     async def fail_run(
@@ -278,14 +276,19 @@ class BatchQueue:
         return cursor.rowcount or 0
 
     @staticmethod
-    async def unlock_key(
+    async def unlock_for_batches(
         conn: psycopg.AsyncConnection[Any],
         *,
-        team_id: int,
-        schema_id: str,
+        batches: list[PendingBatch],
     ) -> None:
-        """Release the session-level advisory lock for a (team_id, schema_id) pair."""
-        await conn.execute(
-            "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
-            {"ns": ADVISORY_LOCK_NAMESPACE, "key": f"{team_id}:{schema_id}"},
-        )
+        """Release advisory locks once per batch, matching the per-row acquisition depth.
+
+        pg_try_advisory_lock in a WHERE clause is evaluated per row, so the
+        session-level lock depth equals the number of rows returned for each
+        (team_id, schema_id). We must unlock the same number of times.
+        """
+        for batch in batches:
+            await conn.execute(
+                "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
+                {"ns": ADVISORY_LOCK_NAMESPACE, "key": f"{batch.team_id}:{batch.schema_id}"},
+            )

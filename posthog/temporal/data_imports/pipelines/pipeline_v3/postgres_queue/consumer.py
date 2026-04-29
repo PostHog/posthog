@@ -166,7 +166,7 @@ class BatchConsumer:
         finally:
             self._semaphore.release()
             assert self._conn is not None
-            await BatchQueue.unlock_key(self._conn, team_id=team_id, schema_id=schema_id)
+            await BatchQueue.unlock_for_batches(self._conn, batches=batches)
 
     async def _process_single(self, batch: PendingBatch) -> None:
         """Increment attempt, check max retries, then process the batch."""
