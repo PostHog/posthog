@@ -233,10 +233,10 @@ DISMISS_TIME_LOCKFILES: frozenset[str] = frozenset(
         "pnpm-lock.yaml",
         "yarn.lock",
         "uv.lock",
-        "Cargo.lock",
-        "Pipfile.lock",
+        "cargo.lock",
+        "pipfile.lock",
         "poetry.lock",
-        "Gemfile.lock",
+        "gemfile.lock",
         "composer.lock",
     }
 )
@@ -275,13 +275,14 @@ def is_trivial_at_dismiss_time(path: str) -> bool:
     anything else that can execute or alter build/CI behavior.
     """
     name = Path(path).name
-    if name in DISMISS_TIME_LOCKFILES:
+    name_lower = name.lower()
+    if name_lower in DISMISS_TIME_LOCKFILES:
         return True
 
     suffix = Path(path).suffix.lower()
     if suffix in {".md", ".mdx"}:
         return True
-    if name.startswith(("README", "CHANGELOG")):
+    if name_lower.startswith(("readme", "changelog")):
         return True
     if path.startswith("docs/") or "/docs/" in path:
         return True

@@ -91,12 +91,15 @@ def repo(tmp_path: Path) -> Path:
         ("CHANGELOG.md", True),
         ("docs/foo.md", True),
         ("foo.mdx", True),
-        # Lockfiles
+        # Lockfiles (matched case-insensitively)
         ("package-lock.json", True),
         ("pnpm-lock.yaml", True),
         ("frontend/yarn.lock", True),
         ("uv.lock", True),
         ("Cargo.lock", True),
+        ("CARGO.LOCK", True),
+        ("Gemfile.lock", True),
+        ("Pipfile.LOCK", True),
         # Generated — frontend TS / JS / JSON / md / snap / type-stubs only.
         # Backend executable code (.py, .go) under generated/ is NOT trivial
         # because at dismiss time the path is the only signal.
