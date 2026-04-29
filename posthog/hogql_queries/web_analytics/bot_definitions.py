@@ -58,6 +58,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Baiduspider": BotDefinition("Baidu", "search_crawler", "Bot", "Baidu"),
     "DuckDuckBot": BotDefinition("DuckDuckGo", "search_crawler", "Bot", "DuckDuckGo"),
     "Slurp": BotDefinition("Yahoo", "search_crawler", "Bot", "Yahoo"),
+    "Yeti/": BotDefinition("Naver", "search_crawler", "Bot", "Naver"),
     # Search Crawlers (Google variants)
     "AdsBot-Google": BotDefinition("Google Ads", "search_crawler", "Bot", "Google"),
     "Google-InspectionTool": BotDefinition("Google Inspection", "search_crawler", "Bot", "Google"),
@@ -66,6 +67,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "AhrefsBot": BotDefinition("Ahrefs", "seo_crawler", "Bot", "Ahrefs"),
     "Barkrowler": BotDefinition("Barkrowler", "seo_crawler", "Bot", "Babbar"),
     "SemrushBot": BotDefinition("Semrush", "seo_crawler", "Bot", "Semrush"),
+    "SERankingBacklinksBot": BotDefinition("SE Ranking", "seo_crawler", "Bot", "SE Ranking"),
     "MJ12bot": BotDefinition("Majestic", "seo_crawler", "Bot", "Majestic"),
     "DotBot": BotDefinition("Moz", "seo_crawler", "Bot", "Moz"),
     "Lighthouse": BotDefinition("Lighthouse", "seo_crawler", "Bot", "Google"),
@@ -79,6 +81,8 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Slack-ImgProxy": BotDefinition("Slack Image Proxy", "social_crawler", "Bot", "Salesforce"),
     "TelegramBot": BotDefinition("Telegram", "social_crawler", "Bot", "Telegram"),
     "WhatsApp": BotDefinition("WhatsApp", "social_crawler", "Bot", "Meta"),
+    "GoogleImageProxy": BotDefinition("Google Image Proxy", "social_crawler", "Bot", "Google"),
+    "Iframely": BotDefinition("Iframely", "social_crawler", "Bot", "Iframely"),
     # Monitoring
     "Pingdom": BotDefinition("Pingdom", "monitoring", "Bot", "SolarWinds"),
     "UptimeRobot": BotDefinition("UptimeRobot", "monitoring", "Bot", "UptimeRobot"),
