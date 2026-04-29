@@ -832,6 +832,16 @@ class BaseMathType(StrEnum):
     FIRST_MATCHING_EVENT_FOR_USER = "first_matching_event_for_user"
 
 
+class BiasRisk(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    multiple_variant_percentage: float = Field(
+        ...,
+        description=("Observed share of users assigned to `$multiple`, as a percentage (0-100)."),
+    )
+
+
 class BillingSpendResponseBreakdownType(StrEnum):
     TYPE = "type"
     TEAM = "team"
@@ -2783,6 +2793,27 @@ class LoadingBlock(BaseModel):
     )
     artifact_id: str = Field(..., description="The artifact ID that is being loaded")
     type: Literal["loading"] = "loading"
+
+
+class MatchedOn(StrEnum):
+    KEY = "key"
+    VALUE = "value"
+
+
+class LogAttributeResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    matchedOn: MatchedOn = Field(
+        ...,
+        description=("Whether this row matched the search by attribute key or by attribute value."),
+    )
+    matchedValue: str | None = Field(
+        default=None,
+        description=("Sample value that matched the search — only set when matchedOn is 'value'."),
+    )
+    name: str
+    propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
 
 
 class LogPropertyFilterType(StrEnum):
@@ -6708,6 +6739,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -7506,6 +7538,7 @@ class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     date_range: DateRange
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
@@ -10652,6 +10685,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    bias_risk: BiasRisk | None = None
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -14813,7 +14847,7 @@ class LogAttributesQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[dict[str, Any]]
+    results: list[LogAttributeResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -16906,7 +16940,7 @@ class QueryResponseAlternative76(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[dict[str, Any]]
+    results: list[LogAttributeResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20708,6 +20742,10 @@ class LogAttributesQuery(BaseModel):
     offset: int | None = None
     response: LogAttributesQueryResponse | None = None
     search: str | None = None
+    searchValues: bool | None = Field(
+        default=None,
+        description=("When true, the search query also matches attribute values (not just keys)."),
+    )
     serviceNames: list[str] | None = None
     severityLevels: list[LogSeverityLevel] | None = None
     tags: QueryLogTags | None = None
@@ -23353,6 +23391,15 @@ class SourceConfig(BaseModel):
         ]
         | None
     ) = None
+    webhookManualOnly: bool | None = Field(
+        default=None,
+        description=(
+            "If true, the source does not support automatic webhook registration via"
+            " API (e.g. Slack — the user must paste the URL into the source's app"
+            " settings). Adjusts the setup UI copy to avoid promising automatic"
+            " registration."
+        ),
+    )
     webhookSetupCaption: str | None = None
 
 

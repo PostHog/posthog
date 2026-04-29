@@ -91,6 +91,9 @@ class ExportedAsset(models.Model):
     exception_type = models.CharField(max_length=255, null=True, blank=True)
     # Classification of the failure, see failure_handler.py for details
     failure_type = models.CharField(max_length=255, null=True, blank=True)
+    # If truthy, this asset was created by an internal/system process rather than a user.
+    # Excluded from the per-team user-export quota in posthog/api/exports.py.
+    is_system = models.BooleanField(null=True, default=False)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)

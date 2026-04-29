@@ -21,6 +21,7 @@ import {
     ExperimentTrendsQuery,
     GroupNode,
     NodeKind,
+    ProductKey,
     TrendsQuery,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
@@ -47,7 +48,7 @@ import {
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
-const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5
+const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5 // on the 0-100 scale (0.5 = 0.5%)
 
 export function filterLowMultipleVariant<T extends { variant: string; percentage: number }>(variants: T[]): T[] {
     return variants.filter(
@@ -830,6 +831,9 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
         },
         interval: 'day',
         filterTestAccounts: isDWQuery ? false : filterTestAccounts,
+        tags: {
+            productKey: ProductKey.PRODUCT_ANALYTICS,
+        },
     }
 }
 
