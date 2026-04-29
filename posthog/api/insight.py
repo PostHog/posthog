@@ -25,7 +25,7 @@ from pydantic import (
     ValidationError as PydanticValidationError,
 )
 from rest_framework import request, serializers, status, viewsets
-from rest_framework.exceptions import ParseError, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, ParseError, PermissionDenied, ValidationError
 from rest_framework.parsers import JSONParser
 from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
@@ -60,6 +60,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.hogql_queries.apply_dashboard_filters import (
     WRAPPER_NODE_KINDS,
@@ -1694,10 +1695,7 @@ When set, the specified dashboard's filters and date range override will be appl
 
         query_data = request.data.get("query")
         if not query_data:
-            return Response(
-                {"error": "Missing 'query' field in request body"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise ValidationError("Missing 'query' field in request body")
 
         kind = query_data.get("kind")
 
@@ -1713,18 +1711,14 @@ When set, the specified dashboard's filters and date range override will be appl
             else:
                 validated_query = schema.InsightVizNode.model_validate(query_data)
         except Exception:
-            return Response(
-                {"error": "Invalid query format"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            raise ValidationError("Invalid query format")
 
         try:
             metadata = generate_insight_metadata(validated_query, self.team)
-        except Exception:
-            return Response(
-                {"error": "Failed to generate insight metadata. Please try again."},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        except Exception as e:
+            capture_exception(e)
+            raise APIException("Failed to generate insight metadata. Please try again.")
+
         return Response({"name": metadata.name, "description": metadata.description})
 
     def _run_legacy_query(

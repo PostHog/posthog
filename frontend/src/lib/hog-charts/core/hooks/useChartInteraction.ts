@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from '../interaction'
+import {
+    buildLabelPositions,
+    buildPointClickData,
+    buildTooltipContext,
+    findNearestIndexFromPositions,
+    isInPlotArea,
+} from '../interaction'
 import type { ChartDimensions, ChartScales, PointClickData, ResolveValueFn, Series, TooltipContext } from '../types'
 
 const defaultResolveValue: ResolveValueFn = (series, dataIndex) => series.data[dataIndex] ?? 0
@@ -56,6 +62,9 @@ export function useChartInteraction<Meta = unknown>({
 
     const isPinned = tooltipCtx?.isPinned ?? false
 
+    // Precompute the (x, index) lookup table once per (labels, scales.x) change.
+    const labelPositions = useMemo(() => (scales ? buildLabelPositions(labels, scales.x) : []), [labels, scales])
+
     // Rebuild or clear the pinned tooltip when its underlying inputs change.
     // Without this, the pin keeps stale values at stale pixel positions after the
     // parent updates series/labels/scales/dimensions. resolveValue is read live via a
@@ -92,29 +101,16 @@ export function useChartInteraction<Meta = unknown>({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [series, labels, scales, dimensions])
 
-    // Dismiss listeners for pinned tooltip
+    // Dismiss the tooltip on scroll — pinned or not — since the anchor moves
+    // with the page and a stale tooltip is worse than no tooltip.
+    const tooltipShown = tooltipCtx !== null
     useEffect(() => {
-        if (!isPinned) {
+        if (!tooltipShown) {
             return
         }
-
-        const handleClickOutside = (e: MouseEvent): void => {
-            const wrapper = wrapperRef.current
-            if (wrapper && !wrapper.contains(e.target as Node)) {
-                clearTooltip()
-            }
-        }
-
-        const handleKeyDown = (e: KeyboardEvent): void => {
-            if (e.key === 'Escape') {
-                clearTooltip()
-            }
-        }
-
         const handleScroll = (e: Event): void => {
-            // Ignore scrolls that originate inside the tooltip itself or inside
-            // the chart wrapper — users should be able to scroll long pinned
-            // content (or a nested legend) without dismissing the tooltip.
+            // Allow scrolling inside the tooltip itself (long pinned content)
+            // or the chart wrapper (a nested legend) without dismissing.
             const target = e.target
             if (target instanceof Element) {
                 if (target.closest('[data-hog-charts-tooltip]')) {
@@ -126,19 +122,45 @@ export function useChartInteraction<Meta = unknown>({
             }
             clearTooltip()
         }
+        window.addEventListener('scroll', handleScroll, { passive: true, capture: true })
+        return () => {
+            window.removeEventListener('scroll', handleScroll, true)
+        }
+    }, [tooltipShown, wrapperRef, clearTooltip])
+
+    // Dismiss listeners for pinned tooltip
+    useEffect(() => {
+        if (!isPinned) {
+            return
+        }
+
+        const handleClickOutside = (e: MouseEvent): void => {
+            const target = e.target
+            if (target instanceof Element && target.closest('[data-hog-charts-tooltip]')) {
+                return
+            }
+            const wrapper = wrapperRef.current
+            if (wrapper && !wrapper.contains(target as Node)) {
+                clearTooltip()
+            }
+        }
+
+        const handleKeyDown = (e: KeyboardEvent): void => {
+            if (e.key === 'Escape') {
+                clearTooltip()
+            }
+        }
 
         // Delay click listener so the pinning click doesn't immediately unpin
         const timer = setTimeout(() => {
             document.addEventListener('click', handleClickOutside, { passive: true })
         }, 0)
         document.addEventListener('keydown', handleKeyDown, { passive: true })
-        window.addEventListener('scroll', handleScroll, { passive: true, capture: true })
 
         return () => {
             clearTimeout(timer)
             document.removeEventListener('click', handleClickOutside)
             document.removeEventListener('keydown', handleKeyDown)
-            window.removeEventListener('scroll', handleScroll, true)
         }
     }, [isPinned, wrapperRef, clearTooltip])
 
@@ -157,7 +179,7 @@ export function useChartInteraction<Meta = unknown>({
                 return
             }
 
-            const index = findNearestIndex(mouseX, labels, scales.x)
+            const index = findNearestIndexFromPositions(mouseX, labelPositions)
             setHoverIndex(index)
 
             if (index >= 0 && showTooltip) {
@@ -177,7 +199,18 @@ export function useChartInteraction<Meta = unknown>({
                 )
             }
         },
-        [scales, dimensions, labels, series, showTooltip, resolveValue, canvasRef, isPinned, clearTooltip]
+        [
+            scales,
+            dimensions,
+            labels,
+            series,
+            showTooltip,
+            resolveValue,
+            canvasRef,
+            isPinned,
+            clearTooltip,
+            labelPositions,
+        ]
     )
 
     const onMouseLeave = useCallback(() => {

@@ -15,12 +15,11 @@ The process per oversized part:
 5. ATTACH the part to source staging table (SQL)
 6. INSERT SELECT from source staging → target staging (SQL, CH writes as smaller parts)
 7. Verify target staging row count matches source staging (SQL)
-8. DETACH new parts from target staging (SQL)
-9. Move detached parts to source table's detached dir (SSH)
-10. ATTACH PART on source table — adds each new broken part individually (SQL, replicated)
-11. Wait for replication — polls all replicas' log_pointer via clusterAllReplicas(system.replicas) (SQL)
-12. DROP PART — removes only the original oversized part (SQL)
-13. Clean up — SYSTEM UNFREEZE BY NAME, truncate staging tables (SQL)
+8. ATTACH PARTITION FROM staging target → source table (SQL, CH handles block renumbering and replication)
+9. Verify row delta matches staging target row count (SQL)
+10. Wait for replication — polls all replicas' log_pointer via clusterAllReplicas(system.replicas) (SQL)
+11. DROP PART — removes only the original oversized part (SQL)
+12. Clean up — SYSTEM UNFREEZE BY NAME, truncate staging tables (SQL)
 
 Safety properties:
 - Source table is never missing data — new parts are attached BEFORE the oversized part is dropped
@@ -887,7 +886,7 @@ def break_part(
             context.log.info(
                 f"  WOULD DO: FREEZE partition {partition_id} → {copy_method} → "
                 f"INSERT SELECT {part.part_gib:.1f} GiB ({part.part_rows:,} rows) → "
-                f"ATTACH new parts → wait for replication → DROP {part.part_name}"
+                f"ATTACH PARTITION FROM staging → wait for replication → DROP {part.part_name}"
             )
 
         workload = Workload[settings.PART_BREAKER_WORKLOAD]
@@ -951,7 +950,7 @@ def break_part(
             # between FREEZE and ATTACH).
             baseline_mutation_ids = _get_mutation_ids_for_part(client, source_table, partition_id, part.part_name)
 
-            # -- Step 3: Get paths and establish SSH connection --
+            # -- Setup: Get paths and establish SSH connection --
             disk_paths = _get_disk_paths(client)
             part_disk = _get_part_disk(client, source_table, part.part_name)
             part_disk_path = disk_paths[part_disk]
@@ -961,16 +960,11 @@ def break_part(
             primary_disk = _get_table_primary_disk(client, source_table)
             primary_disk_path = disk_paths[primary_disk]
 
-            # Get the store-based paths for each table on the primary disk.
+            # Get the store-based path for staging source on the primary disk.
             # ClickHouse uses store/{prefix}/{uuid}/ layout — the data/{db}/{table}/ paths
             # are just symlinks and FREEZE snapshots use the real store/ paths.
-            source_store_path = _get_table_store_path(client, source_table, primary_disk_path)
             staging_src_store_path = _get_table_store_path(client, staging_source, primary_disk_path)
-            staging_tgt_store_path = _get_table_store_path(client, staging_target, primary_disk_path)
-
-            source_detached = f"{source_store_path}detached/"
             staging_src_detached = f"{staging_src_store_path}detached/"
-            staging_tgt_detached = f"{staging_tgt_store_path}detached/"
 
             context.log.info(
                 f"Part {part.part_name} is on disk '{part_disk}' ({part_disk_path}), "
@@ -983,7 +977,7 @@ def break_part(
             context.log.info(f"Connecting via SSH to {hostname}...")
             ssh = _get_ssh_client(hostname)
 
-            # -- Step 4: FREEZE the partition --
+            # -- Step 3: FREEZE the partition --
             # FREEZE creates hardlinks in shadow/ on the SAME disk as the part.
             # Use a named backup so we can UNFREEZE by name later.
             freeze_name = f"part_breaker_{part.part_name}_{time.strftime('%Y%m%d%H%M%S')}"
@@ -1011,7 +1005,7 @@ def break_part(
             # Verify the frozen part exists
             _ssh_exec(ssh, f"test -d {frozen_part_path}")
 
-            # -- Step 5: Copy frozen part to staging source's detached dir --
+            # -- Step 4: Copy frozen part to staging source's detached dir --
             # Use cp -rl (hardlink) if part is on the same disk as staging tables (primary disk),
             # cp -r (real copy) if cross-filesystem.
             # FREEZE creates shadow on the part's disk; staging tables live on the primary disk.
@@ -1025,7 +1019,7 @@ def break_part(
             # cp as root creates directories owned by root — fix ownership so CH can read them
             _ssh_exec(ssh, f"chown -R clickhouse:clickhouse {staging_src_detached}{part.part_name}/")
 
-            # -- Step 6: ATTACH the part to staging source --
+            # -- Step 5: ATTACH the part to staging source --
             context.log.info(f"Attaching part {part.part_name} to {staging_source}...")
             client.execute(f"ALTER TABLE {database}.{staging_source} ATTACH PART '{part.part_name}'")
 
@@ -1037,7 +1031,7 @@ def break_part(
             if source_count == 0:
                 raise dagster.Failure(description=f"Staging source {staging_source} has 0 rows after ATTACH PART")
 
-            # -- Step 7: INSERT SELECT from staging source → staging target --
+            # -- Step 6: INSERT SELECT from staging source → staging target --
             context.log.info(
                 f"Starting INSERT SELECT: {staging_source} → {staging_target} "
                 f"({part.part_gib:.1f} GiB, {source_count:,} rows)..."
@@ -1045,7 +1039,7 @@ def break_part(
             query_id = _run_insert_select(client, staging_source, staging_target)
             context.log.info(f"INSERT SELECT complete (query_id: {query_id})")
 
-            # -- Step 8: Verify staging target --
+            # -- Step 7: Verify staging target --
             context.log.info("Verifying staging target...")
             target_count, target_parts, target_largest_gib = _get_staging_stats(client, staging_target, partition_id)
             context.log.info(
@@ -1069,43 +1063,31 @@ def break_part(
                     f"({config.max_part_size_gib} GiB). INSERT SELECT may not have broken sufficiently."
                 )
 
-            # -- Step 9: Capture part hashes for post-ATTACH verification.
-            staging_hashes = client.execute(
-                "SELECT hash_of_all_files, rows FROM system.parts "
+            # Pre-attach row count, excluding the old part by prefix (not exact name) so a
+            # mid-flight mutation renaming the old part can't slip past the filter.
+            old_part_prefix = "_".join(part.part_name.split("_")[:3])
+            pre_attach_rows = client.execute(
+                "SELECT sum(rows) FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s AND active "
+                "AND partition_id = %(partition_id)s "
+                "AND NOT startsWith(name, %(prefix)s)",
+                {"db": database, "table": source_table, "partition_id": partition_id, "prefix": old_part_prefix},
+            )
+            pre_attach_row_count = (pre_attach_rows[0][0] or 0) if pre_attach_rows else 0
+
+            # Re-read staging row count right before ATTACH. Background merges on staging
+            # (ReplacingMergeTree) can dedupe further between step 8 and now, making the
+            # earlier target_count snapshot stale and triggering false failures.
+            staging_rows_now = client.execute(
+                "SELECT sum(rows) FROM system.parts "
                 "WHERE database = %(db)s AND table = %(table)s AND active "
                 "AND partition_id = %(partition_id)s",
                 {"db": database, "table": staging_target, "partition_id": partition_id},
             )
-            expected_hashes = {row[0] for row in staging_hashes}
-            expected_rows_by_hash = {row[0]: row[1] for row in staging_hashes}
+            expected_added_rows = (staging_rows_now[0][0] or 0) if staging_rows_now else 0
 
-            # Fail if stale detached parts exist from a previous failed run.
-            pre_detach_ls = _ssh_exec(ssh, f"ls -1 {staging_tgt_detached}").strip()
-            if pre_detach_ls:
-                stale_parts = [p for p in pre_detach_ls.split("\n") if p and p.startswith(f"{partition_id}_")]
-                if stale_parts:
-                    raise dagster.Failure(
-                        description=f"Staging target {staging_target} has {len(stale_parts)} stale detached part(s) "
-                        f"for partition {partition_id}. Clean up manually: {staging_tgt_detached}"
-                    )
-
-            context.log.info(f"Detaching parts from {staging_target}...")
-            client.execute(
-                f"ALTER TABLE {database}.{staging_target} DETACH PARTITION '{partition_id}'",
-                settings={"max_partition_size_to_drop": "0"},
-            )
-
-            # -- Step 10: Move detached parts to source table and ATTACH.
-            ls_output = _ssh_exec(ssh, f"ls -1 {staging_tgt_detached}")
-            detached_parts = [p for p in ls_output.strip().split("\n") if p and p.startswith(f"{partition_id}_")]
-
-            context.log.info(f"Moving {len(detached_parts)} parts to {source_detached}...")
-            for dp in detached_parts:
-                _ssh_exec(ssh, f"mv {staging_tgt_detached}{dp} {source_detached}{dp}")
-
-            # Re-check for new mutations that appeared during our work and target this
-            # specific part — they'd have mutated the old part but not our staging data,
-            # producing inconsistent state.
+            # Re-check for new mutations targeting our part. If any appeared, abort
+            # before ATTACH — they'd have mutated the old part but not our staging data.
             current_mutation_ids = _get_mutation_ids_for_part(client, source_table, partition_id, part.part_name)
             new_mutation_ids = current_mutation_ids - baseline_mutation_ids
             if new_mutation_ids:
@@ -1115,46 +1097,39 @@ def break_part(
                     f"{sorted(new_mutation_ids)}. Aborting before ATTACH to avoid data inconsistency."
                 )
 
-            # ATTACH PART can silently succeed without activating the
-            # part when the block range doesn't fit existing state.
-            # Verify each ATTACH actually landed in system.parts before proceeding.
-            context.log.info(f"Attaching {len(detached_parts)} new parts to {source_table}...")
-            for dp in detached_parts:
-                client.execute(f"ALTER TABLE {database}.{source_table} ATTACH PART '{dp}'")
-                check = client.execute(
-                    "SELECT count() FROM system.parts "
-                    "WHERE database = %(db)s AND table = %(table)s "
-                    "AND name = %(name)s",
-                    {"db": database, "table": source_table, "name": dp},
-                )
-                if not check or check[0][0] == 0:
-                    raise dagster.Failure(
-                        description=f"ATTACH PART '{dp}' returned Ok but part did not land in "
-                        f"system.parts. CH may have silently skipped it (block range outside "
-                        f"existing state). See source detached dir ({source_detached}) for the stranded part."
-                    )
-
-            # -- Step 11: Verify our parts exist by hash_of_all_files.
-            current_parts = client.execute(
-                "SELECT hash_of_all_files FROM system.parts "
-                "WHERE database = %(db)s AND table = %(table)s "
-                "AND partition_id = %(partition_id)s "
-                "AND name != %(old_part)s",
-                {"db": database, "table": source_table, "partition_id": partition_id, "old_part": part.part_name},
+            # -- Step 8: ATTACH PARTITION FROM staging target → source table.
+            # ClickHouse handles block renumbering and replication internally,
+            # avoiding the silent-skip behavior of per-part ATTACH where parts
+            # whose block ranges don't fit existing state get filtered out
+            # (CH's tryLoadPartsToAttach — see ClickHouse/ClickHouse PR 97040).
+            context.log.info(f"Attaching partition {partition_id} from {staging_target} to {source_table}...")
+            client.execute(
+                f"ALTER TABLE {database}.{source_table} "
+                f"ATTACH PARTITION '{partition_id}' FROM {database}.{staging_target}"
             )
-            current_hashes = {row[0] for row in current_parts}
-            missing_hashes = expected_hashes - current_hashes
-            if missing_hashes:
-                missing_rows = sum(expected_rows_by_hash[h] for h in missing_hashes)
+
+            # -- Step 9: Verify row delta matches staging target row count.
+            # Source row delta must be >= staging row count (concurrent inserts
+            # only inflate it — the check is one-sided).
+            post_attach_rows = client.execute(
+                "SELECT sum(rows) FROM system.parts "
+                "WHERE database = %(db)s AND table = %(table)s AND active "
+                "AND partition_id = %(partition_id)s "
+                "AND NOT startsWith(name, %(prefix)s)",
+                {"db": database, "table": source_table, "partition_id": partition_id, "prefix": old_part_prefix},
+            )
+            post_attach_row_count = (post_attach_rows[0][0] or 0) if post_attach_rows else 0
+            added_rows = post_attach_row_count - pre_attach_row_count
+            if added_rows < expected_added_rows:
                 raise dagster.Failure(
-                    description=f"{len(missing_hashes)} of {len(expected_hashes)} parts missing after ATTACH "
-                    f"({missing_rows:,} rows). Skipping DROP to avoid data loss."
+                    description=f"ATTACH PARTITION added {added_rows:,} rows but staging had "
+                    f"{expected_added_rows:,} immediately before ATTACH. Skipping DROP to avoid data loss."
                 )
             context.log.info(
-                f"Safety check passed: all {len(expected_hashes)} part hashes verified ({target_count:,} rows)"
+                f"Safety check passed: ATTACH PARTITION added {added_rows:,} rows (expected: {expected_added_rows:,})"
             )
 
-            # -- Step 12: Wait for replication before dropping.
+            # -- Step 10: Wait for replication before dropping.
             log_index_rows = client.execute(
                 "SELECT log_max_index FROM system.replicas WHERE database = %(db)s AND table = %(table)s",
                 {"db": database, "table": source_table},
@@ -1169,8 +1144,7 @@ def break_part(
             _wait_for_replication(client, source_table, target_log_index, part.shard_num)
             context.log.info("Replication complete — all replicas have the new parts")
 
-            # -- Step 13: DROP the original part (re-query by prefix, mutations change suffix).
-            original_prefix = "_".join(part.part_name.split("_")[:3])
+            # -- Step 11: DROP the original part (re-query by prefix, mutations change suffix).
             current_parts = client.execute(
                 "SELECT name FROM system.parts "
                 "WHERE database = %(db)s AND table = %(table)s AND active "
@@ -1180,14 +1154,14 @@ def break_part(
                     "db": database,
                     "table": source_table,
                     "partition_id": partition_id,
-                    "prefix_pattern": f"{original_prefix}_%",
+                    "prefix_pattern": f"{old_part_prefix}_%",
                 },
             )
 
             if current_parts:
                 if len(current_parts) > 1:
                     context.log.warning(
-                        f"Found {len(current_parts)} parts matching prefix {original_prefix}: "
+                        f"Found {len(current_parts)} parts matching prefix {old_part_prefix}: "
                         f"{[r[0] for r in current_parts]}. Dropping the first match."
                     )
                 current_part_name = current_parts[0][0]
@@ -1220,19 +1194,18 @@ def break_part(
                     context.log.info(f"Dropped {current_part_name} (via leader replica)")
             else:
                 context.log.warning(
-                    f"Original oversized part (prefix {original_prefix}) not found in "
+                    f"Original oversized part (prefix {old_part_prefix}) not found in "
                     f"{source_table} partition {partition_id} — "
                     f"it may have been merged or dropped already. Skipping DROP PART."
                 )
 
-            # -- Step 14: Get final stats --
-            # Use the verified staging target stats from Step 8 — these reflect exactly
+            # Use the verified staging target stats from Step 7 — these reflect exactly
             # what we created, not the whole partition which includes unrelated parts.
             new_part_count = target_parts
             new_largest_gib = target_largest_gib
             post_count = target_count
 
-            # -- Step 15: Clean up --
+            # -- Step 12: Clean up --
             context.log.info("Cleaning up staging tables...")
             _truncate_staging(client, staging_source)
             _truncate_staging(client, staging_target)

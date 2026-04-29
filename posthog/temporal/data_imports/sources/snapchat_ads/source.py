@@ -50,6 +50,7 @@ class SnapchatAdsSource(SimpleSource[SnapchatAdsSourceConfig], OAuthMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your Snapchat Ads ad account ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="snapchat_integration_id",

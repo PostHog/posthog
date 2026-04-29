@@ -35,7 +35,7 @@ export const SingleSeries: Story = {
                 label: 'Visits',
                 color: 'var(--brand-blue)',
                 data: [20, 35, 28, 60, 45, 70, 52],
-                pointRadius: 3,
+                points: { radius: 3 },
             },
         ]
         return (
@@ -59,21 +59,21 @@ export const MultiSeriesCollision: Story = {
                 label: 'Desktop',
                 color: 'var(--brand-blue)',
                 data: [40, 42, 44, 43, 45, 47, 46],
-                pointRadius: 3,
+                points: { radius: 3 },
             },
             {
                 key: 'mobile',
                 label: 'Mobile',
                 color: 'var(--brand-red)',
                 data: [38, 41, 40, 44, 46, 48, 47],
-                pointRadius: 3,
+                points: { radius: 3 },
             },
             {
                 key: 'tablet',
                 label: 'Tablet',
                 color: 'var(--brand-yellow)',
                 data: [36, 39, 42, 41, 43, 46, 44],
-                pointRadius: 3,
+                points: { radius: 3 },
             },
         ]
         return (
@@ -95,7 +95,7 @@ export const NegativeValues: Story = {
                 label: 'Delta',
                 color: 'var(--brand-blue)',
                 data: [20, -15, 30, -25, 10, -5, 25],
-                pointRadius: 3,
+                points: { radius: 3 },
             },
         ]
         return (
@@ -118,7 +118,7 @@ export const DualYAxes: Story = {
                 color: 'var(--brand-blue)',
                 data: [1200, 1500, 1100, 1800, 1600, 2100, 1900],
                 yAxisId: 'left',
-                pointRadius: 3,
+                points: { radius: 3 },
             },
             {
                 key: 'conversion',
@@ -126,7 +126,7 @@ export const DualYAxes: Story = {
                 color: 'var(--brand-red)',
                 data: [2.1, 2.5, 1.9, 3.2, 2.8, 3.6, 3.1],
                 yAxisId: 'right',
-                pointRadius: 3,
+                points: { radius: 3 },
             },
         ]
         return (
@@ -147,17 +147,15 @@ export const HiddenOnAuxiliarySeries: Story = {
             label: 'Visits',
             color: 'var(--brand-blue)',
             data: [20, 35, 28, 60, 45, 70, 52],
-            pointRadius: 3,
+            points: { radius: 3 },
         }
         const trendline: Series = {
             key: 'visits__trendline',
             label: 'Visits',
             color: 'var(--brand-blue)',
             data: [22, 30, 38, 46, 54, 62, 70],
-            dashPattern: [1, 3],
-            pointRadius: 0,
-            hideFromTooltip: true,
-            hideValueLabels: true,
+            stroke: { pattern: [1, 3] },
+            visibility: { fromTooltip: true, fromValueLabels: true },
         }
         return (
             <Stage>
@@ -178,15 +176,14 @@ export const CrossSeriesOverlapRemoval: Story = {
                 label: 'Main',
                 color: 'var(--brand-blue)',
                 data: [500, 480, 460, 450, 440, 430, 420],
-                pointRadius: 3,
+                points: { radius: 3 },
             },
             {
                 key: 'moving-avg',
                 label: 'Moving avg',
                 color: 'var(--brand-blue)',
                 data: [490, 475, 463, 452, 443, 435, 428],
-                dashPattern: [10, 3],
-                pointRadius: 0,
+                stroke: { pattern: [10, 3] },
             },
         ]
         return (
@@ -208,7 +205,7 @@ export const WithCustomFormatter: Story = {
                 label: 'Revenue',
                 color: 'var(--brand-blue)',
                 data: [12000, 15500, 11000, 18400, 16200, 21100, 19800],
-                pointRadius: 3,
+                points: { radius: 3 },
             },
         ]
         return (
