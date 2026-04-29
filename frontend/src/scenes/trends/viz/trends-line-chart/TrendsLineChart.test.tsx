@@ -242,27 +242,22 @@ describe('TrendsLineChart', () => {
     })
 
     describe('confidence intervals overlay', () => {
-        it('adds a CI band series when enabled', async () => {
+        beforeEach(() => {
             renderInsight({
                 query: buildTrendsQuery({
                     trendsFilter: { showConfidenceIntervals: true, confidenceLevel: 95 },
                 }),
                 featureFlags: HOG_CHARTS_FLAG,
             })
+        })
 
+        it('adds a CI band series when enabled', async () => {
             await waitFor(() => {
                 expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
             })
         })
 
         it('omits the CI series from tooltip rows', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    trendsFilter: { showConfidenceIntervals: true, confidenceLevel: 95 },
-                }),
-                featureFlags: HOG_CHARTS_FLAG,
-            })
-
             const tooltip = await chart.hoverTooltip(2)
 
             expect(tooltip.row('Pageview')).toContain('134')
@@ -271,27 +266,22 @@ describe('TrendsLineChart', () => {
     })
 
     describe('trend lines overlay', () => {
-        it('adds a dashed trend-line series when enabled', async () => {
+        beforeEach(() => {
             renderInsight({
                 query: buildTrendsQuery({
                     trendsFilter: { showTrendLines: true },
                 }),
                 featureFlags: HOG_CHARTS_FLAG,
             })
+        })
 
+        it('adds a dashed trend-line series when enabled', async () => {
             await waitFor(() => {
                 expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
             })
         })
 
         it('omits the trend-line series from tooltip rows', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    trendsFilter: { showTrendLines: true },
-                }),
-                featureFlags: HOG_CHARTS_FLAG,
-            })
-
             const tooltip = await chart.hoverTooltip(2)
 
             expect(tooltip.row('Pageview')).toContain('134')
@@ -302,7 +292,9 @@ describe('TrendsLineChart', () => {
             )
             expect(rows).toHaveLength(1)
         })
+    })
 
+    describe('trend lines + moving average', () => {
         it('renders separate trend lines for the raw and moving-average series', async () => {
             renderInsight({
                 query: buildTrendsQuery({
