@@ -20,21 +20,42 @@ jobs:
         timeout-minutes: 5
         permissions:
             contents: read
+            pull-requests: read
         outputs:
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
-            - name: Checkout pull request
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: filter
               if: github.event_name == 'pull_request'
-              uses: actions/checkout@v6
               with:
-                  fetch-depth: 2
+                  filters: |
+                      actions:
+                        - '.github/workflows/**'
+                        - '.github/actions/**'
+                      go:
+                        - '**/*.go'
+                        - '**/go.mod'
+                        - '**/go.sum'
+                      c_cpp:
+                        - '**/*.c'
+                        - '**/*.cc'
+                        - '**/*.cpp'
+                        - '**/*.cxx'
+                        - '**/*.h'
+                        - '**/*.hpp'
+                        - '**/*.hh'
+                        - '**/*.hxx'
 
             - name: Select languages
               id: matrix
               shell: bash
               env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+                  ACTIONS_CHANGED: ${{ steps.filter.outputs.actions || 'false' }}
+                  GO_CHANGED: ${{ steps.filter.outputs.go || 'false' }}
+                  C_CPP_CHANGED: ${{ steps.filter.outputs.c_cpp || 'false' }}
               run: |
+                  # Keep a CodeQL PR check present while only adding low-volume extractors
+                  # when the PR touches their inputs. Pushes and schedules still run all languages.
                   full_matrix='{"include":[{"language":"actions","build-mode":"none"},{"language":"c-cpp","build-mode":"none"},{"language":"go","build-mode":"autobuild"},{"language":"javascript-typescript","build-mode":"none"},{"language":"python","build-mode":"none"}]}'
 
                   if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
@@ -43,27 +64,17 @@ jobs:
                       exit 0
                   fi
 
-                  changed_files="$(mktemp)"
-                  if git rev-parse --verify HEAD^2 >/dev/null 2>&1; then
-                      git diff --name-only HEAD^1 HEAD^2 > "$changed_files"
-                  else
-                      git fetch --no-tags --depth=1 origin "$BASE_SHA"
-                      git diff --name-only "$BASE_SHA" HEAD > "$changed_files"
-                  fi
-
-                  # Keep a CodeQL PR check present while only adding low-volume extractors
-                  # when the PR touches their inputs. Pushes and schedules still run all languages.
                   matrix='{"include":[{"language":"javascript-typescript","build-mode":"none"},{"language":"python","build-mode":"none"}'
 
-                  if grep -Eq '^\.github/(workflows|actions)/' "$changed_files"; then
+                  if [[ "$ACTIONS_CHANGED" == "true" ]]; then
                       matrix="${matrix}"',{"language":"actions","build-mode":"none"}'
                   fi
 
-                  if grep -Eq '(\.go$|(^|/)go\.(mod|sum)$)' "$changed_files"; then
+                  if [[ "$GO_CHANGED" == "true" ]]; then
                       matrix="${matrix}"',{"language":"go","build-mode":"autobuild"}'
                   fi
 
-                  if grep -Eq '\.(c|cc|cpp|cxx|h|hpp|hh|hxx)$' "$changed_files"; then
+                  if [[ "$C_CPP_CHANGED" == "true" ]]; then
                       matrix="${matrix}"',{"language":"c-cpp","build-mode":"none"}'
                   fi
 
