@@ -36,6 +36,11 @@ const REASON_TAGS: Record<string, { label: string; type: 'success' | 'warning' |
     unchanged: { label: 'No-op', type: 'default' },
 }
 
+// Max height for any single pane — keeps very tall snapshots (e.g. 200×1500
+// scrollable lists) from blowing out the row. Width is capped to the grid cell
+// so ultra-wide ones letterbox horizontally instead.
+const PANE_MAX_HEIGHT_PX = 480
+
 function ThemePane({
     entry,
     theme,
@@ -44,9 +49,11 @@ function ThemePane({
     theme: 'light' | 'dark' | null
 }): JSX.Element {
     const [imageLoaded, setImageLoaded] = useState(false)
+    const hasImage = !!entry?.current_artifact?.download_url
     return (
         <div
-            className={`relative border rounded overflow-hidden aspect-[16/9] ${theme === 'dark' ? 'bg-bg-3000' : 'bg-bg-light'}`}
+            className={`relative border rounded overflow-hidden flex items-center justify-center ${theme === 'dark' ? 'bg-bg-3000' : 'bg-bg-light'} ${hasImage ? '' : 'aspect-[16/9]'}`}
+            style={{ maxHeight: PANE_MAX_HEIGHT_PX }}
         >
             {theme && (
                 <span
@@ -57,23 +64,22 @@ function ThemePane({
                     {theme}
                 </span>
             )}
-            {entry?.current_artifact?.download_url ? (
+            {hasImage ? (
                 <>
                     {!imageLoaded && <LemonSkeleton className="absolute inset-0" />}
                     <img
-                        src={entry.current_artifact.download_url}
+                        src={entry!.current_artifact!.download_url!}
                         alt={`${theme ?? 'snapshot'} variant`}
                         loading="lazy"
                         decoding="async"
-                        className={`w-full h-full object-contain transition-opacity duration-150 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                        className={`max-w-full w-auto h-auto object-contain transition-opacity duration-150 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
+                        style={{ maxHeight: PANE_MAX_HEIGHT_PX }}
                         onLoad={() => setImageLoaded(true)}
                         onError={() => setImageLoaded(true)}
                     />
                 </>
             ) : (
-                <div className="w-full h-full flex items-center justify-center text-muted text-xs">
-                    {entry ? 'No image' : 'No matching capture'}
-                </div>
+                <div className="text-muted text-xs">{entry ? 'No image' : 'No matching capture'}</div>
             )}
         </div>
     )
@@ -152,10 +158,19 @@ function HistoryRow({
                     )}
                 </div>
 
-                <Link to={runUrl(entry)} className={`grid gap-2 ${showPair ? 'grid-cols-2' : 'grid-cols-1 w-1/2'}`}>
-                    <ThemePane entry={pair.primary} theme={pair.primaryTheme} />
-                    {showPair && <ThemePane entry={pair.partner} theme={pair.partnerTheme} />}
-                </Link>
+                <div className={`grid gap-2 ${showPair ? 'grid-cols-2' : 'grid-cols-1 w-1/2'}`}>
+                    <Link to={runUrl(pair.primary)} className="contents">
+                        <ThemePane entry={pair.primary} theme={pair.primaryTheme} />
+                    </Link>
+                    {showPair &&
+                        (pair.partner ? (
+                            <Link to={runUrl(pair.partner)} className="contents">
+                                <ThemePane entry={pair.partner} theme={pair.partnerTheme} />
+                            </Link>
+                        ) : (
+                            <ThemePane entry={null} theme={pair.partnerTheme} />
+                        ))}
+                </div>
             </div>
         </article>
     )
