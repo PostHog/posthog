@@ -2935,11 +2935,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         cache.decorationGeneration = (cache.decorationGeneration ?? 0) + 1
 
         cache.createdModels?.forEach((m: editor.ITextModel) => {
-            // Clear before dispose: `CodeEditor.tsx#disposeTrackedModels`
-            // can't catch us — it skips already-disposed models — so the
-            // captured codeEditorLogic (and the `sqlEditorLogic` graph it
-            // pins via `props.onError`) leaks until we null the
-            // back-reference ourselves.
             clearLogicReference(m)
             try {
                 m.dispose()
