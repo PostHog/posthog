@@ -1,6 +1,7 @@
 import os
 import re
 import ast
+import sys
 import importlib
 from collections import defaultdict
 from pathlib import Path
@@ -214,19 +215,31 @@ class TestUniqueMigrationPrefixes(TestCase):
         # Other prod-shaped deployments: cheap deployment-agnostic checks only. We skip the
         # ALTER flag check here because some legacy cloud-gated migrations shipped without it
         # and re-running the strict check would now fail on already-applied migrations.
-        for deployment in CLOUD_DEPLOYMENTS_TO_CHECK:
-            if not deployment:
-                continue
-            with mock.patch("posthog.settings.CLOUD_DEPLOYMENT", deployment):
-                for name, module in self._checked_modules():
-                    # Reload so the module re-evaluates its top-level `operations` list under the
-                    # patched CLOUD_DEPLOYMENT — the gated branch in 0247 only materializes when
-                    # the value matches one of US/EU/DEV.
-                    module = importlib.reload(module)
-                    operations = getattr(module, "operations", None)
-                    if operations is None:
-                        continue
-                    violations += self._check_operations(name, operations, deployment, full=False)
+        reloaded_names: set[str] = set()
+        try:
+            for deployment in CLOUD_DEPLOYMENTS_TO_CHECK:
+                if not deployment:
+                    continue
+                with mock.patch("posthog.settings.CLOUD_DEPLOYMENT", deployment):
+                    for name, module in self._checked_modules():
+                        # Reload so the module re-evaluates its top-level `operations` list under the
+                        # patched CLOUD_DEPLOYMENT — the gated branch in 0247 only materializes when
+                        # the value matches one of US/EU/DEV.
+                        module = importlib.reload(module)
+                        reloaded_names.add(module.__name__)
+                        operations = getattr(module, "operations", None)
+                        if operations is None:
+                            continue
+                        violations += self._check_operations(name, operations, deployment, full=False)
+        finally:
+            # `importlib.reload` mutates the module in place, so the patched-CLOUD_DEPLOYMENT
+            # version of each top-level `operations` list survives in sys.modules after the
+            # mock context exits. Re-reload each touched module under the default deployment
+            # so later tests in the same process see the unpatched state.
+            for name in reloaded_names:
+                module = sys.modules.get(name)
+                if module is not None:
+                    importlib.reload(module)
 
         if violations:
             error_message = "Found ClickHouse migration operations with convention violations:\n\n"
