@@ -623,10 +623,6 @@ export class ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent(id)
     }
 
-    public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
-        return this.fileSystemShortcut(teamId).addPathComponent('reorder')
-    }
-
     // # Persisted folder
     public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('persisted_folder')
@@ -2468,9 +2464,6 @@ const api = {
         async delete(id: FileSystemEntry['id']): Promise<void> {
             return await new ApiRequest().fileSystemShortcutDetail(id).delete()
         },
-        async reorder(orderedIds: NonNullable<FileSystemEntry['id']>[]): Promise<FileSystemEntry[]> {
-            return await new ApiRequest().fileSystemShortcutReorder().create({ data: { ordered_ids: orderedIds } })
-        },
     },
 
     persistedFolder: {
@@ -4239,11 +4232,18 @@ const api = {
             return await new ApiRequest().recording(recordingId).delete()
         },
 
-        async batchCheckExists(sessionIds: string[]): Promise<{ results: Record<string, boolean> }> {
-            return await new ApiRequest()
-                .recordings()
-                .withAction('batch_check_exists')
-                .create({ data: { session_ids: sessionIds } })
+        async batchCheckExists(
+            sessionIds: string[],
+            options?: { includeOutcomes?: boolean }
+        ): Promise<{
+            results: Record<string, boolean>
+            outcomes?: Record<string, { description?: string | null }>
+        }> {
+            const data: Record<string, unknown> = { session_ids: sessionIds }
+            if (options?.includeOutcomes) {
+                data.include_outcomes = true
+            }
+            return await new ApiRequest().recordings().withAction('batch_check_exists').create({ data })
         },
 
         async createExternalReference(
