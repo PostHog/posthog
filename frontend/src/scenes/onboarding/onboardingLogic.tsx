@@ -134,6 +134,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
         skipOnboarding: true,
         setAwaitingPostOnboardingModal: (awaiting: boolean) => ({ awaiting }),
+        setSessionSecondaryProductKeys: (keys: ProductKey[]) => ({ keys }),
+        setFromProductKey: (key: ProductKey | null) => ({ key }),
     }),
     reducers(() => ({
         isAwaitingPostOnboardingModal: [
@@ -182,6 +184,18 @@ export const onboardingLogic = kea<onboardingLogicType>([
             null as string | null,
             {
                 setOnCompleteOnboardingRedirectUrl: (_, { url }) => url,
+            },
+        ],
+        sessionSecondaryProductKeys: [
+            [] as ProductKey[],
+            {
+                setSessionSecondaryProductKeys: (_, { keys }) => keys,
+            },
+        ],
+        fromProductKey: [
+            null as ProductKey | null,
+            {
+                setFromProductKey: (_, { key }) => key,
             },
         ],
     })),
@@ -391,16 +405,23 @@ export const onboardingLogic = kea<onboardingLogicType>([
             const currentStepIndex = values.allOnboardingSteps.findIndex((step) => getStepKey(step) === values.stepKey)
             const nextStep = values.allOnboardingSteps[currentStepIndex + (numStepsToAdvance || 1)]
             // If the user is leaving the Install step of a non-Logs onboarding while
-            // they also have a Logs product intent, divert them to the Logs install
-            // step so the OTel setup isn't skipped along with the analytics SDK.
+            // Logs was selected in this session, divert them to the Logs install step.
+            // Uses sessionSecondaryProductKeys (from URL) rather than the persistent
+            // product_intents so that Logs from a prior session doesn't trigger this.
             if (
                 values.stepKey === OnboardingStepKey.INSTALL &&
                 values.productKey !== ProductKey.LOGS &&
-                values.currentTeam?.product_intents?.some((intent) => intent.product_type === ProductKey.LOGS)
+                values.sessionSecondaryProductKeys.includes(ProductKey.LOGS)
             ) {
                 return [
-                    urls.onboarding({ productKey: ProductKey.LOGS, stepKey: OnboardingStepKey.INSTALL }),
-                    router.values.searchParams,
+                    urls.onboarding({
+                        productKey: ProductKey.LOGS,
+                        stepKey: OnboardingStepKey.INSTALL,
+                        from: values.productKey ?? undefined,
+                    }),
+                    // Preserve secondary param so the modal still shows Logs instructions
+                    // if the user navigates back to the primary product install step.
+                    { secondary: router.values.searchParams.secondary },
                 ]
             }
             if (nextStep) {
@@ -420,6 +441,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     { ...router.values.searchParams, step: getStepKey(previousStep) },
                 ]
             }
+            // No previous step within this product: if we were diverted here from
+            // another product's install step, navigate back to it.
+            if (values.fromProductKey) {
+                return [
+                    urls.onboarding({
+                        productKey: values.fromProductKey,
+                        stepKey: OnboardingStepKey.INSTALL,
+                        secondary: router.values.searchParams.secondary,
+                    }),
+                ]
+            }
             return [`/onboarding/${values.productKey}`, router.values.searchParams]
         },
         updateCurrentTeamSuccess(val) {
@@ -432,7 +464,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
+        '/onboarding/:productKey': ({ productKey }, { success, upgraded, step, secondary, from }) => {
             if (!productKey || !(productKey in availableOnboardingProducts)) {
                 return
             }
@@ -445,6 +477,14 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 // Reset onboarding steps so they can be populated upon render in the component.
                 actions.setAllOnboardingSteps([])
             }
+
+            if (secondary !== undefined) {
+                const keys = secondary
+                    ? (secondary.split(',').filter((k: string) => k in availableOnboardingProducts) as ProductKey[])
+                    : []
+                actions.setSessionSecondaryProductKeys(keys)
+            }
+            actions.setFromProductKey(from && from in availableOnboardingProducts ? (from as ProductKey) : null)
 
             if (step) {
                 // when loading specific steps, like plans, we need to make sure we have a billing response before we can continue
