@@ -561,6 +561,7 @@ jobs:
               env:
                   PR_AUTHOR: ${{ steps.pr_info.outputs.pr_author }}
               with:
+                  github-token: ${{ steps.app-token.outputs.token }}
                   script: |
                       // pr_author is set by pr_info: from the API for workflow_dispatch,
                       // from the event payload for pull_request.
