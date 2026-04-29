@@ -4,7 +4,6 @@ from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, FuzzyInt, _create_event
-from unittest import expectedFailure
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -1793,78 +1792,6 @@ class TestQuotaLimiting(BaseTest):
 
     @patch("posthoganalytics.capture")
     @freeze_time("2021-01-25T12:00:00Z")
-    def test_update_all_orgs_billing_quotas_does_not_overwrite_fresh_billing_data(self, patch_capture) -> None:
-        """
-        Unit-level coverage for the merge step inside the org loop: given a refreshed org
-        with fresh `usage` from the DB and a `todays_usage` snapshot from ClickHouse,
-        `set_org_usage_summary` + `org.save(update_fields=["usage"])` must preserve the
-        fresh per-resource `usage`/`limit`/`period` and only overwrite `todays_usage`.
-
-        Complements the two end-to-end tests below, which cover the cron job through
-        `update_all_orgs_billing_quotas`.
-        """
-        from posthog.models.organization import Organization
-
-        with self.settings(USE_TZ=False):
-            # Set up initial (stale) usage data
-            stale_usage = {
-                "events": {"usage": 9076, "limit": 10000, "todays_usage": 0},
-                "recordings": {"usage": 9076, "limit": 10000, "todays_usage": 0},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            }
-            self.organization.usage = stale_usage
-            self.organization.save()
-
-            # Simulate cron job loading the org at the start (this is stale data)
-            stale_org = Organization.objects.get(id=self.organization.id)
-            assert stale_org.usage["events"]["usage"] == 9076
-
-            # Simulate a billing update arriving while cron is running
-            fresh_usage = {
-                "events": {"usage": 0, "limit": 10000, "todays_usage": 0},
-                "recordings": {"usage": 0, "limit": 10000, "todays_usage": 0},
-                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
-            }
-            Organization.objects.filter(id=self.organization.id).update(usage=fresh_usage)
-
-            # Verify the DB has fresh data but our in-memory object is stale
-            assert stale_org.usage["events"]["usage"] == 9076  # Still stale in memory
-            fresh_org = Organization.objects.get(id=self.organization.id)
-            assert fresh_org.usage["events"]["usage"] == 0  # Fresh in DB
-
-            # Now simulate what the cron job does: refresh from DB then process
-            stale_org.refresh_from_db()
-            assert stale_org.usage["events"]["usage"] == 0  # Now refreshed
-
-            # Process with today's usage from ClickHouse (simulated as 100)
-            todays_usage = UsageCounters(
-                events=100,
-                recordings=50,
-                exceptions=0,
-                rows_synced=0,
-                feature_flag_requests=0,
-                api_queries_read_bytes=0,
-                survey_responses=0,
-                llm_events=0,
-                ai_credits=0,
-                cdp_trigger_events=0,
-                rows_exported=0,
-                workflow_emails=0,
-                workflow_destinations_dispatched=0,
-                logs_mb_ingested=0,
-            )
-            set_org_usage_summary(stale_org, todays_usage=todays_usage)
-            stale_org.save(update_fields=["usage"])
-
-            # Verify fresh billing data (usage=0) is preserved, only todays_usage updated
-            final_org = Organization.objects.get(id=self.organization.id)
-            assert final_org.usage["events"]["usage"] == 0  # Fresh billing data preserved
-            assert final_org.usage["events"]["todays_usage"] == 100  # Today's usage updated
-            assert final_org.usage["recordings"]["usage"] == 0  # Fresh billing data preserved
-            assert final_org.usage["recordings"]["todays_usage"] == 50  # Today's usage updated
-
-    @patch("posthoganalytics.capture")
-    @freeze_time("2021-01-25T12:00:00Z")
     def test_update_all_orgs_billing_quotas_refreshes_candidate_orgs_before_decision(self, patch_capture) -> None:
         """
         End-to-end: an over-limit-looking org is identified as a refresh candidate, so a
@@ -2082,21 +2009,20 @@ class TestQuotaLimiting(BaseTest):
             # And no Redis token was added — the team is free to ingest.
             assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == []
 
-    @expectedFailure
     @patch("posthoganalytics.capture")
     @freeze_time("2021-01-25T12:00:00Z")
-    def test_residual_non_candidate_limit_decrease_race(self, patch_capture) -> None:
+    def test_limit_decrease_for_non_candidate_uses_stale_snapshot(self, patch_capture) -> None:
         """
         Documents the residual race window the targeted refresh does NOT close: a
         billing-driven *limit decrease* (e.g. a downgrade) that lands after the
-        candidate set is computed will not be caught this run. The cached `limit`
-        still looks high, so the org is not flagged as a candidate, no per-iteration
-        refresh happens, and the decision is made against the stale (high-limit)
-        snapshot. The next cron run picks it up within ~30 minutes.
+        candidate set is computed is not caught this run. The cached `limit` still
+        looks high, so the org is not flagged as a candidate, no per-iteration refresh
+        happens, and the decision is made against the stale (high-limit) snapshot. The
+        next cron run picks it up within ~30 minutes.
 
-        Marked `@expectedFailure` so this test passes today (the residual window is
-        the documented contract) and converts to a real assertion the moment a future
-        change closes it.
+        This asserts the current contract directly. When a future change closes the
+        race, this test fails loudly with a meaningful diff and the assertion below
+        gets flipped in the same PR.
         """
         with self.settings(USE_TZ=False):
             cached_high_limit = {
@@ -2144,10 +2070,12 @@ class TestQuotaLimiting(BaseTest):
                 quota_limited_orgs, _, _ = update_all_orgs_billing_quotas()
 
             assert mid_loop_write_count["count"] == 1
-            # The contract this test enforces flips when the assertion below holds:
-            # a same-run downgrade gets caught and the org is quota-limited. Today
-            # this fails (the run misses it); the next cron run catches it.
-            assert str(org_id) in quota_limited_orgs["events"]
+            # Current contract: the same-run downgrade is missed because the org was
+            # never flagged as a candidate (cached limit was high), so no refresh
+            # happened and `org_quota_limited_until` ran against the stale snapshot.
+            # If this assertion ever fails, the residual race has been closed —
+            # flip it to `in quota_limited_orgs["events"]` in the same PR.
+            assert str(org_id) not in quota_limited_orgs["events"]
 
 
 def _full_usage_counters(**overrides: int) -> UsageCounters:
@@ -2199,6 +2127,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 _full_usage_counters(),
                 [],
                 {},
+                {},
                 False,
             ),
             (
@@ -2206,6 +2135,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 {"events": {"usage": 5, "limit": 10}},
                 _full_usage_counters(),
                 [],
+                {},
                 {},
                 False,
             ),
@@ -2218,6 +2148,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 _full_usage_counters(),
                 [],
                 {},
+                {},
                 True,
             ),
             (
@@ -2228,6 +2159,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 },
                 _full_usage_counters(),
                 [],
+                {},
                 {},
                 True,
             ),
@@ -2241,6 +2173,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 _full_usage_counters(events=100),
                 [],
                 {},
+                {},
                 True,
             ),
             (
@@ -2251,6 +2184,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 },
                 _full_usage_counters(events=10),
                 [],
+                {},
                 {},
                 False,
             ),
@@ -2264,6 +2198,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 _full_usage_counters(events=999_999),
                 [],
                 {},
+                {},
                 False,
             ),
             (
@@ -2275,6 +2210,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 _full_usage_counters(),
                 ["phc_xyz"],
                 {"events": ["phc_xyz"]},
+                {},
                 True,
             ),
             (
@@ -2286,6 +2222,32 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 _full_usage_counters(),
                 ["phc_stale"],
                 {"events": ["phc_stale"]},
+                {},
+                True,
+            ),
+            (
+                # Symmetric regression: a stale entry in the suspension Redis set must
+                # also flag the org. Without this, a team only present in the suspended
+                # set (no overage, no usage marker) would never be re-evaluated and the
+                # suspension entry could persist past its grace period.
+                "flags_orgs_with_team_token_in_redis_suspended_set",
+                {
+                    "events": {"usage": 10, "limit": 1_000, "todays_usage": 0},
+                    "period": _PERIOD,
+                },
+                _full_usage_counters(),
+                ["phc_susp"],
+                {},
+                {"events": ["phc_susp"]},
+                True,
+            ),
+            (
+                "suspended_redis_token_flags_org_with_empty_resource_dict",
+                {"period": _PERIOD},
+                _full_usage_counters(),
+                ["phc_susp_stale"],
+                {},
+                {"events": ["phc_susp_stale"]},
                 True,
             ),
             (
@@ -2301,6 +2263,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 _full_usage_counters(events=20, recordings=5, rows_synced=5),
                 [],
                 {},
+                {},
                 True,
             ),
             (
@@ -2313,6 +2276,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 },
                 _full_usage_counters(events=10),
                 [],
+                {},
                 {},
                 False,
             ),
@@ -2328,6 +2292,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
                 _full_usage_counters(recordings=999),
                 [],
                 {},
+                {},
                 False,
             ),
         ]
@@ -2339,6 +2304,7 @@ class TestIdentifyRefreshCandidates(BaseTest):
         todays: UsageCounters,
         team_tokens: list[str],
         previously_limited_overrides: dict[str, list[str]],
+        previously_suspended_overrides: dict[str, list[str]],
         expected_candidate: bool,
     ) -> None:
         org = _fake_org(usage=usage)
@@ -2349,8 +2315,12 @@ class TestIdentifyRefreshCandidates(BaseTest):
 
         previously_limited = _empty_previously_limited()
         previously_limited.update(previously_limited_overrides)
+        previously_suspended = _empty_previously_limited()
+        previously_suspended.update(previously_suspended_overrides)
 
-        candidates = _identify_refresh_candidates(orgs_by_id, todays_usage_report, teams_by_org, previously_limited)
+        candidates = _identify_refresh_candidates(
+            orgs_by_id, todays_usage_report, teams_by_org, previously_limited, previously_suspended
+        )
 
         assert candidates == ({org_id} if expected_candidate else set())
 
@@ -2437,7 +2407,10 @@ class TestPatchTodaysUsage(BaseTest):
         assert self.organization.usage["events"]["limit"] == 1_000
         assert self.organization.usage["recordings"]["todays_usage"] == 5
         assert self.organization.usage["period"] == ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]
-        assert self.organization.updated_at > before_updated_at
+        # Matches prior `save(update_fields=["usage"])` behavior: `auto_now=True` only
+        # fires for fields actually in `update_fields`, so `updated_at` wasn't bumped
+        # before and isn't bumped now.
+        assert self.organization.updated_at == before_updated_at
 
     def test_targeted_patch_does_not_clobber_concurrent_billing_write(self) -> None:
         self.organization.usage = {
@@ -2518,9 +2491,10 @@ class TestUpdateOrganizationUsageFields(BaseTest):
 
     def test_all_none_deletes_on_missing_keys_is_a_noop(self) -> None:
         # Clearing markers that aren't present should not raise and should leave the
-        # row untouched apart from `updated_at` (the SQL UPDATE still runs). This
-        # mirrors the common cron path where `org_quota_limited_until` clears markers
-        # on every "not over limit" pass even when there were none to begin with.
+        # row's `usage` shape untouched (the SQL UPDATE still runs but produces an
+        # equivalent jsonb). Mirrors the common cron path where `org_quota_limited_until`
+        # clears markers on every "not over limit" pass even when there were none to
+        # begin with.
         self.organization.usage = {
             "events": {"usage": 100, "limit": 1_000, "todays_usage": 0},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],

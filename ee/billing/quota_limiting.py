@@ -7,8 +7,9 @@ from time import time
 from typing import Any, Optional, TypedDict, cast
 
 from django.conf import settings
-from django.db import close_old_connections, connection
+from django.db import close_old_connections
 from django.db.models import Q
+from django.db.models.expressions import RawSQL
 from django.utils import timezone
 
 import structlog
@@ -597,20 +598,48 @@ def set_org_usage_summary(
     return has_changed
 
 
+def _patch_organization_usage_jsonb(organization: Organization, ops: Sequence[tuple[list[str], Any]]) -> None:
+    """
+    Applies a sequence of partial-write operations to `posthog_organization.usage` for
+    one row, composing them into a single nested `jsonb_set` / `#-` expression so that
+    only the targeted paths are touched and billing-owned siblings (e.g. `usage`,
+    `limit`, `period`) are preserved against stale in-memory snapshots.
+
+    Each op is `(path, value)`: a `None` value deletes the path, anything else sets it
+    (json-encoded). The UPDATE goes through the ORM via `RawSQL`, so the table name
+    comes from `Organization._meta.db_table` rather than being hardcoded. Like
+    `QuerySet.update()` this bypasses model signals — callers must mirror in-memory
+    state separately if they need it visible later in the same request/cron iteration.
+    """
+    if not ops:
+        return
+
+    sql_expr = "usage"
+    params: list[Any] = []
+    for path, value in ops:
+        if value is None:
+            sql_expr = f"({sql_expr}) #- %s::text[]"
+            params.append(path)
+        else:
+            sql_expr = f"jsonb_set({sql_expr}, %s::text[], %s::jsonb)"
+            params.append(path)
+            params.append(json.dumps(value))
+
+    Organization.objects.filter(id=organization.id).update(usage=RawSQL(sql_expr, params))
+
+
 def _patch_todays_usage(organization: Organization, todays_report: "UsageCounters") -> bool:
     """
     Cron-only: patches `usage[resource].todays_usage` for each `QuotaResource` where the
     org has a non-empty resource dict. Mutates `organization.usage` in-memory and emits a
-    single targeted UPDATE that uses `jsonb_set` so billing-owned fields
+    single targeted UPDATE via `_patch_organization_usage_jsonb` so billing-owned fields
     (`usage`, `limit`, `period`) are not clobbered by stale snapshots. Returns True if
     any value changed.
     """
     if not organization.usage:
         return False
 
-    sql_expr = "usage"
-    params: list[Any] = []
-    has_changes = False
+    ops: list[tuple[list[str], Any]] = []
 
     for resource in QuotaResource:
         field = resource.value
@@ -623,19 +652,12 @@ def _patch_todays_usage(organization: Organization, todays_report: "UsageCounter
             continue
 
         existing_resource["todays_usage"] = new_todays_usage
-        sql_expr = f"jsonb_set({sql_expr}, %s::text[], %s::jsonb)"
-        params.append([field, "todays_usage"])
-        params.append(json.dumps(new_todays_usage))
-        has_changes = True
+        ops.append(([field, "todays_usage"], new_todays_usage))
 
-    if not has_changes:
+    if not ops:
         return False
 
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"UPDATE posthog_organization SET usage = {sql_expr}, updated_at = clock_timestamp() WHERE id = %s",
-            [*params, str(organization.id)],
-        )
+    _patch_organization_usage_jsonb(organization, ops)
     return True
 
 
@@ -644,6 +666,7 @@ def _identify_refresh_candidates(
     todays_usage_report: dict[str, "UsageCounters"],
     teams_by_org: dict[str, list[str]],
     previously_quota_limited_team_tokens: dict[str, list[str]],
+    previously_quota_limiting_suspended_team_tokens: dict[str, list[str]],
 ) -> set[str]:
     """
     Returns the set of org ids whose quota decision could change in this run, computed
@@ -652,14 +675,19 @@ def _identify_refresh_candidates(
     have moved since the queries phase, so they don't need a fresh DB read.
 
     An org is a candidate if any of:
-      1. one of its teams is in the Redis quota-limiter set
+      1. one of its teams is in the Redis quota-limiter set or the Redis
+         quota-limiting-suspended set;
       2. its cached `usage[resource]` already carries a `quota_limited_until` or
          `quota_limiting_suspended_until` marker;
       3. it appears newly limitable from cached state — `usage + todays_usage >= limit + buffer`
          for any resource.
     """
-    previously_limited_lookup = {
-        resource: set(tokens) for resource, tokens in previously_quota_limited_team_tokens.items()
+    # Either Redis set is reason enough to refresh, so union them once up front and
+    # do a single membership check per resource below.
+    redis_indicator_lookup: dict[str, set[str]] = {
+        resource.value: set(previously_quota_limited_team_tokens.get(resource.value, []))
+        | set(previously_quota_limiting_suspended_team_tokens.get(resource.value, []))
+        for resource in QuotaResource
     }
 
     candidates: set[str] = set()
@@ -674,11 +702,11 @@ def _identify_refresh_candidates(
         for resource in QuotaResource:
             field = resource.value
 
-            # Redis check first: an org with a stale entry in the limiter set must be
+            # Redis check first: an org with a stale entry in either Redis set must be
             # refreshed and re-evaluated even when its `usage[resource]` is empty or
             # missing — otherwise we'd never get the chance to clear that stale entry.
-            limited_for_resource = previously_limited_lookup.get(field)
-            if team_token_set and limited_for_resource and not team_token_set.isdisjoint(limited_for_resource):
+            redis_tokens = redis_indicator_lookup.get(field)
+            if team_token_set and redis_tokens and not team_token_set.isdisjoint(redis_tokens):
                 is_candidate = True
                 break
 
@@ -879,19 +907,28 @@ def update_all_orgs_billing_quotas(
     # Get the current quota limits so we can track to PostHog if it changes
     orgs_with_changes = set()
     previously_quota_limited_team_tokens: dict[str, list[str]] = {x.value: [] for x in QuotaResource}
+    previously_quota_limiting_suspended_team_tokens: dict[str, list[str]] = {x.value: [] for x in QuotaResource}
 
-    # All teams that are currently under quota limits
+    # All teams that are currently under quota limits or in a suspension grace period
     for resource in QuotaResource:
         previously_quota_limited_team_tokens[resource.value] = list_limited_team_attributes(
             resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
+        previously_quota_limiting_suspended_team_tokens[resource.value] = list_limited_team_attributes(
+            resource, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+        )
     # We have the teams that are currently under quota limits
     # previously_quota_limited_team_tokens is a dict of resources to team tokens from redis (e.g. {"events": ["phc_123", "phc_456"], "exceptions": ["phc_123", "phc_456"], "recordings": ["phc_123", "phc_456"], "rows_synced": ["phc_123", "phc_456"], "feature_flag_requests": ["phc_123", "phc_456"], "api_queries_read_bytes": ["phc_123", "phc_456"], "survey_responses": ["phc_123", "phc_456"]})
+    # previously_quota_limiting_suspended_team_tokens has the same shape, drawn from the suspension Redis set.
 
     # Identify the orgs whose quota decision could change in this run
     candidates_start = time()
     refresh_candidates = _identify_refresh_candidates(
-        orgs_by_id, todays_usage_report, teams_by_org, previously_quota_limited_team_tokens
+        orgs_by_id,
+        todays_usage_report,
+        teams_by_org,
+        previously_quota_limited_team_tokens,
+        previously_quota_limiting_suspended_team_tokens,
     )
     logger.info(
         "quota_limiting_run",
@@ -972,6 +1009,14 @@ def update_all_orgs_billing_quotas(
                         f"limited={orgs_limited_count},suspended={orgs_suspended_count}",
                     )
         except Exception as e:
+            # TODO: revisit this swallow. Failures here mean the org never lands in
+            # `quota_limited_orgs` / `quota_limiting_suspended_orgs`, so the wholesale
+            # `replace_limited_team_tokens` calls below silently drop any prior Redis
+            # entries for the org's teams — effectively unblocking a previously
+            # limited/suspended org on a transient error. Pick an explicit policy
+            # (e.g. preserve prior Redis state on error, or intentionally fail-open
+            # for customer-favorable behavior) rather than letting the outcome fall
+            # out of the catch.
             orgs_processed += 1
             capture_exception(e, {"organization_id": org_id})
 
@@ -1119,9 +1164,9 @@ def update_organization_usage_fields(
     clobbered by stale snapshots loaded earlier in the cron run.
 
     `None` deletes the key, anything else sets it. Mirrors the in-memory state on
-    `organization` so subsequent reads in the same cron iteration see the new values,
-    and sets `updated_at` to wall-clock time so the row's mtime tracks every quota
-    decision. Note that the raw-SQL UPDATE bypasses Django model signals, so this
+    `organization` so subsequent reads in the same cron iteration see the new values.
+    Matches the prior `save(update_fields=["usage"])` behavior of leaving `updated_at`
+    untouched. The raw-SQL UPDATE also bypasses Django model signals, so this
     intentionally does not emit an `Organization` activity-log entry.
     """
     if not fields:
@@ -1144,19 +1189,7 @@ def update_organization_usage_fields(
         else:
             organization.usage[resource.value][key] = value
 
-    sql_expr = "usage"
-    params: list[Any] = []
-    for key, value in fields.items():
-        if value is None:
-            sql_expr = f"({sql_expr}) #- %s::text[]"
-            params.append([resource.value, key])
-        else:
-            sql_expr = f"jsonb_set({sql_expr}, %s::text[], %s::jsonb)"
-            params.append([resource.value, key])
-            params.append(json.dumps(value))
-
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"UPDATE posthog_organization SET usage = {sql_expr}, updated_at = clock_timestamp() WHERE id = %s",
-            [*params, str(organization.id)],
-        )
+    _patch_organization_usage_jsonb(
+        organization,
+        [([resource.value, key], value) for key, value in fields.items()],
+    )
