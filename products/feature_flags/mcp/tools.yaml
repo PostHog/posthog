@@ -192,6 +192,9 @@ tools:
         description: >
             Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or
             unknown) and a human-readable reason explaining the status.
+    feature-flags-test-evaluation-create:
+        operation: feature_flags_test_evaluation_create
+        enabled: false
     feature-flags-update:
         operation: feature_flags_update
         enabled: false
