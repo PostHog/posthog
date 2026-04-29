@@ -22,11 +22,7 @@ import {
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
-import {
-    SSH_FIELD,
-    buildKeaFormDefaultFromSourceDetails,
-    getErrorsForFields,
-} from '../../NewSourceScene/sourceWizardLogic'
+import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSceneLogic } from '../SourceScene'
 import type { sourceSettingsLogicType } from './sourceSettingsLogicType'
 
@@ -404,9 +400,13 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
         ],
     }),
-    forms(({ values, actions, props }) => ({
+    forms(({ values, actions }) => ({
         sourceConfig: {
-            defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources ?? {}),
+            // `props.availableSources` isn't populated at logic build time (BindLogic provides it
+            // after the loader resolves), so build-time defaults can't be derived from it. The
+            // `ConfigurationTab` `useEffect` seeds real defaults at runtime via
+            // `buildKeaFormDefaultFromSourceDetails(...)` and `setJobInputs`/`setSourceConfigValue`.
+            defaults: { prefix: '', description: '', payload: {} },
             errors: (sourceValues) => {
                 return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any, {
                     allowBlankSensitiveFields: true,

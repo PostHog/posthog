@@ -256,39 +256,6 @@ function syncExpandedDirectQuerySchemaKeys(
     actions.syncExpandedDirectQuerySchemaKeys(values.groupedDirectQuerySchemaKeys, fingerprint)
 }
 
-// Seed defaults for the selected connector's fields. The form's `defaults` builder runs at logic
-// build time when `props({} as SourceWizardLogicProps)` has `availableSources` undefined — so
-// `buildKeaFormDefaultFromSourceDetails` returns `{}` and select fields never get their
-// `defaultValue` (e.g. MySQL `using_ssl="true"`). Both `selectConnector` and `setInitialConnector`
-// (used by NewSourceScene preselect and SourcesModal) call this so the form state matches the
-// dropdown's visible default. The `=== undefined` guard preserves user input, OAuth-restored
-// values, and URL-handler writes.
-export function seedConnectorDefaults(
-    actions: Pick<sourceWizardLogicType['actions'], 'setSourceConnectionDetailsValues'>,
-    values: Pick<sourceWizardLogicType['values'], 'sourceConnectionDetails'>,
-    connector: SourceConfig | null
-): void {
-    if (!connector) {
-        return
-    }
-    const seededPayload = buildKeaFormDefaultFromSourceDetails({ [connector.name]: connector }).payload as Record<
-        string,
-        unknown
-    >
-    const currentPayload = (values.sourceConnectionDetails?.payload ?? {}) as Record<string, unknown>
-    const mergedPayload: Record<string, unknown> = { ...currentPayload }
-    let hasNewKeys = false
-    for (const [key, defaultValue] of Object.entries(seededPayload)) {
-        if (currentPayload[key] === undefined) {
-            mergedPayload[key] = defaultValue
-            hasNewKeys = true
-        }
-    }
-    if (hasNewKeys) {
-        actions.setSourceConnectionDetailsValues({ payload: mergedPayload })
-    }
-}
-
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
@@ -313,6 +280,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onBack: true,
         onNext: true,
         onSubmit: true,
+        resetSourceForm: true,
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({
             schemas,
         }),
@@ -648,6 +616,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     selectors({
         availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
         requiredTables: [() => [(_, p) => p.requiredTables], (requiredTables) => requiredTables ?? null],
+        // Form defaults derived from the selected connector's field schema. Returning a fresh
+        // object on every connector change is cheap and keeps the form layer side-effect-free —
+        // the `resetSourceForm` listener writes these into form state.
+        defaultSourceConnectionDetails: [
+            (s) => [s.selectedConnector],
+            (selectedConnector: SourceConfig | null): Record<string, unknown> => {
+                if (!selectedConnector) {
+                    return { prefix: '', description: '', payload: {} }
+                }
+                return buildKeaFormDefaultFromSourceDetails({
+                    [selectedConnector.name]: selectedConnector,
+                })
+            },
+        ],
         suggestedTablesMap: [
             (s) => [s.selectedConnector],
             (selectedConnector: SourceConfig | null): Record<string, string | null> => {
@@ -926,9 +908,25 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             walk(values.selectedConnector?.fields ?? [], '')
             actions.touchSourceConnectionDetailsField('prefix')
         },
-        setInitialConnector: ({ connector }) => {
+        setInitialConnector: () => {
             syncExpandedDirectQuerySchemaKeys(actions, values)
-            seedConnectorDefaults(actions, values, connector)
+            actions.resetSourceForm()
+        },
+        resetSourceForm: () => {
+            // Single entry point for "the connector context changed, refill the form."
+            // Replaces state with the connector-derived defaults, layers any OAuth-restored
+            // values on top, and preserves the access_method already chosen by the URL/UI flow.
+            const defaults = values.defaultSourceConnectionDetails
+            const sourceConnectionDetails = values.sourceConnectionDetails as Record<string, unknown>
+            const currentAccessMethod = sourceConnectionDetails?.access_method
+            const sourceKind = values.selectedConnector?.name?.toLowerCase()
+            const savedValues = sourceKind ? restoreSourceFormState(sourceKind) : null
+
+            actions.resetSourceConnectionDetails({
+                ...defaults,
+                ...savedValues,
+                ...(currentAccessMethod !== undefined ? { access_method: currentAccessMethod } : {}),
+            })
         },
         setDatabaseSchemas: () => {
             syncExpandedDirectQuerySchemaKeys(actions, values)
@@ -1371,7 +1369,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         selectConnector: ({ connector }) => {
             syncExpandedDirectQuerySchemaKeys(actions, values)
-            seedConnectorDefaults(actions, values, connector)
+            actions.resetSourceForm()
 
             actions.addProductIntent({
                 product_type: ProductKey.DATA_WAREHOUSE,
@@ -1429,16 +1427,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (source) {
+                // selectConnector triggers `resetSourceForm`, which seeds the connector's
+                // defaults, restores any OAuth-saved form state, and preserves access_method.
                 actions.selectConnector(source)
                 actions.updateSource({ access_method: accessMethod })
                 actions.setSourceConnectionDetailsValue('access_method', accessMethod)
                 actions.handleRedirect(source.name)
                 actions.setStep(2)
-                // Restore form values saved before an OAuth redirect
-                const savedValues = restoreSourceFormState(source.name.toLowerCase())
-                actions.setSourceConnectionDetailsValues(
-                    getInitialSourceConnectionDetailsValues(savedValues, accessMethod)
-                )
                 return
             }
 
@@ -1455,10 +1450,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
     forms(({ actions, values }) => ({
         sourceConnectionDetails: {
-            // Defaults are seeded at runtime in the `selectConnector` / `setInitialConnector`
-            // listeners — at logic build time `props.availableSources` isn't populated yet
-            // (BindLogic provides it after the loader resolves), so we can't compute meaningful
-            // defaults here.
+            // Real defaults come from the `defaultSourceConnectionDetails` selector and are
+            // pushed into the form by the `resetSourceForm` listener. Build-time defaults can't
+            // depend on `props.availableSources` because props aren't populated yet at that
+            // moment.
             defaults: { prefix: '', description: '', payload: {} },
             errors: (sourceValues) => {
                 const selectedAccessMethod =
@@ -1579,15 +1574,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
     })),
 ])
-
-export const getInitialSourceConnectionDetailsValues = (
-    savedValues: Record<string, unknown> | null | undefined,
-    accessMethod: 'warehouse' | 'direct'
-): Record<string, unknown> => ({
-    ...savedValues,
-    access_method:
-        savedValues && typeof savedValues.access_method === 'string' ? savedValues.access_method : accessMethod,
-})
 
 export const getDatabaseSchemaPayload = (
     source: Pick<ExternalDataSourceCreatePayload, 'access_method' | 'payload'>
