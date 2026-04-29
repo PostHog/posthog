@@ -117,7 +117,7 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 GroupUsageMetric.Source.DATA_WAREHOUSE,
                 filters.get("table_name"),
                 filters.get("timestamp_field"),
-                filters.get("group_key_field"),
+                filters.get("key_field"),
             )
         return (GroupUsageMetric.Source.EVENTS,)
 

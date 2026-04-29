@@ -1013,7 +1013,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
                 "source": "data_warehouse",
                 "table_name": table_name,
                 "timestamp_field": "created",
-                "group_key_field": "customer_id",
+                "key_field": "customer_id",
             },
             math=GroupUsageMetric.Math.COUNT,
         )
@@ -1041,7 +1041,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
                 "source": "data_warehouse",
                 "table_name": table_name,
                 "timestamp_field": "created",
-                "group_key_field": "customer_id",
+                "key_field": "customer_id",
             },
             math=GroupUsageMetric.Math.SUM,
             math_property="amount",
@@ -1069,7 +1069,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
                 "source": "data_warehouse",
                 "table_name": table_name,
                 "timestamp_field": "created",
-                "group_key_field": "customer_id",
+                "key_field": "customer_id",
             },
         )
 
@@ -1106,7 +1106,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
                 "source": "data_warehouse",
                 "table_name": table_name,
                 "timestamp_field": "created",
-                "group_key_field": "customer_id",
+                "key_field": "customer_id",
             },
         )
         with freeze_time("2025-10-09T12:11:00"):
@@ -1141,7 +1141,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
                 "source": "data_warehouse",
                 "table_name": table_name,
                 "timestamp_field": "created",
-                "group_key_field": "customer_id",
+                "key_field": "customer_id",
             },
         )
 
@@ -1163,14 +1163,12 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
                 "source": "data_warehouse",
                 "table_name": table_name,
                 "timestamp_field": "created",
-                "group_key_field": "customer_id",
+                "key_field": "customer_id",
             },
         )
         runner1 = UsageMetricsQueryRunner(
             team=self.team,
-            query=UsageMetricsQuery(
-                kind="UsageMetricsQuery", group_key=self.group_key, group_type_index=0
-            ),
+            query=UsageMetricsQuery(kind="UsageMetricsQuery", group_key=self.group_key, group_type_index=0),
         )
         key1 = runner1.get_cache_payload()["usage_metric_fingerprints"]
 
@@ -1179,9 +1177,7 @@ class TestUsageMetricsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest)
 
         runner2 = UsageMetricsQueryRunner(
             team=self.team,
-            query=UsageMetricsQuery(
-                kind="UsageMetricsQuery", group_key=self.group_key, group_type_index=0
-            ),
+            query=UsageMetricsQuery(kind="UsageMetricsQuery", group_key=self.group_key, group_type_index=0),
         )
         key2 = runner2.get_cache_payload()["usage_metric_fingerprints"]
 

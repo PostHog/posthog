@@ -25,7 +25,7 @@ export type UsageMetricFiltersDataWarehouse = {
     source: 'data_warehouse'
     table_name?: string | null
     timestamp_field?: string | null
-    group_key_field?: string | null
+    key_field?: string | null
 }
 
 export type UsageMetricFormData = Omit<GroupUsageMetricApi, 'id' | 'filters'> & {
@@ -147,8 +147,8 @@ export const usageMetricsConfigLogic = kea<usageMetricsConfigLogicType>([
                             : undefined,
                     filters:
                         source === 'data_warehouse' &&
-                        (!dwFilters.table_name || !dwFilters.timestamp_field || !dwFilters.group_key_field)
-                            ? 'Table, timestamp field, and group key field are required'
+                        (!dwFilters.table_name || !dwFilters.timestamp_field || !dwFilters.key_field)
+                            ? 'Table, timestamp field, and key field are required'
                             : undefined,
                 }
             },

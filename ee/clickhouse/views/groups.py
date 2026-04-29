@@ -809,7 +809,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         ResourceNotebook.objects.create(notebook=notebook, group=group.id)
 
 
-_DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "group_key_field")
+_DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "key_field")
 
 
 class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):

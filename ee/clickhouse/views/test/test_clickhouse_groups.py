@@ -1974,7 +1974,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
                 "source": "data_warehouse",
                 "table_name": "stripe_charges",
                 "timestamp_field": "created",
-                "group_key_field": "customer_id",
+                "key_field": "customer_id",
             },
         }
 
@@ -2004,7 +2004,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
                 "source": "data_warehouse",
                 "table_name": "no_such_table",
                 "timestamp_field": "created",
-                "group_key_field": "customer_id",
+                "key_field": "customer_id",
             },
         }
 
@@ -2022,7 +2022,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
                 "source": "data_warehouse",
                 "table_name": "stripe_charges",
                 "timestamp_field": "created",
-                "group_key_field": "customer_id",
+                "key_field": "customer_id",
             },
         }
 
