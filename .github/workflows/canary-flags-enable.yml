@@ -329,7 +329,7 @@ jobs:
                   # network/auth/parse failure — that is the bug being fixed.
                   set -euo pipefail
                   tmp=$(mktemp)
-                  gh api --retry 3 \
+                  gh api --retry-count 3 \
                       -H 'Accept: application/vnd.github.raw' \
                       repos/PostHog/charts/contents/state.yaml > "$tmp"
                   enabled=$(yq '.state["feature-flags"].canary.enabled // false' "$tmp")
