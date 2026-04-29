@@ -1479,6 +1479,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         data = [
             {
                 "table": schema.name,
+                "label": schema.label,
                 "should_sync": False,
                 "incremental_fields": schema.incremental_fields,
                 "incremental_available": schema.supports_incremental,

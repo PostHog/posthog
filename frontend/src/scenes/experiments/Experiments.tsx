@@ -199,7 +199,8 @@ const ExperimentsTable = ({
 }): JSX.Element => {
     const { currentProjectId, experiments, experimentsLoading, tab, shouldShowEmptyState, filters, count, pagination } =
         useValues(experimentsLogic)
-    const { loadExperiments, archiveExperiment, setExperimentsFilters } = useActions(experimentsLogic)
+    const { loadExperiments, archiveExperiment, unarchiveExperiment, setExperimentsFilters } =
+        useActions(experimentsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
 
@@ -396,6 +397,21 @@ const ExperimentsTable = ({
                                             fullWidth
                                         >
                                             Archive experiment
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                )}
+                                {experiment.archived && (
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.Experiment}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={experiment.user_access_level}
+                                    >
+                                        <LemonButton
+                                            onClick={() => unarchiveExperiment(experiment.id as number)}
+                                            data-attr={`experiment-${experiment.id}-dropdown-unarchive`}
+                                            fullWidth
+                                        >
+                                            Unarchive experiment
                                         </LemonButton>
                                     </AccessControlAction>
                                 )}

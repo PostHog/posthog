@@ -7,6 +7,8 @@ from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourc
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
+    from products.data_warehouse.backend.models import ExternalDataSource
+
 from posthog.schema import (
     SourceConfig,
     SourceFieldFileUploadConfig,
@@ -97,6 +99,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     ) -> tuple[bool, str | None]:
         """Check whether the provided credentials are valid for this source. Returns an optional error message"""
         return True, None
+
+    def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
+        """Best-effort teardown of CDC resources tied to the source. No-op by default."""
+        return None
 
 
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
