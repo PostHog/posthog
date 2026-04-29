@@ -45,6 +45,7 @@ from hogli import (
     build,  # noqa: F401
     devbox,  # noqa: F401
     doctor,  # noqa: F401
+    metabase,  # noqa: F401
     migrations,  # noqa: F401
     product,  # noqa: F401
     telemetry_commands,  # noqa: F401

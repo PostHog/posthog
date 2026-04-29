@@ -631,11 +631,19 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                             continue
                         remapped_label = "none"
 
+                    # Multi-breakdowns return a list — mirror the frontend's "::"-join when rendering the label,
+                    # but keep `breakdown_value` as the raw list for consistency with the non-boolean path.
+                    label_value = (
+                        "::".join(str(item) for item in remapped_label)
+                        if isinstance(remapped_label, list)
+                        else remapped_label
+                    )
+
                     # if count of series == 1, then we don't need to include the object label in the series label
                     if real_series_count > 1:
-                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                        series_object["label"] = "{} - {}".format(series_object["label"], label_value)
                     else:
-                        series_object["label"] = remapped_label
+                        series_object["label"] = label_value
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
@@ -1135,6 +1143,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: Any):
+        if isinstance(value, list):
+            return [self._convert_boolean(item) for item in value]
         bool_map = {1: "true", 0: "false", "": "", "1": "true", "0": "false"}
         return bool_map.get(value) or value
 
