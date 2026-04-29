@@ -17,7 +17,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
-import { selectOutcome } from 'lib/components/ViewRecordingButton/sessionRecordingMetadataLogic'
+import { selectOutcome } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import { FEATURE_FLAGS, SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'

@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { MatchedRecording } from '~/types'
 
-import { selectOutcome, sessionRecordingMetadataLogic, SummaryOutcome } from './sessionRecordingMetadataLogic'
+import { selectOutcome, sessionRecordingInfoLogic, SummaryOutcome } from './sessionRecordingInfoLogic'
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
 
 export enum ViewRecordingButtonVariant {
@@ -84,17 +84,17 @@ export default function ViewRecordingButton({
     const shouldFetchSummaryOutcome = summaryOutcomeEnabled && !summaryOutcome
 
     const { summaryBySessionId } = useValues(sessionSummaryProgressLogic)
-    const { checkRecordingMetadata } = useActions(sessionRecordingMetadataLogic)
-    const { getRecordingExists, getSummaryOutcome } = useValues(sessionRecordingMetadataLogic)
+    const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
+    const { getRecordingExists, getSummaryOutcome } = useValues(sessionRecordingInfoLogic)
 
     useEffect(() => {
         if (!sessionId) {
             return
         }
         if (checkRecordingExists || shouldFetchSummaryOutcome) {
-            checkRecordingMetadata(sessionId, { includeOutcome: shouldFetchSummaryOutcome })
+            checkRecordingInfo(sessionId, { includeOutcome: shouldFetchSummaryOutcome })
         }
-    }, [checkRecordingExists, shouldFetchSummaryOutcome, sessionId, checkRecordingMetadata])
+    }, [checkRecordingExists, shouldFetchSummaryOutcome, sessionId, checkRecordingInfo])
 
     if (hasRecording === undefined && checkRecordingExists && sessionId) {
         hasRecording = getRecordingExists(sessionId)

@@ -3,7 +3,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import type { sessionRecordingMetadataLogicType } from './sessionRecordingMetadataLogicType'
+import type { sessionRecordingInfoLogicType } from './sessionRecordingInfoLogicType'
 
 export enum RecordingExistsState {
     Loading = 'loading',
@@ -40,10 +40,10 @@ export function selectOutcome<T extends { description?: string | null }>(
 
 const BATCH_SIZE = 100
 
-export const sessionRecordingMetadataLogic = kea<sessionRecordingMetadataLogicType>([
-    path(['lib', 'components', 'ViewRecordingButton', 'sessionRecordingMetadataLogic']),
+export const sessionRecordingInfoLogic = kea<sessionRecordingInfoLogicType>([
+    path(['lib', 'components', 'ViewRecordingButton', 'sessionRecordingInfoLogic']),
     actions({
-        checkRecordingMetadata: (sessionId: string, options?: { includeOutcome?: boolean }) => ({
+        checkRecordingInfo: (sessionId: string, options?: { includeOutcome?: boolean }) => ({
             sessionId,
             includeOutcome: !!options?.includeOutcome,
         }),
@@ -88,7 +88,7 @@ export const sessionRecordingMetadataLogic = kea<sessionRecordingMetadataLogicTy
         ],
     }),
     listeners(({ actions, values }) => ({
-        checkRecordingMetadata: ({ sessionId, includeOutcome }) => {
+        checkRecordingInfo: ({ sessionId, includeOutcome }) => {
             const { recordingExistsStorage, outcomeBySessionId, pendingFetches } = values
             let scheduleFlush = false
 
