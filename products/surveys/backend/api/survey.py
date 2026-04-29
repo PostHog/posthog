@@ -2500,8 +2500,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
 
-        if not (settings.DEBUG or is_cloud()) or not settings.GEMINI_API_KEY:
-            raise exceptions.ValidationError("survey translation generation is only supported in PostHog Cloud")
+        if not (settings.DEBUG or is_cloud()):
+            raise exceptions.ValidationError("survey translation generation is only supported in PostHog Cloud or DEBUG mode")
+
+        if not settings.GEMINI_API_KEY:
+            raise exceptions.ValidationError("GEMINI_API_KEY must be configured to generate translations")
 
         if not self.team.organization.is_ai_data_processing_approved:
             return Response(

@@ -1173,9 +1173,9 @@ export const surveyLogic = kea<surveyLogicType>([
                         survey: values.survey,
                     })
                     const translations = { ...values.survey.translations }
-                    for (const [language, translationPatch] of Object.entries(result.translations)) {
-                        translations[language] = {
-                            ...translations[language],
+                    for (const [translationLanguage, translationPatch] of Object.entries(result.translations)) {
+                        translations[translationLanguage] = {
+                            ...translations[translationLanguage],
                             ...translationPatch,
                         }
                     }
@@ -1186,9 +1186,9 @@ export const surveyLogic = kea<surveyLogicType>([
                             return question
                         }
                         const questionTranslations = { ...question.translations }
-                        for (const [language, translationPatch] of Object.entries(patch.translations)) {
-                            questionTranslations[language] = {
-                                ...questionTranslations[language],
+                        for (const [translationLanguage, translationPatch] of Object.entries(patch.translations)) {
+                            questionTranslations[translationLanguage] = {
+                                ...questionTranslations[translationLanguage],
                                 ...translationPatch,
                             }
                         }
