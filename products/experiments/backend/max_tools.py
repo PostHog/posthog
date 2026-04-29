@@ -484,7 +484,9 @@ class SessionReplaySummaryTool(MaxTool):
                         with tags_context(
                             product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id
                         ):
-                            recordings, has_more, _, _ = list_recordings_from_query(query=q, user=None, team=self._team)
+                            recordings, has_more, _, _ = list_recordings_from_query(
+                                query=q, user=None, team=self._team, build_timings_header=False
+                            )
                             # If has_more, there are 100+ recordings
                             return len(recordings) if not has_more else 100
 

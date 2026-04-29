@@ -435,7 +435,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 query.date_from = existing_value["refreshed_at"]
 
             (recordings, more_recordings_available, _, _) = list_recordings_from_query(
-                query, user=None, team=playlist.team
+                query, user=None, team=playlist.team, build_timings_header=False
             )
 
             counted_at_date = timezone.now()

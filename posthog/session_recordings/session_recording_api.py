@@ -981,7 +981,7 @@ class SessionRecordingViewSet(
             "kind": "RecordingsQuery",
         }
         query = RecordingsQuery.model_validate(query_data)
-        recordings, _, _, _ = list_recordings_from_query(query, None, self.team)
+        recordings, _, _, _ = list_recordings_from_query(query, None, self.team, build_timings_header=False)
 
         user_access_control = self.user_access_control
         accessible_recordings = [
@@ -1733,7 +1733,11 @@ def _load_recording_if_matches_filters(
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
-    query: RecordingsQuery, user: User | None, team: Team, allow_event_property_expansion: bool = False
+    query: RecordingsQuery,
+    user: User | None,
+    team: Team,
+    allow_event_property_expansion: bool = False,
+    build_timings_header: bool = True,
 ) -> tuple[list[SessionRecording], bool, str, str | None]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
@@ -1891,7 +1895,8 @@ def list_recordings_from_query(
             if matched_person:
                 recording.person = matched_person
 
-    return recordings, more_recordings_available, timer.to_header_string(hogql_timings), next_cursor
+    timings_header = timer.to_header_string(hogql_timings) if build_timings_header else ""
+    return recordings, more_recordings_available, timings_header, next_cursor
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:

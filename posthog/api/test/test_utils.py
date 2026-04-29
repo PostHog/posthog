@@ -1,6 +1,8 @@
 import json
-import requests
 from typing import Any, cast
+from unittest.mock import patch
+
+import requests
 
 from django.http import HttpRequest
 from django.test.client import RequestFactory
@@ -9,6 +11,7 @@ from rest_framework import status
 
 from posthog.api.utils import (
     PaginationMode,
+    ServerTimingsGathered,
     check_definition_ids_inclusion_field_sql,
     format_paginated_url,
     get_data,
@@ -21,6 +24,7 @@ from posthog.api.utils import (
     unparsed_hostname_in_allowed_url_list,
 )
 from posthog.models.filters.filter import Filter
+from posthog.schema import QueryTiming
 from posthog.test.base import BaseTest
 
 
@@ -338,3 +342,43 @@ class TestUtils(BaseTest):
         self, _name: str, allowlist: list[str], needle: str | None, expected: bool
     ) -> None:
         assert unparsed_hostname_in_allowed_url_list(allowlist, needle) == expected
+
+
+class TestServerTimingsGathered(BaseTest):
+    def test_generate_timings_caps_hogql_subtimings(self) -> None:
+        timer = ServerTimingsGathered()
+        many_timings = [QueryTiming(k=f"step_{i}", t=float(i)) for i in range(timer.HOGQL_TIMINGS_CAP + 30)]
+
+        result = timer.generate_timings(many_timings)
+
+        # Cap kept entries plus the two aggregate buckets.
+        hogql_keys = [k for k in result if k.startswith("hogql_")]
+        assert len(hogql_keys) == timer.HOGQL_TIMINGS_CAP + 2
+        assert "hogql_truncated" in result
+        assert result["hogql_truncated_count"] == 30
+        # Truncated bucket is the sum of the 30 smallest durations (in ms).
+        expected_truncated_ms = sum(float(i) for i in range(30)) * 1000
+        assert result["hogql_truncated"] == expected_truncated_ms
+
+    def test_generate_timings_keeps_all_when_under_cap(self) -> None:
+        timer = ServerTimingsGathered()
+        timings = [QueryTiming(k=f"step_{i}", t=float(i)) for i in range(5)]
+
+        result = timer.generate_timings(timings)
+
+        assert "hogql_truncated" not in result
+        assert "hogql_truncated_count" not in result
+        assert all(f"hogql_step_{i}" in result for i in range(5))
+
+    def test_to_header_string_does_not_capture_exception_on_overflow(self) -> None:
+        # Intentionally craft 1000 hogql timings with very long keys so the resulting
+        # header would breach the 10k cap even after the per-call cap is applied.
+        long_key = "x" * 200
+        timings = [QueryTiming(k=f"{long_key}_{i}", t=1.0) for i in range(1000)]
+        timer = ServerTimingsGathered()
+
+        with patch("posthoganalytics.capture_exception") as mock_capture:
+            header = timer.to_header_string(timings)
+
+        mock_capture.assert_not_called()
+        assert len(header) <= 10000
