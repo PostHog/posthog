@@ -241,12 +241,6 @@ class SignalReport(UUIDModel):
                     self.error = error
                     updated_fields.add("error")
 
-            # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook).
-            # Any non-terminal pipeline status can resolve — a PR may merge before the report finishes summarising.
-            case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.FAILED, S.RESOLVED):
-                self.promoted_at = None
-                updated_fields.add("promoted_at")
-
             # Any non-deleted status can fail
             case (S.POTENTIAL | S.CANDIDATE | S.IN_PROGRESS | S.PENDING_INPUT | S.READY | S.RESOLVED, S.FAILED):
                 if error is None:
@@ -274,6 +268,12 @@ class SignalReport(UUIDModel):
                 | S.SUPPRESSED,
                 S.DELETED,
             ):
+                pass
+
+            # Only ready reports can resolve
+            # Reports are marked resolved when the linked implementation PR is merged (see tasks GitHub webhook)
+            case (S.PENDING_INPUT | S.READY, S.RESOLVED):
+                # Just pass through to status setting
                 pass
 
             case _:

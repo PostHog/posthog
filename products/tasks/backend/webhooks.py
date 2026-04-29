@@ -10,6 +10,7 @@ import structlog
 
 from posthog.models.instance_setting import get_instance_setting
 
+from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
@@ -169,9 +170,6 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
     Kept tolerant: a single bad transition should not fail the whole webhook,
     since GitHub retries 5xx responses and we've already acknowledged the PR event.
     """
-    # Local import to avoid a circular signals<->tasks dependency at module load.
-    from products.signals.backend.models import InvalidStatusTransition, SignalReport
-
     reports = (
         SignalReport.objects.filter(report_tasks__task_id=task_id)
         .exclude(

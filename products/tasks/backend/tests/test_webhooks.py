@@ -304,22 +304,40 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
 
     @parameterized.expand(
         [
-            ("merged_pr_resolves_ready", True, SignalReport.Status.READY, SignalReport.Status.RESOLVED),
-            ("closed_without_merge_noop", False, SignalReport.Status.READY, SignalReport.Status.READY),
-            ("merged_pr_skips_suppressed", True, SignalReport.Status.SUPPRESSED, SignalReport.Status.SUPPRESSED),
+            (
+                "merged_pr_resolves_ready_report",
+                "closed",
+                True,
+                SignalReport.Status.READY,
+                SignalReport.Status.RESOLVED,
+            ),
+            (
+                "closed_without_merge_is_noop",
+                "closed",
+                False,
+                SignalReport.Status.READY,
+                SignalReport.Status.READY,
+            ),
+            (
+                "suppressed_report_is_skipped",
+                "closed",
+                True,
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.SUPPRESSED,
+            ),
         ]
     )
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_event_transitions_linked_report(
-        self, _name, merged, initial_status, expected_status, _mock_capture, mock_get_secret
+        self, _name, action, merged, initial_status, expected_status, _mock_capture, mock_get_secret
     ):
         mock_get_secret.return_value = self.webhook_secret
         if self.report.status != initial_status:
             self.report.status = initial_status
             self.report.save(update_fields=["status"])
 
-        response = self._post_pr_webhook(action="closed", merged=merged)
+        response = self._post_pr_webhook(action=action, merged=merged)
 
         self.assertEqual(response.status_code, 200)
         self.report.refresh_from_db()
