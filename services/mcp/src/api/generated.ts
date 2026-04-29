@@ -10394,16 +10394,12 @@ export namespace Schemas {
     export interface LLMTrace {
       /** @nullable */
       aiSessionId?: string | null;
-      /** @nullable */
-      audioCost?: number | null;
       createdAt: string;
       distinctId: string;
       /** @nullable */
       errorCount?: number | null;
       events: LLMTraceEvent[];
       id: string;
-      /** @nullable */
-      imageCost?: number | null;
       /** @nullable */
       inputCost?: number | null;
       inputState?: unknown | null;

@@ -160,8 +160,6 @@ export interface CostContext {
     outputCost?: number
     requestCost?: number
     webSearchCost?: number
-    audioCost?: number
-    imageCost?: number
     totalCost: number
 }
 
@@ -174,17 +172,12 @@ export function costContextFromProperties(props: Record<string, any>): CostConte
         outputCost: props.$ai_output_cost_usd,
         requestCost: props.$ai_request_cost_usd,
         webSearchCost: props.$ai_web_search_cost_usd,
-        audioCost: props.$ai_audio_cost_usd,
-        imageCost: props.$ai_image_cost_usd,
         totalCost: props.$ai_total_cost_usd,
     }
 }
 
 export function costContextFromTrace(
-    trace: Pick<
-        LLMTrace,
-        'inputCost' | 'outputCost' | 'requestCost' | 'webSearchCost' | 'audioCost' | 'imageCost' | 'totalCost'
-    >
+    trace: Pick<LLMTrace, 'inputCost' | 'outputCost' | 'requestCost' | 'webSearchCost' | 'totalCost'>
 ): CostContext | undefined {
     if (typeof trace.totalCost !== 'number') {
         return undefined
@@ -194,8 +187,6 @@ export function costContextFromTrace(
         outputCost: trace.outputCost,
         requestCost: trace.requestCost,
         webSearchCost: trace.webSearchCost,
-        audioCost: trace.audioCost,
-        imageCost: trace.imageCost,
         totalCost: trace.totalCost,
     }
 }
@@ -205,9 +196,7 @@ export function hasCostBreakdown(ctx: CostContext): boolean {
         typeof ctx.inputCost === 'number' ||
         typeof ctx.outputCost === 'number' ||
         (typeof ctx.requestCost === 'number' && ctx.requestCost > 0) ||
-        (typeof ctx.webSearchCost === 'number' && ctx.webSearchCost > 0) ||
-        (typeof ctx.audioCost === 'number' && ctx.audioCost > 0) ||
-        (typeof ctx.imageCost === 'number' && ctx.imageCost > 0)
+        (typeof ctx.webSearchCost === 'number' && ctx.webSearchCost > 0)
     )
 }
 

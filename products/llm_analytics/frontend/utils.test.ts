@@ -1829,8 +1829,6 @@ describe('LLM Analytics utils', () => {
                 $ai_output_cost_usd: 0.02,
                 $ai_request_cost_usd: 0.003,
                 $ai_web_search_cost_usd: 0.015,
-                $ai_audio_cost_usd: 0.072,
-                $ai_image_cost_usd: 0.039,
                 $ai_total_cost_usd: 0.048,
             }
             expect(costContextFromProperties(props)).toEqual({
@@ -1838,8 +1836,6 @@ describe('LLM Analytics utils', () => {
                 outputCost: 0.02,
                 requestCost: 0.003,
                 webSearchCost: 0.015,
-                audioCost: 0.072,
-                imageCost: 0.039,
                 totalCost: 0.048,
             })
         })
@@ -1853,8 +1849,6 @@ describe('LLM Analytics utils', () => {
             expect(ctx && ctx.outputCost).toBeUndefined()
             expect(ctx && ctx.requestCost).toBeUndefined()
             expect(ctx && ctx.webSearchCost).toBeUndefined()
-            expect(ctx && ctx.audioCost).toBeUndefined()
-            expect(ctx && ctx.imageCost).toBeUndefined()
         })
     })
 
@@ -1869,8 +1863,6 @@ describe('LLM Analytics utils', () => {
                 outputCost: 0.02,
                 requestCost: 0.003,
                 webSearchCost: 0.015,
-                audioCost: 0.072,
-                imageCost: 0.039,
                 totalCost: 0.048,
             }
             expect(costContextFromTrace(trace)).toEqual({
@@ -1878,8 +1870,6 @@ describe('LLM Analytics utils', () => {
                 outputCost: 0.02,
                 requestCost: 0.003,
                 webSearchCost: 0.015,
-                audioCost: 0.072,
-                imageCost: 0.039,
                 totalCost: 0.048,
             })
         })
@@ -1920,22 +1910,6 @@ describe('LLM Analytics utils', () => {
 
         it('returns false when webSearchCost is zero', () => {
             expect(hasCostBreakdown({ totalCost: 0.05, webSearchCost: 0 })).toBe(false)
-        })
-
-        it('returns true when audioCost is positive', () => {
-            expect(hasCostBreakdown({ totalCost: 0.076, audioCost: 0.072 })).toBe(true)
-        })
-
-        it('returns false when audioCost is zero', () => {
-            expect(hasCostBreakdown({ totalCost: 0.05, audioCost: 0 })).toBe(false)
-        })
-
-        it('returns true when imageCost is positive', () => {
-            expect(hasCostBreakdown({ totalCost: 0.05, imageCost: 0.039 })).toBe(true)
-        })
-
-        it('returns false when imageCost is zero', () => {
-            expect(hasCostBreakdown({ totalCost: 0.05, imageCost: 0 })).toBe(false)
         })
 
         it('returns true when inputCost is zero (zero is still a valid breakdown)', () => {

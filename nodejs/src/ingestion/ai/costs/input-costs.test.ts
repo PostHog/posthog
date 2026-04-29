@@ -1,6 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { calculateInputCost, calculateInputModalityCosts, resolveCacheReportingExclusive } from './input-costs'
+import { calculateInputCost, resolveCacheReportingExclusive } from './input-costs'
 import { ResolvedModelCost } from './providers/types'
 
 // Test helper functions
@@ -951,47 +951,6 @@ describe('calculateInputCost()', () => {
             // Image: 400 × 3e-7 = 0.00012
             // Total: 0.00044
             expectCostToBeCloseTo(result, 0.00044)
-        })
-    })
-
-    describe('calculateInputModalityCosts()', () => {
-        const multiModalCost: ResolvedModelCost = {
-            model: 'gemini-2.5-flash',
-            provider: 'google',
-            cost: {
-                prompt_token: 3e-7,
-                completion_token: 0.0000025,
-                image: 3e-7,
-                audio: 0.000001,
-            },
-        }
-
-        it('returns the audio and image input components separately', () => {
-            const event = createTestEvent({
-                properties: {
-                    $ai_provider: 'google',
-                    $ai_audio_input_tokens: 200,
-                    $ai_image_input_tokens: 400,
-                },
-            })
-
-            const result = calculateInputModalityCosts(event, multiModalCost)
-
-            expectCostToBeCloseTo(result.audio, 0.0002) // 200 × 0.000001
-            expectCostToBeCloseTo(result.image, 0.00012) // 400 × 3e-7
-        })
-
-        it('returns zeros when no modality tokens are present', () => {
-            const event = createTestEvent({ properties: { $ai_input_tokens: 1000 } })
-            const result = calculateInputModalityCosts(event, multiModalCost)
-            expect(parseFloat(result.audio)).toBe(0)
-            expect(parseFloat(result.image)).toBe(0)
-        })
-
-        it('returns zeros when properties are missing', () => {
-            const event = { ...createTestEvent(), properties: undefined }
-            const result = calculateInputModalityCosts(event, multiModalCost)
-            expect(result).toEqual({ audio: '0', image: '0' })
         })
     })
 })

@@ -1,6 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { calculateOutputCost, calculateOutputModalityCosts } from './output-costs'
+import { calculateOutputCost } from './output-costs'
 import { ResolvedModelCost } from './providers/types'
 
 // Helper function to create a PluginEvent with default values
@@ -606,44 +606,6 @@ describe('calculateOutputCost()', () => {
             // Image: 1000 × 0.00003 = 0.03
             // Total: 0.0624
             expectCost(result, 0.0624, 5)
-        })
-    })
-
-    describe('calculateOutputModalityCosts()', () => {
-        const multiModalModel: ResolvedModelCost = {
-            model: 'multi-modal',
-            provider: 'imaginary',
-            cost: {
-                prompt_token: 0.000001,
-                completion_token: 0.000002,
-                image_output: 0.00003,
-                audio_output: 0.00004,
-            },
-        }
-
-        it('returns audio and image output components separately', () => {
-            const event = createAIEvent({
-                $ai_audio_output_tokens: 800,
-                $ai_image_output_tokens: 1000,
-            })
-
-            const result = calculateOutputModalityCosts(event, multiModalModel)
-
-            expectCost(result.audio, 0.032)
-            expectCost(result.image, 0.03)
-        })
-
-        it('returns zeros when no modality tokens are present', () => {
-            const event = createAIEvent({ $ai_output_tokens: 100 })
-            const result = calculateOutputModalityCosts(event, multiModalModel)
-            expect(parseFloat(result.audio)).toBe(0)
-            expect(parseFloat(result.image)).toBe(0)
-        })
-
-        it('returns zeros when properties are missing', () => {
-            const event = { ...createAIEvent(), properties: undefined }
-            const result = calculateOutputModalityCosts(event, multiModalModel)
-            expect(result).toEqual({ audio: '0', image: '0' })
         })
     })
 })

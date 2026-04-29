@@ -7130,13 +7130,11 @@ class LLMTrace(BaseModel):
         extra="forbid",
     )
     aiSessionId: str | None = None
-    audioCost: float | None = None
     createdAt: str
     distinctId: str
     errorCount: float | None = None
     events: list[LLMTraceEvent]
     id: str
-    imageCost: float | None = None
     inputCost: float | None = None
     inputState: Any | None = None
     inputTokens: float | None = None

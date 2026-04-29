@@ -11,11 +11,6 @@ const mustAddReasoningCost = (model: string): boolean => {
     return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
 }
 
-export interface OutputModalityCost {
-    audio: string
-    image: string
-}
-
 const computeAudioOutputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
     const audioTokens = numericProperty(event, '$ai_audio_output_tokens')
     if (audioTokens <= 0) {
@@ -32,16 +27,6 @@ const computeImageOutputCost = (event: PluginEvent, cost: ResolvedModelCost): st
     }
     const rate = cost.cost.image_output ?? cost.cost.completion_token
     return bigDecimal.multiply(rate, imageTokens)
-}
-
-export const calculateOutputModalityCosts = (event: PluginEvent, cost: ResolvedModelCost): OutputModalityCost => {
-    if (!event.properties) {
-        return { audio: '0', image: '0' }
-    }
-    return {
-        audio: computeAudioOutputCost(event, cost),
-        image: computeImageOutputCost(event, cost),
-    }
 }
 
 /**

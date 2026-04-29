@@ -21705,9 +21705,6 @@
                 "aiSessionId": {
                     "type": "string"
                 },
-                "audioCost": {
-                    "type": "number"
-                },
                 "createdAt": {
                     "type": "string"
                 },
@@ -21725,9 +21722,6 @@
                 },
                 "id": {
                     "type": "string"
-                },
-                "imageCost": {
-                    "type": "number"
                 },
                 "inputCost": {
                     "type": "number"

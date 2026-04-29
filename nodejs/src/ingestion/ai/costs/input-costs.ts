@@ -77,17 +77,11 @@ const clampTextTokens = (value: string | number, hasModalityTokens: boolean): st
 }
 
 /**
- * Cost attributable to non-text input modalities (audio, image). Computed as
- * `tokens × modality_rate` when the model has a dedicated rate, or
- * `tokens × prompt_rate` otherwise — matching the implicit behavior of the
- * regular text path so the total stays consistent regardless of whether the
- * provider exposes per-modality pricing.
+ * Bill non-text input modalities (audio, image) at the model's modality rate
+ * when one exists, or fall back to `prompt_token` so behavior is unchanged for
+ * text-only models. The resulting cost is added to `$ai_input_cost_usd`; we do
+ * not surface a separate per-modality breakdown property.
  */
-export interface InputModalityCost {
-    audio: string
-    image: string
-}
-
 const computeAudioInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
     const audioTokens = numericProperty(event, '$ai_audio_input_tokens')
     if (audioTokens <= 0) {
@@ -104,16 +98,6 @@ const computeImageInputCost = (event: PluginEvent, cost: ResolvedModelCost): str
     }
     const rate = cost.cost.image ?? cost.cost.prompt_token
     return bigDecimal.multiply(rate, imageTokens)
-}
-
-export const calculateInputModalityCosts = (event: PluginEvent, cost: ResolvedModelCost): InputModalityCost => {
-    if (!event.properties) {
-        return { audio: '0', image: '0' }
-    }
-    return {
-        audio: computeAudioInputCost(event, cost),
-        image: computeImageInputCost(event, cost),
-    }
 }
 
 export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
