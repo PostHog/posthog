@@ -1338,6 +1338,23 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         selectConnector: ({ connector }) => {
             syncExpandedDirectQuerySchemaKeys(actions, values)
 
+            // Seed defaults for the selected connector's fields. The form's `defaults` builder runs
+            // at logic build time, when `props.availableSources` is still the empty default from
+            // `props({})` — so `buildKeaFormDefaultFromSourceDetails` returns `{}` and select fields
+            // never get their `defaultValue` (e.g. MySQL `using_ssl="true"`). Seeding here ensures
+            // the form state matches what the dropdown displays.
+            if (connector) {
+                const seededPayload = (buildKeaFormDefaultFromSourceDetails({
+                    [connector.name]: connector,
+                }).payload ?? {}) as Record<string, any>
+                const currentPayload = ((values.sourceConnectionDetails as any)?.payload ?? {}) as Record<string, any>
+                for (const [key, defaultValue] of Object.entries(seededPayload)) {
+                    if (currentPayload[key] === undefined) {
+                        actions.setSourceConnectionDetailsValue(['payload', key], defaultValue)
+                    }
+                }
+            }
+
             actions.addProductIntent({
                 product_type: ProductKey.DATA_WAREHOUSE,
                 intent_context: ProductIntentContext.SELECTED_CONNECTOR,
@@ -1418,9 +1435,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }
     }),
 
-    forms(({ actions, values, props }) => ({
+    forms(({ actions, values }) => ({
         sourceConnectionDetails: {
-            defaults: buildKeaFormDefaultFromSourceDetails(props.availableSources),
+            // Defaults are seeded at runtime in the `selectConnector` listener — at logic build time
+            // `props.availableSources` isn't populated yet (BindLogic provides it after the loader
+            // resolves), so we can't compute meaningful defaults here.
+            defaults: { prefix: '', description: '', payload: {} } as Record<string, any>,
             errors: (sourceValues) => {
                 const selectedAccessMethod =
                     (sourceValues as Record<string, any>)?.access_method === 'direct' ? 'direct' : 'warehouse'
