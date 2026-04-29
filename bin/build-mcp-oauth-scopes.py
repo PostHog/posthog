@@ -31,7 +31,8 @@ OUTPUT_TS = REPO_ROOT / "services" / "mcp" / "src" / "lib" / "oauth-scopes.gener
 # importlib without triggering posthog/__init__.py (which imports Celery + Django
 # settings). If a maintainer adds a non-stdlib import, fail loudly here so they
 # either roll it back or update the codegen, instead of producing a stale file.
-ALLOWED_IMPORT_ROOTS: frozenset[str] = frozenset({"typing", "collections", "enum"})
+# `__future__` is allowed: it's a compile-time directive with no runtime effect.
+ALLOWED_IMPORT_ROOTS: frozenset[str] = frozenset({"__future__", "typing", "collections", "enum"})
 
 
 def _assert_scopes_module_is_leaf() -> None:
