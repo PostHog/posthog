@@ -1388,7 +1388,9 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     if server is None:
         raise ValueError(f"No DuckgresServer found for org={catalog.organization_id} — cannot proceed with backfill.")
 
-    context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
+    context.log.info(
+        f"Backfill ready for team_id={team_id}: duckgres={server.host}:{server.port}, bucket={catalog.bucket}"
+    )
 
     # Delete events table if requested (dangerous - loses all data)
     if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
@@ -1526,7 +1528,13 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     if catalog is None:
         raise ValueError(f"No DuckLakeCatalog found for team_id={team_id}")
 
-    context.log.info(f"Found DuckLakeCatalog: bucket={catalog.bucket}, db_host={catalog.db_host}")
+    server = get_duckgres_server_for_organization(str(catalog.organization_id))
+    if server is None:
+        raise ValueError(f"No DuckgresServer found for org={catalog.organization_id} — cannot proceed with backfill.")
+
+    context.log.info(
+        f"Backfill ready for team_id={team_id}: duckgres={server.host}:{server.port}, bucket={catalog.bucket}"
+    )
 
     # Delete persons table if requested (dangerous - loses all data)
     if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
