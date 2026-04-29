@@ -410,6 +410,50 @@ def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
     )
 
 
+def _create_business_knowledge_source(team: Team, label: str):
+    from products.business_knowledge.backend.models import KnowledgeSource
+    from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
+
+    return KnowledgeSource.objects.create(
+        team=team, name=f"bk_source_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
+    )
+
+
+def _create_business_knowledge_document(team: Team, label: str):
+    from products.business_knowledge.backend.models import KnowledgeDocument, KnowledgeSource
+    from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
+
+    source = KnowledgeSource.objects.create(
+        team=team, name=f"bk_source_for_doc_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
+    )
+    return KnowledgeDocument.objects.create(
+        team=team, source=source, stable_id=f"stable_{label}", content=f"content_{label}"
+    )
+
+
+def _create_business_knowledge_chunk(team: Team, label: str):
+    import uuid
+
+    from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
+    from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
+
+    source = KnowledgeSource.objects.create(
+        team=team, name=f"bk_source_for_chunk_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
+    )
+    doc = KnowledgeDocument.objects.create(
+        team=team, source=source, stable_id=f"stable_chunk_{label}", content=f"content_{label}"
+    )
+    return KnowledgeChunk.objects.create(
+        id=uuid.uuid4(),
+        team=team,
+        source=source,
+        document=doc,
+        ordinal=0,
+        content=f"chunk_content_{label}",
+        char_count=len(f"chunk_content_{label}"),
+    )
+
+
 SYSTEM_TABLE_FACTORIES = [
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
@@ -417,6 +461,9 @@ SYSTEM_TABLE_FACTORIES = [
     ("annotations", _create_annotation),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_exports", _create_batch_export),
+    ("business_knowledge_chunks", _create_business_knowledge_chunk),
+    ("business_knowledge_documents", _create_business_knowledge_document),
+    ("business_knowledge_sources", _create_business_knowledge_source),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),

@@ -10,7 +10,8 @@ Exposes source CRUD used by the DRF viewset and any future admin tooling.
 from uuid import UUID
 
 from .. import logic
-from ..models import KnowledgeSource
+from ..models import KnowledgeChunk, KnowledgeSource
+from ..models.constants import SourceStatus
 from . import contracts
 
 
@@ -128,3 +129,72 @@ def update_url_source(data: contracts.UpdateUrlSourceInput) -> contracts.Knowled
         crawl_config=data.crawl_config,
     )
     return _to_dto(source) if source is not None else None
+
+
+# ---------------------------------------------------------------------------
+# Stage 4 — AI agent read-path
+# ---------------------------------------------------------------------------
+
+
+def has_ready_sources(team_id: int) -> bool:
+    """True when the team has at least one READY source (READY implies chunks exist)."""
+    return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
+
+
+_SEARCH_LIMIT_CAP = 20
+
+
+def search_knowledge(
+    team_id: int,
+    query: str,
+    *,
+    limit: int = 10,
+) -> list[contracts.KnowledgeSearchResult]:
+    """
+    ILIKE search over chunks belonging to READY sources for the given team.
+
+    Returns up to `limit` chunks (capped at _SEARCH_LIMIT_CAP) with their
+    source metadata. Uses the GIN trigram index for performance. Results are
+    ordered by char_count ascending (shorter, more focused chunks first).
+    """
+    limit = max(1, min(limit, _SEARCH_LIMIT_CAP))
+
+    if not query.strip():
+        return []
+
+    safe_query = query.strip()
+
+    chunks = (
+        KnowledgeChunk.objects.filter(
+            team_id=team_id,
+            source__status=SourceStatus.READY,
+            content__icontains=safe_query,
+        )
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+        .order_by("char_count")[:limit]
+    )
+
+    return [
+        contracts.KnowledgeSearchResult(
+            chunk_id=c.id,
+            source_id=c.source_id,
+            source_name=c.source.name,
+            source_type=c.source.source_type,
+            document_title=c.document.title,
+            heading_path=c.heading_path,
+            ordinal=c.ordinal,
+            content=c.content,
+        )
+        for c in chunks
+    ]

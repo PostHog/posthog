@@ -1,3 +1,4 @@
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from .knowledge_document import KnowledgeDocument
@@ -36,6 +37,7 @@ class KnowledgeChunk(models.Model):
         indexes = [
             models.Index(fields=["team", "source"], name="bk_chunk_team_source"),
             models.Index(fields=["document", "ordinal"], name="bk_chunk_doc_ordinal"),
+            GinIndex(fields=["content"], opclasses=["gin_trgm_ops"], name="bk_chunk_content_trgm"),
         ]
         # One physical chunk per (document, heading_path, ordinal). Matches
         # the uuid5 seed so the deterministic id can never collide silently.

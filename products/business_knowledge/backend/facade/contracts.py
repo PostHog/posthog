@@ -145,3 +145,17 @@ class KnowledgeChunkPreviewDTO:
     ordinal: int
     content: str
     char_count: int
+
+
+@dataclass(frozen=True)
+class KnowledgeSearchResult:
+    """A single chunk returned by a knowledge search, with source context."""
+
+    chunk_id: UUID
+    source_id: UUID
+    source_name: str
+    source_type: str
+    document_title: str
+    heading_path: str
+    ordinal: int
+    content: str
