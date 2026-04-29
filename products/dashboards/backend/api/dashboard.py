@@ -777,7 +777,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         for attr, val in tile_defaults.items():
             setattr(existing, attr, val)
-        existing.save()
+        # update_fields scopes the UPDATE to only the columns we changed, so a concurrent
+        # write to other columns on the same tile (e.g. another user editing color while we
+        # save layouts) isn't overwritten by our stale read of those fields. Using save()
+        # rather than queryset.update() preserves the post_save signal that the caching-state
+        # sync task relies on for ``filters_overrides`` changes.
+        existing.save(update_fields=list(tile_defaults.keys()))
 
     @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[str | None, bool]:

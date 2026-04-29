@@ -884,41 +884,54 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             f"layout PATCH 500'd: {response.status_code} body={response.content[:500]}"
         )
 
-    def test_layout_patch_silently_skips_tile_id_belonging_to_another_dashboard(self):
+    @parameterized.expand(
+        [
+            ("tile_belongs_to_another_dashboard",),
+            ("tile_id_does_not_exist_anywhere",),
+        ]
+    )
+    def test_layout_patch_silently_skips_unknown_tile_id(self, scenario: str) -> None:
         """
-        Regression: production was hitting hundreds of 500s from
-        ``dash_tile_exactly_one_related_object`` violations because the frontend was
-        posting layouts for tile ids that didn't belong to the dashboard being PATCHed
-        (cross-dashboard kea state contamination, hard-deleted tiles, etc.). The
-        layout-only branch of ``_update_tiles`` was using ``update_or_create``, which
-        silently fell through to INSERT with no insight/text/button_tile FK and tripped
-        the partial CHECK constraint.
+        Regression: the layout-only branch of ``_update_tiles`` was using ``update_or_create``,
+        which silently fell through to INSERT when the (id, dashboard) pair didn't match an
+        existing row. The INSERT carried no insight/text/button_tile FK and tripped the partial
+        CHECK constraint ``dash_tile_exactly_one_related_object``, returning a generic 500.
 
-        Desired behavior: silently skip the unknown id and save the rest of the payload.
+        Two real-world ways this triggers in production:
+          - ``tile_belongs_to_another_dashboard``: cross-dashboard kea state contamination —
+            the frontend posts a tile id that exists, but on a different dashboard.
+          - ``tile_id_does_not_exist_anywhere``: the tile was hard-deleted or never existed.
+
+        In both cases the bad id must be silently skipped while the rest of the payload saves.
         """
-        dashboard_a, _ = self.dashboard_api.create_dashboard({"name": "a"})
-        dashboard_b, _ = self.dashboard_api.create_dashboard({"name": "b"})
-
-        # A real, valid tile on dashboard A — must still update.
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "target"})
         valid_insight, _ = self.dashboard_api.create_insight(
-            {"filters": {"hello": "valid"}, "dashboards": [dashboard_a], "name": "valid"}
+            {"filters": {"hello": "valid"}, "dashboards": [dashboard_id], "name": "valid"}
         )
-        valid_tile = DashboardTile.objects.get(insight_id=valid_insight, dashboard_id=dashboard_a)
+        valid_tile = DashboardTile.objects.get(insight_id=valid_insight, dashboard_id=dashboard_id)
 
-        # A tile that exists but on dashboard B — must be silently ignored when in a payload for A.
-        stranger_insight, _ = self.dashboard_api.create_insight(
-            {"filters": {"hello": "stranger"}, "dashboards": [dashboard_b], "name": "stranger"}
-        )
-        stranger_tile = DashboardTile.objects.get(insight_id=stranger_insight, dashboard_id=dashboard_b)
-        stranger_layouts_before = dict(stranger_tile.layouts)
+        stranger_tile: DashboardTile | None = None
+        stranger_layouts_before: dict | None = None
+        stranger_dashboard_before: int | None = None
+        if scenario == "tile_belongs_to_another_dashboard":
+            other_dashboard, _ = self.dashboard_api.create_dashboard({"name": "other"})
+            stranger_insight, _ = self.dashboard_api.create_insight(
+                {"filters": {"hello": "stranger"}, "dashboards": [other_dashboard], "name": "stranger"}
+            )
+            stranger_tile = DashboardTile.objects.get(insight_id=stranger_insight, dashboard_id=other_dashboard)
+            unknown_tile_id = stranger_tile.id
+            stranger_layouts_before = dict(stranger_tile.layouts)
+            stranger_dashboard_before = stranger_tile.dashboard_id
+        else:
+            unknown_tile_id = 99_999_999
 
         new_layouts = {"sm": {"h": 7, "i": str(valid_tile.id), "w": 8, "x": 1, "y": 2, "minH": 2, "minW": 2}}
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_a}",
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
             {
                 "tiles": [
                     {"id": valid_tile.id, "layouts": new_layouts},
-                    {"id": stranger_tile.id, "layouts": {"sm": {"x": 99, "y": 99, "w": 1, "h": 1}}},
+                    {"id": unknown_tile_id, "layouts": {"sm": {"x": 99, "y": 99, "w": 1, "h": 1}}},
                 ]
             },
             format="json",
@@ -928,41 +941,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         valid_tile.refresh_from_db()
         assert valid_tile.layouts == new_layouts, "valid tile layouts should have been saved"
 
-        stranger_tile.refresh_from_db()
-        assert stranger_tile.layouts == stranger_layouts_before, "stranger tile must NOT be touched"
-        assert stranger_tile.dashboard_id == dashboard_b, "stranger tile must NOT be moved to dashboard A"
-
-    def test_layout_patch_silently_skips_unknown_tile_id(self):
-        """
-        Companion to the cross-dashboard case — same root cause when the frontend posts a
-        tile id that doesn't exist anywhere (e.g. tile was hard-deleted, or never existed).
-        """
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "d"})
-        valid_insight, _ = self.dashboard_api.create_insight(
-            {"filters": {"hello": "valid"}, "dashboards": [dashboard_id], "name": "valid"}
-        )
-        valid_tile = DashboardTile.objects.get(insight_id=valid_insight, dashboard_id=dashboard_id)
-
-        unknown_tile_id = 99_999_999
-
-        new_layouts = {"sm": {"h": 5, "i": str(valid_tile.id), "w": 6, "x": 0, "y": 0, "minH": 2, "minW": 2}}
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {
-                "tiles": [
-                    {"id": valid_tile.id, "layouts": new_layouts},
-                    {"id": unknown_tile_id, "layouts": {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}},
-                ]
-            },
-            format="json",
-        )
-        assert response.status_code == status.HTTP_200_OK, response.content[:500]
-
-        valid_tile.refresh_from_db()
-        assert valid_tile.layouts == new_layouts
-
-        # The unknown id must not have created a new row.
-        assert not DashboardTile.objects_including_soft_deleted.filter(id=unknown_tile_id).exists()
+        if stranger_tile is not None:
+            stranger_tile.refresh_from_db()
+            assert stranger_tile.layouts == stranger_layouts_before, "stranger tile must NOT be touched"
+            assert stranger_tile.dashboard_id == stranger_dashboard_before, (
+                "stranger tile must NOT be moved to the target dashboard"
+            )
+        else:
+            assert not DashboardTile.objects_including_soft_deleted.filter(id=unknown_tile_id).exists(), (
+                "unknown id must not have created a new row"
+            )
 
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
