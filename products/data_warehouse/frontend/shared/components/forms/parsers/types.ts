@@ -1,6 +1,6 @@
 export interface ParsedField {
     path: string[]
-    value: unknown
+    value: string
 }
 
 export interface ParseResult {
