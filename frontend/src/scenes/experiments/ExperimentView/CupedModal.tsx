@@ -5,9 +5,12 @@ import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSwitch } from '@p
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 
-const DEFAULT_LOOKBACK_DAYS = 14
-const MIN_LOOKBACK_DAYS = 1
-const MAX_LOOKBACK_DAYS = 365
+export const DEFAULT_LOOKBACK_DAYS = 14
+export const MIN_LOOKBACK_DAYS = 1
+export const MAX_LOOKBACK_DAYS = 365
+
+const clampLookbackDays = (value: number): number =>
+    Math.min(Math.max(Math.round(value), MIN_LOOKBACK_DAYS), MAX_LOOKBACK_DAYS)
 
 export function CupedModal(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
@@ -35,6 +38,21 @@ export function CupedModal(): JSX.Element {
         })
     }
 
+    const onSave = (): void => {
+        const cupedConfig = experiment.stats_config?.cuped
+        const clampedLookback = clampLookbackDays(cupedConfig?.lookback_days ?? DEFAULT_LOOKBACK_DAYS)
+        updateExperiment({
+            stats_config: {
+                ...experiment.stats_config,
+                cuped: {
+                    ...cupedConfig,
+                    lookback_days: clampedLookback,
+                },
+            },
+        })
+        closeCupedModal()
+    }
+
     return (
         <LemonModal
             maxWidth={600}
@@ -46,13 +64,7 @@ export function CupedModal(): JSX.Element {
                     <LemonButton type="secondary" onClick={onClose}>
                         Cancel
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => {
-                            updateExperiment({ stats_config: experiment.stats_config })
-                            closeCupedModal()
-                        }}
-                    >
+                    <LemonButton type="primary" onClick={onSave}>
                         Save
                     </LemonButton>
                 </div>
@@ -83,7 +95,11 @@ export function CupedModal(): JSX.Element {
                                 if (value === undefined || value === null) {
                                     return
                                 }
-                                updateCupedConfig({ lookback_days: Number(value) })
+                                const parsed = Number(value)
+                                if (!Number.isFinite(parsed)) {
+                                    return
+                                }
+                                updateCupedConfig({ lookback_days: parsed })
                             }}
                             className="w-32"
                         />

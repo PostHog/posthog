@@ -12,7 +12,7 @@ import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/t
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { CupedModal } from './CupedModal'
+import { CupedModal, DEFAULT_LOOKBACK_DAYS } from './CupedModal'
 import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
@@ -28,7 +28,7 @@ export function SettingsTab(): JSX.Element {
         : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`
 
     const cupedEnabled = experiment.stats_config?.cuped?.enabled ?? false
-    const cupedLookbackDays = experiment.stats_config?.cuped?.lookback_days ?? 14
+    const cupedLookbackDays = experiment.stats_config?.cuped?.lookback_days ?? DEFAULT_LOOKBACK_DAYS
     const cupedDisplay = cupedEnabled ? `Enabled / ${cupedLookbackDays} day lookback` : 'Disabled'
 
     const returnTo = urls.experiment(experiment.id)
