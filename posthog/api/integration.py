@@ -24,7 +24,6 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
@@ -541,13 +540,6 @@ class IntegrationViewSet(
                 capture_exception(e)
 
         super().perform_destroy(instance)
-
-    def safely_get_queryset(self, queryset):
-        if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication) or isinstance(
-            self.request.successful_authenticator, OAuthAccessTokenAuthentication
-        ):
-            return defer_repository_cache_fields(queryset.filter(kind="github"))
-        return queryset
 
     @action(methods=["GET"], detail=False)
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
