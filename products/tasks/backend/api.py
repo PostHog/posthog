@@ -1156,7 +1156,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = task_run.get_artifact_s3_prefix()
         return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
 
-
     @staticmethod
     def _tag_artifact_object(task_run: TaskRun, storage_path: str) -> None:
         try:

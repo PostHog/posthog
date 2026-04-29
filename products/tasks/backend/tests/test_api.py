@@ -3292,13 +3292,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(artifact["storage_path"], storage_path)  # type: ignore
 
     def test_find_artifact_in_resume_chain_miss(self):
-
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, artifacts=[])
         self.assertIsNone(run.find_artifact_in_resume_chain("tasks/missing.pack"))
 
     def test_find_artifact_in_resume_chain_walks_one_hop(self):
-
         task = self.create_task()
         storage_path = "tasks/artifacts/team_1/task_x/run_prior/artifact.pack"
         prior_run = TaskRun.objects.create(
@@ -3396,12 +3394,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         root = TaskRun.objects.create(task=task, team=self.team)
-        middle = TaskRun.objects.create(
-            task=task, team=self.team, state={"resume_from_run_id": str(root.id)}
-        )
-        leaf = TaskRun.objects.create(
-            task=task, team=self.team, state={"resume_from_run_id": str(middle.id)}
-        )
+        middle = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(root.id)})
+        leaf = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(middle.id)})
 
         chain = leaf.get_resume_chain()
         self.assertEqual([r.id for r in chain], [root.id, middle.id, leaf.id])
@@ -3411,9 +3405,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run_a = TaskRun.objects.create(task=task, team=self.team)
-        run_b = TaskRun.objects.create(
-            task=task, team=self.team, state={"resume_from_run_id": str(run_a.id)}
-        )
+        run_b = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(run_a.id)})
         run_a.state = {"resume_from_run_id": str(run_b.id)}
         run_a.save(update_fields=["state"])
 
@@ -3421,7 +3413,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual({r.id for r in chain}, {run_a.id, run_b.id})
 
     def test_walk_resume_chain_respects_max_depth(self):
-
         task = self.create_task()
         prior: TaskRun | None = None
         runs: list[TaskRun] = []
@@ -3440,14 +3431,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(len(chain), 3)
 
     def test_walk_resume_chain_does_not_cross_tasks(self):
-
         task_a = self.create_task(title="A")
         task_b = self.create_task(title="B")
 
         run_on_a = TaskRun.objects.create(task=task_a, team=self.team)
-        run_on_b = TaskRun.objects.create(
-            task=task_b, team=self.team, state={"resume_from_run_id": str(run_on_a.id)}
-        )
+        run_on_b = TaskRun.objects.create(task=task_b, team=self.team, state={"resume_from_run_id": str(run_on_a.id)})
 
         chain = run_on_b.get_resume_chain()
         # Walker is scoped via `task_run.task.runs.filter(...)` so a stale
@@ -3461,8 +3449,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 True,  # has_ancestor
                 {"a": '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}\n'},
                 '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}\n',
-                ['{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}',
-                 '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}'],
+                [
+                    '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}',
+                    '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}',
+                ],
             ),
             (
                 "unchained_returns_only_own_log",
