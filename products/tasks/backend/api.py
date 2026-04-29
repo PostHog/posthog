@@ -6,7 +6,7 @@ import logging
 import builtins
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, List, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -1157,6 +1157,47 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return safe_name, f"{prefix}/{artifact_id[:8]}_{safe_name}"
 
     @staticmethod
+    def _walk_resume_chain(task_run: TaskRun, max_depth: int = 10) -> List[TaskRun]:
+        """Walk `state.resume_from_run_id` from this run upward.
+
+        Returns a list ordered oldest-ancestor → ... → parent → this. Bounded
+        depth and a seen-set guard against cycles. Same-task scope means no
+        extra authz surface — the caller already proved access to the task
+        by passing get_object() on the starting run.
+        """
+        chain: list[TaskRun] = [task_run]
+        seen: set[str] = {str(task_run.id)}
+        current: TaskRun | None = task_run
+        depth = 0
+        while current is not None and depth < max_depth:
+            prior_id = parse_run_state(current.state).resume_from_run_id
+            if not prior_id or prior_id in seen:
+                break
+            seen.add(prior_id)
+            current = task_run.task.runs.filter(id=prior_id).first()
+            if current is None:
+                break
+            chain.append(current)
+            depth += 1
+        chain.reverse()
+        return chain
+
+    @staticmethod
+    def _find_artifact_in_resume_chain(task_run: TaskRun, storage_path: str) -> dict | None:
+        """Look up an artifact on this run, then walk back along resume_from_run_id.
+
+        Cloud→cloud resume creates a new TaskRun whose state.resume_from_run_id
+        points to the prior run; the prior run owns the git checkpoint pack/index
+        artifacts the agent needs on resume.
+        """
+        # Iterate newest-first since artifact is more likely to be on this run.
+        for run in reversed(TaskRunViewSet._walk_resume_chain(task_run)):
+            for entry in run.artifacts or []:
+                if entry.get("storage_path") == storage_path:
+                    return entry
+        return None
+
+    @staticmethod
     def _tag_artifact_object(task_run: TaskRun, storage_path: str) -> None:
         try:
             object_storage.tag(
@@ -1642,10 +1683,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def artifacts_download(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         storage_path = request.validated_data["storage_path"]
-        artifact = next(
-            (entry for entry in task_run.artifacts or [] if entry.get("storage_path") == storage_path),
-            None,
-        )
+
+        # Walk the resume chain so cloud→cloud resume runs can fetch the
+        # git checkpoint pack/index that lives on the prior run they were
+        # forked from.
+        artifact = self._find_artifact_in_resume_chain(task_run, storage_path)
 
         if artifact is None:
             return Response(
@@ -1690,15 +1732,29 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Get task run logs",
-        description="Fetch the logs for a task run. Returns JSONL formatted log entries.",
+        description=(
+            "Fetch the logs for a task run as JSONL. If the run resumes from "
+            "another (state.resume_from_run_id), each ancestor's log is "
+            "concatenated first (oldest ancestor → ... → this run) so resume "
+            "consumers see a single continuous history and can find the most "
+            "recent git_checkpoint event regardless of which run emitted it."
+        ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
         timer = ServerTimingsGathered()
 
+        chain = self._walk_resume_chain(task_run)
         with timer("s3_read"):
-            log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
+            parts: list[str] = []
+            for run in chain:
+                chunk = object_storage.read(run.log_url, missing_ok=True) or ""
+                if chunk:
+                    if not chunk.endswith("\n"):
+                        chunk = chunk + "\n"
+                    parts.append(chunk)
+            log_content = "".join(parts)
 
         response = HttpResponse(log_content, content_type="application/jsonl")
         response["Cache-Control"] = "no-cache"
@@ -2025,6 +2081,19 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def resume_in_cloud(self, request, pk=None, **kwargs):
         task_run = cast(TaskRun, self.get_object())
+
+        logger.info(
+            "resume_in_cloud_called",
+            extra={
+                "task_run_id": str(task_run.id),
+                "task_id": str(task_run.task_id),
+                "prior_status": task_run.status,
+                "prior_environment": task_run.environment,
+                "prior_state_keys": sorted((task_run.state or {}).keys()),
+                "prior_snapshot_external_id": (task_run.state or {}).get("snapshot_external_id"),
+                "use_modal_resume_snapshots": settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+            },
+        )
 
         with transaction.atomic():
             task_run = TaskRun.objects.select_for_update().get(pk=task_run.pk)

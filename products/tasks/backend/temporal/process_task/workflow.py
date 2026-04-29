@@ -73,6 +73,7 @@ class TaskEvent(StrEnum):
     CI_FOLLOW_UP = "ci_follow_up"
 
 
+<<<<<<< New base: resume from last checkpoint
 class CIFollowUpDecision(StrEnum):
     FIRE = "fire"
     SKIP = "skip"
@@ -80,6 +81,15 @@ class CIFollowUpDecision(StrEnum):
 
 
 INACTIVITY_TIMEOUT = timedelta(minutes=5)
+||||||| Common ancestor
+INACTIVITY_TIMEOUT = timedelta(minutes=5)
+=======
+# Default 5 min in production. Override via TASKS_INACTIVITY_TIMEOUT_SECONDS
+# for local testing (e.g. `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` to force a fast
+# shutdown for resume-flow testing). When overridden, the CI follow-up floor
+# below is bypassed so the timer actually fires that fast.
+INACTIVITY_TIMEOUT = timedelta(seconds=int(getattr(settings, "TASKS_INACTIVITY_TIMEOUT_SECONDS", 0) or 300))
+>>>>>>> Current commit: resume from last checkpoint
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
@@ -227,10 +237,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         # When a CI follow-up is scheduled, ensure the inactivity timer can't
         # race ahead of it — otherwise the short inactivity window would always
-        # fire first and CI fixes would be silently skipped.
+        # fire first and CI fixes would be silently skipped. The
+        # TASKS_INACTIVITY_TIMEOUT_SECONDS override bypasses this floor so
+        # local testing of the shutdown/resume flow is fast.
+        inactivity_override_active = bool(getattr(settings, "TASKS_INACTIVITY_TIMEOUT_SECONDS", 0))
         inactivity_timeout = (
             max(INACTIVITY_TIMEOUT, CI_FOLLOW_UP_DELAY + timedelta(minutes=1))
-            if ci_follow_up_scheduled
+            if ci_follow_up_scheduled and not inactivity_override_active
             else INACTIVITY_TIMEOUT
         )
         possible_events: list[asyncio.Task[TaskEvent]] = [
@@ -541,8 +554,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         finally:
             cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if cleanup_sandbox_id:
-                # Create a resume snapshot for interactive sandboxes before cleanup
-                if self._context and self._context.mode == "interactive":
+                # Create a resume snapshot for interactive sandboxes before cleanup.
+                # Skipped when TASKS_USE_MODAL_RESUME_SNAPSHOTS is off — resume then
+                # relies on the agent server's git-checkpoint mechanism instead.
+                if (
+                    self._context
+                    and self._context.mode == "interactive"
+                    and settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS
+                ):
                     await self._create_resume_snapshot(cleanup_sandbox_id)
 
                 await self._read_sandbox_logs(cleanup_sandbox_id)
