@@ -261,6 +261,8 @@ dev = [
     "types-tzlocal~=5.1.0.1",
     "pywatchman>=2.0.0",
     "watchdog==5.0.3",
+    # Developer CLI
+    "hogli",
 ]
 sentiment = [
     "optimum[onnxruntime]~=1.25.0",
@@ -275,7 +277,11 @@ constraint-dependencies = [
     "langgraph-checkpoint<3",
 ]
 
+[tool.uv.workspace]
+members = ["tools/hogli"]
+
 [tool.uv.sources]
+hogli = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 
 

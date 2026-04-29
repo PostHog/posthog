@@ -20,7 +20,7 @@ use common_hypercache::HyperCacheReader;
 use common_metrics::inc;
 use common_metrics::setup_metrics_routes_for_product;
 use common_redis::Client as RedisClient;
-use health::{readiness_handler, HealthRegistry};
+use lifecycle::{LivenessHandler, ReadinessHandler};
 use metrics::gauge;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
@@ -104,7 +104,8 @@ pub fn router(
     cohort_cache: Arc<CohortCacheManager>,
     group_type_cache: Arc<GroupTypeCacheManager>,
     geoip: Arc<GeoIpClient>,
-    liveness: HealthRegistry,
+    readiness: ReadinessHandler,
+    liveness: LivenessHandler,
     feature_flags_billing_limiter: FeatureFlagsLimiter,
     session_replay_billing_limiter: SessionReplayLimiter,
     cookieless_manager: Arc<CookielessManager>,
@@ -221,8 +222,20 @@ pub fn router(
     // liveness/readiness/startup checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(readiness_handler))
-        .route("/_liveness", get(move || ready(liveness.get_status())))
+        .route(
+            "/_readiness",
+            get(move || {
+                let r = readiness.clone();
+                async move { r.check().await }
+            }),
+        )
+        .route(
+            "/_liveness",
+            get({
+                let l = liveness.clone();
+                move || ready(l.check())
+            }),
+        )
         .route(
             "/_startup",
             get(move || startup(db_pools_for_startup.clone())),

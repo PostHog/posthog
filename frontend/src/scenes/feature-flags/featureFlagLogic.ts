@@ -336,27 +336,21 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
     }
 }
 
+// Reverse of `variantKeyToIndexFeatureFlagPayloads`: converts form-state payloads
+// (keyed by variant index) back to API-shape payloads (keyed by variant key).
+// Inputs MUST be index-keyed — passing variant-key-keyed payloads here will drop them.
+// This matters when variant keys are numeric strings (e.g. "0", "1"), which would
+// otherwise collide with index keys.
 export const convertIndexBasedPayloadsToVariantKeys = (
     variants: MultivariateFlagVariant[] = [],
-    payloads?: Record<string | number, JsonType>
+    payloads?: Record<number, JsonType>
 ): Record<string, JsonType> => {
     const newPayloads: Record<string, JsonType> = {}
-    const variantKeys = new Set(variants.map(({ key }) => key))
 
-    Object.entries(payloads || {}).forEach(([payloadKey, payloadValue]) => {
-        if (variantKeys.has(payloadKey)) {
-            newPayloads[payloadKey] = payloadValue
-            return
-        }
-
-        const payloadIndex = Number(payloadKey)
-        if (!Number.isInteger(payloadIndex) || String(payloadIndex) !== payloadKey) {
-            return
-        }
-
-        const variantKey = variants[payloadIndex]?.key
-        if (variantKey && newPayloads[variantKey] === undefined) {
-            newPayloads[variantKey] = payloadValue
+    variants.forEach((variant, index) => {
+        const payload = payloads?.[index]
+        if (payload !== undefined && variant.key) {
+            newPayloads[variant.key] = payload
         }
     })
 

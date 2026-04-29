@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,20 +22,85 @@ use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{
     Client, CompressionConfig, ReadWriteClient, ReadWriteClientConfig, RedisClient,
 };
-use health::{HealthHandle, HealthRegistry};
+use lifecycle::{ComponentOptions, Handle, LivenessHandler, Manager, ReadinessHandler};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use tokio::net::TcpListener;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tokio_retry::Retry;
 
-pub async fn serve<F>(
+/// Handles for every lifecycle component this service registers, plus the readiness
+/// and liveness handlers the HTTP router needs. Produced by [`register_components`]
+/// and passed into [`serve`].
+pub struct LifecycleHandles {
+    pub http: Handle,
+    pub db_monitor: Handle,
+    pub cohort_cache_monitor: Handle,
+    pub tokio_monitor: Handle,
+    pub readiness: ReadinessHandler,
+    pub liveness: LivenessHandler,
+}
+
+/// Register the feature-flags lifecycle components and return handles for use by
+/// `serve()` (and by the test harness). Call this exactly once per Manager, before
+/// `manager.monitor_background()`.
+///
+/// `/_liveness` is hardcoded to 200 (see `lifecycle::LivenessHandler`) and no
+/// component opts into `with_liveness_deadline`. For this service, if the tokio
+/// runtime can serve the endpoint the process is alive — there's no meaningful
+/// internal signal beyond that, and a heartbeat loop would just be checking that
+/// the heartbeat itself still runs. Do not add deadlines or `report_healthy()`
+/// calls here unless a real signal appears (e.g. the way capture feeds kafka
+/// producer health into its handle).
+pub fn register_components(manager: &mut Manager) -> LifecycleHandles {
+    let http = manager.register(
+        "http-server",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
+    );
+    let db_monitor = manager.register(
+        "db-pool-monitor",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
+    );
+    let cohort_cache_monitor = manager.register(
+        "cohort-cache-monitor",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
+    );
+    let tokio_monitor = manager.register(
+        "tokio-runtime-monitor",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
+    );
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    LifecycleHandles {
+        http,
+        db_monitor,
+        cohort_cache_monitor,
+        tokio_monitor,
+        readiness,
+        liveness,
+    }
+}
+
+impl LifecycleHandles {
+    /// Surface an init-time error to the lifecycle manager as a `Failure` on the http
+    /// component (so the trigger log reads `trigger_reason="failure" reason="…"` instead
+    /// of a misleading `Died { tag: "http-server" }`), and pre-complete the unstarted
+    /// monitor handles so their drops don't fan out "died during shutdown" warnings in
+    /// Phase 2. Call before each early `return` from `serve()`.
+    fn fail_init(&self, reason: impl Into<String>) {
+        self.http.signal_failure(reason);
+        self.http.work_completed();
+        self.db_monitor.work_completed();
+        self.cohort_cache_monitor.work_completed();
+        self.tokio_monitor.work_completed();
+    }
+}
+
+pub async fn serve(
     config: Config,
     listener: TcpListener,
     rayon_dispatcher: RayonDispatcher,
-    shutdown: F,
-) where
-    F: Future<Output = ()> + Send + 'static,
-{
+    handles: LifecycleHandles,
+) {
     // Configure compression based on environment variable
     let compression_config = if *config.redis_compression_enabled {
         let config = CompressionConfig::default();
@@ -64,6 +128,7 @@ pub async fn serve<F>(
     )
     .await
     else {
+        handles.fail_init("shared redis init failed");
         return;
     };
 
@@ -98,6 +163,7 @@ pub async fn serve<F>(
                 error = %e,
                 "Failed to create database pools"
             );
+            handles.fail_init(format!("database pools init failed: {e}"));
             return;
         }
     };
@@ -110,6 +176,7 @@ pub async fn serve<F>(
                 config.get_maxmind_db_path().display(),
                 e
             );
+            handles.fail_init(format!("geoip init failed: {e}"));
             return;
         }
     };
@@ -146,39 +213,6 @@ pub async fn serve<F>(
             Arc::new(NoOpCohortMembershipProvider)
         };
 
-    let health = HealthRegistry::new("liveness");
-
-    // Liveness checks only verify the process is alive (simple heartbeat loop).
-    // Readiness checks (in router.rs) verify the pod isn't shutting down via a preStop marker file.
-    let simple_loop = health
-        .register(
-            "simple_loop".to_string(),
-            Duration::from_secs(config.health_check_interval_secs),
-        )
-        .await;
-    tokio::spawn(liveness_loop(simple_loop));
-
-    // Start database pool monitoring
-    let db_monitor = DatabasePoolMonitor::new(database_pools.clone(), &config);
-    tokio::spawn(async move {
-        db_monitor.start_monitoring().await;
-    });
-
-    // Start cohort cache monitoring
-    let cohort_cache_clone = cohort_cache.clone();
-    let cohort_cache_monitor_interval = config.cohort_cache_monitor_interval_secs;
-    tokio::spawn(async move {
-        cohort_cache_clone
-            .start_monitoring(cohort_cache_monitor_interval)
-            .await;
-    });
-
-    // Start Tokio runtime monitoring
-    let tokio_monitor = TokioRuntimeMonitor::new(&tokio::runtime::Handle::current());
-    tokio::spawn(async move {
-        tokio_monitor.start_monitoring().await;
-    });
-
     let feature_flags_billing_limiter = match FeatureFlagsLimiter::new(
         Duration::from_secs(config.billing_limiter_cache_ttl_secs),
         redis_client.clone(), // Limiter only reads from redis, ReadWriteClient automatically routes reads to replica
@@ -188,6 +222,7 @@ pub async fn serve<F>(
         Ok(limiter) => limiter,
         Err(e) => {
             tracing::error!("Failed to create feature flags billing limiter: {}", e);
+            handles.fail_init(format!("feature flags billing limiter init failed: {e}"));
             return;
         }
     };
@@ -201,6 +236,7 @@ pub async fn serve<F>(
         Ok(limiter) => limiter,
         Err(e) => {
             tracing::error!("Failed to create session replay billing limiter: {}", e);
+            handles.fail_init(format!("session replay billing limiter init failed: {e}"));
             return;
         }
     };
@@ -215,6 +251,7 @@ pub async fn serve<F>(
     )
     .await
     else {
+        handles.fail_init("cookieless redis init failed");
         return;
     };
 
@@ -248,6 +285,7 @@ pub async fn serve<F>(
             }
             Err(e) => {
                 tracing::error!("Failed to create flags HyperCacheReader: {:?}", e);
+                handles.fail_init(format!("flags hypercache init failed: {e:?}"));
                 return;
             }
         };
@@ -278,6 +316,7 @@ pub async fn serve<F>(
             }
             Err(e) => {
                 tracing::error!("Failed to create team HyperCacheReader: {:?}", e);
+                handles.fail_init(format!("team hypercache init failed: {e:?}"));
                 return;
             }
         };
@@ -310,6 +349,7 @@ pub async fn serve<F>(
                     "Failed to create flags with cohorts HyperCacheReader: {:?}",
                     e
                 );
+                handles.fail_init(format!("flags with cohorts hypercache init failed: {e:?}"));
                 return;
             }
         };
@@ -341,6 +381,7 @@ pub async fn serve<F>(
             }
             Err(e) => {
                 tracing::error!("Failed to create config HyperCacheReader: {:?}", e);
+                handles.fail_init(format!("config hypercache init failed: {e:?}"));
                 return;
             }
         };
@@ -402,6 +443,36 @@ pub async fn serve<F>(
 
     let service_mode = config.service_mode.clone();
 
+    // Spawn monitor tasks only after all fallible init succeeds. If an early return
+    // fired above, the manager has already seen the real `Failure` reason and the
+    // unstarted monitors are pre-completed.
+    let LifecycleHandles {
+        http: http_handle,
+        db_monitor: db_monitor_handle,
+        cohort_cache_monitor: cohort_cache_monitor_handle,
+        tokio_monitor: tokio_monitor_handle,
+        readiness,
+        liveness,
+    } = handles;
+
+    let db_monitor = DatabasePoolMonitor::new(database_pools.clone(), &config);
+    tokio::spawn(async move {
+        db_monitor.start_monitoring(db_monitor_handle).await;
+    });
+
+    let cohort_cache_clone = cohort_cache.clone();
+    let cohort_cache_monitor_interval = config.cohort_cache_monitor_interval_secs;
+    tokio::spawn(async move {
+        cohort_cache_clone
+            .start_monitoring(cohort_cache_monitor_interval, cohort_cache_monitor_handle)
+            .await;
+    });
+
+    let tokio_monitor = TokioRuntimeMonitor::new(&tokio::runtime::Handle::current());
+    tokio::spawn(async move {
+        tokio_monitor.start_monitoring(tokio_monitor_handle).await;
+    });
+
     let app = router::router(
         redis_client,
         dedicated_redis_client,
@@ -409,7 +480,8 @@ pub async fn serve<F>(
         cohort_cache,
         group_type_cache,
         geoip_service,
-        health,
+        readiness,
+        liveness,
         feature_flags_billing_limiter,
         session_replay_billing_limiter,
         cookieless_manager,
@@ -429,13 +501,27 @@ pub async fn serve<F>(
         "listening on {:?}",
         listener.local_addr().unwrap()
     );
-    axum::serve(
+
+    // Always signal HTTP completion (success or failure) so the manager's
+    // background monitor can complete shutdown. Skipping either arm would wedge
+    // `monitor_guard.wait()` in the caller.
+    let serve_result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown)
-    .await
-    .unwrap()
+    .with_graceful_shutdown(http_handle.shutdown_signal())
+    .await;
+    match serve_result {
+        Ok(()) => http_handle.work_completed(),
+        Err(e) => {
+            tracing::error!("HTTP server error: {e}");
+            http_handle.signal_failure(e.to_string());
+            // Mark completed so HandleInner::Drop emits WorkCompleted instead of
+            // racing the manager's processing of the Failure event and emitting
+            // a duplicate Died (which oncall would read as a second failure).
+            http_handle.work_completed();
+        }
+    }
 }
 
 /// Create a ReadWriteClient that automatically routes reads to replica and writes to primary
@@ -670,16 +756,41 @@ pub async fn create_redis_client(
     }
 }
 
-async fn liveness_loop(handle: HealthHandle) {
-    loop {
-        handle.report_healthy().await;
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lifecycle::LifecycleError;
+
+    /// Locks in the contract that drives the early-return paths in `serve()`:
+    /// `fail_init` must surface a `ComponentFailure { tag: "http-server", reason }` —
+    /// not a misleading `ComponentDied { tag: "http-server" }` from the http handle's
+    /// drop, which is the easy regression mode if a future component is added to
+    /// `LifecycleHandles` without being wired into `fail_init`.
+    #[tokio::test]
+    async fn fail_init_reports_failure_not_died() {
+        let mut manager = Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_global_shutdown_timeout(Duration::from_secs(5))
+            .build();
+        let handles = register_components(&mut manager);
+        let guard = manager.monitor_background();
+
+        handles.fail_init("redis init failed");
+        drop(handles);
+
+        let result = tokio::time::timeout(Duration::from_secs(3), guard.wait())
+            .await
+            .expect("monitor did not finish within timeout");
+        assert!(
+            matches!(
+                &result,
+                Err(LifecycleError::ComponentFailure { tag, reason })
+                    if tag == "http-server" && reason == "redis init failed"
+            ),
+            "expected ComponentFailure {{ tag: \"http-server\", reason: \"redis init failed\" }}, got {result:?}"
+        );
+    }
 
     #[tokio::test]
     async fn test_create_dedicated_readwrite_client_no_config() {

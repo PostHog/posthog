@@ -65,7 +65,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Exporting distinct IDs for team: {team.name}"))
 
         # Build the query
-        distinct_ids_query = PersonDistinctId.objects.filter(team=team)
+        distinct_ids_query = PersonDistinctId.objects.filter(team=team)  # nosemgrep: no-direct-persons-db-orm
 
         if identified_only:
             distinct_ids_query = distinct_ids_query.filter(person__is_identified=True)
@@ -126,9 +126,13 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Error writing to file: {e}"))
 
         # Also show some stats
-        total_persons = Person.objects.filter(team=team).count()
-        identified_persons = Person.objects.filter(team=team, is_identified=True).count()
-        demo_persons = Person.objects.filter(team=team, properties__is_demo=True).count()
+        total_persons = Person.objects.filter(team=team).count()  # nosemgrep: no-direct-persons-db-orm
+        identified_persons = Person.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            team=team, is_identified=True
+        ).count()  # nosemgrep: no-direct-persons-db-orm
+        demo_persons = Person.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            team=team, properties__is_demo=True
+        ).count()  # nosemgrep: no-direct-persons-db-orm
 
         self.stdout.write(f"\nTeam statistics:")
         self.stdout.write(f"  Total persons: {total_persons}")

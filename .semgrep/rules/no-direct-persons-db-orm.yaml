@@ -1,0 +1,36 @@
+rules:
+    - id: no-direct-persons-db-orm
+      message: >-
+          Do not query persons DB models via the Django ORM. Use the personhog
+          client helpers in `posthog/models/person/util.py` (e.g.
+          `get_person_by_uuid`, `get_persons_by_distinct_ids`) and
+          `posthog/models/group_type_mapping.py` (`get_group_types_for_project`).
+          These route through the personhog gRPC service with ORM fallback.
+          When adding new access patterns, follow the `_personhog_routed()`
+          pattern in `posthog/models/person/util.py`.
+          See `posthog/personhog_client/README.md` for client details.
+      severity: WARNING
+      languages: [python]
+      patterns:
+          - pattern: $MODEL.objects
+          - metavariable-regex:
+                metavariable: $MODEL
+                regex: >-
+                    ^(Person|PersonDistinctId|PersonlessDistinctId|PersonOverrideMapping|PersonOverride|PendingPersonOverride|FlatPersonOverride|FeatureFlagHashKeyOverride|CohortPeople|Group|GroupTypeMapping)$
+      paths:
+          exclude:
+              # personhog client implementation
+              - '**/posthog/personhog_client/**'
+              # Routing helpers — intentional ORM fallback inside _personhog_routed()
+              - '**/posthog/models/person/util.py'
+              - '**/posthog/models/group_type_mapping.py'
+              # semgrep test cases
+              - '**/.semgrep/**'
+              # Migrations
+              - '**/migrations/**'
+              # Test files
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/*_test.py'
+              - '**/test_*.py'
+              - '**/conftest*.py'
