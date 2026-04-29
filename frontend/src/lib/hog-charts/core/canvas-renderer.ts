@@ -6,7 +6,9 @@ import type { ChartDimensions, ChartDrawArgs, ResolvedSeries } from './types'
 export interface DrawContext {
     ctx: CanvasRenderingContext2D
     dimensions: ChartDimensions
-    xScale: d3.ScalePoint<string>
+    /** Maps a categorical label to a pixel coordinate on the categorical axis.
+     *  For point/line charts this is `d3.ScalePoint<string>`; bar charts pass a band-derived center function. */
+    xScale: (label: string) => number | undefined
     yScale: d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
     labels: string[]
 }
@@ -329,6 +331,112 @@ export function drawCrosshair(
     ctx.beginPath()
     ctx.moveTo(lineX, dimensions.plotTop)
     ctx.lineTo(lineX, dimensions.plotTop + dimensions.plotHeight)
+    ctx.stroke()
+}
+
+/** Which corners of a bar rectangle to round. */
+export interface BarRoundedCorners {
+    topLeft?: boolean
+    topRight?: boolean
+    bottomLeft?: boolean
+    bottomRight?: boolean
+}
+
+/** Traces a rectangle path with optional per-corner rounding. The radius is clamped
+ *  to half the smaller dimension so very thin/short bars degrade gracefully. Caller
+ *  owns beginPath/fill/stroke. */
+export function traceRoundedBarPath(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    radius: number,
+    corners: BarRoundedCorners
+): void {
+    const r = Math.max(0, Math.min(radius, Math.abs(width) / 2, Math.abs(height) / 2))
+    const tl = corners.topLeft ? r : 0
+    const tr = corners.topRight ? r : 0
+    const br = corners.bottomRight ? r : 0
+    const bl = corners.bottomLeft ? r : 0
+    ctx.moveTo(x + tl, y)
+    ctx.lineTo(x + width - tr, y)
+    if (tr > 0) {
+        ctx.quadraticCurveTo(x + width, y, x + width, y + tr)
+    }
+    ctx.lineTo(x + width, y + height - br)
+    if (br > 0) {
+        ctx.quadraticCurveTo(x + width, y + height, x + width - br, y + height)
+    }
+    ctx.lineTo(x + bl, y + height)
+    if (bl > 0) {
+        ctx.quadraticCurveTo(x, y + height, x, y + height - bl)
+    }
+    ctx.lineTo(x, y + tl)
+    if (tl > 0) {
+        ctx.quadraticCurveTo(x, y, x + tl, y)
+    }
+    ctx.closePath()
+}
+
+export interface BarRect {
+    /** Pixel coordinates of the rectangle. */
+    x: number
+    y: number
+    width: number
+    height: number
+    /** Which corners should be rounded (e.g. only the cap end). */
+    corners: BarRoundedCorners
+}
+
+/** Draws a list of bars for a series with corner rounding and hatched dashed-pattern support.
+ *  When `series.stroke?.partial` is set, bars whose data index falls inside the partial range
+ *  are filled with a diagonal hatch pattern (mirrors the line/area dashed-region convention). */
+export function drawBars(
+    drawCtx: DrawContext,
+    series: Series,
+    bars: BarRect[],
+    options: { cornerRadius?: number } = {}
+): void {
+    const { ctx } = drawCtx
+    if (bars.length === 0) {
+        return
+    }
+
+    const cornerRadius = options.cornerRadius ?? 4
+    const dashedFrom = resolvePartialIndex(series.stroke?.partial?.fromIndex, bars.length)
+    const dashedTo = resolvePartialIndex(series.stroke?.partial?.toIndex, bars.length)
+    const hatch = dashedFrom !== null || dashedTo !== null ? getHatchPattern(ctx, series.color) : null
+
+    for (let i = 0; i < bars.length; i++) {
+        const bar = bars[i]
+        if (bar.width <= 0 || bar.height === 0) {
+            continue
+        }
+        const useHatch =
+            hatch !== null && ((dashedFrom !== null && i >= dashedFrom) || (dashedTo !== null && i <= dashedTo))
+        ctx.fillStyle = useHatch && hatch ? hatch : series.color
+        ctx.beginPath()
+        traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
+        ctx.fill()
+    }
+}
+
+/** Draws a thin highlight ring around a bar rectangle. */
+export function drawBarHighlight(
+    ctx: CanvasRenderingContext2D,
+    bar: BarRect,
+    color: string,
+    cornerRadius: number = 4
+): void {
+    if (bar.width <= 0 || bar.height === 0) {
+        return
+    }
+    ctx.strokeStyle = color
+    ctx.lineWidth = 2
+    ctx.setLineDash([])
+    ctx.beginPath()
+    traceRoundedBarPath(ctx, bar.x, bar.y, bar.width, bar.height, cornerRadius, bar.corners)
     ctx.stroke()
 }
 
