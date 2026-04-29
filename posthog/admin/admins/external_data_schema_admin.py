@@ -1,4 +1,5 @@
 import time
+from typing import get_args
 
 from django.conf import settings
 from django.contrib import admin, messages
@@ -12,16 +13,19 @@ from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
+from products.data_warehouse.backend.data_load.service import (
+    pause_external_data_schedule,
+    unpause_external_data_schedule,
+)
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
-PARTITION_FORMAT_CHOICES = ("month", "week", "day", "hour")
-PARTITION_SIZE_MIN = 1
-PARTITION_SIZE_MAX = 1_000_000_000
-PARTITION_COUNT_MIN = 1
-PARTITION_COUNT_MAX = 100_000
+# Source of truth lives in pipeline.typings.PartitionFormat. Re-deriving here keeps
+# the dropdown in sync if a new format is ever added.
+PARTITION_FORMAT_CHOICES: tuple[str, ...] = get_args(PartitionFormat)
 
 
 @async_to_sync
@@ -77,91 +81,117 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.trigger_sync_view),
                 name="external_data_schema_trigger_sync",
             ),
+            path(
+                "<uuid:schema_id>/pause-schedule/",
+                self.admin_site.admin_view(self.pause_schedule_view),
+                name="external_data_schema_pause_schedule",
+            ),
+            path(
+                "<uuid:schema_id>/unpause-schedule/",
+                self.admin_site.admin_view(self.unpause_schedule_view),
+                name="external_data_schema_unpause_schedule",
+            ),
         ]
         return custom_urls + urls
 
     def repartition_view(self, request, schema_id):
-        # Update the partition knob that matches the schema's partition_mode:
-        #   datetime  → partition_format ∈ {month, week, day, hour}
-        #   numerical → partition_size (rows per integer-id bucket)
-        #   md5       → partition_count (number of hash buckets)
-        # Takes effect on the next run; pair with a reset resync to rebuild Delta
-        # files at the new granularity.
+        # Update the partition knob that matches the schema's partition_mode AND
+        # immediately trigger a non-billable resync with reset_pipeline=True.
+        # Repartition without a reset risks mixing old/new partition layouts in
+        # the same Delta table, which corrupts the data with no easy way to
+        # recover — so the two actions are bundled.
+        #
+        # We require an explicit partition_mode on the schema. The pipeline picks
+        # the mode the first time a table is partitioned (based on column shape);
+        # forcing a mode here would cause the next sync to crash if the table
+        # doesn't carry a column compatible with that mode.
         if request.method != "POST":
             return redirect(_change_url(schema_id))
 
         try:
-            schema = ExternalDataSchema.objects.get(id=schema_id)
+            schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
         except ExternalDataSchema.DoesNotExist:
             messages.error(request, f"Schema {schema_id} not found.")
             return redirect(reverse("admin:data_warehouse_externaldataschema_changelist"))
 
-        # Default unset partition_mode to "datetime" so legacy schemas that pre-date
-        # the explicit partition_mode column still get the format dropdown they expect.
-        effective_mode = schema.partition_mode or "datetime"
+        if schema.partition_mode is None:
+            messages.error(
+                request,
+                "Schema has no partition_mode set. Run a sync first so the pipeline can pick "
+                "the appropriate mode for this table, then come back to repartition.",
+            )
+            return redirect(_change_url(schema_id))
 
-        if effective_mode == "datetime":
+        if schema.partition_mode == "datetime":
             new_format = request.POST.get("partition_format")
             if new_format not in PARTITION_FORMAT_CHOICES:
                 messages.error(request, f"Invalid partition_format: {new_format!r}.")
                 return redirect(_change_url(schema_id))
             previous_format = schema.partition_format
             schema.update_partition_setting("partition_format", new_format)
-            messages.success(
-                request,
-                f"partition_format updated: {previous_format!r} → {new_format!r}. "
-                f"Trigger a resync (with reset) to rebuild Delta with the new partitioning.",
-            )
-            return redirect(_change_url(schema_id))
-
-        if effective_mode == "numerical":
+            change_label = f"partition_format: {previous_format!r} → {new_format!r}"
+        elif schema.partition_mode == "numerical":
             raw = request.POST.get("partition_size", "").strip()
             try:
                 new_size = int(raw)
             except ValueError:
                 messages.error(request, f"partition_size must be an integer; got {raw!r}.")
                 return redirect(_change_url(schema_id))
-            if not (PARTITION_SIZE_MIN <= new_size <= PARTITION_SIZE_MAX):
-                messages.error(
-                    request,
-                    f"partition_size out of range [{PARTITION_SIZE_MIN}, {PARTITION_SIZE_MAX}]: {new_size}.",
-                )
+            if new_size < 1:
+                messages.error(request, f"partition_size must be >= 1; got {new_size}.")
                 return redirect(_change_url(schema_id))
             previous_size = schema.partition_size
             schema.update_partition_setting("partition_size", new_size)
-            messages.success(
+            change_label = f"partition_size: {previous_size!r} → {new_size}"
+        elif schema.partition_mode == "md5":
+            raw = request.POST.get("partition_count", "").strip()
+            try:
+                new_count = int(raw)
+            except ValueError:
+                messages.error(request, f"partition_count must be an integer; got {raw!r}.")
+                return redirect(_change_url(schema_id))
+            if new_count < 1:
+                messages.error(request, f"partition_count must be >= 1; got {new_count}.")
+                return redirect(_change_url(schema_id))
+            previous_count = schema.partition_count
+            schema.update_partition_setting("partition_count", new_count)
+            change_label = f"partition_count: {previous_count!r} → {new_count}"
+        else:
+            messages.error(request, f"Unsupported partition_mode: {schema.partition_mode!r}.")
+            return redirect(_change_url(schema_id))
+
+        # Bundled non-billable reset+resync. Operator should pause the schedule
+        # before running this — the banner on the change form prompts for that.
+        inputs = ExternalDataWorkflowInputs(
+            team_id=schema.team_id,
+            external_data_source_id=schema.source.id,
+            external_data_schema_id=schema.id,
+            billable=False,
+            reset_pipeline=True,
+        )
+        workflow_id = f"{schema.id}-admin-repartition-{int(time.time())}"
+        try:
+            client = sync_connect()
+            _start_external_data_workflow(client, workflow_id, inputs)
+        except Exception as e:
+            messages.error(
                 request,
-                f"partition_size updated: {previous_size!r} → {new_size}. "
-                f"Trigger a resync (with reset) to rebuild Delta with the new bucket size.",
+                f"Saved {change_label}, but failed to trigger reset resync: {e}. "
+                f"Trigger one manually before the next scheduled sync.",
             )
             return redirect(_change_url(schema_id))
 
-        # md5 — exhaustive over PartitionMode after the datetime fallback above.
-        raw = request.POST.get("partition_count", "").strip()
-        try:
-            new_count = int(raw)
-        except ValueError:
-            messages.error(request, f"partition_count must be an integer; got {raw!r}.")
-            return redirect(_change_url(schema_id))
-        if not (PARTITION_COUNT_MIN <= new_count <= PARTITION_COUNT_MAX):
-            messages.error(
-                request,
-                f"partition_count out of range [{PARTITION_COUNT_MIN}, {PARTITION_COUNT_MAX}]: {new_count}.",
-            )
-            return redirect(_change_url(schema_id))
-        previous_count = schema.partition_count
-        schema.update_partition_setting("partition_count", new_count)
         messages.success(
             request,
-            f"partition_count updated: {previous_count!r} → {new_count}. "
-            f"Trigger a resync (with reset) to rebuild Delta with the new bucket count.",
+            f"{change_label}. Triggered non-billable reset resync (workflow_id={workflow_id}).",
         )
         return redirect(_change_url(schema_id))
 
     def trigger_sync_view(self, request, schema_id):
-        # Ad-hoc external-data-job workflow execution. We start a fresh workflow rather
-        # than triggering the schedule because the schedule's stored input cannot
-        # override `billable` per-trigger.
+        # Ad-hoc external-data-job workflow execution. Bypasses the schedule because
+        # the schedule's stored input cannot override `billable` per-trigger.
+        # WARNING: this can race with the schedule's own runs. Pause the schedule
+        # first using the buttons below if there's any chance of overlap.
         if request.method != "POST":
             return redirect(_change_url(schema_id))
 
@@ -197,6 +227,26 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         )
         return redirect(_change_url(schema_id))
 
+    def pause_schedule_view(self, request, schema_id):
+        if request.method != "POST":
+            return redirect(_change_url(schema_id))
+        try:
+            pause_external_data_schedule(str(schema_id))
+            messages.success(request, "Schedule paused. Remember to unpause when admin work is done.")
+        except Exception as e:
+            messages.error(request, f"Failed to pause schedule: {e}")
+        return redirect(_change_url(schema_id))
+
+    def unpause_schedule_view(self, request, schema_id):
+        if request.method != "POST":
+            return redirect(_change_url(schema_id))
+        try:
+            unpause_external_data_schedule(str(schema_id))
+            messages.success(request, "Schedule unpaused.")
+        except Exception as e:
+            messages.error(request, f"Failed to unpause schedule: {e}")
+        return redirect(_change_url(schema_id))
+
     def change_view(self, request, object_id, form_url="", extra_context=None):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
@@ -219,11 +269,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["current_partition_size"] = obj.partition_size
             extra_context["current_partition_count"] = obj.partition_count
             extra_context["partitioning_enabled"] = obj.partitioning_enabled
-            # `effective_mode` mirrors repartition_view: unset modes fall back to datetime
-            # so legacy schemas still get the format dropdown.
-            extra_context["effective_partition_mode"] = obj.partition_mode or "datetime"
             extra_context["repartition_url"] = reverse("admin:external_data_schema_repartition", args=[obj.id])
             extra_context["trigger_sync_url"] = reverse("admin:external_data_schema_trigger_sync", args=[obj.id])
+            extra_context["pause_schedule_url"] = reverse("admin:external_data_schema_pause_schedule", args=[obj.id])
+            extra_context["unpause_schedule_url"] = reverse(
+                "admin:external_data_schema_unpause_schedule", args=[obj.id]
+            )
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
     @admin.display(description="Team")
