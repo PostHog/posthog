@@ -2024,12 +2024,24 @@ const normalizeUrl = (url: string): string => {
  * Used by the scene-context request interceptor to stamp
  * `X-PostHog-Scene-Resource` on every outgoing API call. The guest-access
  * middleware on the backend consults this header to decide whether a generic
- * endpoint is being used in the service of a resource the guest has been granted.
+ * endpoint (e.g. a query or a property-definitions lookup) is being used in
+ * the service of a resource the guest has been granted.
  *
- * Scope: notebook only — dashboard / insight URL resolution lands in a follow-up PR.
- * Returns `null` for any URL that isn't a notebook view.
+ * Returns `null` for any URL that isn't a dashboard/insight/notebook view.
  */
 export function resolveSceneResource(pathname: string): string | null {
+    // /project/<id>/dashboard/<numeric-id>
+    const dashboardMatch = /\/project\/\d+\/dashboard\/(\d+)(?:\/|$|\?|#)/.exec(pathname)
+    if (dashboardMatch) {
+        return `dashboard:${dashboardMatch[1]}`
+    }
+
+    // /project/<id>/insights/<short_id> — exclude /insights/new and /insights/new/...
+    const insightMatch = /\/project\/\d+\/insights\/([A-Za-z0-9_-]+)(?:\/|$|\?|#)/.exec(pathname)
+    if (insightMatch && insightMatch[1] !== 'new') {
+        return `insight:${insightMatch[1]}`
+    }
+
     // /project/<id>/notebooks/<short_id> — exclude /notebooks/new
     const notebookMatch = /\/project\/\d+\/notebooks\/([A-Za-z0-9_-]+)(?:\/|$|\?|#)/.exec(pathname)
     if (notebookMatch && notebookMatch[1] !== 'new') {

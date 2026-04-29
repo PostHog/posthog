@@ -101,12 +101,35 @@ function DashboardEmptyActions({
     )
 }
 
+function ViewerEmptyDashboardContent(): JSX.Element {
+    // Viewer-only empty state — no add-insight CTA, no PostHog-AI prompts. The viewer can't
+    // do anything about the empty dashboard, so the admin onboarding scaffolding is just
+    // confusing chrome for them.
+    return (
+        <div
+            className="flex flex-col items-center justify-center gap-3 py-12 px-4 text-center"
+            data-attr="dashboard-empty-viewer"
+        >
+            <GraphsHog className="w-32 h-32" />
+            <h2 className="text-xl font-semibold mb-0">Nothing here yet</h2>
+            <p className="text-muted max-w-md">
+                This dashboard has no tiles. Ask whoever shared it with you to add some — they'll show up here
+                automatically.
+            </p>
+        </div>
+    )
+}
+
 function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { dashboard } = useValues(dashboardLogic)
     const { push } = useActions(router)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+
+    if (!canEdit) {
+        return <ViewerEmptyDashboardContent />
+    }
 
     const aiDisabledReason =
         !dataProcessingAccepted &&

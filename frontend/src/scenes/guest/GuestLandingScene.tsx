@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconNotebook } from '@posthog/icons'
+import { IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -12,11 +12,26 @@ import { GuestGrant } from '~/types'
 import { guestSceneLogic } from './guestSceneLogic'
 
 function grantUrl(grant: GuestGrant): string {
-    const { team_id, resource_id_url } = grant
-    return `/project/${team_id}/notebooks/${resource_id_url}`
+    const { team_id, resource, resource_id_url } = grant
+    if (resource === 'dashboard') {
+        return `/project/${team_id}/dashboard/${resource_id_url}`
+    }
+    if (resource === 'insight') {
+        return `/project/${team_id}/insights/${resource_id_url}`
+    }
+    if (resource === 'notebook') {
+        return `/project/${team_id}/notebooks/${resource_id_url}`
+    }
+    return `/project/${team_id}`
 }
 
-function grantIcon(): JSX.Element {
+function grantIcon(resource: GuestGrant['resource']): JSX.Element {
+    if (resource === 'dashboard') {
+        return <IconDashboard fontSize="20" />
+    }
+    if (resource === 'insight') {
+        return <IconGraph fontSize="20" />
+    }
     return <IconNotebook fontSize="20" />
 }
 
@@ -26,7 +41,7 @@ function GrantCard({ grant }: { grant: GuestGrant }): JSX.Element {
         <LemonButton
             type="secondary"
             to={grantUrl(grant)}
-            icon={grantIcon()}
+            icon={grantIcon(grant.resource)}
             className="w-full justify-start"
             size="medium"
         >

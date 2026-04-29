@@ -170,6 +170,12 @@ describe('resolveSceneResource', () => {
     const { resolveSceneResource } = jest.requireActual('lib/api')
 
     it.each([
+        ['/project/123/dashboard/42', 'dashboard:42'],
+        ['/project/1/dashboard/9999/', 'dashboard:9999'],
+        ['/project/1/dashboard/9999?foo=bar', 'dashboard:9999'],
+        ['/project/123/insights/ABC123', 'insight:ABC123'],
+        ['/project/123/insights/abc-def', 'insight:abc-def'],
+        ['/project/123/insights/abc_def/edit', 'insight:abc_def'],
         ['/project/1/notebooks/nb_short_id', 'notebook:nb_short_id'],
         ['/project/1/notebooks/abc-def/', 'notebook:abc-def'],
     ] as const)('resolves %s -> %s', (path, expected) => {
@@ -180,12 +186,13 @@ describe('resolveSceneResource', () => {
         ['/'],
         ['/home'],
         ['/project/123/home'],
+        ['/project/123/insights/new'],
+        ['/project/123/insights/new/edit'],
         ['/project/123/notebooks/new'],
         ['/project/123/experiments/123'],
-        // Dashboard / insight URLs return null for now — they're added in the
-        // dashboard / insight follow-up PR.
-        ['/project/123/dashboard/42'],
-        ['/project/123/insights/ABC123'],
+        ['/project/123/saved_insights'],
+        ['/project/123/dashboard'],
+        ['/dashboard/42'],
     ] as const)('returns null for %s', (path) => {
         expect(resolveSceneResource(path)).toBeNull()
     })

@@ -23,7 +23,7 @@ describe('inviteLogic (guest invites)', () => {
         inviteLogic.actions.updateInviteAtIndex({ target_email: 'guest@acme.io', isValid: true }, 0)
         await expectLogic(inviteLogic).toMatchValues({ canSubmit: false, isGuestInvite: true })
 
-        inviteLogic.actions.addGuestGrant({ team_id: 1, resource: 'notebook', resource_id: 'NB000001', label: 'KPIs' })
+        inviteLogic.actions.addGuestGrant({ team_id: 1, resource: 'dashboard', resource_id: '42', label: 'KPIs' })
         await expectLogic(inviteLogic).toMatchValues({ canSubmit: true })
     })
 
@@ -32,7 +32,7 @@ describe('inviteLogic (guest invites)', () => {
         inviteLogic.actions.updateInviteAtIndex({ target_email: 'guest1@acme.io', isValid: true }, 0)
         inviteLogic.actions.appendInviteRow()
         inviteLogic.actions.updateInviteAtIndex({ target_email: 'guest2@acme.io', isValid: true }, 1)
-        inviteLogic.actions.addGuestGrant({ team_id: 1, resource: 'notebook', resource_id: 'NB000001' })
+        inviteLogic.actions.addGuestGrant({ team_id: 1, resource: 'dashboard', resource_id: '42' })
 
         await expectLogic(inviteLogic).toMatchValues({ canSubmit: false })
     })
@@ -40,7 +40,7 @@ describe('inviteLogic (guest invites)', () => {
     it('resetGuestState clears grants and flags', async () => {
         inviteLogic.actions.setIsGuestInvite(true)
         inviteLogic.actions.setBypassSsoEnforcement(true)
-        inviteLogic.actions.addGuestGrant({ team_id: 1, resource: 'notebook', resource_id: 'NB000001' })
+        inviteLogic.actions.addGuestGrant({ team_id: 1, resource: 'dashboard', resource_id: '42' })
         inviteLogic.actions.resetGuestState()
 
         await expectLogic(inviteLogic).toMatchValues({
@@ -57,7 +57,7 @@ describe('inviteLogic (guest invites)', () => {
         // must clear so we don't ship a member invite with attached grants.
         inviteLogic.actions.updateInviteAtIndex({ target_email: 'guest@acme.io', isValid: true }, 0)
         inviteLogic.actions.setIsGuestInvite(true)
-        inviteLogic.actions.addGuestGrant({ team_id: 1, resource: 'notebook', resource_id: 'NB000001' })
+        inviteLogic.actions.addGuestGrant({ team_id: 1, resource: 'dashboard', resource_id: '42' })
         inviteLogic.actions.setBypassSsoEnforcement(true)
 
         inviteLogic.actions.resetGuestState()
@@ -68,6 +68,7 @@ describe('inviteLogic (guest invites)', () => {
             bypassSsoEnforcement: false,
             guestGrants: [],
         })
+        // The invitee email and new level are preserved.
         expect(inviteLogic.values.invitesToSend[0]).toMatchObject({
             target_email: 'guest@acme.io',
             level: 1,
@@ -78,15 +79,15 @@ describe('inviteLogic (guest invites)', () => {
         it('addGuestGrant defaults access_level to viewer when omitted', async () => {
             inviteLogic.actions.addGuestGrant({
                 team_id: 1,
-                resource: 'notebook',
-                resource_id: 'NB000001',
+                resource: 'dashboard',
+                resource_id: '42',
                 label: 'KPIs',
             })
             await expectLogic(inviteLogic).toMatchValues({
                 guestGrants: [
                     expect.objectContaining({
-                        resource: 'notebook',
-                        resource_id: 'NB000001',
+                        resource: 'dashboard',
+                        resource_id: '42',
                         access_level: 'viewer',
                     }),
                 ],
@@ -96,8 +97,8 @@ describe('inviteLogic (guest invites)', () => {
         it('addGuestGrant honors an explicit editor access_level', async () => {
             inviteLogic.actions.addGuestGrant({
                 team_id: 1,
-                resource: 'notebook',
-                resource_id: 'NB000001',
+                resource: 'dashboard',
+                resource_id: '42',
                 label: 'KPIs',
                 access_level: 'editor',
             })
@@ -109,21 +110,44 @@ describe('inviteLogic (guest invites)', () => {
         it('setGuestGrantAccessLevel updates an existing grant in place', async () => {
             inviteLogic.actions.addGuestGrant({
                 team_id: 1,
-                resource: 'notebook',
-                resource_id: 'NB000001',
+                resource: 'dashboard',
+                resource_id: '42',
             })
             inviteLogic.actions.addGuestGrant({
                 team_id: 1,
-                resource: 'notebook',
-                resource_id: 'NB000002',
+                resource: 'insight',
+                resource_id: 'abc',
             })
 
             inviteLogic.actions.setGuestGrantAccessLevel(1, 'editor')
 
             await expectLogic(inviteLogic).toMatchValues({
                 guestGrants: [
-                    expect.objectContaining({ resource_id: 'NB000001', access_level: 'viewer' }),
-                    expect.objectContaining({ resource_id: 'NB000002', access_level: 'editor' }),
+                    expect.objectContaining({ resource: 'dashboard', access_level: 'viewer' }),
+                    expect.objectContaining({ resource: 'insight', access_level: 'editor' }),
+                ],
+            })
+        })
+
+        it('switching resource type while editing grants does not drop access_level', async () => {
+            // Simulates the flow where the admin adds an editor-level grant, then adds another
+            // grant of a different resource type. The first grant's access_level must survive.
+            inviteLogic.actions.addGuestGrant({
+                team_id: 1,
+                resource: 'dashboard',
+                resource_id: '42',
+                access_level: 'editor',
+            })
+            inviteLogic.actions.addGuestGrant({
+                team_id: 1,
+                resource: 'insight',
+                resource_id: 'abc',
+            })
+
+            await expectLogic(inviteLogic).toMatchValues({
+                guestGrants: [
+                    expect.objectContaining({ resource: 'dashboard', access_level: 'editor' }),
+                    expect.objectContaining({ resource: 'insight', access_level: 'viewer' }),
                 ],
             })
         })

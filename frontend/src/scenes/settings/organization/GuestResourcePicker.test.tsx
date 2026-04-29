@@ -32,10 +32,9 @@ describe('GuestResourcePicker', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/notebooks/': () => [
-                    200,
-                    { results: [{ id: 1, short_id: 'NB000001', title: 'Onboarding playbook' }] },
-                ],
+                '/api/projects/:team/dashboards/': () => [200, { results: [{ id: 1, name: 'Q4 dashboard' }] }],
+                '/api/projects/:team/insights/': () => [200, { results: [] }],
+                '/api/projects/:team/notebooks/': () => [200, { results: [] }],
             },
         })
         initKeaTests()
@@ -60,10 +59,12 @@ describe('GuestResourcePicker', () => {
         const fetchedTeamIds: number[] = []
         useMocks({
             get: {
-                '/api/projects/:team/notebooks/': (req) => {
+                '/api/projects/:team/dashboards/': (req) => {
                     fetchedTeamIds.push(Number(req.params.team))
                     return [200, { results: [] }]
                 },
+                '/api/projects/:team/insights/': () => [200, { results: [] }],
+                '/api/projects/:team/notebooks/': () => [200, { results: [] }],
             },
         })
         mountWithOrgTeams([TEAM_MARKETING, TEAM_PRODUCT])
@@ -87,14 +88,20 @@ describe('GuestResourcePicker', () => {
 
         inviteLogic.actions.addGuestGrant({
             team_id: TEAM_MARKETING.id,
-            resource: 'notebook',
-            resource_id: 'NB000001',
-            label: 'Marketing notebook',
+            resource: 'dashboard',
+            resource_id: '1',
+            label: 'Q4 dashboard',
+        })
+        inviteLogic.actions.addGuestGrant({
+            team_id: TEAM_PRODUCT.id,
+            resource: 'insight',
+            resource_id: 'abc',
+            label: 'Activation funnel',
         })
         inviteLogic.actions.addGuestGrant({
             team_id: TEAM_PRODUCT.id,
             resource: 'notebook',
-            resource_id: 'NB000002',
+            resource_id: 'xyz',
             label: 'Onboarding notebook',
         })
 
@@ -109,8 +116,9 @@ describe('GuestResourcePicker', () => {
             `[data-attr="guest-grants-group-${TEAM_PRODUCT.id}"]`
         ) as HTMLElement
         expect(marketingGroup.textContent).toContain('Marketing')
-        expect(marketingGroup.textContent).toContain('Marketing notebook')
+        expect(marketingGroup.textContent).toContain('Q4 dashboard')
         expect(productGroup.textContent).toContain('Product')
+        expect(productGroup.textContent).toContain('Activation funnel')
         expect(productGroup.textContent).toContain('Onboarding notebook')
     })
 })

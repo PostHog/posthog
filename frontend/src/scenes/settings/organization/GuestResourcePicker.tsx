@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { GuestInviteGrant, inviteLogic } from './inviteLogic'
 
-type ResourceType = 'notebook'
+type ResourceType = 'dashboard' | 'insight' | 'notebook'
 
 // Editor-level guest grants are blocked at the invite API; the picker only emits viewer
 // grants today. The data model still carries `access_level` per grant — when the admin
@@ -55,12 +55,29 @@ function useResourceOptions(
                         return
                     }
                     const results = response.results ?? []
-                    setOptions(
-                        results.map((n: any) => ({
-                            key: String(n.short_id),
-                            label: n.title || `Notebook ${n.short_id}`,
-                        }))
-                    )
+                    if (resourceType === 'dashboard') {
+                        setOptions(
+                            results.map((d: any) => ({
+                                key: String(d.id),
+                                label: d.name || `Dashboard ${d.id}`,
+                            }))
+                        )
+                    } else if (resourceType === 'insight') {
+                        setOptions(
+                            results.map((i: any) => ({
+                                // Insights address by short_id in URLs; that's what the grant stores.
+                                key: String(i.short_id || i.id),
+                                label: i.name || i.derived_name || `Insight ${i.short_id || i.id}`,
+                            }))
+                        )
+                    } else {
+                        setOptions(
+                            results.map((n: any) => ({
+                                key: String(n.short_id),
+                                label: n.title || `Notebook ${n.short_id}`,
+                            }))
+                        )
+                    }
                     toastedKeyRef.current = null
                 } catch {
                     if (cancelled) {
@@ -95,7 +112,7 @@ export function GuestResourcePicker(): JSX.Element {
     const { addGuestGrant, removeGuestGrant } = useActions(inviteLogic)
     const { currentTeamId } = useValues(teamLogic)
 
-    const [resourceType, setResourceType] = useState<ResourceType>('notebook')
+    const [resourceType, setResourceType] = useState<ResourceType>('dashboard')
     const [selectedKey, setSelectedKey] = useState<string[]>([])
     const [searchQuery, setSearchQuery] = useState('')
     const [pickerTeamId, setPickerTeamId] = useState<number | null>(
@@ -147,9 +164,11 @@ export function GuestResourcePicker(): JSX.Element {
         setSelectedKey([])
     }
 
-    // Single-resource picker today; the dashboard / insight options come back in the
-    // dashboard / insight follow-up PR.
-    const resourceOptions: { value: ResourceType; label: string }[] = [{ value: 'notebook', label: 'Notebook' }]
+    const resourceOptions: { value: ResourceType; label: string }[] = [
+        { value: 'dashboard', label: 'Dashboard' },
+        { value: 'insight', label: 'Insight' },
+        { value: 'notebook', label: 'Notebook' },
+    ]
 
     const projectOptions = availableProjects.map((p: any) => ({ value: p.id as number, label: p.name as string }))
     const showProjectPicker = availableProjects.length > 1

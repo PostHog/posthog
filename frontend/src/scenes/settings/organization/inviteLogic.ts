@@ -17,7 +17,7 @@ import type { inviteLogicType } from './inviteLogicType'
  *  `OrganizationInvite.guest_resources`. */
 export interface GuestInviteGrant {
     team_id: number
-    resource: 'notebook'
+    resource: 'dashboard' | 'insight' | 'notebook'
     resource_id: string
     /** Per-resource access level. Defaults to viewer when the admin adds a grant. */
     access_level: 'viewer' | 'editor'
