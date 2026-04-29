@@ -773,7 +773,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await workflow.execute_activity(
             update_task_run_status,
             UpdateTaskRunStatusInput(
-                run_id=run_id or self.context.run_id,
+                run_id=run_id if run_id is not None else self.context.run_id,
                 status=status,
                 error_message=error_message,
             ),
