@@ -2795,6 +2795,27 @@ class LoadingBlock(BaseModel):
     type: Literal["loading"] = "loading"
 
 
+class MatchedOn(StrEnum):
+    KEY = "key"
+    VALUE = "value"
+
+
+class LogAttributeResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    matchedOn: MatchedOn = Field(
+        ...,
+        description=("Whether this row matched the search by attribute key or by attribute value."),
+    )
+    matchedValue: str | None = Field(
+        default=None,
+        description=("Sample value that matched the search — only set when matchedOn is 'value'."),
+    )
+    name: str
+    propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
+
+
 class LogPropertyFilterType(StrEnum):
     LOG = "log"
     LOG_ATTRIBUTE = "log_attribute"
@@ -14826,7 +14847,7 @@ class LogAttributesQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[dict[str, Any]]
+    results: list[LogAttributeResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -16919,7 +16940,7 @@ class QueryResponseAlternative76(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[dict[str, Any]]
+    results: list[LogAttributeResult]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -20721,6 +20742,10 @@ class LogAttributesQuery(BaseModel):
     offset: int | None = None
     response: LogAttributesQueryResponse | None = None
     search: str | None = None
+    searchValues: bool | None = Field(
+        default=None,
+        description=("When true, the search query also matches attribute values (not just keys)."),
+    )
     serviceNames: list[str] | None = None
     severityLevels: list[LogSeverityLevel] | None = None
     tags: QueryLogTags | None = None

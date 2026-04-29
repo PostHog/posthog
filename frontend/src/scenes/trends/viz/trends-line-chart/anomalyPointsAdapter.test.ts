@@ -2,7 +2,7 @@ import type { AnomalyPoint } from 'lib/components/Alerts/types'
 
 import { EntityTypes } from '~/types'
 
-import type { IndexedTrendResult } from '../types'
+import type { IndexedTrendResult } from '../../types'
 import { buildAnomalyMarkers } from './anomalyPointsAdapter'
 
 function makeResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {

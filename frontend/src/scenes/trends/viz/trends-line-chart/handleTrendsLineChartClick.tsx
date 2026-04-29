@@ -4,9 +4,9 @@ import { InsightActorsQuery, InsightVizNode, ResolvedDateRangeResponse } from '~
 import { QueryContext } from '~/queries/types'
 import { IntervalType } from '~/types'
 
-import type { OpenPersonsModalProps } from '../persons-modal/PersonsModal'
-import type { IndexedTrendResult } from '../types'
-import { datasetToActorsQuery } from './datasetToActorsQuery'
+import type { OpenPersonsModalProps } from '../../persons-modal/PersonsModal'
+import type { IndexedTrendResult } from '../../types'
+import { datasetToActorsQuery } from '../datasetToActorsQuery'
 
 export interface TrendsLineChartClickDeps {
     context?: QueryContext<InsightVizNode>

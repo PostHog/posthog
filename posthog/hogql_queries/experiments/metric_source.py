@@ -105,3 +105,77 @@ class MetricSourceInfo:
                 has_uuid=True,
                 has_session_id=True,
             )
+
+    def build_select_fields(self) -> list[ast.Alias]:
+        """
+        Build normalized SELECT fields for UNION compatibility.
+
+        All sources must return the same columns for UNION ALL:
+        - entity_id (String type for all sources)
+        - variant (empty string '' for DW sources)
+        - timestamp
+        - uuid (placeholder UUID for DW sources)
+        - session_id (empty string '' for DW sources)
+
+        Returns:
+            List of aliased column expressions compatible across all source types
+
+        Example:
+            >>> info = MetricSourceInfo.from_source(EventsNode(event="purchase"), entity_key="person_id")
+            >>> fields = info.build_select_fields()
+            >>> [f.alias for f in fields]
+            ['entity_id', 'variant', 'timestamp', 'uuid', 'session_id']
+        """
+        # All sources need these base fields
+        fields = [
+            # entity_id: String type for consistency
+            ast.Alias(
+                alias="entity_id",
+                expr=ast.Call(
+                    name="toString",
+                    args=[self.entity_key],
+                ),
+            ),
+            # variant: empty for DW (variant comes from exposure join)
+            ast.Alias(
+                alias="variant",
+                expr=ast.Constant(value=""),
+            ),
+            # timestamp
+            # For DW sources, use unqualified field name to avoid issues with dotted table names
+            # (e.g., "schema.table" would become "schema.table.timestamp" if qualified).
+            # For events table, qualification is safe and conventional.
+            ast.Alias(
+                alias="timestamp",
+                expr=ast.Field(
+                    chain=[self.timestamp_field]
+                    if self.kind == "datawarehouse"
+                    else [self.table_name, self.timestamp_field]
+                ),
+            ),
+        ]
+
+        # uuid: placeholder for DW sources (no UUID field)
+        uuid_expr: ast.Expr
+        if self.has_uuid:
+            uuid_expr = ast.Field(chain=["uuid"])
+        else:
+            # Placeholder UUID for DW: 00000000-0000-0000-0000-000000000000
+            uuid_expr = ast.Call(
+                name="toUUID",
+                args=[ast.Constant(value="00000000-0000-0000-0000-000000000000")],
+            )
+
+        fields.append(ast.Alias(alias="uuid", expr=uuid_expr))
+
+        # session_id: placeholder for DW sources (no session_id field)
+        session_id_expr: ast.Expr
+        if self.has_session_id:
+            session_id_expr = ast.Field(chain=["properties", "$session_id"])
+        else:
+            # Empty string for DW sources
+            session_id_expr = ast.Constant(value="")
+
+        fields.append(ast.Alias(alias="session_id", expr=session_id_expr))
+
+        return fields
