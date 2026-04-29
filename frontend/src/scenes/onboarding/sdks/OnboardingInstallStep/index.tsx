@@ -27,6 +27,8 @@ interface OnboardingInstallStepProps {
     sdkTagOverrides?: SDKTagOverrides
     listeningForName?: string
     teamPropertyToVerify?: string
+    /** When true, the realtime check indicator is hidden and Continue is always enabled. */
+    hideInstallationCheck?: boolean
     header?: React.ReactNode
 }
 
@@ -63,6 +65,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     sdkTagOverrides,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
+    hideInstallationCheck = false,
     header,
 }) => {
     const { setAvailableSDKInstructionsMap, setSDKTagOverrides, selectSDK, setSearchTerm, setSelectedTag } =
@@ -73,7 +76,8 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const linkOpenedCapturedRef = useRef(false)
     const { currentTeam } = useValues(teamLogic)
 
-    const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
+    const installationComplete = hideInstallationCheck || installationCompleteFromTeam
     const adblockResult = useAdblockDetection()
     const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
@@ -210,16 +214,18 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
             showSkip={showSkipAtBottom}
             actions={
-                <div className="pr-2">
-                    <RealtimeCheckIndicator
-                        teamPropertyToVerify={teamPropertyToVerify}
-                        listeningForName={listeningForName}
-                    />
-                </div>
+                hideInstallationCheck ? undefined : (
+                    <div className="pr-2">
+                        <RealtimeCheckIndicator
+                            teamPropertyToVerify={teamPropertyToVerify}
+                            listeningForName={listeningForName}
+                        />
+                    </div>
+                )
             }
         >
             {header}
-            {!installationComplete && <AdblockWarning adblockResult={adblockResult} />}
+            {!hideInstallationCheck && !installationComplete && <AdblockWarning adblockResult={adblockResult} />}
             <div className="mt-6">
                 <SDKGrid {...sdkGridProps} />
             </div>
