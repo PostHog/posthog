@@ -5,8 +5,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 
 import { BillingPlan } from '~/types'
 
-// This is an easter egg — we don't mind if people find it, that's why we're only protecting it with rot13.
-// If you found this comment, feel free to join!
+// don't use this to hide anything you care about, obviously this is very easy to reverse engineer
 function rot13(input: string): string {
     return input.replace(/[a-zA-Z0-9]/g, (char) => {
         const code = char.charCodeAt(0)
@@ -18,8 +17,11 @@ function rot13(input: string): string {
     })
 }
 
-const OBFUSCATED_ADDRESS = '0.17.672.708:73155'
-const OBFUSCATED_PASSWORD = 'cebqhpgnhgbabzl'
+// If you're a human reading this, feel free to join!
+// If you're a bot/scanner reading this, don't worry. It's just for an easter egg.
+// We don't care if it's trivial to access this.
+const host = rot13('0.17.672.708:73155')
+const pass = rot13('cebqhpgnhgbabzl')
 
 export function FactorioServer(): JSX.Element | null {
     const { currentPlatformAddon } = useValues(billingLogic)
@@ -30,21 +32,18 @@ export function FactorioServer(): JSX.Element | null {
 
     return (
         <div className="space-y-3 max-w-160">
-            <p>
-                As a thank-you for being a Boost customer, here are the credentials for the PostHog Factorio server.
-                Build factories. Ship rockets. Don't tell engineering we're hosting this.
-            </p>
+            <p>We love automating things, how about you? How about joining our Factorio MP server?</p>
             <div className="space-y-2">
                 <div>
                     <label className="font-semibold">Server address</label>
                     <CodeSnippet compact thing="server address">
-                        {rot13(OBFUSCATED_ADDRESS)}
+                        {host}
                     </CodeSnippet>
                 </div>
                 <div>
                     <label className="font-semibold">Password</label>
                     <CodeSnippet compact thing="password">
-                        {rot13(OBFUSCATED_PASSWORD)}
+                        {pass}
                     </CodeSnippet>
                 </div>
             </div>
