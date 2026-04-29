@@ -42,6 +42,8 @@ ClickHouseErrors: dict[str, str] = {
     "code: 60": "Table does not exist",  # UNKNOWN_TABLE
     "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
     "code: 497": "Permission denied on the requested database or table",  # ACCESS_DENIED
+    "code: 241": "ClickHouse ran out of memory while serving the query. Lower the chunk size on this schema or raise the memory limit on your ClickHouse server, then retry.",  # MEMORY_LIMIT_EXCEEDED
+    "memory limit exceeded": "ClickHouse ran out of memory while serving the query. Lower the chunk size on this schema or raise the memory limit on your ClickHouse server, then retry.",
     "nodename nor servname provided": "Could not resolve the ClickHouse host",
     "name or service not known": "Could not resolve the ClickHouse host",
     "connection refused": "Could not connect to ClickHouse on the given host/port",
@@ -141,6 +143,13 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "Code: 60": None,  # UNKNOWN_TABLE
             "Code: 192": None,  # UNKNOWN_USER
             "Code: 497": None,  # ACCESS_DENIED
+            # MEMORY_LIMIT_EXCEEDED. The source server's memory cap is fixed
+            # (typically the ClickHouse Cloud tier hard limit) and not
+            # something a retry can fix. Failing fast keeps us from hammering
+            # the customer's server and exhausting our own Postgres pool via
+            # the retry path.
+            "Code: 241": None,
+            "Memory limit exceeded": None,
             "Authentication failed": None,
             "Could not resolve the ClickHouse host": None,
             "nodename nor servname provided": None,

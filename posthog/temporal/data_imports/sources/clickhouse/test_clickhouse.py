@@ -522,6 +522,8 @@ class TestClickHouseSourceNonRetryableErrors:
             "Could not resolve the ClickHouse host",
             "Connection refused",
             "certificate verify failed",
+            "Code: 241. DB::Exception: Memory limit (for query) exceeded: would use 3.73 GiB",
+            "DB::Exception: Memory limit exceeded",
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):
@@ -550,6 +552,26 @@ class TestTranslateError:
 
     def test_returns_none_for_unrecognised_error(self):
         assert ClickHouseSource._translate_error("Some random error") is None
+
+    def test_translates_memory_limit_exceeded(self):
+        msg = "Code: 241. DB::Exception: Memory limit (for query) exceeded: would use 3.73 GiB"
+        translated = ClickHouseSource._translate_error(msg)
+        assert translated is not None
+        assert "memory" in translated.lower()
+
+
+class TestQuerySettings:
+    def test_caps_max_memory_usage(self):
+        from posthog.temporal.data_imports.sources.clickhouse.clickhouse import (
+            QUERY_MAX_MEMORY_USAGE_BYTES,
+            _query_settings,
+        )
+
+        settings = _query_settings(chunk_size=20_000)
+        assert settings["max_memory_usage"] == QUERY_MAX_MEMORY_USAGE_BYTES
+        # Cap must leave headroom above the external-sort spill threshold so
+        # the spill path can actually run before the memory limit trips.
+        assert settings["max_memory_usage"] > settings["max_bytes_before_external_sort"]
 
 
 class TestGetSchemas:

@@ -47,6 +47,15 @@ DATA_QUERY_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 YIELD_TARGET_BYTES = 200 * 1024 * 1024  # 200 MiB, matches pipeline partition target
 YIELD_TARGET_ROWS = 100_000
 
+# Per-query memory cap applied to source-side ClickHouse queries. ClickHouse
+# Cloud's smallest tiers cap a single query at ~3.73 GiB; without our own
+# bound, a runaway scan trips the server-level hard limit (which the operator
+# cannot tune) and surfaces as Code 241 MEMORY_LIMIT_EXCEEDED. Setting our own
+# limit makes the failure deterministic and lets us fail fast with a clear,
+# user-actionable error instead of silently retrying against an OOM that will
+# never resolve.
+QUERY_MAX_MEMORY_USAGE_BYTES = 1_000_000_000
+
 
 class ClickHouseConnectionError(Exception):
     """Raised when we cannot establish or use a ClickHouse connection."""
@@ -707,7 +716,7 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
     "max_rows_to_read": DUPLICATE_PK_CHECK_ROW_BUDGET,
     "read_overflow_mode": "break",
     "max_execution_time": 30,
-    "max_memory_usage": 1_000_000_000,
+    "max_memory_usage": QUERY_MAX_MEMORY_USAGE_BYTES,
 }
 
 
@@ -941,6 +950,12 @@ def _query_settings(chunk_size: int) -> dict[str, Any]:
         # at 500 MB instead of OOMing the server. The hot path stays in
         # memory, slow path degrades gracefully.
         "max_bytes_before_external_sort": 500 * 1024 * 1024,
+        # Cap per-query memory so we trip a deterministic Code 241 well below
+        # the source server's untunable hard limit. Paired with Code 241 in
+        # ClickHouseSource.get_non_retryable_errors so we fail fast instead
+        # of looping retries that hammer the customer's ClickHouse and our
+        # Postgres pool.
+        "max_memory_usage": QUERY_MAX_MEMORY_USAGE_BYTES,
     }
 
 
