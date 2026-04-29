@@ -1,14 +1,16 @@
-import { kea, path, props } from 'kea'
+import { kea, key, path, props } from 'kea'
 import { forms } from 'kea-forms'
 
 import type { lemonDialogLogicType } from './lemonDialogLogicType'
 
 export type LemonDialogFormPropsType = {
+    dialogId?: string
     errors?: Record<string, (value: string) => string | undefined>
 }
 
 export const lemonDialogLogic = kea<lemonDialogLogicType>([
-    path(['components', 'lemon-dialog', 'lemonDialogLogic']),
+    path((key) => ['components', 'lemon-dialog', 'lemonDialogLogic', key]),
+    key((props) => props.dialogId || 'default'),
     props({} as LemonDialogFormPropsType),
     forms(({ props }) => ({
         form: {

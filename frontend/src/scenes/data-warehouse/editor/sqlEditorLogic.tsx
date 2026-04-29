@@ -1369,21 +1369,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                         {({ value, onChange }) => (
                                             <LemonSelect<string | null>
                                                 value={value}
-                                                onChange={onChange}
+                                                onChange={(newValue) => {
+                                                    if (newValue === '__add_new_folder__') {
+                                                        void createFolderAndSelect(onChange)
+                                                    } else {
+                                                        onChange(newValue)
+                                                    }
+                                                }}
                                                 options={[
                                                     ...folderOptions,
                                                     {
                                                         value: '__add_new_folder__',
                                                         label: '+ Add new folder',
-                                                        labelInMenu: () => (
-                                                            <button
-                                                                type="button"
-                                                                className="w-full text-left text-primary px-2 py-1.5"
-                                                                onClick={() => createFolderAndSelect(onChange)}
-                                                            >
-                                                                + Add new folder
-                                                            </button>
-                                                        ),
                                                     },
                                                 ]}
                                                 disabled={isLoading}

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { ReactNode, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { ReactNode, forwardRef, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -169,7 +169,9 @@ export const LemonFormDialog = ({
     primaryButtonProps,
     ...props
 }: LemonFormDialogProps): JSX.Element => {
-    const logic = lemonDialogLogic({ errors })
+    const dialogId = useId()
+    const logicProps = { dialogId, errors }
+    const logic = lemonDialogLogic(logicProps)
     const { form, isFormValid, formValidationErrors } = useValues(logic)
     const { setFormValues } = useActions(logic)
     const [isLoading, setIsLoading] = useState(false)
@@ -206,6 +208,7 @@ export const LemonFormDialog = ({
     return (
         <Form
             logic={lemonDialogLogic}
+            props={logicProps}
             formKey="form"
             onKeyDown={
                 props.shouldAwaitSubmit
