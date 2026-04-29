@@ -284,7 +284,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     path(['products', 'dataWarehouse', 'sourceWizardLogic']),
     props({} as SourceWizardLogicProps),
     actions({
-        selectConnector: (connector: SourceConfig | null) => ({ connector }),
+        selectConnector: (connector: SourceConfig | null, accessMethod?: 'warehouse' | 'direct') => ({
+            connector,
+            accessMethod,
+        }),
         setInitialConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
         handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({
@@ -297,7 +300,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onBack: true,
         onNext: true,
         onSubmit: true,
-        resetSourceForm: true,
+        resetSourceForm: (accessMethod?: 'warehouse' | 'direct') => ({ accessMethod }),
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({
             schemas,
         }),
@@ -929,14 +932,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             syncExpandedDirectQuerySchemaKeys(actions, values)
             actions.resetSourceForm()
         },
-        resetSourceForm: () => {
+        resetSourceForm: ({ accessMethod }) => {
             const defaults = values.defaultSourceConnectionDetails
             const sourceConnectionDetails = values.sourceConnectionDetails as Record<string, unknown>
             const sourceKind = values.selectedConnector?.name?.toLowerCase()
             const savedValues = sourceKind ? restoreSourceFormState(sourceKind) : null
+            const currentAccessMethod = accessMethod ?? sourceConnectionDetails?.access_method
 
             actions.resetSourceConnectionDetails(
-                mergeRestoredSourceFormValues(defaults, savedValues, sourceConnectionDetails?.access_method)
+                mergeRestoredSourceFormValues(defaults, savedValues, currentAccessMethod)
             )
         },
         setDatabaseSchemas: () => {
@@ -1378,9 +1382,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
         },
-        selectConnector: ({ connector }) => {
+        selectConnector: ({ connector, accessMethod }) => {
             syncExpandedDirectQuerySchemaKeys(actions, values)
-            actions.resetSourceForm()
+            actions.resetSourceForm(accessMethod)
 
             actions.addProductIntent({
                 product_type: ProductKey.DATA_WAREHOUSE,
@@ -1438,11 +1442,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (source) {
-                // selectConnector triggers `resetSourceForm`, which seeds the connector's
-                // defaults, restores any OAuth-saved form state, and preserves access_method.
-                actions.selectConnector(source)
+                // selectConnector forwards accessMethod to `resetSourceForm`, which seeds the
+                // connector's defaults and restores any OAuth-saved form state — saved
+                // access_method wins over the URL one (the OAuth callback URL doesn't carry it).
+                actions.selectConnector(source, accessMethod)
                 actions.updateSource({ access_method: accessMethod })
-                actions.setSourceConnectionDetailsValue('access_method', accessMethod)
                 actions.handleRedirect(source.name)
                 actions.setStep(2)
                 return
