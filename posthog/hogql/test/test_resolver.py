@@ -458,9 +458,9 @@ class TestResolver(BaseTest):
                 dialect="clickhouse",
             )
         message = str(ctx.exception)
-        self.assertIn("Unknown table `event`", message)
-        self.assertIn("Did you mean:", message)
-        self.assertIn("events", message)
+        assert "Unknown table `event`" in message
+        assert "Did you mean:" in message
+        assert "events" in message
 
     def test_unresolved_field_suggests_close_matches(self):
         # user_id isn't on events, but distinct_id and person_id are close enough to suggest
@@ -471,13 +471,10 @@ class TestResolver(BaseTest):
                 dialect="clickhouse",
             )
         message = str(ctx.exception)
-        self.assertIn("Unable to resolve field: user_id", message)
-        self.assertIn("Did you mean:", message)
+        assert "Unable to resolve field: user_id" in message
+        assert "Did you mean:" in message
         # At least one of the obvious suggestions should show up
-        self.assertTrue(
-            "distinct_id" in message or "person_id" in message,
-            f"expected a plausible suggestion in: {message}",
-        )
+        assert "distinct_id" in message or "person_id" in message, f"expected a plausible suggestion in: {message}"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_lazy_pdi_person_table(self):

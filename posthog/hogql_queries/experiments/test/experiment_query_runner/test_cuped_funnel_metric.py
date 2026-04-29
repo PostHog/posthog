@@ -144,10 +144,10 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(result.baseline.sum, 1)
-        self.assertEqual(result.variant_results[0].sum, 1)
-        self.assertIsNone(result.baseline.covariate_sum)
-        self.assertIsNone(result.variant_results[0].covariate_sum)
+        assert result.baseline.sum == 1
+        assert result.variant_results[0].sum == 1
+        assert result.baseline.covariate_sum is None
+        assert result.variant_results[0].covariate_sum is None
 
     @freeze_time("2020-01-15T12:00:00Z")
     def test_cuped_funnel_metric_collects_covariate_columns(self):
@@ -192,17 +192,17 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         test_variant = result.variant_results[0]
 
         # Both control users converted post; one had a pre-window conversion.
-        self.assertEqual(control_variant.sum, 2)
-        self.assertEqual(control_variant.covariate_sum, 1)
-        self.assertEqual(control_variant.covariate_sum_squares, 1)
-        self.assertEqual(control_variant.covariate_sum_product, 1)
+        assert control_variant.sum == 2
+        assert control_variant.covariate_sum == 1
+        assert control_variant.covariate_sum_squares == 1
+        assert control_variant.covariate_sum_product == 1
 
         # Test: 1 of 2 converted post; both had pre-window conversion.
-        self.assertEqual(test_variant.sum, 1)
-        self.assertEqual(test_variant.covariate_sum, 2)
-        self.assertEqual(test_variant.covariate_sum_squares, 2)
+        assert test_variant.sum == 1
+        assert test_variant.covariate_sum == 2
+        assert test_variant.covariate_sum_squares == 2
         # Only the user that converted both pre and post contributes to the cross product.
-        self.assertEqual(test_variant.covariate_sum_product, 1)
+        assert test_variant.covariate_sum_product == 1
 
     @freeze_time("2020-01-15T12:00:00Z")
     def test_cuped_uses_pre_exposure_window_relative_to_first_exposure(self):
@@ -240,13 +240,13 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 1)
-        self.assertEqual(control_variant.covariate_sum, 1)
-        self.assertEqual(control_variant.covariate_sum_product, 1)
+        assert control_variant.sum == 1
+        assert control_variant.covariate_sum == 1
+        assert control_variant.covariate_sum_product == 1
 
-        self.assertEqual(test_variant.sum, 1)
-        self.assertEqual(test_variant.covariate_sum, 1)
-        self.assertEqual(test_variant.covariate_sum_product, 1)
+        assert test_variant.sum == 1
+        assert test_variant.covariate_sum == 1
+        assert test_variant.covariate_sum_product == 1
 
     @freeze_time("2020-01-15T12:00:00Z")
     def test_cuped_multi_step_funnel_uses_last_step_for_covariate(self):
@@ -289,13 +289,13 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 2)  # both control users completed signup -> checkout
-        self.assertEqual(control_variant.covariate_sum, 1)  # only control_2 fired checkout pre-window
-        self.assertEqual(control_variant.covariate_sum_product, 1)
+        assert control_variant.sum == 2  # both control users completed signup -> checkout
+        assert control_variant.covariate_sum == 1  # only control_2 fired checkout pre-window
+        assert control_variant.covariate_sum_product == 1
 
-        self.assertEqual(test_variant.sum, 0)
-        self.assertEqual(test_variant.covariate_sum, 0)
-        self.assertEqual(test_variant.covariate_sum_product, 0)
+        assert test_variant.sum == 0
+        assert test_variant.covariate_sum == 0
+        assert test_variant.covariate_sum_product == 0
 
     @freeze_time("2020-01-15T12:00:00Z")
     def test_cuped_query_uses_single_metric_events_scan(self):
@@ -318,8 +318,8 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
 
         assert result.hogql is not None
         # CUPED reuses the existing base_events scan; no separate pre-window CTE.
-        self.assertNotIn("pre_metric_events", result.hogql)
-        self.assertNotIn("pre_base_events", result.hogql)
+        assert "pre_metric_events" not in result.hogql
+        assert "pre_base_events" not in result.hogql
 
     @freeze_time("2020-01-15T12:00:00Z")
     def test_cuped_unordered_funnel_disables_cuped(self):
@@ -348,8 +348,8 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertIsNone(result.baseline.covariate_sum)
-        self.assertIsNone(result.variant_results[0].covariate_sum)
+        assert result.baseline.covariate_sum is None
+        assert result.variant_results[0].covariate_sum is None
 
     @freeze_time("2020-01-15T12:00:00Z")
     def test_cuped_handles_zero_pre_exposure_data(self):
@@ -369,13 +369,13 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(result.baseline.covariate_sum, 0)
-        self.assertEqual(result.baseline.covariate_sum_squares, 0)
-        self.assertEqual(result.baseline.covariate_sum_product, 0)
+        assert result.baseline.covariate_sum == 0
+        assert result.baseline.covariate_sum_squares == 0
+        assert result.baseline.covariate_sum_product == 0
 
         variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
-        self.assertEqual(variant.covariate_sum, 0)
-        self.assertEqual(variant.covariate_sum_product, 0)
+        assert variant.covariate_sum == 0
+        assert variant.covariate_sum_product == 0
         # With θ pinned to zero (no pre variance), the test still produces a p-value.
         assert variant.p_value is not None
 
@@ -426,4 +426,4 @@ class TestExperimentFunnelMetricCuped(ExperimentQueryRunnerBaseTest):
         assert no_cuped_interval is not None
         assert cuped_interval is not None
         # Variance reduction shrinks the interval; equality only happens when θ = 0.
-        self.assertLess(cuped_interval[1] - cuped_interval[0], no_cuped_interval[1] - no_cuped_interval[0])
+        assert cuped_interval[1] - cuped_interval[0] < no_cuped_interval[1] - no_cuped_interval[0]

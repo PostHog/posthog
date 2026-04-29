@@ -34,11 +34,11 @@ class TestExternalDataSourceSoftDelete(BaseTest):
         source.soft_delete()
 
         source.refresh_from_db()
-        self.assertTrue(source.deleted)
-        self.assertIsNotNone(source.deleted_at)
+        assert source.deleted
+        assert source.deleted_at is not None
         mock_cleanup.assert_called_once()
         ((called_source,), _) = mock_cleanup.call_args
-        self.assertEqual(called_source.pk, source.pk)
+        assert called_source.pk == source.pk
 
     @patch(CLEANUP_PATH)
     def test_soft_delete_calls_cleanup_for_non_cdc_postgres_too(self, mock_cleanup):
@@ -52,7 +52,7 @@ class TestExternalDataSourceSoftDelete(BaseTest):
         source.soft_delete()
 
         source.refresh_from_db()
-        self.assertTrue(source.deleted)
+        assert source.deleted
         mock_cleanup.assert_called_once()
 
     @patch(CLEANUP_PATH)
@@ -62,5 +62,5 @@ class TestExternalDataSourceSoftDelete(BaseTest):
         source.soft_delete()
 
         source.refresh_from_db()
-        self.assertTrue(source.deleted)
+        assert source.deleted
         mock_cleanup.assert_called_once()

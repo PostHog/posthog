@@ -1050,10 +1050,10 @@ class TestExports(APIBaseTest):
         )
 
         if should_succeed:
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            assert response.status_code == status.HTTP_201_CREATED
         else:
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(response.json()["attr"], "export_limit_exceeded")
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["attr"] == "export_limit_exceeded"
 
     @patch("posthog.tasks.exports.image_exporter.export_image")
     def test_export_records_failure_on_query_error(self, mock_export_direct) -> None:

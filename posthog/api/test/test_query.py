@@ -375,24 +375,24 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = {"kind": "HogQLQuery", "query": "SELECT user_id FROM events LIMIT 1"}
 
         response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
-        self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response_post.status_code == status.HTTP_400_BAD_REQUEST
 
         response = response_post.json()
-        self.assertEqual(response["type"], "validation_error")
+        assert response["type"] == "validation_error"
 
-        self.assertIn("Tables referenced: events", response["detail"])
+        assert "Tables referenced: events" in response["detail"]
 
-        self.assertIn("extra", response)
-        self.assertIn("hogql_metadata", response["extra"])
+        assert "extra" in response
+        assert "hogql_metadata" in response["extra"]
         metadata = response["extra"]["hogql_metadata"]
-        self.assertFalse(metadata["isValid"])
-        self.assertEqual(metadata["table_names"], ["events"])
-        self.assertTrue(len(metadata["errors"]) > 0)
+        assert not metadata["isValid"]
+        assert metadata["table_names"] == ["events"]
+        assert len(metadata["errors"]) > 0
         first_error = metadata["errors"][0]
-        self.assertIn("user_id", first_error["message"])
-        self.assertIsNotNone(first_error.get("start"))
-        self.assertIsNotNone(first_error.get("end"))
-        self.assertIn("Did you mean", first_error["message"])
+        assert "user_id" in first_error["message"]
+        assert first_error.get("start") is not None
+        assert first_error.get("end") is not None
+        assert "Did you mean" in first_error["message"]
 
     @patch(
         "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", QueryTags())
