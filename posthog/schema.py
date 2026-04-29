@@ -23366,6 +23366,15 @@ class SourceConfig(BaseModel):
         ]
         | None
     ) = None
+    webhookManualOnly: bool | None = Field(
+        default=None,
+        description=(
+            "If true, the source does not support automatic webhook registration via"
+            " API (e.g. Slack — the user must paste the URL into the source's app"
+            " settings). Adjusts the setup UI copy to avoid promising automatic"
+            " registration."
+        ),
+    )
     webhookSetupCaption: str | None = None
 
 

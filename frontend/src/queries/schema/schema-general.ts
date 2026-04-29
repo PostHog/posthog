@@ -5484,6 +5484,12 @@ export interface SourceConfig {
     iconClassName?: string
     webhookSetupCaption?: string
     webhookFields?: SourceFieldConfig[]
+    /**
+     * If true, the source does not support automatic webhook registration via API
+     * (e.g. Slack — the user must paste the URL into the source's app settings).
+     * Adjusts the setup UI copy to avoid promising automatic registration.
+     */
+    webhookManualOnly?: boolean
 
     /**
      * Tables to suggest enabling, with optional tooltip explaining why

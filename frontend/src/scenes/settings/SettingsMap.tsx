@@ -37,13 +37,9 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
-import { ApiSection } from 'products/conversations/frontend/scenes/settings/ApiSection'
-import { EmailSection } from 'products/conversations/frontend/scenes/settings/EmailSection'
+import { ChannelsSection } from 'products/conversations/frontend/scenes/settings/ChannelsSection'
+import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
-import { SlackSection } from 'products/conversations/frontend/scenes/settings/SlackSection'
-import { TeamsSection } from 'products/conversations/frontend/scenes/settings/TeamsSection'
-import { WidgetSection } from 'products/conversations/frontend/scenes/settings/WidgetSection'
-import { WorkflowsSection } from 'products/conversations/frontend/scenes/settings/WorkflowsSection'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
@@ -407,63 +403,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Collect Content Security Policy violation reports to monitor and debug CSP issues on your site.',
                 component: <CSPReportingSettings />,
                 keywords: ['content security policy', 'csp', 'violation', 'security'],
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-conversations',
-        title: 'Conversations',
-        group: 'Products',
-        flag: 'PRODUCT_SUPPORT',
-        settings: [
-            {
-                id: 'conversations-api',
-                title: 'Conversations',
-                component: <ApiSection />,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-notifications',
-                title: 'Notifications',
-                component: <NotificationsSection />,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-widget',
-                title: 'In-app widget',
-                component: <WidgetSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-email',
-                title: 'Email channel',
-                component: <EmailSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-slack',
-                title: 'Slack channel',
-                component: <SlackSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
-            },
-            {
-                id: 'conversations-teams',
-                title: 'Microsoft Teams',
-                component: <TeamsSection />,
-                flag: 'PRODUCT_SUPPORT_TEAMS_ENABLED',
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support', 'teams', 'microsoft'],
-            },
-            {
-                id: 'conversations-workflows',
-                title: 'Workflows',
-                component: <WorkflowsSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['conversation', 'ticket', 'message', 'support'],
             },
         ],
     },
@@ -1093,6 +1032,68 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <SessionSummariesSettings />,
                 flag: 'REPLAY_VIDEO_BASED_SUMMARIZATION',
                 keywords: ['ai', 'summary', 'summaries', 'prompt', 'context', 'llm'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-conversations',
+        title: 'Support',
+        group: 'Products',
+        flag: 'PRODUCT_SUPPORT',
+        settings: [
+            {
+                id: 'conversations-general',
+                title: 'General',
+                component: <GeneralSection />,
+                keywords: [
+                    'conversation',
+                    'ticket',
+                    'message',
+                    'support',
+                    'general',
+                    'api',
+                    'domain',
+                    'identity',
+                    'secret',
+                ],
+            },
+            {
+                id: 'conversations-channels',
+                title: 'Channels',
+                description: 'Choose where customers can reach you. Each channel can be configured independently.',
+                component: <ChannelsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: [
+                    'conversation',
+                    'ticket',
+                    'message',
+                    'support',
+                    'channel',
+                    'widget',
+                    'email',
+                    'slack',
+                    'teams',
+                    'microsoft',
+                ],
+            },
+            {
+                id: 'conversations-notifications',
+                title: 'Notifications',
+                description:
+                    'We recommend setting up a workflow for fine-grained automation — Slack pings, SLA escalations, auto-tagging. For the basics, configure email or browser notifications.',
+                component: <NotificationsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: [
+                    'conversation',
+                    'ticket',
+                    'message',
+                    'support',
+                    'notification',
+                    'workflow',
+                    'email',
+                    'browser',
+                ],
             },
         ],
     },

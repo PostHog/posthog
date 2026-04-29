@@ -1274,6 +1274,36 @@
             "readOnlyHint": true
         }
     },
+    "evaluation-report-create": {
+        "description": "Create an evaluation report configuration. Reports summarize recent evaluation runs (using AI)\nand are delivered to email or Slack targets. `frequency` selects the trigger mode and defaults\nto 'every_n' if omitted:\n\n- 'every_n' (count-based): a report fires once `trigger_threshold` new evaluation results have\naccumulated, but no more often than `cooldown_minutes` apart and capped by `daily_run_cap` per\nUTC day. `trigger_threshold` is required in this mode (10–10000); `cooldown_minutes` (60–1440)\nand `daily_run_cap` are optional.\n- 'scheduled' (time-based): reports fire on the cadence defined by `rrule` (RFC 5545, e.g.\n'FREQ=WEEKLY;BYDAY=MO') anchored at `starts_at` and expanded in `timezone_name` so local clock\ntimes survive DST transitions. `rrule` and `starts_at` are required in this mode;\n`timezone_name` defaults to 'UTC'.\n\n`delivery_targets` is a list of {type: 'email', value: '<addr>'} or {type: 'slack',\nintegration_id: <int>, channel: '<channel>'} entries. Slack integrations must belong to the\nsame team. Use `report_prompt_guidance` to steer the AI report's focus.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create evaluation report config",
+        "title": "Create evaluation report config",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "evaluation-report-delete": {
+        "description": "Soft-delete an evaluation report configuration. The report stops firing and is hidden from list views; historical report runs are preserved. Equivalent to calling evaluation-report-update with deleted=true — that update path is the canonical way to soft-delete and is the only option when you also want to change other fields in the same call.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete evaluation report config",
+        "title": "Delete evaluation report config",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "evaluation-report-generate": {
         "description": "Immediately trigger an AI-generated evaluation report for this report config. Enqueues a Temporal workflow that analyzes recent evaluation runs and delivers the report to configured targets (email or Slack). Returns 202 on success. Duplicate requests within the same minute are coalesced — only one report is generated. Rate-limited by daily_run_cap.",
         "category": "LLM analytics",
@@ -1320,7 +1350,7 @@
         }
     },
     "evaluation-report-update": {
-        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), change frequency ('every_n' or 'scheduled'), set trigger_threshold and cooldown_minutes (min 60, max 1440) for every_n mode, or set rrule/starts_at for scheduled mode. Set deleted=true to soft-delete the config.",
+        "description": "Partially update an evaluation report configuration. Toggle enabled/disabled, update delivery targets (email or Slack), or switch frequency between 'every_n' and 'scheduled'. For 'every_n' mode set trigger_threshold (10–10000) and optionally cooldown_minutes (60–1440); for 'scheduled' mode set rrule and starts_at. Set deleted=true to soft-delete the config.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
         "summary": "Update evaluation report config",
@@ -1410,7 +1440,7 @@
         }
     },
     "experiment-archive": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later by setting archived=false via update.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nArchive a stopped experiment to hide it from the default list view. The experiment must be stopped (end_date set) — cannot archive draft or running experiments.\n\nReturns 400 if already archived (\"Experiment is already archived.\") or not yet stopped (\"Experiment must be ended before it can be archived.\").\n\nNo request body needed. Can be restored later via the unarchive tool.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Archive experiment",
@@ -1617,6 +1647,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "experiment-unarchive": {
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nUnarchive an archived experiment to restore it to the default list view.\n\nReturns 400 if the experiment is not currently archived (\"Experiment is not archived.\").\n\nNo request body needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Unarchive experiment",
+        "title": "Unarchive experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "experiment-update": {
@@ -2281,7 +2326,7 @@
         }
     },
     "llm-analytics-summarization-create": {
-        "description": "Generate an AI-powered summary of an LLM trace or generation. Pass a trace_id or generation_id with a date_from — the backend fetches the data and returns a structured summary with title, flow diagram, summary bullets, and interesting notes. Results are cached. Use mode \"minimal\" (default) for 3-5 points or \"detailed\" for 5-10 points. Rate-limited.",
+        "description": "Generate an AI-powered summary of an LLM trace or generation. Pass a trace_id or generation_id with a date_from — the backend fetches the data and returns a structured summary with title, flow diagram, summary bullets, and interesting notes. Results are cached. Use mode \"minimal\" (default) for 3-5 points or \"detailed\" for 5-10 points. Rate-limited; requires AI data processing approval for the organization.",
         "category": "LLM analytics",
         "feature": "llm_analytics",
         "summary": "Summarize trace or generation",
@@ -2293,7 +2338,8 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "requires_ai_consent": true
     },
     "logs-alerts-create": {
         "description": "Create a threshold-based alert on log streams. The alert periodically counts log entries matching the given filters and fires when the count crosses the threshold. Maximum 20 alerts per project.",
@@ -3662,6 +3708,81 @@
             "readOnlyHint": false
         }
     },
+    "usage-metrics-create": {
+        "description": "Create a new usage metric for the project. The metric will surface on both group and person Customer Analytics profile pages — usage metrics are not scoped to a specific group type. `filters` takes the same shape as HogFunction filters (a dict with an `events` list and optional `properties` list). When `math` is `sum`, `math_property` is required; when `math` is `count`, `math_property` must be empty. Pass `group_type_index: 0`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create usage metric",
+        "title": "Create usage metric",
+        "required_scopes": ["usage_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "usage-metrics-destroy": {
+        "description": "Permanently delete a usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete usage metric",
+        "title": "Delete usage metric",
+        "required_scopes": ["usage_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "usage-metrics-list": {
+        "description": "List usage metrics defined for the project. Usage metrics apply to both groups and persons on Customer Analytics profile pages — they are NOT scoped to a specific group type despite the legacy URL shape. Returns each metric's id, name, format, interval (days), display mode, math aggregation, and filter definition. Pass `group_type_index: 0`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List usage metrics",
+        "title": "List usage metrics",
+        "required_scopes": ["usage_metric:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "usage-metrics-partial-update": {
+        "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update usage metric",
+        "title": "Update usage metric",
+        "required_scopes": ["usage_metric:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "usage-metrics-retrieve": {
+        "description": "Fetch a single usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get usage metric",
+        "title": "Get usage metric",
+        "required_scopes": ["usage_metric:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "user-get": {
         "description": "Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff callers may only access their own account.",
         "category": "Core",
@@ -3675,6 +3796,36 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "user-home-settings-get": {
+        "description": "Get the authenticated user's pinned navigation tabs and configured homepage for the current team. The homepage is the page opened when the user clicks the PostHog logo or hits `/` — it can point at any PostHog destination (dashboard, insight, search, scene, etc.). Pass `@me` as the UUID.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get pinned tabs and homepage.",
+        "title": "Get pinned tabs and homepage.",
+        "required_scopes": ["user:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "user-home-settings-update": {
+        "description": "Update the authenticated user's pinned tabs and/or homepage for the current team. Pass `@me` as the UUID. The homepage can be set to any PostHog destination by passing a tab descriptor with `pathname` (and optional `search`/`hash`) — for example `{ \"pathname\": \"/project/123/dashboard/45\" }` to make a dashboard the home, or `{ \"pathname\": \"/project/123/insights\", \"search\": \"?q=funnel\" }` for a search. Send `homepage: null` to clear it and fall back to the project default. `tabs` replaces the full pinned list when provided. Always confirm the destination with the user before applying — this changes their landing page on every login.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Update pinned tabs and homepage.",
+        "title": "Update pinned tabs and homepage.",
+        "required_scopes": ["user:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "user-settings-update": {
