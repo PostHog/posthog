@@ -62,6 +62,7 @@ jobs:
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
+            matrix_include: ${{ steps.build-matrix.outputs.include || '[]' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -150,18 +151,38 @@ jobs:
                   fi
                   echo "oldest_supported=[\"$oldest_supported\"]" >> $GITHUB_OUTPUT
 
+            - name: Build sharded test matrix
+              id: build-matrix
+              if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
+              env:
+                  OLDEST_SUPPORTED: ${{ steps.read-versions.outputs.oldest_supported }}
+              run: |
+                  # :NOTE: Keep shard count in sync with observed run times.
+                  # Target: ~15 min per shard. Current: 3 shards for ~30 min total.
+                  # Consult #team-devex before changing.
+                  shards=3
+                  # Parse the oldest_supported from the JSON array format
+                  image=$(echo "$OLDEST_SUPPORTED" | jq -r '.[0]')
+                  include=$(jq -cn --arg image "$image" --argjson shards "$shards" '
+                    [range(1; $shards + 1) | {
+                      "clickhouse-server-image": $image,
+                      concurrency: $shards,
+                      group: .
+                    }]
+                  ')
+                  echo "include=$include" >> "$GITHUB_OUTPUT"
+                  echo "Dagster matrix: $shards shards"
+
     dagster:
-        name: Dagster tests (${{ matrix.runner }})
+        name: Dagster tests (${{ matrix.group }}/${{ matrix.concurrency }})
         needs: [changes]
-        timeout-minutes: 35
+        timeout-minutes: 40
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ${{ fromJson(needs.changes.outputs.oldest_supported) }}
-                runner: ${{ vars.BLACKSMITH_SHADOW_ENABLED == 'true' && fromJson('["depot-ubuntu-latest","blacksmith-2vcpu-ubuntu-2404"]') || fromJson('["depot-ubuntu-latest"]') }}
+                include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
         if: needs.changes.outputs.dagster == 'true'
-        runs-on: ${{ matrix.runner }}
-        continue-on-error: ${{ startsWith(matrix.runner, 'blacksmith') }}
+        runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v6
@@ -258,18 +279,29 @@ jobs:
 
             - name: Run Dagster tests
               run: |
-                  pytest posthog/dags --junitxml=junit-dagster.xml
-
-            - name: Run products Dagster tests
-              run: |
-                  pytest products/**/dags --junitxml=junit-products.xml
+                  pytest posthog/dags products/**/dags \
+                      --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
+                      --durations=100 --durations-min=1.0 --store-durations \
+                      --splitting-algorithm=duration_based_chunks \
+                      --reruns 2 --reruns-delay 1 \
+                      -r fEsxX \
+                      --junitxml=junit-dagster-${{ matrix.group }}.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              if: always() && !startsWith(matrix.runner, 'blacksmith')
+              if: always()
               with:
-                  name: junit-results-dagster
+                  name: junit-results-dagster-${{ matrix.group }}
                   path: junit-*.xml
+
+            - name: Upload updated timing data as artifacts
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ github.ref == 'refs/heads/master' && always() }}
+              with:
+                  name: timing_data-Dagster-${{ matrix.group }}
+                  path: .test_durations
+                  include-hidden-files: true
+                  retention-days: 2
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     dagster_tests:
