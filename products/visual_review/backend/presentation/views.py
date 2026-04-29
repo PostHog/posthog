@@ -43,6 +43,7 @@ from .serializers import (
     AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     AutoApproveResultSerializer,
+    BaselineOverviewSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
@@ -72,7 +73,13 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     scope_object = "visual_review"
     scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
-    scope_object_read_actions = ["list", "retrieve", "list_quarantined", "thumbnail"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "list_quarantined",
+        "thumbnail",
+        "baselines",
+    ]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -233,6 +240,27 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: BaselineOverviewSerializer},
+        description=(
+            "Snapshots overview for a repo: every identifier with a current baseline (latest "
+            "non-superseded master/main run per run_type), plus tolerate counts, active "
+            "quarantine state, and a 30-day stability sparkline. Capped at "
+            f"{contracts.BASELINE_OVERVIEW_MAX_ENTRIES} entries — sets `truncated` and "
+            "returns the most recently active when exceeded. Filtering / faceting / search are "
+            "all done client-side; this endpoint takes no filter query params."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="baselines")
+    def baselines(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            api.get_repo(UUID(pk), team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        result = api.get_baselines_overview(UUID(pk))
+        return Response(BaselineOverviewSerializer(instance=result).data)
 
 
 @extend_schema(tags=[VISUAL_REVIEW_TAG])

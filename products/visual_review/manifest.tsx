@@ -38,11 +38,18 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/VisualReviewSnapshotHistoryScene'),
             iconType: 'visual_review',
         },
+        VisualReviewSnapshotOverview: {
+            name: 'Snapshots',
+            projectBased: true,
+            import: () => import('./frontend/scenes/VisualReviewSnapshotOverviewScene'),
+            iconType: 'visual_review',
+        },
     },
     routes: {
         '/visual_review': ['VisualReviewRuns', 'visualReviewRuns'],
         '/visual_review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
         '/visual_review/runs/:runId': ['VisualReviewRun', 'visualReviewRun'],
+        '/visual_review/repos/:repoId/snapshots': ['VisualReviewSnapshotOverview', 'visualReviewSnapshotOverview'],
         '/visual_review/repos/:repoId/:runType/snapshots/:identifier': [
             'VisualReviewSnapshotHistory',
             'visualReviewSnapshotHistory',
@@ -53,6 +60,7 @@ export const manifest: ProductManifest = {
         visualReviewRuns: (): string => '/visual_review',
         visualReviewSettings: (): string => '/visual_review/settings',
         visualReviewRun: (runId: string): string => `/visual_review/runs/${runId}`,
+        visualReviewSnapshotOverview: (repoId: string): string => `/visual_review/repos/${repoId}/snapshots`,
         visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
             `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
     },

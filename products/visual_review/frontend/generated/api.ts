@@ -13,6 +13,7 @@ import type {
     AddSnapshotsResultApi,
     ApproveRunRequestInputApi,
     AutoApproveResultApi,
+    BaselineOverviewApi,
     CreateRepoInputApi,
     CreateRunInputApi,
     CreateRunResultApi,
@@ -125,6 +126,24 @@ export const visualReviewReposPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedUpdateRepoRequestInputApi),
+    })
+}
+
+/**
+ * Snapshots overview for a repo: every identifier with a current baseline (latest non-superseded master/main run per run_type), plus tolerate counts, active quarantine state, and a 30-day stability sparkline. Capped at 5000 entries — sets `truncated` and returns the most recently active when exceeded. Filtering / faceting / search are all done client-side; this endpoint takes no filter query params.
+ */
+export const getVisualReviewReposBaselinesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/visual_review/repos/${id}/baselines/`
+}
+
+export const visualReviewReposBaselinesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<BaselineOverviewApi> => {
+    return apiMutator<BaselineOverviewApi>(getVisualReviewReposBaselinesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

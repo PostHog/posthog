@@ -46,6 +46,48 @@ export interface PatchedUpdateRepoRequestInputApi {
     enable_pr_comments?: boolean | null
 }
 
+export interface BaselineSparklineDayApi {
+    clean: number
+    tolerated: number
+    changed: number
+    quarantined: number
+}
+
+export interface BaselineEntryApi {
+    sparkline: BaselineSparklineDayApi[]
+    identifier: string
+    run_type: string
+    /** @nullable */
+    browser: string | null
+    /** @nullable */
+    thumbnail_hash: string | null
+    /** @nullable */
+    width: number | null
+    /** @nullable */
+    height: number | null
+    tolerate_count_30d: number
+    tolerate_count_90d: number
+    is_quarantined: boolean
+    last_run_at: string
+}
+
+export type BaselineTotalsApiByRunType = { [key: string]: number }
+
+export interface BaselineTotalsApi {
+    by_run_type: BaselineTotalsApiByRunType
+    all_snapshots: number
+    recently_tolerated: number
+    frequently_tolerated: number
+    currently_quarantined: number
+}
+
+export interface BaselineOverviewApi {
+    entries: BaselineEntryApi[]
+    totals: BaselineTotalsApi
+    truncated: boolean
+    generated_at: string
+}
+
 export interface UserBasicInfoApi {
     id: number
     first_name: string
