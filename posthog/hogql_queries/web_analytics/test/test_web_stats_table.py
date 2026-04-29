@@ -1361,9 +1361,10 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
             "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.PAGE, action=action
         )
 
-        assert [
-            ["https://www.example.com/foo", (1, None), (0, None), (0, None), (0, None), nan_value, ""]
-        ] == response.results
+        self.assertEqual(  # noqa: PT009 - NaN-aware comparison via FloatAwareTestCase.assertEqual
+            [["https://www.example.com/foo", (1, None), (0, None), (0, None), (0, None), nan_value, ""]],
+            response.results,
+        )
         assert [
             "context.columns.breakdown_value",
             "context.columns.visitors",

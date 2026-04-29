@@ -1,4 +1,3 @@
-from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -2055,9 +2054,11 @@ class TestExperimentCRUD(APILicensedTest):
 
             assert result["count"] == 2
 
-            assert Counter([(res["key"], res["experiment_set"]) for res in result["results"]]) == Counter(
-                [("flag_0", []), (ff_key, [created_experiment])]
+            results_list = sorted(
+                [(res["key"], res["experiment_set"]) for res in result["results"]], key=lambda x: x[0]
             )
+            expected_list = sorted([("flag_0", []), (ff_key, [created_experiment])], key=lambda x: x[0])
+            assert results_list == expected_list
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_experiment_updates_feature_flag_cache(self, mock_on_commit):

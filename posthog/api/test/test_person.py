@@ -1659,7 +1659,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         for item in activity:
             item.pop("id", None)
         self.maxDiff = None
-        assert Counter(activity) == Counter(expected)
+        assert sorted(activity, key=str) == sorted(expected, key=str)
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_delete_events_only(self):

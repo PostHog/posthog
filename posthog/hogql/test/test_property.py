@@ -169,7 +169,7 @@ class TestProperty(BaseTest):
             {"type": "event", "key": "a", "operator": "icontains"}, strict=False
         )
         assert self._parse_expr("1") == self._property_to_expr({}, strict=False)
-        assert self._parse_expr("1") == self._property_to_expr(EmptyPropertyFilter())
+        assert self._parse_expr("1") == self._property_to_expr(EmptyPropertyFilter())  # type: ignore
 
     def test_property_to_expr_boolean(self):
         PropertyDefinition.objects.create(

@@ -1,6 +1,5 @@
 import uuid
 import datetime
-from collections import Counter
 from datetime import timedelta
 from typing import cast
 from urllib.parse import quote, unquote
@@ -103,7 +102,7 @@ class TestUserAPI(APIBaseTest):
         )  # Ensure we're not returning the full `Team`
         assert "event_names" not in response_data["organization"]["teams"][0]
 
-        assert Counter(response_data["organizations"]) == Counter(
+        assert sorted(response_data["organizations"], key=lambda x: x["id"]) == sorted(
             [
                 {
                     "id": str(self.organization.id),
@@ -127,7 +126,8 @@ class TestUserAPI(APIBaseTest):
                     "is_not_active_reason": None,
                     "is_pending_deletion": False,
                 },
-            ]
+            ],
+            key=lambda x: x["id"],
         )
 
     def test_current_user_includes_pending_invites(self):

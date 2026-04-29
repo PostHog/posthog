@@ -1,4 +1,3 @@
-from collections import Counter
 from datetime import timedelta
 from typing import Any
 
@@ -77,7 +76,10 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
             }
             for flag in [self.feature_flag_1, self.feature_flag_2]
         ]
-        assert Counter(response.json()) == Counter(expected_data)
+        response_json = response.json()
+        assert len(response_json) == len(expected_data)
+        for expected in expected_data:
+            assert expected in response_json
 
     def test_get_feature_flag_not_found(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/nonexistent-flag"
