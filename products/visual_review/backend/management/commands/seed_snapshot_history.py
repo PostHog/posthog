@@ -4,7 +4,7 @@ import random
 from pathlib import Path
 from uuid import UUID
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from blake3 import blake3
@@ -47,16 +47,14 @@ class Command(BaseCommand):
         try:
             repo = Repo.objects.get(id=repo_id)
         except Repo.DoesNotExist:
-            self.stderr.write(f"Repo {repo_id} not found")
-            return
+            raise CommandError(f"Repo {repo_id} not found")
 
         repo_root = Path(__file__).resolve().parents[5]
         pool = list((repo_root / "frontend" / "__snapshots__").glob("*.png")) or list(
             (repo_root / "playwright" / "__snapshots__").rglob("*.png")
         )
         if not pool:
-            self.stderr.write("No source PNGs found in frontend/__snapshots__ or playwright/__snapshots__")
-            return
+            raise CommandError("No source PNGs found in frontend/__snapshots__ or playwright/__snapshots__")
 
         # Use 1-2 different source images so we get a believable "drift over time" effect
         # — pick a small set then bias the sampling toward the same handful for most entries.

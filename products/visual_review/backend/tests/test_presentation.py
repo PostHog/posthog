@@ -1,5 +1,7 @@
 """Integration tests for visual_review DRF views."""
 
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -8,7 +10,8 @@ from rest_framework import status
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import RunType
+from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 
@@ -190,45 +193,67 @@ class TestRunViewSet(APIBaseTest):
         # Per-snapshot approval is DB only — run not finalized
         self.assertFalse(response.json()["run"]["approved"])
 
-    def test_repo_snapshot_history(self):
-        """Repo-scoped snapshot history endpoint returns enriched entries across runs.
-
-        Only runs on the default branch (master/main) count — those are the moments
-        the baseline actually moved. Runs on PR branches are excluded.
-        """
-        # Two storybook runs on default branches — these should appear.
-        for sha, branch in (("aaaaaaa", "main"), ("bbbbbbb", "master")):
-            api.create_run(
-                CreateRunInput(
-                    repo_id=self.vr_project.id,
-                    run_type=RunType.STORYBOOK,
-                    commit_sha=sha,
-                    branch=branch,
-                    snapshots=[SnapshotManifestItem(identifier="Button", content_hash=f"hash-{sha}")],
-                ),
-                team_id=self.team.id,
-            )
-        # A storybook run on a PR branch — must NOT appear in history, even if approved.
-        api.create_run(
-            CreateRunInput(
-                repo_id=self.vr_project.id,
-                run_type=RunType.STORYBOOK,
-                commit_sha="ddddddd",
-                branch="feat/something",
-                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="hash-feat")],
-            ),
-            team_id=self.team.id,
+    def _seed_history_row(
+        self,
+        sha: str,
+        branch: str,
+        content_hash: str,
+        *,
+        run_type: str = RunType.STORYBOOK,
+        run_status: str = RunStatus.COMPLETED,
+        result: str = SnapshotResult.UNCHANGED,
+    ) -> RunSnapshot:
+        """Create one Run + one RunSnapshot directly, with full control over result and status."""
+        artifact, _ = logic.get_or_create_artifact(
+            repo_id=self.vr_project.id,
+            content_hash=content_hash,
+            storage_path=f"visual_review/{content_hash}",
         )
-        # A playwright run on master with the SAME identifier — must NOT appear in storybook history.
-        api.create_run(
-            CreateRunInput(
-                repo_id=self.vr_project.id,
-                run_type=RunType.PLAYWRIGHT,
-                commit_sha="ccccccc",
-                branch="master",
-                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="hash-pw")],
-            ),
+        # Only one un-superseded run per (repo, branch, run_type) is allowed (partial unique
+        # index). Supersede the prior latest with the new run's id before insert.
+        new_id = uuid4()
+        Run.objects.filter(
+            repo_id=self.vr_project.id, branch=branch, run_type=run_type, superseded_by_id__isnull=True
+        ).update(superseded_by_id=new_id)
+        run = Run.objects.create(
+            id=new_id,
+            repo_id=self.vr_project.id,
             team_id=self.team.id,
+            run_type=run_type,
+            commit_sha=sha,
+            branch=branch,
+            status=run_status,
+        )
+        return RunSnapshot.objects.create(
+            run=run,
+            team_id=self.team.id,
+            identifier="Button",
+            current_hash=content_hash,
+            current_artifact=artifact,
+            result=result,
+        )
+
+    def test_repo_snapshot_history(self):
+        """Repo-scoped history returns one entry per distinct baseline (`current_artifact_id`),
+        scoped to default-branch + completed runs.
+        """
+        # Two completed master runs share `hash-A` → same artifact → must collapse to one entry.
+        self._seed_history_row(sha="aaa1111", branch="master", content_hash="hash-A")
+        self._seed_history_row(sha="aaa2222", branch="master", content_hash="hash-A")
+        # Then a more recent main run with a different content → distinct entry.
+        self._seed_history_row(sha="bbb1111", branch="main", content_hash="hash-B", result=SnapshotResult.CHANGED)
+
+        # PR-branch run — must be filtered out by branch.
+        self._seed_history_row(sha="ddd1111", branch="feat/something", content_hash="hash-feat")
+        # Playwright run on master — must be filtered out by run_type.
+        self._seed_history_row(sha="ccc1111", branch="master", content_hash="hash-pw", run_type=RunType.PLAYWRIGHT)
+        # Pending master run with default `result=NEW` — must be filtered out by status + result.
+        self._seed_history_row(
+            sha="eee1111",
+            branch="master",
+            content_hash="hash-pending",
+            run_status=RunStatus.PENDING,
+            result=SnapshotResult.NEW,
         )
 
         response = self.client.get(
@@ -239,12 +264,11 @@ class TestRunViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         results = body["results"]
+        # Two distinct baselines: hash-B (newest) and hash-A (collapsed from two master runs).
         self.assertEqual(body["count"], 2)
-        self.assertEqual(len(results), 2)
-        # Newest first, playwright entry filtered out.
-        self.assertEqual(results[0]["commit_sha"], "bbbbbbb")
-        self.assertEqual(results[1]["commit_sha"], "aaaaaaa")
-        # Enriched fields are present (current_artifact may be null when no artifact yet).
+        # Newest first; the dedup keeps the most recent run for each artifact.
+        self.assertEqual(results[0]["commit_sha"], "bbb1111")
+        self.assertEqual(results[1]["commit_sha"], "aaa2222")
         for entry in results:
             self.assertIn("snapshot_id", entry)
             self.assertIn("review_state", entry)

@@ -191,8 +191,11 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
     )
 
     const repoFullName = repo?.repo_full_name ?? null
+    // history is already deduped to one row per distinct baseline (newest first),
+    // so the tail is the first ever capture and the length is the number of
+    // distinct baselines this identifier has had.
     const firstSeen = history.length > 0 ? history[history.length - 1].created_at : null
-    const baselineUpdates = history.filter((e) => e.result !== 'unchanged').length
+    const baselineUpdates = Math.max(0, history.length - 1)
 
     return (
         <SceneContent>

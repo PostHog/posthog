@@ -1789,31 +1789,46 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnaps
     )
 
 
+# Default-branch fallback. We don't track repos' actual default branch, so we
+# include both candidates and assume nobody has both — whichever has rows wins.
+# When `trunk`/`develop`-style defaults show up, this becomes a `Repo` field.
 _DEFAULT_BRANCHES = ("master", "main")
 
 
-def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str, limit: int = 15) -> list[RunSnapshot]:
-    """Baseline history for a snapshot identifier — only runs that actually moved
-    the committed baseline.
+def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[RunSnapshot]:
+    """Baseline timeline for a snapshot identifier on the default branch.
 
-    Scoped by (repo, run_type, identifier) — the same triple that quarantines use.
-    We restrict to runs on the default branch (master/main): an approval on a PR
-    branch only commits to that branch's HEAD, the *baseline* in the repo only
-    changes once the PR is merged. Filtering by branch is a simple stand-in for
-    "this run produced a baseline visible to everyone else".
+    Returns one entry per *baseline event* — i.e. each time the committed content
+    actually changed. Adjacent rows pointing at the same `current_artifact_id`
+    collapse to the most recent.
 
-    Returns ORM rows; the facade layer shapes them into DTOs.
+    Filters applied at the DB level:
+      - branch ∈ master/main, run_type, repo: scope to default-branch runs of this kind
+      - status=completed: drop pre-classification rows. `result` defaults to NEW
+        on upload and is only finalised when the run completes; runs stuck in
+        pending/processing leave noise behind that isn't a real history event.
+      - result != NEW: belt+braces; NEW shouldn't survive on a completed run, but
+        cheap to filter and protects us if classification ever leaves stragglers.
     """
-    return list(
+    rows = (
         RunSnapshot.objects.filter(
             run__repo_id=repo_id,
             run__run_type=run_type,
             run__branch__in=_DEFAULT_BRANCHES,
+            run__status=RunStatus.COMPLETED,
             identifier=identifier,
         )
+        .exclude(result=SnapshotResult.NEW)
         .select_related("run", "current_artifact")
-        .order_by("-run__created_at")[:limit]
+        .order_by("-run__created_at")
     )
+
+    deduped: list[RunSnapshot] = []
+    for row in rows.iterator():
+        if deduped and deduped[-1].current_artifact_id == row.current_artifact_id:
+            continue
+        deduped.append(row)
+    return deduped
 
 
 @transaction.atomic(using=WRITER_DB)
