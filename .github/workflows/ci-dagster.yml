@@ -62,7 +62,7 @@ jobs:
         outputs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
-            matrix_include: ${{ steps.build-matrix.outputs.include }}
+            matrix_include: ${{ steps.build-matrix.outputs.include || '[]' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -180,7 +180,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                include: ${{ fromJson(needs.changes.outputs.matrix_include) }}
+                include: ${{ fromJson(needs.changes.outputs.matrix_include || '[]') }}
         if: needs.changes.outputs.dagster == 'true'
         runs-on: depot-ubuntu-latest
         steps:
