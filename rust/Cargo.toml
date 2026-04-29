@@ -48,7 +48,6 @@ members = [
     "personhog-proto",
     "personhog-replica",
     "personhog-router",
-    "warm-flags-cache",
 ]
 
 [workspace.lints.rust]

@@ -35,6 +35,7 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.metrics import observe_task_run_created
 from products.tasks.backend.stream.redis_stream import publish_task_run_stream_event
 
 logger = structlog.get_logger(__name__)
@@ -223,6 +224,7 @@ class Task(DeletedMetaFields, models.Model):
             branch=branch,
         )
         task_run.publish_stream_state_event()
+        observe_task_run_created(task_run)
         self.capture_event(
             "task_run_created",
             {
@@ -268,6 +270,7 @@ class Task(DeletedMetaFields, models.Model):
         internal: bool = False,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
+        model: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -314,6 +317,9 @@ class Task(DeletedMetaFields, models.Model):
 
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
+
+        if model:
+            extra_state["model"] = model
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
 

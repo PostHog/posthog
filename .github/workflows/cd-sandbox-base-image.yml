@@ -138,7 +138,7 @@ jobs:
                   echo "Installed ${count} context-mill skills into ${TARGET_DIR}"
 
             - name: Upload built skills
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: built-skills
                   path: products/posthog_ai/dist/skills/
@@ -167,7 +167,7 @@ jobs:
                   fetch-depth: 2
 
             - name: Download built skills
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   name: built-skills
                   path: products/posthog_ai/dist/skills/
