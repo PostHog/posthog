@@ -13,6 +13,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SnapshotCard } from '../components/SnapshotCard'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
 import { SnapshotStatRow } from '../components/SnapshotStatRow'
+import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import {
     VisualReviewSnapshotOverviewSceneLogicProps,
     visualReviewSnapshotOverviewSceneLogic,
@@ -80,7 +81,11 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <SceneTitleSection name="Snapshots" resourceType={{ type: 'visual_review' }} />
+            <SceneTitleSection
+                name={repo?.repo_full_name ?? 'Visual review'}
+                resourceType={{ type: 'visual_review' }}
+            />
+            <VisualReviewTabs activeKey="snapshots" repoId={repo?.id ?? ''} />
 
             <SnapshotStatRow
                 counts={statCounts}

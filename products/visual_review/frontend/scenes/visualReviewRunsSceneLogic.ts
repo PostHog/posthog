@@ -1,11 +1,11 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb } from '~/types'
 
-import { visualReviewReposList, visualReviewRunsCountsRetrieve, visualReviewRunsList } from '../generated/api'
+import { visualReviewReposRetrieve, visualReviewRunsCountsRetrieve, visualReviewRunsList } from '../generated/api'
 import type { PaginatedRunListApi, RepoApi, ReviewStateCountsApi } from '../generated/api.schemas'
 import type { visualReviewRunsSceneLogicType } from './visualReviewRunsSceneLogicType'
 
@@ -13,8 +13,14 @@ export type ReviewState = 'needs_review' | 'clean' | 'processing' | 'stale'
 
 const RUNS_PAGE_SIZE = 20
 
+export interface VisualReviewRunsSceneLogicProps {
+    repoId: string
+}
+
 export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewRunsSceneLogic']),
+    props({} as VisualReviewRunsSceneLogicProps),
+    key((props) => props.repoId),
 
     connect(() => ({
         values: [teamLogic, ['currentProjectId']],
@@ -41,7 +47,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
         ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ props, values }) => ({
         runsResponse: [
             { count: 0, results: [] } as PaginatedRunListApi,
             {
@@ -49,6 +55,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
                     const offset = (values.page - 1) * RUNS_PAGE_SIZE
                     return await visualReviewRunsList(String(values.currentProjectId), {
                         review_state: values.activeTab,
+                        repo_id: props.repoId,
                         limit: RUNS_PAGE_SIZE,
                         offset,
                     })
@@ -67,8 +74,7 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             null as RepoApi | null,
             {
                 loadRepo: async () => {
-                    const response = await visualReviewReposList(String(values.currentProjectId))
-                    return response.results[0] || null
+                    return await visualReviewReposRetrieve(String(values.currentProjectId), props.repoId)
                 },
             },
         ],
@@ -86,13 +92,18 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
             (repo: RepoApi | null): string | undefined => repo?.repo_full_name || undefined,
         ],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (s) => [s.repo],
+            (repo: RepoApi | null): Breadcrumb[] => [
                 {
                     key: 'visual_review',
                     name: 'Visual review',
                     path: '/visual_review',
                 },
+                {
+                    key: ['visual_review_repo', repo?.id ?? 'unknown'],
+                    name: repo?.repo_full_name ?? '…',
+                },
+                { key: 'visual_review_runs', name: 'Runs' },
             ],
         ],
     }),

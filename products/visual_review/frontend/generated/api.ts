@@ -291,7 +291,7 @@ export const visualReviewReposSnapshotsList = async (
 }
 
 /**
- * List runs for the team, optionally filtered by review state.
+ * List runs for the team, optionally filtered by review state or repo.
  */
 export const getVisualReviewRunsListUrl = (projectId: string, params?: VisualReviewRunsListParams) => {
     const normalizedParams = new URLSearchParams()

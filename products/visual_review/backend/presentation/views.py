@@ -323,13 +323,18 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = RunSerializer
 
     @extend_schema(
-        parameters=[OpenApiParameter("review_state", str, required=False, description="Filter by review state")],
+        parameters=[
+            OpenApiParameter("review_state", str, required=False, description="Filter by review state"),
+            OpenApiParameter("repo_id", str, required=False, description="Filter by repo UUID"),
+        ],
         responses={200: RunSerializer(many=True)},
     )
     def list(self, request: Request, **kwargs) -> Response:
-        """List runs for the team, optionally filtered by review state."""
+        """List runs for the team, optionally filtered by review state or repo."""
         review_state = request.query_params.get("review_state")
-        runs = api.list_runs(self.team_id, review_state=review_state)
+        repo_id_param = request.query_params.get("repo_id")
+        repo_id = UUID(repo_id_param) if repo_id_param else None
+        runs = api.list_runs(self.team_id, review_state=review_state, repo_id=repo_id)
         page = self.paginate_queryset(runs)
         if page is not None:
             serializer = RunSerializer(instance=page, many=True)

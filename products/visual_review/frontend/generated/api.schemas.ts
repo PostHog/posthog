@@ -405,6 +405,10 @@ export type VisualReviewRunsListParams = {
      */
     offset?: number
     /**
+     * Filter by repo UUID
+     */
+    repo_id?: string
+    /**
      * Filter by review state
      */
     review_state?: string
