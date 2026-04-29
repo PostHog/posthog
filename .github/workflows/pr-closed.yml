@@ -26,7 +26,17 @@ jobs:
         if: contains(github.event.pull_request.labels.*.name, 'canary-flags')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
         steps:
+            - name: Check out canary scripts
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  sparse-checkout: .github/scripts/canary
+                  sparse-checkout-cone-mode: false
+
             - name: Get deployer token
               id: deployer
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -51,6 +61,29 @@ jobs:
                               pr_number: process.env.PR_NUMBER
                           }
                       });
+
+            - name: Upsert EXPIRED marker on PR
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  PR_MERGED: ${{ github.event.pull_request.merged }}
+              with:
+                  script: |
+                      try {
+                          const { upsertStatusComment } = require('./.github/scripts/canary/comment.js');
+                          const prNumber = parseInt(process.env.PR_NUMBER);
+                          const reason = process.env.PR_MERGED === 'true' ? 'PR merged' : 'PR closed';
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'EXPIRED',
+                              fields: {
+                                  reason,
+                                  dispatch_run_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                              },
+                          });
+                      } catch (e) {
+                          console.log(`Marker upsert skipped: ${e.message}`);
+                      }
 
     report-pr-age:
         name: Report age of PR

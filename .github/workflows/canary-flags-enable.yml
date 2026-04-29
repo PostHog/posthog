@@ -1,18 +1,28 @@
-name: Enable Feature Flags PR Canary
+name: Manage Feature Flags PR Canary
 
 # Build the feature-flags Docker image from the PR head commit and dispatch
 # the canary deployment to the charts repo, which handles the ArgoCD rollout
 # using a two-phase deployment approach.
 #
+# A single status comment (marker `<!-- pr-canary-status -->`) on the PR is
+# upserted as the deployment moves through validating → building → dispatched
+# → rolling out → routing → healthy / failed / canceled. Helper logic lives
+# in `.github/scripts/canary/`.
+#
 # Trigger options:
-# 1. Comment /pr-canary on a PR (supports weight= and env= params)
+# 1. Comment on a PR:
+#       /pr-canary [weight=N] [env=ENV]   start a canary
+#       /pr-canary cancel                 cancel an active canary for this PR
+#       /pr-canary status                 refresh the status comment
+#       /pr-canary help                   show help
 # 2. Push new commits to a PR that already has the 'canary-flags' label
 # 3. Manually via workflow_dispatch with PR number and options
 #
 # Requirements:
 # - PR must be approved (no outstanding change requests)
 # - PR author must be a PostHog org member
-# - For /pr-canary and workflow_dispatch: actor must be in team-feature-flags or team-flags-platform
+# - For comment-triggered subcommands and workflow_dispatch:
+#     actor must be in team-feature-flags or team-flags-platform
 
 concurrency:
     group: canary-flags-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
@@ -45,7 +55,9 @@ on:
                 default: 'dev'
 
 jobs:
-    # Lightweight job: parse /pr-canary commands, validate, add label, provide feedback
+    # Lightweight job: parse /pr-canary commands, route to the right
+    # subcommand flow (enable / cancel / status / help), validate, and
+    # upsert the PR status comment.
     handle_comment:
         name: Handle /pr-canary command
         if: >-
@@ -58,14 +70,22 @@ jobs:
         permissions:
             pull-requests: write
             issues: write
+            actions: write # for cancelling in-flight runs from the cancel subcommand
         outputs:
+            subcommand: ${{ steps.command.outputs.subcommand }}
             should_build: ${{ steps.command.outputs.should_build }}
             pr_number: ${{ steps.command.outputs.pr_number }}
             pr_head_sha: ${{ steps.command.outputs.pr_head_sha }}
             canary_weight: ${{ steps.command.outputs.canary_weight }}
             target_environment: ${{ steps.command.outputs.target_environment }}
         steps:
-            - name: React to comment
+            - name: Check out canary scripts
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  sparse-checkout: .github/scripts/canary
+                  sparse-checkout-cone-mode: false
+
+            - name: React to comment (eyes)
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
@@ -85,20 +105,59 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
 
-            - name: Parse command and validate
+            - name: Get charts deployer token
+              id: charts_token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: Parse, validate, route and update PR comment
               id: command
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   ACTOR: ${{ github.actor }}
+                  TEAM_TOKEN: ${{ steps.app-token.outputs.token }}
+                  CHARTS_TOKEN: ${{ steps.charts_token.outputs.token }}
               with:
-                  github-token: ${{ steps.app-token.outputs.token }}
                   script: |
+                      const { upsertStatusComment } = require('./.github/scripts/canary/comment.js');
+                      const { readChartsState } = require('./.github/scripts/canary/state.js');
+                      const { getOctokit } = require('@actions/github');
+
+                      const teamOctokit = getOctokit(process.env.TEAM_TOKEN);
+                      const chartsOctokit = getOctokit(process.env.CHARTS_TOKEN);
+
                       const prNumber = context.payload.issue.number;
                       const body = context.payload.comment.body.trim();
                       const firstLine = body.split('\n')[0].trim();
+                      const dispatchRunUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
 
-                      // Handle /pr-canary help
-                      if (/^\/pr-canary\s+help\b/.test(firstLine)) {
+                      const setReaction = async (content) => {
+                          try {
+                              await github.rest.reactions.createForIssueComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  comment_id: context.payload.comment.id,
+                                  content,
+                              });
+                          } catch (e) { /* best-effort */ }
+                      };
+
+                      // ---------- 1. Detect subcommand ----------
+                      // Order matters: 'help', 'cancel|disable|stop', 'status', then default = enable
+                      const subRe = /^\/pr-canary(?:\s+(help|cancel|disable|stop|status))?\b/;
+                      const subMatch = firstLine.match(subRe);
+                      let sub = (subMatch && subMatch[1]) || 'enable';
+                      if (sub === 'disable' || sub === 'stop') sub = 'cancel';
+                      core.setOutput('subcommand', sub);
+                      core.setOutput('should_build', 'false');
+                      core.setOutput('pr_number', prNumber.toString());
+
+                      // ---------- 2. /pr-canary help ----------
+                      if (sub === 'help') {
                           await github.rest.issues.createComment({
                               owner: context.repo.owner,
                               repo: context.repo.repo,
@@ -108,47 +167,42 @@ jobs:
                                   '',
                                   '| Command | Description |',
                                   '|---------|-------------|',
-                                  '| `/pr-canary` | Deploy with auto weight to dev |',
-                                  '| `/pr-canary weight=5` | Deploy with 5% traffic to dev |',
-                                  '| `/pr-canary env=prod-us` | Deploy with auto weight to prod-us |',
-                                  '| `/pr-canary weight=3 env=prod-eu` | Deploy with 3% traffic to prod-eu |',
+                                  '| `/pr-canary` | Start a canary with auto weight in dev |',
+                                  '| `/pr-canary weight=5` | Start with 5% traffic in dev |',
+                                  '| `/pr-canary env=prod-us` | Start with auto weight in prod-us |',
+                                  '| `/pr-canary weight=3 env=prod-eu` | Start with 3% traffic in prod-eu |',
+                                  '| `/pr-canary cancel` | Cancel the active canary for this PR |',
+                                  '| `/pr-canary status` | Refresh the status comment |',
                                   '| `/pr-canary help` | Show this help |',
                                   '',
-                                  '**Parameters:**',
+                                  '**Parameters**',
                                   '',
                                   '| Parameter | Values | Default |',
                                   '|-----------|--------|---------|',
                                   '| `weight` | `1`–`10` or `auto` | `auto` |',
                                   '| `env` | `dev`, `prod-us`, `prod-eu` | `dev` |',
                                   '',
-                                  '**Requirements:** PR must be approved. You must be in `team-feature-flags` or `team-flags-platform`.',
+                                  '**Requirements** — PR must be approved. Caller must be in `team-feature-flags` or `team-flags-platform`.',
                                   '',
-                                  'The canary auto-disables after 48h or when the PR is closed/merged.',
-                              ].join('\n')
+                                  'A single status comment is updated as the rollout progresses. The canary auto-disables after 48h or when the PR is closed/merged.',
+                              ].join('\n'),
                           });
-                          core.setOutput('should_build', 'false');
                           return;
                       }
 
-                      // Check team membership
+                      // ---------- 3. Team membership ----------
                       const actor = process.env.ACTOR;
                       const allowedTeams = ['team-feature-flags', 'team-flags-platform'];
                       let isMember = false;
-
                       for (const team of allowedTeams) {
                           try {
-                              await github.rest.teams.getMembershipForUserInOrg({
-                                  org: 'PostHog',
-                                  team_slug: team,
-                                  username: actor
+                              await teamOctokit.rest.teams.getMembershipForUserInOrg({
+                                  org: 'PostHog', team_slug: team, username: actor,
                               });
-                              console.log(`${actor} is a member of PostHog/${team}`);
                               isMember = true;
                               break;
                           } catch (e) {
-                              if (e.status === 404) {
-                                  console.log(`${actor} is not in PostHog/${team}`);
-                              } else {
+                              if (e.status !== 404) {
                                   core.setFailed(
                                       `Failed to check team membership for PostHog/${team}: ${e.message}. ` +
                                       `The GH_APP_POSTHOG_ASSIGN_REVIEWERS app may lack Organization > Members > Read permission.`
@@ -157,86 +211,240 @@ jobs:
                               }
                           }
                       }
-
                       if (!isMember) {
-                          await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: prNumber,
-                              body: `@${actor} you must be a member of \`team-feature-flags\` or \`team-flags-platform\` to use \`/pr-canary\`.`
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'DENIED',
+                              fields: {
+                                  reason: `@${actor} you must be a member of \`team-feature-flags\` or \`team-flags-platform\` to use \`/pr-canary\`.`,
+                                  dispatch_run_url: dispatchRunUrl,
+                              },
                           });
+                          await setReaction('confused');
                           core.setFailed('Not a member of an authorized team');
                           return;
                       }
 
                       // Pin the PR head SHA now so it cannot change between
-                      // validation and checkout (addresses TOCTOU concern for
-                      // issue_comment running in a privileged context).
+                      // validation and checkout (TOCTOU mitigation).
                       const { data: pr } = await github.rest.pulls.get({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          pull_number: prNumber
+                          owner: context.repo.owner, repo: context.repo.repo, pull_number: prNumber,
                       });
 
-                      // Restrict canary to PRs authored by PostHog org members
-                      // to prevent building code from external contributors.
+                      // Restrict canary to PRs authored by PostHog org members.
                       try {
-                          const { data: membership } = await github.rest.orgs.getMembershipForUser({
-                              org: 'PostHog',
-                              username: pr.user.login
+                          const { data: membership } = await teamOctokit.rest.orgs.getMembershipForUser({
+                              org: 'PostHog', username: pr.user.login,
                           });
-                          if (membership.state !== 'active') {
-                              throw new Error('not active');
-                          }
+                          if (membership.state !== 'active') throw new Error('not active');
                       } catch (e) {
-                          await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: prNumber,
-                              body: `Canary deployments are restricted to PRs authored by PostHog org members. PR author \`${pr.user.login}\` is not a member.`
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'DENIED',
+                              fields: {
+                                  reason: `Canary deployments are restricted to PRs authored by PostHog org members. PR author \`${pr.user.login}\` is not a member.`,
+                                  dispatch_run_url: dispatchRunUrl,
+                              },
                           });
+                          await setReaction('confused');
                           core.setFailed('PR author is not a PostHog org member');
                           return;
                       }
 
-                      // Parse /pr-canary [weight=N] [env=ENV]
+                      // ---------- 4. /pr-canary cancel ----------
+                      if (sub === 'cancel') {
+                          const state = await readChartsState({ octokit: chartsOctokit });
+                          if (!state || state.enabled !== true || state.pr_number !== prNumber) {
+                              await upsertStatusComment({
+                                  github, context, prNumber,
+                                  phase: 'NO_ACTIVE_CANARY',
+                                  fields: { dispatch_run_url: dispatchRunUrl },
+                              });
+                              await setReaction('+1');
+                              return;
+                          }
+
+                          // Cancel any in-flight build_and_enable runs for this PR head SHA
+                          // so a mid-Docker-build dispatch can be stopped immediately.
+                          try {
+                              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  workflow_id: 'canary-flags-enable.yml',
+                                  head_sha: pr.head.sha,
+                                  per_page: 50,
+                              });
+                              for (const run of runs) {
+                                  if (run.status === 'completed') continue;
+                                  if (run.id === context.runId) continue;
+                                  try {
+                                      await github.rest.actions.cancelWorkflowRun({
+                                          owner: context.repo.owner, repo: context.repo.repo, run_id: run.id,
+                                      });
+                                  } catch (err) {
+                                      console.log(`Could not cancel run #${run.id}: ${err.status || err.message}`);
+                                  }
+                              }
+                          } catch (err) {
+                              console.log(`Run lookup failed: ${err.message}`);
+                          }
+
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'CANCELING',
+                              fields: {
+                                  image: state.image,
+                                  env: state.target_environment,
+                                  weight: state.weight,
+                                  started_by: state.started_by,
+                                  started_at: state.started_at,
+                                  canceled_by: actor,
+                                  dispatch_run_url: dispatchRunUrl,
+                              },
+                          });
+
+                          await chartsOctokit.rest.repos.createDispatchEvent({
+                              owner: 'PostHog',
+                              repo: 'charts',
+                              event_type: 'disable-canary-flags',
+                              client_payload: { pr_number: String(prNumber) },
+                          });
+
+                          // Drop the canary-flags label so future synchronizes don't try to rebuild.
+                          try {
+                              await github.rest.issues.removeLabel({
+                                  owner: context.repo.owner, repo: context.repo.repo,
+                                  issue_number: prNumber, name: 'canary-flags',
+                              });
+                          } catch (err) {
+                              if (err.status !== 404) console.log(`Could not remove canary-flags label: ${err.message}`);
+                          }
+
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'CANCELED',
+                              fields: {
+                                  image: state.image,
+                                  env: state.target_environment,
+                                  weight: state.weight,
+                                  started_by: state.started_by,
+                                  started_at: state.started_at,
+                                  canceled_by: actor,
+                                  dispatch_run_url: dispatchRunUrl,
+                              },
+                          });
+                          await setReaction('+1');
+                          return;
+                      }
+
+                      // ---------- 5. /pr-canary status ----------
+                      if (sub === 'status') {
+                          const state = await readChartsState({ octokit: chartsOctokit });
+                          if (!state || state.enabled !== true || state.pr_number !== prNumber) {
+                              await upsertStatusComment({
+                                  github, context, prNumber,
+                                  phase: 'NO_ACTIVE_CANARY',
+                                  fields: { dispatch_run_url: dispatchRunUrl },
+                              });
+                              await setReaction('+1');
+                              return;
+                          }
+                          // Without a live charts run reference we can only surface state.yaml.
+                          // ROLLING_OUT vs ROUTING is reflected by weight=0 vs weight>0.
+                          const phase = (state.weight ?? 0) > 0 ? 'HEALTHY' : 'ROLLING_OUT';
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase,
+                              fields: {
+                                  image: state.image,
+                                  env: state.target_environment,
+                                  weight: state.weight,
+                                  started_by: state.started_by,
+                                  started_at: state.started_at,
+                                  dispatch_run_url: dispatchRunUrl,
+                              },
+                          });
+                          await setReaction('+1');
+                          return;
+                      }
+
+                      // ---------- 6. /pr-canary (enable) ----------
+                      // Parse weight/env
                       const weightMatch = firstLine.match(/\bweight=(\S+)/);
                       const envMatch = firstLine.match(/\benv=(\S+)/);
                       const canaryWeight = weightMatch ? weightMatch[1] : 'auto';
                       const targetEnvironment = envMatch ? envMatch[1] : 'dev';
+                      const validEnvs = ['dev', 'prod-us', 'prod-eu'];
 
-                      // Validate params early so the user gets immediate feedback
                       if (canaryWeight !== 'auto') {
                           const w = Number(canaryWeight);
                           if (!Number.isInteger(w) || w < 1 || w > 10) {
-                              await github.rest.issues.createComment({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  issue_number: prNumber,
-                                  body: `Invalid \`weight\` value: \`${canaryWeight}\`. Must be \`auto\` or an integer between 1 and 10.`
+                              await upsertStatusComment({
+                                  github, context, prNumber,
+                                  phase: 'INVALID_INPUT',
+                                  fields: {
+                                      reason: `weight \`${canaryWeight}\` — must be \`auto\` or an integer between 1 and 10.`,
+                                      dispatch_run_url: dispatchRunUrl,
+                                  },
                               });
+                              await setReaction('confused');
                               core.setFailed(`Invalid canary weight: ${canaryWeight}`);
                               return;
                           }
                       }
-
-                      const validEnvs = ['dev', 'prod-us', 'prod-eu'];
                       if (!validEnvs.includes(targetEnvironment)) {
-                          await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: prNumber,
-                              body: `Invalid \`env\` value: \`${targetEnvironment}\`. Must be one of: ${validEnvs.map(e => `\`${e}\``).join(', ')}.`
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'INVALID_INPUT',
+                              fields: {
+                                  reason: `env \`${targetEnvironment}\` — must be one of: ${validEnvs.map((e) => `\`${e}\``).join(', ')}.`,
+                                  dispatch_run_url: dispatchRunUrl,
+                              },
                           });
+                          await setReaction('confused');
                           core.setFailed(`Invalid target environment: ${targetEnvironment}`);
                           return;
                       }
 
+                      // Conflict detection: refuse to clobber another PR's canary.
+                      const state = await readChartsState({ octokit: chartsOctokit });
+                      if (state && state.enabled === true && state.pr_number && state.pr_number !== prNumber) {
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'CONFLICT',
+                              fields: {
+                                  holder_pr: state.pr_number,
+                                  holder_actor: state.started_by,
+                                  env: state.target_environment,
+                                  weight: state.weight,
+                                  started_at: state.started_at,
+                                  dispatch_run_url: dispatchRunUrl,
+                              },
+                          });
+                          await setReaction('confused');
+                          // Do NOT setFailed — the workflow exits cleanly so the user
+                          // sees a green run with the conflict comment, not a red one.
+                          return;
+                      }
+
+                      // Greenlight the build. Set outputs for downstream jobs.
                       core.setOutput('should_build', 'true');
-                      core.setOutput('pr_number', prNumber.toString());
                       core.setOutput('pr_head_sha', pr.head.sha);
                       core.setOutput('canary_weight', canaryWeight);
                       core.setOutput('target_environment', targetEnvironment);
+
+                      await upsertStatusComment({
+                          github, context, prNumber,
+                          phase: 'VALIDATING',
+                          fields: {
+                              image: `sha-${pr.head.sha.substring(0, 7)}`,
+                              env: targetEnvironment,
+                              weight: canaryWeight,
+                              started_by: actor,
+                              started_at: new Date().toISOString(),
+                              dispatch_run_url: dispatchRunUrl,
+                          },
+                      });
 
                       console.log(`Parsed: PR #${prNumber}, SHA=${pr.head.sha}, weight=${canaryWeight}, env=${targetEnvironment}`);
 
@@ -254,29 +462,30 @@ jobs:
                           issue_number: prNumber,
                           labels: ['canary-flags']
                       });
-                      console.log(`Added canary-flags label to PR #${prNumber}`);
 
-            - name: Report failure on PR
+            - name: Report unexpected failure on PR
               if: failure()
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
-                      const prNumber = context.payload.issue.number;
-                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-                      await github.rest.issues.createComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: prNumber,
-                          body: `**Canary deployment failed.** [View details](${runUrl})`
-                      });
+                      try {
+                          const { upsertStatusComment } = require('./.github/scripts/canary/comment.js');
+                          const prNumber = context.payload.issue.number;
+                          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'BUILD_FAILED',
+                              fields: { reason: 'unexpected error in command handler', dispatch_run_url: runUrl },
+                          });
+                      } catch (e) {
+                          console.log(`Failure reporter could not upsert: ${e.message}`);
+                      }
 
     # Lightweight preflight: validate PR + resolve target_environment.
     # On `pull_request: synchronize`, target_environment comes from the active
     # canary's state in PostHog/charts:state.yaml — NOT a hardcoded default.
     # If the canary is disabled or owned by a different PR, should_proceed is
     # set to 'false' and the heavy build_and_enable job is skipped entirely.
-    # Hardcoding 'dev' here would silently overwrite an active prod-us / prod-eu
-    # canary, which causes ArgoCD to prune the running prod canary deployment.
     preflight:
         name: Preflight checks for canary deployment
         needs: [handle_comment]
@@ -304,9 +513,6 @@ jobs:
 
         steps:
             # Charts deployer token for reading state.yaml on synchronize.
-            # state.yaml in PostHog/charts is the source of truth for the
-            # active canary's target_environment; we read it here instead of
-            # defaulting to 'dev' which would clobber a prod canary.
             - name: Get charts deployer token (for state.yaml read)
               id: charts_token
               if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
@@ -323,10 +529,6 @@ jobs:
               env:
                   GH_TOKEN: ${{ steps.charts_token.outputs.token }}
               run: |
-                  # Synchronize-only: read PostHog/charts:state.yaml so the
-                  # rebuild dispatch keeps the active canary in its current
-                  # environment. We MUST NOT silently default to `dev` on
-                  # network/auth/parse failure — that is the bug being fixed.
                   set -euo pipefail
                   tmp=$(mktemp)
                   gh api \
@@ -335,8 +537,6 @@ jobs:
                   enabled=$(yq '.state["feature-flags"].canary.enabled // false' "$tmp")
                   active_pr=$(yq '.state["feature-flags"].canary.pr_number // 0' "$tmp")
                   target_env=$(yq '.state["feature-flags"].canary.target_environment // ""' "$tmp")
-                  # weight may be a number or the string "auto"; if missing,
-                  # fall back to "auto" (matches stable fleet per-pod traffic).
                   weight=$(yq '.state["feature-flags"].canary.weight // "auto"' "$tmp")
                   echo "enabled=${enabled}"       >> "$GITHUB_OUTPUT"
                   echo "active_pr=${active_pr}"   >> "$GITHUB_OUTPUT"
@@ -368,20 +568,8 @@ jobs:
                           prNumber = parseInt(process.env.COMMENT_PR_NUMBER);
                           canaryWeight = process.env.COMMENT_CANARY_WEIGHT;
                           targetEnvironment = process.env.COMMENT_TARGET_ENV;
-                          // Use the SHA pinned by handle_comment to prevent TOCTOU:
-                          // the PR HEAD cannot change between validation and checkout.
                           headSha = process.env.COMMENT_PR_HEAD_SHA;
                       } else {
-                          // pull_request: synchronize.
-                          // The active canary's settings are the source of truth —
-                          // read them from state.yaml (loaded by the state_lookup
-                          // step). If the canary is disabled or owned by a different
-                          // PR, skip the rebuild entirely; the user must use
-                          // /pr-canary to opt back in. Silently defaulting to
-                          // env=`dev` and weight=`auto` here is the bug we are
-                          // fixing — it would overwrite the active canary's settings
-                          // (e.g. nuke a prod-eu canary at weight 4 and replace it
-                          // with a dev canary at auto weight).
                           prNumber = context.payload.pull_request.number;
                           headSha = context.payload.pull_request.head.sha;
 
@@ -416,9 +604,6 @@ jobs:
                           return;
                       }
 
-                      // For workflow_dispatch we need to fetch the PR to get the
-                      // head SHA and author. For pull_request the payload has both.
-                      // For issue_comment the SHA was already pinned in handle_comment.
                       let prAuthor;
                       if (context.eventName === 'workflow_dispatch') {
                           const { data: pr } = await github.rest.pulls.get({
@@ -438,10 +623,6 @@ jobs:
                           pull_number: prNumber,
                           per_page: 100,
                       });
-
-                      // Keep only the latest meaningful review per reviewer.
-                      // Filter to APPROVED/CHANGES_REQUESTED so that a follow-up
-                      // COMMENTED review doesn't shadow a prior approval.
                       const significantReviews = allReviews.filter(r =>
                           r.state === 'APPROVED' || r.state === 'CHANGES_REQUESTED'
                       );
@@ -474,17 +655,12 @@ jobs:
                       if (prAuthor) {
                           core.setOutput('pr_author', prAuthor);
                       }
-                      // Gate downstream build_and_enable job. Set last so any
-                      // earlier early-return (skipped sync, validation failure)
-                      // leaves should_proceed unset/'false'. The build job's
-                      // `if:` checks for the literal string 'true'.
                       core.setOutput('should_proceed', 'true');
 
                       console.log(`PR #${prNumber} approved. SHA: ${headSha}`);
 
             # GitHub App token is required because GITHUB_TOKEN can't read
             # org-private team memberships (returns 404, looks like "not a member").
-            # Shared by "Verify canary label was authorized" and "Verify team membership".
             - name: Get app token for team membership check
               id: app-token
               if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && steps.pr_info.outputs.should_proceed == 'true'
@@ -502,42 +678,28 @@ jobs:
                   github-token: ${{ steps.app-token.outputs.token }}
                   script: |
                       const prNumber = parseInt(process.env.PR_NUMBER);
-
-                      // Find who added the canary-flags label by inspecting PR events.
-                      // If the label was added by the workflow (github-actions[bot]) it
-                      // went through /pr-canary which already verified team membership.
-                      // If added manually, verify the user is on an allowed team.
                       const events = await github.paginate(github.rest.issues.listEvents, {
                           owner: context.repo.owner,
                           repo: context.repo.repo,
                           issue_number: prNumber,
                           per_page: 100,
                       });
-
                       const labelEvent = events
                           .findLast(e => e.event === 'labeled' && e.label.name === 'canary-flags');
-
                       if (!labelEvent) {
                           core.setFailed('canary-flags label event not found — cannot verify authorization');
                           return;
                       }
-
                       const labeler = labelEvent.actor.login;
-
-                      // Label added by the workflow itself (via /pr-canary) — already authorized
                       if (labeler === 'github-actions[bot]') {
                           console.log('canary-flags label was added by the workflow (authorized)');
                           return;
                       }
-
-                      // Label added manually — verify the user is on an allowed team
                       const allowedTeams = ['team-feature-flags', 'team-flags-platform'];
                       for (const team of allowedTeams) {
                           try {
                               await github.rest.teams.getMembershipForUserInOrg({
-                                  org: 'PostHog',
-                                  team_slug: team,
-                                  username: labeler
+                                  org: 'PostHog', team_slug: team, username: labeler,
                               });
                               console.log(`Label was added by ${labeler} who is a member of PostHog/${team}`);
                               return;
@@ -548,7 +710,6 @@ jobs:
                               }
                           }
                       }
-
                       core.setFailed(
                           `canary-flags label was added by ${labeler} who is not a member of ` +
                           `team-feature-flags or team-flags-platform. ` +
@@ -563,23 +724,16 @@ jobs:
               with:
                   github-token: ${{ steps.app-token.outputs.token }}
                   script: |
-                      // pr_author is set by pr_info: from the API for workflow_dispatch,
-                      // from the event payload for pull_request.
-                      // For issue_comment this step is skipped entirely (checked in handle_comment).
                       const prAuthor = process.env.PR_AUTHOR;
                       if (!prAuthor) {
                           core.setFailed('pr_author output not set by pr_info step');
                           return;
                       }
-
                       try {
                           const { data: membership } = await github.rest.orgs.getMembershipForUser({
-                              org: 'PostHog',
-                              username: prAuthor
+                              org: 'PostHog', username: prAuthor,
                           });
-                          if (membership.state !== 'active') {
-                              throw new Error('not active');
-                          }
+                          if (membership.state !== 'active') throw new Error('not active');
                           console.log(`PR author ${prAuthor} is a PostHog org member`);
                       } catch (e) {
                           core.setFailed(
@@ -598,13 +752,10 @@ jobs:
                   script: |
                       const actor = process.env.ACTOR;
                       const allowedTeams = ['team-feature-flags', 'team-flags-platform'];
-
                       for (const team of allowedTeams) {
                           try {
                               await github.rest.teams.getMembershipForUserInOrg({
-                                  org: 'PostHog',
-                                  team_slug: team,
-                                  username: actor
+                                  org: 'PostHog', team_slug: team, username: actor,
                               });
                               console.log(`${actor} is a member of PostHog/${team}`);
                               return;
@@ -641,7 +792,6 @@ jobs:
                       exit 1
                     fi
                   fi
-
                   case "$TARGET_ENVIRONMENT" in
                     dev|prod-us|prod-eu) ;;
                     *)
@@ -649,42 +799,36 @@ jobs:
                       exit 1
                       ;;
                   esac
-
                   echo "Validated: weight=${CANARY_WEIGHT}, environment=${TARGET_ENVIRONMENT}"
 
-            # Mirror of build_and_enable's failure reporter so that a preflight
-            # failure (team membership rejection, state.yaml fetch error, etc.)
-            # leaves a comment on the PR. Fires for both /pr-canary comments
-            # and pull_request: synchronize events: on synchronize, a state.yaml
-            # read failure would otherwise produce a red Action with no PR
-            # signal.
             - name: Report failure on PR
+              if: failure() && (github.event_name == 'issue_comment' || github.event_name == 'pull_request')
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  sparse-checkout: .github/scripts/canary
+                  sparse-checkout-cone-mode: false
+            - name: Upsert preflight failure marker
               if: failure() && (github.event_name == 'issue_comment' || github.event_name == 'pull_request')
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               with:
                   script: |
-                      const prNumber = context.payload.issue?.number ?? context.payload.pull_request?.number;
-                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-                      await github.rest.issues.createComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: prNumber,
-                          body: `**Canary deployment failed.** [View details](${runUrl})`
-                      });
+                      try {
+                          const { upsertStatusComment } = require('./.github/scripts/canary/comment.js');
+                          const prNumber = context.payload.issue?.number ?? context.payload.pull_request?.number;
+                          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'BUILD_FAILED',
+                              fields: { reason: 'preflight checks failed', dispatch_run_url: runUrl },
+                          });
+                      } catch (e) {
+                          console.log(`Failure reporter could not upsert: ${e.message}`);
+                      }
 
     # Heavy job: build image + dispatch to charts.
-    # Gated on preflight.should_proceed so a synchronize event that targets a
-    # canary owned by another PR (or a disabled canary) is skipped without
-    # building or dispatching anything.
     build_and_enable:
         name: Build feature-flags image and enable canary
         needs: [preflight]
-        # `!cancelled()` disables the implicit success() chain check, which
-        # otherwise inherits handle_comment's `skipped` result on a
-        # `pull_request: synchronize` event (handle_comment is gated to
-        # issue_comment) and skips this job before should_proceed is even
-        # evaluated. We then re-assert success on the direct dependency
-        # only and gate on the actual `should_proceed` output.
         if: |
             !cancelled() &&
             needs.preflight.result == 'success' &&
@@ -706,7 +850,33 @@ jobs:
                   sparse-checkout: |
                       rust/
                       proto/
+                      .github/scripts/canary/
                   sparse-checkout-cone-mode: false
+
+            - name: Mark BUILDING in PR comment
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
+                  IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
+                  CANARY_WEIGHT: ${{ needs.preflight.outputs.canary_weight }}
+                  TARGET_ENVIRONMENT: ${{ needs.preflight.outputs.target_environment }}
+              with:
+                  script: |
+                      const { upsertStatusComment } = require('./.github/scripts/canary/comment.js');
+                      const prNumber = parseInt(process.env.PR_NUMBER);
+                      const dispatchRunUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      await upsertStatusComment({
+                          github, context, prNumber,
+                          phase: 'BUILDING',
+                          fields: {
+                              image: process.env.IMAGE_TAG,
+                              env: process.env.TARGET_ENVIRONMENT,
+                              weight: process.env.CANARY_WEIGHT,
+                              started_by: context.actor,
+                              started_at: new Date().toISOString(),
+                              dispatch_run_url: dispatchRunUrl,
+                          },
+                      });
 
             - name: Copy proto files into rust build context
               run: cp -r proto rust/proto
@@ -760,6 +930,7 @@ jobs:
                   repositories: charts
 
             - name: Dispatch canary deployment to charts repo
+              id: dispatch
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
@@ -782,6 +953,42 @@ jobs:
                               started_by: process.env.STARTED_BY
                           }
                       });
+                      core.setOutput('dispatched_at', new Date().toISOString());
+
+            - name: Mark DISPATCHED in PR comment + rocket reaction
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
+                  IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
+                  CANARY_WEIGHT: ${{ needs.preflight.outputs.canary_weight }}
+                  TARGET_ENVIRONMENT: ${{ needs.preflight.outputs.target_environment }}
+              with:
+                  script: |
+                      const { upsertStatusComment } = require('./.github/scripts/canary/comment.js');
+                      const prNumber = parseInt(process.env.PR_NUMBER);
+                      const dispatchRunUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      await upsertStatusComment({
+                          github, context, prNumber,
+                          phase: 'DISPATCHED',
+                          fields: {
+                              image: process.env.IMAGE_TAG,
+                              env: process.env.TARGET_ENVIRONMENT,
+                              weight: process.env.CANARY_WEIGHT,
+                              started_by: context.actor,
+                              started_at: new Date().toISOString(),
+                              dispatch_run_url: dispatchRunUrl,
+                          },
+                      });
+                      if (context.eventName === 'issue_comment') {
+                          try {
+                              await github.rest.reactions.createForIssueComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  comment_id: context.payload.comment.id,
+                                  content: 'rocket',
+                              });
+                          } catch (e) { /* best-effort */ }
+                      }
 
             - name: Summary
               env:
@@ -799,52 +1006,173 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "Deployment dispatched to the [charts repo canary workflow](https://github.com/PostHog/charts/actions/workflows/pr-canary-flags-enable.yml)." >> $GITHUB_STEP_SUMMARY
 
-            - name: Report success on PR
-              if: success() && github.event_name == 'issue_comment'
+            - name: Report build/dispatch failure
+              if: failure()
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
               env:
                   PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
                   IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
-                  CANARY_WEIGHT: ${{ needs.preflight.outputs.canary_weight }}
-                  TARGET_ENVIRONMENT: ${{ needs.preflight.outputs.target_environment }}
               with:
                   script: |
-                      await github.rest.reactions.createForIssueComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          comment_id: context.payload.comment.id,
-                          content: 'rocket'
-                      });
+                      try {
+                          const { upsertStatusComment } = require('./.github/scripts/canary/comment.js');
+                          const prNumber = parseInt(process.env.PR_NUMBER);
+                          const dispatchRunUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'BUILD_FAILED',
+                              fields: {
+                                  reason: 'image build or dispatch failed',
+                                  image: process.env.IMAGE_TAG,
+                                  dispatch_run_url: dispatchRunUrl,
+                              },
+                          });
+                          if (context.eventName === 'issue_comment') {
+                              try {
+                                  await github.rest.reactions.createForIssueComment({
+                                      owner: context.repo.owner,
+                                      repo: context.repo.repo,
+                                      comment_id: context.payload.comment.id,
+                                      content: '-1',
+                                  });
+                              } catch (e) { /* best-effort */ }
+                          }
+                      } catch (e) {
+                          console.log(`Failure reporter could not upsert: ${e.message}`);
+                      }
 
-                      const prNumber = parseInt(process.env.PR_NUMBER);
-                      const chartsUrl = 'https://github.com/PostHog/charts/actions/workflows/pr-canary-flags-enable.yml';
-                      await github.rest.issues.createComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: prNumber,
-                          body: [
-                              `**Canary deployment dispatched**`,
-                              '',
-                              `| | |`,
-                              `|---|---|`,
-                              `| Image | \`${process.env.IMAGE_TAG}\` |`,
-                              `| Weight | ${process.env.CANARY_WEIGHT} |`,
-                              `| Environment | ${process.env.TARGET_ENVIRONMENT} |`,
-                              '',
-                              `[View deployment progress](${chartsUrl})`,
-                          ].join('\n')
-                      });
+    # Watcher: poll state.yaml + the charts workflow run, upsert the PR
+    # comment as the rollout transitions ROLLING_OUT → ROUTING → HEALTHY.
+    # Independent of rollout correctness — purely informational.
+    watch_rollout:
+        name: Watch ArgoCD rollout and update PR comment
+        needs: [preflight, build_and_enable]
+        if: |
+            !cancelled() &&
+            needs.build_and_enable.result == 'success'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        permissions:
+            issues: write
+            pull-requests: write
+            contents: read
+        concurrency:
+            group: canary-flags-watch-${{ needs.preflight.outputs.pr_number }}
+            cancel-in-progress: true
 
-            - name: Report failure on PR
-              if: failure() && (github.event_name == 'issue_comment' || github.event_name == 'pull_request')
+        steps:
+            - name: Check out canary scripts
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+              with:
+                  sparse-checkout: .github/scripts/canary
+                  sparse-checkout-cone-mode: false
+
+            - name: Get charts read token
+              id: charts_token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: Poll state.yaml + charts run, upsert comment
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
+                  IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
+                  TARGET_ENVIRONMENT: ${{ needs.preflight.outputs.target_environment }}
+                  CANARY_WEIGHT: ${{ needs.preflight.outputs.canary_weight }}
+                  CHARTS_TOKEN: ${{ steps.charts_token.outputs.token }}
               with:
                   script: |
-                      const prNumber = context.payload.issue?.number ?? context.payload.pull_request?.number;
-                      const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-                      await github.rest.issues.createComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: prNumber,
-                          body: `**Canary deployment failed.** [View details](${runUrl})`
+                      const { upsertStatusComment } = require('./.github/scripts/canary/comment.js');
+                      const { readChartsState, derivePhase, pollUntil } = require('./.github/scripts/canary/state.js');
+                      const { findEnableRun, getChartsRun } = require('./.github/scripts/canary/charts-run.js');
+                      const { getOctokit } = require('@actions/github');
+
+                      const charts = getOctokit(process.env.CHARTS_TOKEN);
+                      const prNumber = parseInt(process.env.PR_NUMBER);
+                      const dispatchRunUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                      const dispatchedAt = new Date(Date.now() - 30_000); // small buffer for clock skew
+
+                      const chartsRunRef = await findEnableRun({ octokit: charts, dispatchedAt });
+                      if (!chartsRunRef) {
+                          console.log('Could not locate charts run yet — will continue with state-only polling.');
+                      } else {
+                          console.log(`Charts run: ${chartsRunRef.html_url}`);
+                      }
+
+                      let lastPhase = null;
+                      const TERMINAL = new Set(['HEALTHY', 'FAILED', 'CANCELED', 'EXPIRED']);
+
+                      const upsert = async (phase, state) => {
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase,
+                              fields: {
+                                  image: state?.image || process.env.IMAGE_TAG,
+                                  env: state?.target_environment || process.env.TARGET_ENVIRONMENT,
+                                  weight: state?.weight ?? process.env.CANARY_WEIGHT,
+                                  started_by: state?.started_by || context.actor,
+                                  started_at: state?.started_at || new Date().toISOString(),
+                                  dispatch_run_url: dispatchRunUrl,
+                                  charts_run_url: chartsRunRef?.html_url,
+                                  charts_run_id: chartsRunRef?.id,
+                              },
+                          });
+                      };
+
+                      await pollUntil({
+                          timeoutMs: 22 * 60 * 1000,
+                          intervalMs: 30 * 1000,
+                          predicate: async () => {
+                              let state, run;
+                              try {
+                                  state = await readChartsState({ octokit: charts });
+                              } catch (err) {
+                                  console.log(`state.yaml read error: ${err.message}`);
+                                  return false;
+                              }
+                              try {
+                                  run = chartsRunRef
+                                      ? await getChartsRun({ octokit: charts, runId: chartsRunRef.id })
+                                      : null;
+                              } catch (err) {
+                                  console.log(`charts run get error: ${err.message}`);
+                              }
+                              const phase = derivePhase(state, run, prNumber);
+                              if (phase !== lastPhase) {
+                                  console.log(`Phase: ${lastPhase || '(initial)'} → ${phase}`);
+                                  await upsert(phase, state);
+                                  lastPhase = phase;
+                              }
+                              return TERMINAL.has(phase);
+                          },
                       });
+
+                      if (!TERMINAL.has(lastPhase || '')) {
+                          // Timed out — leave a clear marker so the user isn't left guessing.
+                          let state = null;
+                          try { state = await readChartsState({ octokit: charts }); } catch (e) { /* ignore */ }
+                          await upsertStatusComment({
+                              github, context, prNumber,
+                              phase: 'FAILED',
+                              fields: {
+                                  reason: 'rollout did not reach a healthy state within the watcher window — check the charts run',
+                                  image: state?.image || process.env.IMAGE_TAG,
+                                  env: state?.target_environment || process.env.TARGET_ENVIRONMENT,
+                                  dispatch_run_url: dispatchRunUrl,
+                                  charts_run_url: chartsRunRef?.html_url,
+                              },
+                          });
+                      } else if (lastPhase === 'HEALTHY' && context.eventName === 'issue_comment') {
+                          try {
+                              await github.rest.reactions.createForIssueComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  comment_id: context.payload.comment.id,
+                                  content: '+1',
+                              });
+                          } catch (e) { /* best-effort */ }
+                      }
