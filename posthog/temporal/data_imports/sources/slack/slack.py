@@ -122,18 +122,21 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
     raise ValueError(f"Unknown Slack resource: {name}")
 
 
-def _fetch_all_channels(access_token: str) -> list[dict[str, Any]]:
+_CHANNELS_PAGE_SIZE = 200
+_CHANNELS_MAX_PAGES = 50
+
+
+def _fetch_channels_by_type(access_token: str, channel_type: str) -> list[dict[str, Any]]:
     channels: list[dict[str, Any]] = []
-    has_more = True
     cursor: str | None = None
     url = "https://slack.com/api/conversations.list"
     headers = {"Authorization": f"Bearer {access_token}"}
 
-    while has_more:
+    for _ in range(_CHANNELS_MAX_PAGES):
         params: dict[str, Any] = {
-            "types": "public_channel,private_channel",
-            "limit": 999,
-            "exclude_archived": "false",
+            "types": channel_type,
+            "limit": _CHANNELS_PAGE_SIZE,
+            "exclude_archived": "true",
         }
         if cursor:
             params["cursor"] = cursor
@@ -149,9 +152,18 @@ def _fetch_all_channels(access_token: str) -> list[dict[str, Any]]:
         channels.extend(data.get("channels", []))
 
         cursor = data.get("response_metadata", {}).get("next_cursor", "") or None
-        has_more = cursor is not None
+        if cursor is None:
+            break
 
     return channels
+
+
+def _fetch_all_channels(access_token: str) -> list[dict[str, Any]]:
+    # Fetch public and private separately — Slack's conversations.list pagination is buggy
+    # when public and private types are requested in a single call.
+    public = _fetch_channels_by_type(access_token, "public_channel")
+    private = _fetch_channels_by_type(access_token, "private_channel")
+    return public + private
 
 
 def _fetch_messages_page(
