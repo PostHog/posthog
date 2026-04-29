@@ -17,6 +17,7 @@ import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from 
 import { defaultConfig, overrideWithEnv } from '../config/config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '../config/kafka-topics'
 import {
@@ -29,6 +30,7 @@ import {
 import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '../ingestion/outputs/single-ingestion-output'
 import { KafkaProducerWrapper } from '../kafka/producer'
+import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '../session-replay/shared/outputs'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../utils/db/postgres'
@@ -882,16 +884,21 @@ describe('Session Recording Consumer Integration', () => {
                 kafkaMetadataProducer,
                 'test'
             ),
+            [REPLAY_EVENTS_OUTPUT]: new SingleIngestionOutput(
+                REPLAY_EVENTS_OUTPUT,
+                KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+                kafkaMetadataProducer,
+                'test'
+            ),
+            [SESSION_FEATURES_OUTPUT]: new SingleIngestionOutput(
+                SESSION_FEATURES_OUTPUT,
+                KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+                kafkaMetadataProducer,
+                'test'
+            ),
         })
 
-        const ingester = new SessionRecordingIngester(
-            hub as any,
-            hub.postgres,
-            outputs,
-            kafkaMetadataProducer,
-            hub.redisPool,
-            hub.redisPool
-        )
+        const ingester = new SessionRecordingIngester(hub as any, hub.postgres, outputs, hub.redisPool, hub.redisPool)
 
         return { ingester, kafkaMetadataProducer }
     }
@@ -955,8 +962,6 @@ describe('Session Recording Consumer Integration', () => {
             SESSION_RECORDING_V2_S3_TIMEOUT_MS: TEST_CONFIG.S3_TIMEOUT_MS,
             SESSION_RECORDING_MAX_BATCH_SIZE_KB: 1,
             SESSION_RECORDING_MAX_BATCH_AGE_MS: 1000,
-            // Use the test topic (with _test suffix) to match ClickHouse's Kafka engine table
-            SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
         })
 
         team = await getFirstTeam(hub.postgres)

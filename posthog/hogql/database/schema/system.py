@@ -2,6 +2,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
     FloatDatabaseField,
@@ -11,6 +12,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
     TableNode,
+    UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.parser import parse_expr
@@ -824,6 +826,81 @@ support_tickets: PostgresTable = PostgresTable(
     },
 )
 
+review_queues: PostgresTable = PostgresTable(
+    name="review_queues",
+    postgres_table_name="llm_analytics_reviewqueue",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+review_queue_items: PostgresTable = PostgresTable(
+    name="review_queue_items",
+    postgres_table_name="llm_analytics_reviewqueueitem",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "queue_id": UUIDDatabaseField(name="queue_id"),
+        "trace_id": StringDatabaseField(name="trace_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+trace_reviews: PostgresTable = PostgresTable(
+    name="trace_reviews",
+    postgres_table_name="llm_analytics_tracereview",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "trace_id": StringDatabaseField(name="trace_id"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "reviewed_by_id": IntegerDatabaseField(name="reviewed_by_id", nullable=True),
+        "comment": StringDatabaseField(name="comment", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at", nullable=True),
+    },
+)
+
+trace_review_scores: PostgresTable = PostgresTable(
+    name="trace_review_scores",
+    postgres_table_name="llm_analytics_tracereviewscore",
+    access_scope="llm_analytics",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "review_id": UUIDDatabaseField(name="review_id"),
+        "definition_id": UUIDDatabaseField(name="definition_id"),
+        "definition_version": UUIDDatabaseField(name="definition_version"),
+        "definition_version_number": IntegerDatabaseField(name="definition_version_number"),
+        "definition_config": StringJSONDatabaseField(name="definition_config"),
+        "categorical_values": StringArrayDatabaseField(name="categorical_values", nullable=True),
+        "numeric_value": DecimalDatabaseField(name="numeric_value", nullable=True),
+        "boolean_value": BooleanDatabaseField(name="boolean_value", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+    },
+)
+
 early_access_features: PostgresTable = PostgresTable(
     name="early_access_features",
     postgres_table_name="posthog_earlyaccessfeature",
@@ -996,6 +1073,8 @@ class SystemTables(TableNode):
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
         "sandbox_environments": TableNode(name="sandbox_environments", table=sandbox_environments),
+        "review_queue_items": TableNode(name="review_queue_items", table=review_queue_items),
+        "review_queues": TableNode(name="review_queues", table=review_queues),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
@@ -1005,5 +1084,7 @@ class SystemTables(TableNode):
         "task_runs": TableNode(name="task_runs", table=task_runs),
         "tasks": TableNode(name="tasks", table=tasks),
         "teams": TableNode(name="teams", table=teams),
+        "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),
+        "trace_reviews": TableNode(name="trace_reviews", table=trace_reviews),
         "usage_metrics": TableNode(name="usage_metrics", table=usage_metrics),
     }

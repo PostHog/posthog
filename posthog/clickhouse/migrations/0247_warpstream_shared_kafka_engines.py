@@ -3,6 +3,7 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 from products.error_tracking.backend.embedding import (
+    DOCUMENT_EMBEDDINGS_WRITABLE_TABLE_SQL,
     DOCUMENT_EMBEDDINGS_WS_MV_SQL,
     KAFKA_DOCUMENT_EMBEDDINGS_WS_TABLE_SQL,
 )
@@ -11,6 +12,8 @@ from products.error_tracking.backend.sql import (
     ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_MV_SQL,
     KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_TABLE_SQL,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_TABLE_SQL,
+    WRITABLE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
+    WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
 )
 
 # Migration to create WarpStream-shared Kafka engine tables for the topics moving from MSK
@@ -41,6 +44,10 @@ operations = (
             node_roles=[NodeRole.INGESTION_SMALL],
         ),
         run_sql_with_exceptions(
+            DOCUMENT_EMBEDDINGS_WRITABLE_TABLE_SQL(),
+            node_roles=[NodeRole.INGESTION_SMALL],
+        ),
+        run_sql_with_exceptions(
             DOCUMENT_EMBEDDINGS_WS_MV_SQL(),
             node_roles=[NodeRole.INGESTION_SMALL],
         ),
@@ -50,12 +57,20 @@ operations = (
             node_roles=[NodeRole.INGESTION_SMALL],
         ),
         run_sql_with_exceptions(
+            WRITABLE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
+            node_roles=[NodeRole.INGESTION_SMALL],
+        ),
+        run_sql_with_exceptions(
             ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_MV_SQL(),
             node_roles=[NodeRole.INGESTION_SMALL],
         ),
         # error_tracking_fingerprint_issue_state
         run_sql_with_exceptions(
             KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_TABLE_SQL(),
+            node_roles=[NodeRole.INGESTION_SMALL],
+        ),
+        run_sql_with_exceptions(
+            WRITABLE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL(),
             node_roles=[NodeRole.INGESTION_SMALL],
         ),
         run_sql_with_exceptions(
