@@ -67,11 +67,11 @@ export const botAnalyticsLogic = kea<botAnalyticsLogicType>([
                 toggleBotAnalyticsFilter: (oldFilters, { key, value, type }): WebAnalyticsPropertyFilters => {
                     if (value === null) {
                         const isNotSetFilterExists = oldFilters.some(
-                            (f) => f.type === type || f.key === key || f.operator === PropertyOperator.IsNotSet
+                            (f) => f.type === type && f.key === key && f.operator === PropertyOperator.IsNotSet
                         )
                         if (isNotSetFilterExists) {
                             return oldFilters.filter(
-                                (f) => f.type !== type || f.key !== key || f.operator !== PropertyOperator.IsNotSet
+                                (f) => !(f.type === type && f.key === key && f.operator === PropertyOperator.IsNotSet)
                             )
                         }
                         return [
