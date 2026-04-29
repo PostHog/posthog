@@ -51,7 +51,11 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Insight
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
-from posthog.models.group_type_mapping import GroupTypeMapping, invalidate_group_types_cache
+from posthog.models.group_type_mapping import (
+    GroupTypeMapping,
+    get_group_types_for_project,
+    invalidate_group_types_cache,
+)
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -671,12 +675,19 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 primary_dashboard=instance,
                 id=instance.team_id,
             ).update(primary_dashboard=None)
-            group_type_mapping = GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
-            ).first()
-            if group_type_mapping:
-                group_type_mapping.detail_dashboard_id = None
-                group_type_mapping.save()
+            matching_mapping = next(
+                (
+                    m
+                    for m in get_group_types_for_project(instance.team.project_id)
+                    if m["detail_dashboard_id"] == instance.id
+                ),
+                None,
+            )
+            if matching_mapping:
+                GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                    project_id=instance.team.project_id,
+                    group_type_index=matching_mapping["group_type_index"],
+                ).update(detail_dashboard_id=None)
                 invalidate_group_types_cache(instance.team.project_id)
 
         request_filters = initial_data.get("filters")

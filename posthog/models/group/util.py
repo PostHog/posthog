@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from django.utils.timezone import now
 
+import structlog
 from dateutil.parser import isoparse
 
 from posthog.kafka_client.client import ClickhouseProducer
@@ -12,6 +13,9 @@ from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.group import Group
 from posthog.models.group.sql import INSERT_GROUP_SQL
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+
+logger = structlog.get_logger(__name__)
 
 
 def raw_create_group_ch(
@@ -76,6 +80,98 @@ def create_group(
         version=0,
     )
     return group
+
+
+def get_group_by_key(team_id: int, group_type_index: int, group_key: str) -> Group | None:
+    """Fetch a single Group via personhog, falling back to ORM on error."""
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_group_to_model
+    from posthog.personhog_client.proto import GetGroupRequest
+
+    try:
+        client = get_personhog_client()
+        if client is None:
+            raise RuntimeError("personhog client not configured")
+
+        resp = client.get_group(
+            GetGroupRequest(team_id=team_id, group_type_index=group_type_index, group_key=group_key)
+        )
+        if resp.group and resp.group.id:
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_group_by_key", source="personhog", client_name=get_client_name()
+            ).inc()
+            return proto_group_to_model(resp.group)
+        PERSONHOG_ROUTING_TOTAL.labels(
+            operation="get_group_by_key", source="personhog", client_name=get_client_name()
+        ).inc()
+        return None
+    except Exception:
+        PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+            operation="get_group_by_key",
+            source="personhog",
+            error_type="grpc_error",
+            client_name=get_client_name(),
+        ).inc()
+        logger.warning(
+            "personhog_get_group_by_key_failure",
+            team_id=team_id,
+            group_type_index=group_type_index,
+            exc_info=True,
+        )
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_group_by_key", source="django_orm", client_name=get_client_name()
+    ).inc()
+    try:
+        return Group.objects.get(  # nosemgrep: no-direct-persons-db-orm
+            team_id=team_id, group_type_index=group_type_index, group_key=group_key
+        )
+    except Group.DoesNotExist:
+        return None
+
+
+def get_groups_by_identifiers(team_id: int, group_type_index: int, group_keys: list[str]) -> list[Group]:
+    """Fetch multiple Groups via personhog, falling back to ORM on error."""
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_group_to_model
+    from posthog.personhog_client.proto import GetGroupsRequest, GroupIdentifier
+
+    if not group_keys:
+        return []
+
+    try:
+        client = get_personhog_client()
+        if client is None:
+            raise RuntimeError("personhog client not configured")
+
+        identifiers = [GroupIdentifier(group_type_index=group_type_index, group_key=key) for key in group_keys]
+        resp = client.get_groups(GetGroupsRequest(team_id=team_id, group_identifiers=identifiers))
+        PERSONHOG_ROUTING_TOTAL.labels(
+            operation="get_groups_by_identifiers", source="personhog", client_name=get_client_name()
+        ).inc()
+        return [proto_group_to_model(g) for g in resp.groups if g.id]
+    except Exception:
+        PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+            operation="get_groups_by_identifiers",
+            source="personhog",
+            error_type="grpc_error",
+            client_name=get_client_name(),
+        ).inc()
+        logger.warning(
+            "personhog_get_groups_by_identifiers_failure",
+            team_id=team_id,
+            group_type_index=group_type_index,
+            exc_info=True,
+        )
+
+    PERSONHOG_ROUTING_TOTAL.labels(
+        operation="get_groups_by_identifiers", source="django_orm", client_name=get_client_name()
+    ).inc()
+    return list(
+        Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            team_id=team_id, group_type_index=group_type_index, group_key__in=group_keys
+        )
+    )
 
 
 def get_aggregation_target_field(
