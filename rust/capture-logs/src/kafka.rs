@@ -203,21 +203,6 @@ impl KafkaSink {
         logs_liveness: HealthHandle,
         traces_liveness: HealthHandle,
     ) -> anyhow::Result<KafkaSink> {
-        let traces_overridden = config.kafka_traces_hosts.is_some()
-            || config.kafka_traces_tls.is_some()
-            || config.kafka_traces_client_id.is_some()
-            || config.kafka_traces_compression_codec.is_some()
-            || config.kafka_traces_producer_acks.is_some()
-            || config.kafka_traces_producer_linger_ms.is_some()
-            || config.kafka_traces_producer_queue_mib.is_some()
-            || config.kafka_traces_message_timeout_ms.is_some()
-            || config.kafka_traces_producer_message_max_bytes.is_some()
-            || config.kafka_traces_producer_max_retries.is_some()
-            || config
-                .kafka_traces_topic_metadata_refresh_interval_ms
-                .is_some()
-            || config.kafka_traces_metadata_max_age_ms.is_some();
-
         info!(
             "connecting to logs Kafka brokers at {}...",
             config.kafka_hosts
@@ -238,56 +223,50 @@ impl KafkaSink {
         );
         let logs_producer = build_producer(logs_client_config, logs_liveness, "logs").await?;
 
-        let traces_producer = if traces_overridden {
-            let traces_hosts = config
-                .kafka_traces_hosts
+        let traces_hosts = config
+            .kafka_traces_hosts
+            .clone()
+            .unwrap_or_else(|| config.kafka_hosts.clone());
+        info!("connecting to traces Kafka brokers at {}...", traces_hosts);
+        let traces_client_config = build_client_config(
+            &traces_hosts,
+            config.kafka_traces_tls.unwrap_or(config.kafka_tls),
+            &config
+                .kafka_traces_client_id
                 .clone()
-                .unwrap_or_else(|| config.kafka_hosts.clone());
-            info!("connecting to traces Kafka brokers at {}...", traces_hosts);
-            let traces_client_config = build_client_config(
-                &traces_hosts,
-                config.kafka_traces_tls.unwrap_or(config.kafka_tls),
-                &config
-                    .kafka_traces_client_id
-                    .clone()
-                    .unwrap_or_else(|| config.kafka_client_id.clone()),
-                &config
-                    .kafka_traces_compression_codec
-                    .clone()
-                    .unwrap_or_else(|| config.kafka_compression_codec.clone()),
-                &config
-                    .kafka_traces_producer_acks
-                    .clone()
-                    .unwrap_or_else(|| config.kafka_producer_acks.clone()),
-                config
-                    .kafka_traces_producer_linger_ms
-                    .unwrap_or(config.kafka_producer_linger_ms),
-                config
-                    .kafka_traces_producer_queue_mib
-                    .unwrap_or(config.kafka_producer_queue_mib),
-                config
-                    .kafka_traces_message_timeout_ms
-                    .unwrap_or(config.kafka_message_timeout_ms),
-                config
-                    .kafka_traces_producer_message_max_bytes
-                    .unwrap_or(config.kafka_producer_message_max_bytes),
-                config
-                    .kafka_traces_producer_max_retries
-                    .unwrap_or(config.kafka_producer_max_retries),
-                config
-                    .kafka_traces_topic_metadata_refresh_interval_ms
-                    .unwrap_or(config.kafka_topic_metadata_refresh_interval_ms),
-                config
-                    .kafka_traces_metadata_max_age_ms
-                    .unwrap_or(config.kafka_metadata_max_age_ms),
-            );
-            build_producer(traces_client_config, traces_liveness, "traces").await?
-        } else {
-            // No traces overrides: reuse the logs producer and immediately mark
-            // the traces liveness handle healthy so it does not flap.
-            traces_liveness.report_healthy().await;
-            logs_producer.clone()
-        };
+                .unwrap_or_else(|| config.kafka_client_id.clone()),
+            &config
+                .kafka_traces_compression_codec
+                .clone()
+                .unwrap_or_else(|| config.kafka_compression_codec.clone()),
+            &config
+                .kafka_traces_producer_acks
+                .clone()
+                .unwrap_or_else(|| config.kafka_producer_acks.clone()),
+            config
+                .kafka_traces_producer_linger_ms
+                .unwrap_or(config.kafka_producer_linger_ms),
+            config
+                .kafka_traces_producer_queue_mib
+                .unwrap_or(config.kafka_producer_queue_mib),
+            config
+                .kafka_traces_message_timeout_ms
+                .unwrap_or(config.kafka_message_timeout_ms),
+            config
+                .kafka_traces_producer_message_max_bytes
+                .unwrap_or(config.kafka_producer_message_max_bytes),
+            config
+                .kafka_traces_producer_max_retries
+                .unwrap_or(config.kafka_producer_max_retries),
+            config
+                .kafka_traces_topic_metadata_refresh_interval_ms
+                .unwrap_or(config.kafka_topic_metadata_refresh_interval_ms),
+            config
+                .kafka_traces_metadata_max_age_ms
+                .unwrap_or(config.kafka_metadata_max_age_ms),
+        );
+        let traces_producer =
+            build_producer(traces_client_config, traces_liveness, "traces").await?;
 
         Ok(KafkaSink {
             logs_producer,
