@@ -182,7 +182,6 @@ describe('traceReviewsExport', () => {
             mockTraceReviewsList.mockResolvedValueOnce({
                 results: [baseReview],
                 count: CLIPBOARD_ROW_LIMIT + 1,
-                offset: 0,
             })
 
             const result = await fetchAllReviewsForExport(filters)
@@ -220,7 +219,6 @@ describe('traceReviewsExport', () => {
             mockTraceReviewsList.mockResolvedValueOnce({
                 results: [baseReview],
                 count: CLIPBOARD_ROW_LIMIT + 1,
-                offset: 0,
             })
 
             await copyReviewsAs(filters, 'csv')
@@ -241,7 +239,6 @@ describe('traceReviewsExport', () => {
                 mockTraceReviewsList.mockResolvedValueOnce({
                     results: [baseReview],
                     count: 1,
-                    offset: 0,
                 })
 
                 await copyReviewsAs(filters, format)
@@ -258,7 +255,6 @@ describe('traceReviewsExport', () => {
             mockTraceReviewsList.mockResolvedValueOnce({
                 results: [baseReview],
                 count: 1,
-                offset: 0,
             })
 
             await copyReviewsAs(filters, 'json')
@@ -280,7 +276,6 @@ describe('traceReviewsExport', () => {
                     mockTraceReviewsList.mockResolvedValueOnce({
                         results: [baseReview],
                         count: 1,
-                        offset: 0,
                     })
                     mockCopyToClipboard.mockImplementationOnce(() => {
                         throw new Error('clipboard unavailable')
@@ -293,7 +288,6 @@ describe('traceReviewsExport', () => {
                     mockTraceReviewsList.mockResolvedValueOnce({
                         results: [baseReview],
                         count: 1,
-                        offset: 0,
                     })
                     mockCopyToClipboard.mockRejectedValueOnce(new Error('clipboard rejected'))
                 },
