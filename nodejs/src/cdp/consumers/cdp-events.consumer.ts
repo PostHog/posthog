@@ -11,11 +11,13 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { shouldBlockHogFlowDueToQuota } from '../services/hogflows/hogflow-quota-limiting'
+import { HogFlowTriggerDedupService } from '../services/hogflows/hogflow-trigger-dedup.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocation,
+    CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
     HogFunctionInvocationGlobals,
     HogFunctionType,
@@ -36,6 +38,7 @@ export class CdpEventsConsumer<
     protected kafkaConsumer: KafkaConsumer
 
     private hogRateLimiter: HogRateLimiterService
+    private hogFlowTriggerDedup: HogFlowTriggerDedupService
 
     constructor(
         config: TConfig,
@@ -54,6 +57,10 @@ export class CdpEventsConsumer<
             },
             this.redis
         )
+        this.hogFlowTriggerDedup = new HogFlowTriggerDedupService(
+            this.redis,
+            config.CDP_HOGFLOW_TRIGGER_DEDUP_TTL_SECONDS
+        )
     }
 
     public async processBatch(
@@ -66,15 +73,30 @@ export class CdpEventsConsumer<
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
         await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
-        const invocationsToBeQueued = [
-            ...(await this.createHogFunctionInvocations(invocationGlobals)),
-            ...(await this.createHogFlowInvocations(invocationGlobals)),
+        const hogFunctionInvocations = await this.createHogFunctionInvocations(invocationGlobals)
+        const hogFlowInvocations = await this.createHogFlowInvocations(invocationGlobals)
+
+        // Trigger-layer dedup on (workflow_id, event_uuid) catches duplicate hogflow invocations
+        // produced when Kafka replays uncommitted offsets during a normal rebalance.
+        const dedupedHogFlowInvocations = await this.dedupHogFlowInvocations(hogFlowInvocations)
+
+        const invocationsToBeQueued: CyclotronJobInvocation[] = [
+            ...hogFunctionInvocations,
+            ...dedupedHogFlowInvocations.kept,
         ]
 
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
             backgroundTask: Promise.all([
-                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued),
+                this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued).catch(async (err) => {
+                    // If we already claimed dedup keys but the queue write failed, release them so the
+                    // next Kafka redelivery is allowed to re-attempt instead of being silently swallowed
+                    // for the dedup TTL.
+                    if (dedupedHogFlowInvocations.kept.length) {
+                        await this.hogFlowTriggerDedup.release(dedupedHogFlowInvocations.kept)
+                    }
+                    throw err
+                }),
                 this.hogFunctionMonitoringService.flush().catch((err) => {
                     captureException(err)
                     logger.error('🔴', 'Error producing queued messages for monitoring', { err })
@@ -82,6 +104,31 @@ export class CdpEventsConsumer<
             ]),
             invocations: invocationsToBeQueued,
         }
+    }
+
+    private async dedupHogFlowInvocations(
+        invocations: CyclotronJobInvocationHogFlow[]
+    ): Promise<{ kept: CyclotronJobInvocationHogFlow[]; dropped: CyclotronJobInvocationHogFlow[] }> {
+        if (!this.config.CDP_HOGFLOW_TRIGGER_DEDUP_ENABLED || !invocations.length) {
+            return { kept: invocations, dropped: [] }
+        }
+
+        const result = await this.hogFlowTriggerDedup.dedup(invocations)
+
+        if (result.dropped.length) {
+            const droppedLogs: LogEntry[] = result.dropped.map((item) => ({
+                timestamp: DateTime.now(),
+                level: 'warn',
+                message: `Workflow trigger deduplicated for [Person:${item.person?.id ?? 'unknown'}] on [Event:${item.state?.event?.uuid ?? 'unknown'}] - upstream replay suppressed.`,
+                team_id: item.teamId,
+                log_source: 'hog_flow',
+                log_source_id: item.functionId,
+                instance_id: item.id,
+            }))
+            this.hogFunctionMonitoringService.queueLogs(droppedLogs, 'hog_flow')
+        }
+
+        return result
     }
 
     protected filterHogFunction(hogFunction: HogFunctionType): boolean {
@@ -257,7 +304,7 @@ export class CdpEventsConsumer<
     @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
     protected async createHogFlowInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
-    ): Promise<CyclotronJobInvocation[]> {
+    ): Promise<CyclotronJobInvocationHogFlow[]> {
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
 
@@ -286,7 +333,7 @@ export class CdpEventsConsumer<
         const rateLimits = await instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitMany', async () => {
             return await this.hogRateLimiter.rateLimitMany(possibleInvocations.map((x) => [x.hogFlow.id, 1]))
         })
-        const validInvocations: CyclotronJobInvocation[] = []
+        const validInvocations: CyclotronJobInvocationHogFlow[] = []
 
         // Iterate over adding them to the list and updating their priority
         await Promise.all(

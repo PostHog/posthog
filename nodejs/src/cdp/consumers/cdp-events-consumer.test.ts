@@ -25,9 +25,11 @@ import {
     createKafkaMessage,
 } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
+import { deleteKeysWithPrefix } from '../_tests/redis'
+import { BASE_REDIS_KEY as DEDUP_BASE_REDIS_KEY } from '../services/hogflows/hogflow-trigger-dedup.service'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
@@ -1171,6 +1173,220 @@ describe('hog flow processing', () => {
 
             expect(invocations).toHaveLength(1)
             expect(globals.groups).toEqual({})
+        })
+    })
+
+    describe('hogflow trigger dedup', () => {
+        let mockQueueInvocations: jest.Mock
+        let globals: HogFunctionInvocationGlobals
+
+        const buildGlobals = (overrides: {
+            eventUuid: string
+            distinctId?: string
+            eventName?: string
+        }): HogFunctionInvocationGlobals =>
+            createHogExecutionGlobals({
+                project: { id: team.id } as any,
+                event: {
+                    uuid: overrides.eventUuid,
+                    event: overrides.eventName ?? '$pageview',
+                    distinct_id: overrides.distinctId ?? 'distinct-1',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                        $lib_version: '1.0.0',
+                    },
+                } as any,
+            })
+
+        const recreateProcessor = async (overrides: { dedupEnabled: boolean }) => {
+            await processor.stop()
+            hub.CDP_HOGFLOW_TRIGGER_DEDUP_ENABLED = overrides.dedupEnabled
+            hub.CDP_HOGFLOW_TRIGGER_DEDUP_TTL_SECONDS = 60
+            processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub))
+            processor['kafkaConsumer'] = {
+                connect: jest.fn(),
+                disconnect: jest.fn(),
+                isHealthy: jest.fn(),
+            } as any
+            processor['cyclotronJobQueue'] = {
+                queueInvocations: jest.fn(),
+                startAsProducer: jest.fn(() => Promise.resolve()),
+                stop: jest.fn(),
+            } as unknown as jest.Mocked<CyclotronJobQueue>
+            mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+            await processor.start()
+            await deleteKeysWithPrefix(processor.redis, DEDUP_BASE_REDIS_KEY)
+        }
+
+        beforeEach(async () => {
+            await recreateProcessor({ dedupEnabled: true })
+            globals = buildGlobals({ eventUuid: 'evt-uuid-1' })
+
+            // A workflow that fires on $pageview events.
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+        })
+
+        const queuedInvocationsFromCall = (callIndex: number): CyclotronJobInvocationHogFlow[] => {
+            const args = mockQueueInvocations.mock.calls[callIndex]?.[0] ?? []
+            return args.filter((inv: any): inv is CyclotronJobInvocationHogFlow => inv.queue === 'hogflow')
+        }
+
+        // Case 1: legitimate execution must go through.
+        it('queues a single invocation for a first-seen event', async () => {
+            const result = await processor.processBatch([globals])
+            await result.backgroundTask
+
+            expect(result.invocations).toHaveLength(1)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            expect(queuedInvocationsFromCall(0)).toHaveLength(1)
+        })
+
+        // Case 2: true Kafka replay (same event_uuid + same distinct_id) is dropped.
+        it('drops the second invocation when the same event is reprocessed (Kafka replay)', async () => {
+            const first = await processor.processBatch([globals])
+            await first.backgroundTask
+            expect(first.invocations).toHaveLength(1)
+
+            const replay = await processor.processBatch([buildGlobals({ eventUuid: 'evt-uuid-1' })])
+            await replay.backgroundTask
+
+            expect(replay.invocations).toHaveLength(0)
+            expect(queuedInvocationsFromCall(0)).toHaveLength(1)
+            expect(queuedInvocationsFromCall(1)).toHaveLength(0)
+        })
+
+        // Case 3: with dedup off (default rollout state) we must preserve at-least-once behavior.
+        it('does NOT dedup when CDP_HOGFLOW_TRIGGER_DEDUP_ENABLED is false', async () => {
+            await recreateProcessor({ dedupEnabled: false })
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const first = await processor.processBatch([globals])
+            await first.backgroundTask
+            const replay = await processor.processBatch([buildGlobals({ eventUuid: 'evt-uuid-1' })])
+            await replay.backgroundTask
+
+            expect(first.invocations).toHaveLength(1)
+            expect(replay.invocations).toHaveLength(1)
+            expect(queuedInvocationsFromCall(0)).toHaveLength(1)
+            expect(queuedInvocationsFromCall(1)).toHaveLength(1)
+        })
+
+        // Case 4: same event triggering two distinct workflows must not collide.
+        it('keeps invocations for two different workflows triggered by the same event', async () => {
+            await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const result = await processor.processBatch([globals])
+            await result.backgroundTask
+
+            // Two workflows in this team match the trigger -> two invocations on first call.
+            expect(result.invocations).toHaveLength(2)
+            expect(queuedInvocationsFromCall(0)).toHaveLength(2)
+        })
+
+        // Case 5: distinct events for the same workflow must each invoke independently.
+        it('keeps invocations for two different events on the same workflow', async () => {
+            const first = await processor.processBatch([buildGlobals({ eventUuid: 'evt-A' })])
+            await first.backgroundTask
+            const second = await processor.processBatch([buildGlobals({ eventUuid: 'evt-B' })])
+            await second.backgroundTask
+
+            expect(first.invocations).toHaveLength(1)
+            expect(second.invocations).toHaveLength(1)
+        })
+
+        // Case 6: failure recovery — if Cyclotron queue rejects, dedup keys must be released.
+        it('releases dedup keys when queueInvocations throws so Kafka replay can retry', async () => {
+            mockQueueInvocations.mockRejectedValueOnce(new Error('cyclotron unavailable'))
+
+            const first = await processor.processBatch([globals])
+            // backgroundTask rejects — surface the rejection but don't let it fail the test.
+            await expect(first.backgroundTask).rejects.toThrow('cyclotron unavailable')
+
+            // The next replay should succeed because the dedup key was released.
+            mockQueueInvocations.mockResolvedValueOnce(undefined)
+            const retry = await processor.processBatch([buildGlobals({ eventUuid: 'evt-uuid-1' })])
+            await retry.backgroundTask
+
+            expect(retry.invocations).toHaveLength(1)
+            expect(queuedInvocationsFromCall(1)).toHaveLength(1)
+        })
+
+        // Case 7: hog functions must remain at-least-once; only hog flows are deduped.
+        it('does not dedup hog function invocations even when their backing event is repeated', async () => {
+            const fn = await _insertHogFunction(hub.postgres, team.id, {
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                type: 'destination',
+            })
+            processor['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [fn.id])
+
+            const first = await processor.processBatch([globals])
+            await first.backgroundTask
+            const replay = await processor.processBatch([buildGlobals({ eventUuid: 'evt-uuid-1' })])
+            await replay.backgroundTask
+
+            const firstHogFunctions = (mockQueueInvocations.mock.calls[0][0] as CyclotronJobInvocationHogFlow[]).filter(
+                (inv: any) => inv.hogFunction
+            )
+            const replayHogFunctions = (
+                mockQueueInvocations.mock.calls[1][0] as CyclotronJobInvocationHogFlow[]
+            ).filter((inv: any) => inv.hogFunction)
+
+            // Hog function still queued on both attempts (no dedup for that path).
+            expect(firstHogFunctions.length).toBeGreaterThanOrEqual(1)
+            expect(replayHogFunctions.length).toBeGreaterThanOrEqual(1)
+
+            // But the hog flow side was deduped on the replay.
+            expect(queuedInvocationsFromCall(1)).toHaveLength(0)
+        })
+
+        // Case 8: identify-replay (same event_uuid, distinct_id changed after identify) must NOT
+        // be suppressed — workflows that gate on identification depend on this re-trigger.
+        it('keeps both invocations on identify-replay (same event_uuid, different distinct_id)', async () => {
+            const beforeIdentify = await processor.processBatch([
+                buildGlobals({ eventUuid: 'evt-uuid-1', distinctId: 'anon-uuid-aaaa' }),
+            ])
+            await beforeIdentify.backgroundTask
+            const afterIdentify = await processor.processBatch([
+                buildGlobals({ eventUuid: 'evt-uuid-1', distinctId: 'user@example.com' }),
+            ])
+            await afterIdentify.backgroundTask
+
+            expect(beforeIdentify.invocations).toHaveLength(1)
+            expect(afterIdentify.invocations).toHaveLength(1)
+            expect(queuedInvocationsFromCall(0)).toHaveLength(1)
+            expect(queuedInvocationsFromCall(1)).toHaveLength(1)
         })
     })
 })
