@@ -1,16 +1,17 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { DiffPercentage } from '../components/DiffPercentage'
 import type { SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import {
     ThemePair,
@@ -43,7 +44,6 @@ function ThemePane({
     theme: 'light' | 'dark' | null
 }): JSX.Element {
     const [imageLoaded, setImageLoaded] = useState(false)
-
     return (
         <div
             className={`relative border rounded overflow-hidden aspect-[16/9] ${theme === 'dark' ? 'bg-bg-3000' : 'bg-bg-light'}`}
@@ -85,20 +85,19 @@ function runUrl(entry: SnapshotHistoryEntryApi): string {
     return `${urls.visualReviewRun(entry.run_id)}?snapshot=${encodeURIComponent(entry.snapshot_id)}`
 }
 
-function HistoryEntryCard({
+function HistoryRow({
     pair,
     isCurrent,
+    isLast,
     repoFullName,
 }: {
     pair: ThemePair
     isCurrent: boolean
+    isLast: boolean
     repoFullName: string | null
 }): JSX.Element {
     const entry = pair.primary
     const reason = REASON_TAGS[entry.result] ?? { label: entry.result, type: 'default' as const }
-    const diff = entry.diff_percentage
-    const hasDiff = diff != null && diff > 0
-    const created = dayjs(entry.created_at)
     const prUrl = entry.pr_number && repoFullName ? `https://github.com/${repoFullName}/pull/${entry.pr_number}` : null
     const commitUrl = repoFullName ? `https://github.com/${repoFullName}/commit/${entry.commit_sha}` : null
     const showPair = pair.primaryTheme !== null
@@ -106,27 +105,25 @@ function HistoryEntryCard({
     return (
         <article className="flex gap-4">
             {/* Spine + dot */}
-            <div className="flex flex-col items-center pt-3 shrink-0" aria-hidden>
+            <div className="flex flex-col items-center pt-1.5 shrink-0" aria-hidden>
                 <span
                     className={`w-3 h-3 rounded-full border-2 ${
                         isCurrent
                             ? 'bg-accent border-accent shadow-[0_0_0_4px_rgba(245,78,0,0.18)]'
-                            : 'bg-bg-light border-primary'
+                            : 'bg-bg-light border-secondary'
                     }`}
                 />
-                <span className="flex-1 w-px bg-border-primary mt-2" />
+                {!isLast && <span className="flex-1 w-0.5 bg-border mt-2" />}
             </div>
 
-            <LemonCard className={`flex-1 min-w-0 p-3 ${isCurrent ? '' : 'opacity-90'}`} hoverEffect={false}>
-                <div className="flex items-center gap-2 flex-wrap mb-1.5">
+            <div className="flex-1 min-w-0 pb-6">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
                     {isCurrent && <LemonTag type="primary">Current baseline</LemonTag>}
                     <LemonTag type={reason.type}>{reason.label}</LemonTag>
-                    <span className="text-sm font-semibold">{created.fromNow()}</span>
-                    <span className="text-muted text-xs">·</span>
-                    <span className="text-muted text-xs font-mono">{created.format('MMM D YYYY · HH:mm')}</span>
+                    <TZLabel time={entry.created_at} className="text-sm font-semibold" />
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap text-xs text-muted mb-2.5">
+                <div className="flex items-center gap-2 flex-wrap text-xs text-muted mb-2">
                     <Link to={runUrl(entry)} className="font-mono text-default">
                         {entry.branch}
                     </Link>
@@ -146,109 +143,100 @@ function HistoryEntryCard({
                     ) : (
                         <span className="font-mono">{entry.commit_sha.slice(0, 8)}</span>
                     )}
-                    {hasDiff && (
+                    {entry.diff_percentage != null && entry.diff_percentage > 0 && (
                         <>
                             <span>·</span>
-                            <span
-                                className={`font-mono tabular-nums ${diff > 5 ? 'text-warning-dark font-semibold' : ''}`}
-                            >
-                                {diff < 1 ? diff.toFixed(1) : Math.round(diff)}% change
-                            </span>
+                            <DiffPercentage value={entry.diff_percentage} />
                         </>
                     )}
                 </div>
 
-                <Link
-                    to={runUrl(entry)}
-                    className={`grid gap-2 ${showPair ? 'grid-cols-2 max-w-md' : 'grid-cols-1 max-w-xs'}`}
-                >
+                <Link to={runUrl(entry)} className={`grid gap-2 ${showPair ? 'grid-cols-2' : 'grid-cols-1 w-1/2'}`}>
                     <ThemePane entry={pair.primary} theme={pair.primaryTheme} />
                     {showPair && <ThemePane entry={pair.partner} theme={pair.partnerTheme} />}
                 </Link>
-            </LemonCard>
+            </div>
         </article>
     )
 }
 
+function Stat({ value, label }: { value: React.ReactNode; label: string }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-0.5">
+            <div className="text-base font-semibold leading-tight whitespace-nowrap">{value}</div>
+            <div className="text-[11px] uppercase tracking-wider text-tertiary">{label}</div>
+        </div>
+    )
+}
+
 export function VisualReviewSnapshotHistoryScene(): JSX.Element {
-    const { repo, repoLoading, history, historyLoading, baselineUpdates, identifier, pairedHistory } = useValues(
+    const { repo, repoLoading, history, historyLoading, identifier, pairedHistory, runType } = useValues(
         visualReviewSnapshotHistorySceneLogic
     )
 
-    const firstSeen = history.length > 0 ? dayjs(history[history.length - 1].created_at) : null
     const repoFullName = repo?.repo_full_name ?? null
+    const firstSeen = history.length > 0 ? history[history.length - 1].created_at : null
+    const baselineUpdates = history.filter((e) => e.result !== 'unchanged').length
 
     return (
         <SceneContent>
-            <div className="flex flex-col gap-4 py-4 max-w-3xl">
-                <LemonCard hoverEffect={false} className="p-4 flex items-start justify-between gap-6">
-                    <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-2 text-xs">
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                icon={<IconArrowLeft />}
-                                to={urls.visualReviewRuns()}
-                            >
-                                All runs
-                            </LemonButton>
-                            {repoFullName && (
-                                <>
-                                    <span className="text-muted">·</span>
-                                    <span className="font-mono text-muted">{repoFullName}</span>
-                                </>
-                            )}
-                        </div>
-                        <h1 className="m-0 text-xl font-semibold font-mono break-all">{identifier}</h1>
-                    </div>
+            <SceneTitleSection name={identifier} resourceType={{ type: 'visual_review' }} />
 
-                    <div className="flex items-stretch gap-0 shrink-0">
-                        <Stat value={historyLoading ? '–' : String(baselineUpdates.length)} label="Baseline updates" />
-                        <LemonDivider vertical className="mx-3" />
-                        <Stat value={firstSeen ? firstSeen.fromNow(true) : '–'} label="First captured" />
-                    </div>
-                </LemonCard>
+            <div className="w-full max-w-4xl mx-auto flex flex-col gap-4">
+                <div className="border rounded bg-bg-light flex flex-wrap items-center gap-x-10 gap-y-3 px-4 py-3">
+                    {runType && (
+                        <Stat
+                            value={
+                                <LemonTag type="default" className="uppercase tracking-wider">
+                                    {runType}
+                                </LemonTag>
+                            }
+                            label="Type"
+                        />
+                    )}
+                    <Stat
+                        value={historyLoading ? '–' : String(baselineUpdates)}
+                        label={baselineUpdates === 1 ? 'Baseline update' : 'Baseline updates'}
+                    />
+                    <Stat value={firstSeen ? dayjs(firstSeen).fromNow() : '–'} label="First captured" />
+                    {repoFullName && (
+                        <Stat
+                            value={
+                                <Link
+                                    to={`https://github.com/${repoFullName}`}
+                                    target="_blank"
+                                    className="font-mono text-default"
+                                >
+                                    {repoFullName}
+                                </Link>
+                            }
+                            label="Repo"
+                        />
+                    )}
+                </div>
 
                 {historyLoading || repoLoading ? (
                     <div className="flex flex-col gap-4">
-                        <LemonSkeleton className="h-48 w-full" />
-                        <LemonSkeleton className="h-48 w-full" />
+                        <LemonSkeleton className="h-32 w-full" />
+                        <LemonSkeleton className="h-32 w-full" />
                     </div>
                 ) : history.length === 0 ? (
                     <LemonBanner type="info">No history yet for this snapshot.</LemonBanner>
                 ) : (
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-col">
                         {pairedHistory.map((pair: ThemePair, i: number) => (
-                            <HistoryEntryCard
+                            <HistoryRow
                                 key={`${pair.runId}-${pair.primary.snapshot_id}`}
                                 pair={pair}
                                 isCurrent={i === 0}
+                                isLast={i === pairedHistory.length - 1}
                                 repoFullName={repoFullName}
                             />
                         ))}
-                        {firstSeen && (
-                            <div className="flex gap-4 opacity-60">
-                                <div className="flex flex-col items-center pt-2 shrink-0" aria-hidden>
-                                    <span className="w-3 h-3 rounded-full bg-border-primary" />
-                                </div>
-                                <p className="text-xs italic text-muted py-2 m-0">
-                                    Snapshot didn't exist before {firstSeen.fromNow()}
-                                </p>
-                            </div>
-                        )}
                     </div>
                 )}
             </div>
         </SceneContent>
-    )
-}
-
-function Stat({ value, label }: { value: string; label: string }): JSX.Element {
-    return (
-        <div className="min-w-[110px]">
-            <div className="text-base font-semibold leading-tight">{value}</div>
-            <div className="text-[11px] uppercase tracking-wider text-tertiary mt-0.5">{label}</div>
-        </div>
     )
 }
 

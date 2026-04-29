@@ -455,11 +455,12 @@ export function VisualReviewRunScene(): JSX.Element {
                             <LemonButton
                                 size="xsmall"
                                 icon={<IconChevronLeft />}
+                                sideIcon={<KeyboardShortcut p />}
                                 onClick={goToPrevious}
                                 disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
                                 data-attr="visual-review-snapshot-previous"
                             >
-                                Previous <KeyboardShortcut p />
+                                Previous
                             </LemonButton>
                             {currentIndex >= 0 && (
                                 <span className="text-xs text-muted">
@@ -468,12 +469,13 @@ export function VisualReviewRunScene(): JSX.Element {
                             )}
                             <LemonButton
                                 size="xsmall"
+                                icon={<KeyboardShortcut n />}
                                 sideIcon={<IconChevronRight />}
                                 onClick={goToNext}
                                 disabledReason={!hasNext ? 'No next snapshot' : undefined}
                                 data-attr="visual-review-snapshot-next"
                             >
-                                Next <KeyboardShortcut n />
+                                Next
                             </LemonButton>
                         </div>
                     )}

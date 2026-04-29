@@ -86,6 +86,7 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
     })),
     selectors({
         identifier: [() => [(_, p) => p.identifier], (identifier: string): string => identifier],
+        runType: [() => [(_, p) => p.runType], (runType: string): string => runType],
         primaryTheme: [
             () => [(_, p) => p.identifier],
             (identifier: string): 'light' | 'dark' | null => detectTheme(identifier).theme,
@@ -112,12 +113,6 @@ export const visualReviewSnapshotHistorySceneLogic = kea<visualReviewSnapshotHis
                     partnerTheme,
                 }))
             },
-        ],
-        // Only entries that mutated the baseline are "interesting" — used for the stat header.
-        baselineUpdates: [
-            (s) => [s.history],
-            (history: SnapshotHistoryEntryApi[]): SnapshotHistoryEntryApi[] =>
-                history.filter((e) => e.result !== 'unchanged'),
         ],
         breadcrumbs: [
             () => [(_, p) => p.identifier],

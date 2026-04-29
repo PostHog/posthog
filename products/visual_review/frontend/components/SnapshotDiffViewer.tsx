@@ -18,6 +18,7 @@ import type {
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
+import { DiffPercentage } from './DiffPercentage'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
 function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
@@ -502,7 +503,7 @@ export function SnapshotDiffViewer({
                             {snapshot.diff_percentage != null && snapshot.diff_percentage > 0 && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">Diff</span>
-                                    <span className="font-mono">{Number(snapshot.diff_percentage.toFixed(2))}%</span>
+                                    <DiffPercentage value={snapshot.diff_percentage} suffix="" />
                                 </div>
                             )}
                             {snapshot.baseline_artifact?.content_hash && (
