@@ -593,6 +593,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             experiment,
             warningKey,
         }),
+        reportExperimentBiasWarningShown: (experiment: Experiment) => ({ experiment }),
         reportExperimentMetricsRefreshed: (
             experiment: Experiment,
             forceRefresh: boolean,
@@ -1078,6 +1079,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             itemName,
             isAIFirst,
         }),
+        reportNavbarStarredItemsReordered: (itemCount: number, isAIFirst: boolean) => ({
+            itemCount,
+            isAIFirst,
+        }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1558,6 +1563,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('experiment inconsistency warning shown', {
                 ...getEventPropertiesForExperiment(experiment),
                 warning_key: warningKey,
+            })
+        },
+        reportExperimentBiasWarningShown: ({ experiment }) => {
+            posthog.capture('experiment bias warning shown', {
+                ...getEventPropertiesForExperiment(experiment),
             })
         },
         reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
@@ -2465,6 +2475,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('navbar starred item clicked', {
                 item_type: itemType,
                 item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
+        },
+        reportNavbarStarredItemsReordered: ({ itemCount, isAIFirst }) => {
+            posthog.capture('navbar starred items reordered', {
+                item_count: itemCount,
                 is_ai_first: isAIFirst,
             })
         },

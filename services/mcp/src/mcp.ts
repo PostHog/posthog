@@ -14,6 +14,7 @@ import {
     isFeatureFlagEnabled,
     type MCPAnalyticsContext,
 } from '@/lib/analytics'
+import { hasScope } from '@/lib/api'
 import { buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
@@ -543,9 +544,15 @@ export class MCP extends McpAgent<Env> {
         // Fetch group types and metadata in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
         const [groupTypes, metadata] = await Promise.all([
-            resolvedProjectId
-                ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
-                : Promise.resolve(undefined),
+            (async () => {
+                if (!resolvedProjectId) {
+                    return undefined
+                }
+                const apiKey = await context.stateManager.getApiKey()
+                return hasScope(apiKey.scopes, 'group:read')
+                    ? context.stateManager.getOrFetchGroupTypes(resolvedProjectId)
+                    : undefined
+            })(),
             context.stateManager.getEnvironmentPrompt(),
         ])
         // When project ID is provided, both switch tools are removed (project implies org).
@@ -635,18 +642,22 @@ export class MCP extends McpAgent<Env> {
             registerUiAppResources(this.server, context),
         ])
 
-        // In single-exec mode, register one "posthog" tool that wraps all tools
-        // behind a CLI-like interface. Otherwise, register each tool individually.
-        if (useSingleExec) {
-            // Swap execute-sql's description with the single-exec-specific
-            // prompt (visible via `info execute-sql`). It already folds in
-            // the HogQL/SQL intro, guidelines, discovery workflow, and the
-            // truncation guidance that the base JSON description carried.
+        // execute-sql is v2-only. Swap its description with the rich SQL prompt
+        // (visible via `info execute-sql` in single-exec, and as the tool's own
+        // description otherwise). It folds in the HogQL/SQL intro, guidelines,
+        // discovery workflow, and the truncation guidance that the base JSON
+        // description carried — and it triggers the `querying-posthog-data`
+        // skill more reliably than the shorter default.
+        if (version === 2) {
             const sqlTool = allTools.find((t) => t.name === 'execute-sql')
             if (sqlTool) {
                 sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
             }
+        }
 
+        // In single-exec mode, register one "posthog" tool that wraps all tools
+        // behind a CLI-like interface. Otherwise, register each tool individually.
+        if (useSingleExec) {
             // Strip `{tool_domains}`, `{query_tools}`, `{defined_groups}`, `{metadata}`
             // from the command-parameter description when they're already in `instructions`
             // (their placeholders resolve to empty strings via `buildInstructionsV2`).
