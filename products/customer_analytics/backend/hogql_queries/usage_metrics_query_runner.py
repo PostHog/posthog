@@ -148,23 +148,23 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         group: list[tuple[GroupUsageMetric, ast.Expr]],
         date_to: datetime,
     ) -> ast.SelectQuery:
+        # Each helper call returns a fresh AST node — never share a single timestamp/table
+        # node across multiple AST positions, since the HogQL resolver mutates `node.type`
+        # in-place during resolution and would corrupt later references.
         date_from = date_to - timedelta(days=interval)
         prev_date_from = date_to - 2 * timedelta(days=interval)
 
-        table_expr = self._table_expr(source_sig)
-        timestamp_expr = self._timestamp_expr(source_sig)
-
-        current_condition = self._build_period_condition(timestamp_expr, date_from, date_to)
-        previous_condition = self._build_period_condition(
-            timestamp_expr, prev_date_from, date_from, upper_exclusive=True
-        )
+        current_condition = self._build_period_condition(source_sig, date_from, date_to)
+        previous_condition = self._build_period_condition(source_sig, prev_date_from, date_from, upper_exclusive=True)
 
         select_exprs: list[ast.Expr] = [
             ast.Alias(
                 alias="day",
                 expr=ast.Call(
                     name="toStartOfDay",
-                    args=[ast.Call(name="toTimeZone", args=[timestamp_expr, ast.Constant(value="UTC")])],
+                    args=[
+                        ast.Call(name="toTimeZone", args=[self._timestamp_expr(source_sig), ast.Constant(value="UTC")])
+                    ],
                 ),
             ),
         ]
@@ -180,19 +180,19 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             self._entity_filter_for(source_sig),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
-                left=timestamp_expr,
+                left=self._timestamp_expr(source_sig),
                 right=ast.Constant(value=prev_date_from),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
-                left=timestamp_expr,
+                left=self._timestamp_expr(source_sig),
                 right=ast.Constant(value=date_to),
             ),
         ]
 
         return ast.SelectQuery(
             select=select_exprs,
-            select_from=ast.JoinExpr(table=table_expr),
+            select_from=ast.JoinExpr(table=self._table_expr(source_sig)),
             where=ast.And(exprs=where_exprs),
             group_by=[ast.Field(chain=["day"])],
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["day"]), order="ASC")],
@@ -207,24 +207,30 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
     @staticmethod
     def _timestamp_expr(source_sig: SourceSignature) -> ast.Expr:
         if source_sig[0] == GroupUsageMetric.Source.DATA_WAREHOUSE:
-            return parse_expr(source_sig[2])
+            timestamp_field = source_sig[2]
+            if not timestamp_field:
+                raise ValueError("data_warehouse usage metric is missing 'timestamp_field' in filters")
+            return parse_expr(timestamp_field)
         return ast.Field(chain=["timestamp"])
 
-    @staticmethod
     def _build_period_condition(
-        timestamp_expr: ast.Expr, period_from: datetime, period_to: datetime, upper_exclusive: bool = False
+        self,
+        source_sig: SourceSignature,
+        period_from: datetime,
+        period_to: datetime,
+        upper_exclusive: bool = False,
     ) -> ast.Expr:
         upper_op = ast.CompareOperationOp.Lt if upper_exclusive else ast.CompareOperationOp.LtEq
         return ast.And(
             exprs=[
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
-                    left=timestamp_expr,
+                    left=self._timestamp_expr(source_sig),
                     right=ast.Constant(value=period_from),
                 ),
                 ast.CompareOperation(
                     op=upper_op,
-                    left=timestamp_expr,
+                    left=self._timestamp_expr(source_sig),
                     right=ast.Constant(value=period_to),
                 ),
             ]
@@ -322,9 +328,12 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
 
     def _entity_filter_for(self, source_sig: SourceSignature) -> ast.Expr:
         if source_sig[0] == GroupUsageMetric.Source.DATA_WAREHOUSE:
+            key_field = source_sig[3]
+            if not key_field:
+                raise ValueError("data_warehouse usage metric is missing 'key_field' in filters")
             return ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=parse_expr(source_sig[3]),
+                left=parse_expr(key_field),
                 right=ast.Constant(value=self.query.group_key),
             )
 
