@@ -1,0 +1,24 @@
+rules:
+    - id: organization-membership-without-guest-filter
+      patterns:
+          - pattern-either:
+                - pattern: OrganizationMembership.objects.filter(...)
+                - pattern: OrganizationMembership.objects.get(...)
+                - pattern: OrganizationMembership.objects.all(...)
+                - pattern: OrganizationMembership.objects.exclude(...)
+          - pattern-not: OrganizationMembership.objects.filter(..., is_guest=..., ...)
+          - pattern-not: OrganizationMembership.objects.get(..., is_guest=..., ...)
+          - pattern-not: OrganizationMembership.objects.exclude(..., is_guest=..., ...)
+      message: >
+          `OrganizationMembership.objects` queries include guest memberships by default.
+          Guests are categorically separate from regular members (their access is governed
+          by GuestResourceGrant, not by their membership level). Use
+          `OrganizationMembership.regular` for first-class-member lookups, or explicitly
+          filter `is_guest=False` / `is_guest=True` to make intent obvious.
+      severity: WARNING
+      languages: [python]
+      paths:
+          exclude:
+              - '**/test*/**'
+              - '**/.semgrep/**'
+              - '**/migrations/**'

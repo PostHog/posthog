@@ -124,6 +124,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "updated_at",
             "message",
             "private_project_access",
+            "guest_resources",
+            "bypass_sso",
             "send_email",
             "combine_pending_invites",
         ]
@@ -244,6 +246,51 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 )
 
         return private_project_access
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        guest_resources = attrs.get("guest_resources") or []
+        bypass_sso = attrs.get("bypass_sso") or False
+
+        # SSO bypass is a guest-scenario carve-out; attaching it to a regular invite would give the
+        # new member an SSO-enforcement exception without the admin expecting it. Enforce the
+        # coupling to match the UI.
+        if bypass_sso and not guest_resources:
+            raise exceptions.ValidationError({"bypass_sso": "SSO bypass is only available on guest invites."})
+
+        if not guest_resources:
+            return attrs
+
+        # TODO(edit-grants follow-up): lift this rejection when the admin "edit guest grants"
+        # flow ships. The underlying data model (field validator, AccessControl rows,
+        # `create_grant` service) already supports editor; this is a product-surface gate.
+        for grant in guest_resources:
+            if grant.get("access_level") == "editor":
+                raise exceptions.ValidationError(
+                    {
+                        "guest_resources": (
+                            "Editor-level guest grants are not yet supported. Invite the guest as viewer."
+                        )
+                    }
+                )
+
+        # Guest invites are admin+ only. Non-admins shouldn't be able to hand out scoped viewer
+        # access to arbitrary resources.
+        requesting_user: User = self.context["request"].user
+        try:
+            requesting_membership = OrganizationMembership.objects.get(
+                organization_id=self.context["organization_id"],
+                user=requesting_user,
+            )
+        except OrganizationMembership.DoesNotExist:
+            raise exceptions.PermissionDenied("You must be a member of the organization to send invites.")
+        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only organization admins and owners can create guest invites.")
+
+        organization = Organization.objects.get(id=self.context["organization_id"])
+        from posthog.rbac.guest_grants import validate_invite_grants
+
+        validate_invite_grants(organization, guest_resources)
+        return attrs
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(

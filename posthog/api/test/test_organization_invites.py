@@ -121,6 +121,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "emailing_attempt_made": True,
                 "message": None,
                 "private_project_access": [],
+                "guest_resources": [],
+                "bypass_sso": False,
             },
         )
 

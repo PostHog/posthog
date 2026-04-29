@@ -56,6 +56,8 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     last_login = serializers.DateTimeField(read_only=True)
+    is_guest = serializers.BooleanField(read_only=True)
+    guest_grant_count = serializers.SerializerMethodField()
 
     class Meta:
         model = OrganizationMembership
@@ -68,6 +70,8 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             "is_2fa_enabled",
             "has_social_auth",
             "last_login",
+            "is_guest",
+            "guest_grant_count",
         ]
         read_only_fields = ["id", "joined_at", "updated_at"]
 
@@ -80,6 +84,18 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
         return len(instance.user.social_auth.all()) > 0
+
+    def get_guest_grant_count(self, instance: OrganizationMembership) -> int | None:
+        # Only meaningful for guests; null for regular members so the FE doesn't render a
+        # confusing "0 grants" badge on every regular member row.
+        if not instance.is_guest:
+            return None
+        from ee.models.rbac.access_control import AccessControl
+
+        return AccessControl.objects.filter(
+            organization_member=instance,
+            resource="notebook",
+        ).count()
 
     def update(self, instance: OrganizationMembership, validated_data: dict[str, object]) -> OrganizationMembership:
         updated_membership = instance
@@ -127,6 +143,7 @@ class OrganizationMemberViewSet(
         OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
         .filter(
             user__is_active=True,
+            is_guest=False,
         )
         .select_related("user")
         .prefetch_related(
@@ -160,6 +177,33 @@ class OrganizationMemberViewSet(
 
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
+
+            # `?include_guests=true` opts the Guests tab (PR #3) into the same endpoint —
+            # the viewset's default queryset excludes guests so regular member flows never
+            # have to think about them, and the Guests tab explicitly opts in. Visibility
+            # of guests matches visibility of regular members: any member of the org can
+            # see them. Mutating actions (promote, remove) are gated separately.
+            include_guests = params.get("include_guests", "").lower() in {"true", "1"}
+            guests_only = params.get("guests_only", "").lower() in {"true", "1"}
+            if guests_only:
+                queryset = (
+                    OrganizationMembership.objects.filter(
+                        organization_id=self.organization_id,
+                        is_guest=True,
+                        user__is_active=True,
+                    )
+                    .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+                    .select_related("user")
+                )
+            elif include_guests:
+                queryset = (
+                    OrganizationMembership.objects.filter(
+                        organization_id=self.organization_id,
+                        user__is_active=True,
+                    )
+                    .exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+                    .select_related("user")
+                )
 
             order = self.request.GET.get("order")
             if order in ALLOWED_ORDERINGS:
@@ -205,3 +249,35 @@ class OrganizationMemberViewSet(
                 "keys": api_keys_data["keys"],
             }
         )
+
+    @action(detail=True, methods=["post"])
+    def promote_guest(self, request: Request, *args, **kwargs) -> Response:
+        """Promote a guest membership to a regular member.
+
+        Deletes all `AccessControl` rows scoped to this membership and flips the `is_guest`
+        flag. The caller-facing UI should warn that promotion resets the user's access
+        controls — after promotion, the new regular member has no explicit AC rows and
+        relies on default project access instead. Admin+ only.
+        """
+        requesting_user = cast(User, request.user)
+        # Resolve membership via the full queryset — the default one filters guests out.
+        lookup_value = self.kwargs[self.lookup_field]
+        membership = get_object_or_404(
+            OrganizationMembership.objects.filter(organization_id=self.organization_id),
+            **{self.lookup_field: lookup_value},
+        )
+
+        try:
+            requesting_membership = OrganizationMembership.objects.get(
+                organization_id=membership.organization_id,
+                user=requesting_user,
+            )
+        except OrganizationMembership.DoesNotExist:
+            raise exceptions.PermissionDenied("You must be a member of this organization.")
+        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("Only organization admins and owners can promote guests.")
+
+        from posthog.rbac.guest_grants import promote_to_member
+
+        removed = promote_to_member(membership, by=requesting_user)
+        return Response({"is_guest": False, "removed_grants": removed})

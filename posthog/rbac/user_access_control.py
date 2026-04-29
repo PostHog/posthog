@@ -534,8 +534,14 @@ class UserAccessControl:
                 return "admin"
             return "member"
 
-        # If access controls aren't supported, then we return the default access level
+        # If access controls aren't supported, then we return the default access level.
+        # For guests, defer to the policy module (which handles frame-level resources and
+        # everything-else as deny-by-default).
         if not self.access_controls_supported:
+            if org_membership.is_guest:
+                from posthog.rbac.guest_access_policy import guest_object_access_level
+
+                return guest_object_access_level(resource, explicit=explicit)
             return default_access_level(resource) if not explicit else None
 
         filters = self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
@@ -552,6 +558,10 @@ class UserAccessControl:
 
         # If there is no specified controls on the resource then we return the default access level
         if not access_controls:
+            if org_membership.is_guest:
+                from posthog.rbac.guest_access_policy import guest_object_access_level
+
+                return guest_object_access_level(resource, explicit=explicit)
             return default_access_level(resource) if not explicit else None
 
         # If there are access controls we pick the highest level the user has
@@ -689,7 +699,10 @@ class UserAccessControl:
             # Use parent resource for access control checks
             return self.access_level_for_resource(parent_resource)
 
-        # These are resources which we don't have resource level access controls for
+        # These are resources which we don't have resource level access controls for.
+        # Guests fall through to the default here too — their deny-by-default applies at the
+        # per-resource/object layer, not at the project/org/plugin frame level (a guest still
+        # needs to see the project shell in order to reach the one dashboard they're granted).
         if resource == "organization" or resource == "project" or resource == "plugin":
             return default_access_level(resource)
 
@@ -704,13 +717,24 @@ class UserAccessControl:
             return highest_access_level(resource)
 
         if not self.access_controls_supported:
-            # If access controls aren't supported, then return the default access level
+            # If access controls aren't supported, then return the default access level.
+            if org_membership.is_guest:
+                from posthog.rbac.guest_access_policy import guest_resource_access_level
+
+                return guest_resource_access_level(resource)
             return default_access_level(resource)
 
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)
 
         if not access_controls:
+            # Guests have no resource-level fallback. Specific object-level AC rows still
+            # grant access via filter_queryset_by_access_level (the "resource level none
+            # but explicit AC grants access" branch later in this file).
+            if org_membership.is_guest:
+                from posthog.rbac.guest_access_policy import guest_resource_access_level
+
+                return guest_resource_access_level(resource)
             return default_access_level(resource)
 
         return max(

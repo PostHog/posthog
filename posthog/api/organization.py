@@ -181,6 +181,8 @@ class OrganizationSerializer(
         return OrganizationMembership.Level(membership.level) if membership is not None else None
 
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
+        from posthog.rbac.guest_access_policy import filter_and_sanitize_teams_for_guest_access
+
         # Support new access control system
         visible_teams = (
             self.user_access_control.filter_queryset_by_access_level(instance.teams.all(), include_all_if_admin=True)
@@ -191,7 +193,11 @@ class OrganizationSerializer(
         visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user).select_related(
             "project"
         )
-        return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
+        teams_data = TeamBasicSerializer(visible_teams, context=self.context, many=True).data
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        return filter_and_sanitize_teams_for_guest_access(instance, user, list(teams_data), request=request)
 
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
         visible_projects = instance.projects.filter(id__in=self.user_permissions.project_ids_visible_for_user)

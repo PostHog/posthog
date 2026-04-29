@@ -30,6 +30,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import UUIDT
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.guest_access_policy import GuestRedactedUserFieldsMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
@@ -91,7 +92,15 @@ _NOTEBOOK_FIELD_HELP_TEXTS = {
 }
 
 
-class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
+class NotebookMinimalSerializer(
+    GuestRedactedUserFieldsMixin,
+    serializers.ModelSerializer,
+    UserAccessControlSerializerMixin,
+):
+    # Strip team-member PII from the embedded user payloads when the requester is a
+    # guest (surface pass H-3). Mixin runs in `to_representation`; non-guests unaffected.
+    guest_redacted_user_fields = ("created_by", "last_modified_by")
+
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)

@@ -271,17 +271,20 @@ class LoginSerializer(serializers.Serializer):
         return True
 
     def create(self, validated_data: dict[str, str]) -> Any:
-        # Check SSO enforcement (which happens at the domain level)
-        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(validated_data["email"])
+        request = self.context["request"]
+        existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
+
+        # Check SSO enforcement (which happens at the domain level). Users with a
+        # bypass_sso=True membership in the enforcing org are carved out — guest invites
+        # accepted with bypass_sso=True land here.
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(
+            validated_data["email"], user=existing_user
+        )
         if sso_enforcement:
             raise serializers.ValidationError(
                 f"You can only login with SSO for this account ({sso_enforcement}).",
                 code="sso_enforced",
             )
-
-        request = self.context["request"]
-
-        existing_user = User.objects.filter(email__iexact=validated_data["email"]).first()
         evaluate_auth_attempt(
             request=request._request,
             email=validated_data["email"],

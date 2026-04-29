@@ -1,0 +1,39 @@
+# serializer version: 1
+# name: TestGuestEndpointCoverage.test_no_endpoint_leaks_to_no_grant_guest[always_allowed]
+  '''
+  DELETE /_preflight/
+  DELETE /api/login/
+  DELETE /login
+  DELETE /logout
+  DELETE /reset
+  GET /_preflight/
+  GET /api/login/
+  GET /login
+  GET /logout
+  GET /reset
+  PATCH /_preflight/
+  PATCH /api/login/
+  PATCH /login
+  PATCH /logout
+  PATCH /reset
+  POST /_preflight/
+  POST /api/login/
+  POST /login
+  POST /logout
+  POST /reset
+  '''
+# ---
+# name: TestGuestEndpointCoverage.test_no_endpoint_leaks_to_no_grant_guest[skipped_patterns]
+  '''
+  .*
+  admin/(?P<app_label>auth|social_django|axes|mcp_store|posthog)/
+  admin/(?P<url>.*)
+  api.+
+  api/environments/(?P<parent_lookup_team_id>[^/.]+)/query/(?P<query_kind>[A-Z][A-Za-z]*)/?
+  api/environments/(?P<parent_lookup_team_id>[^/.]+)/query/(?P<query_kind>[A-Z][A-Za-z]*)/?\.(?P<format>[a-z0-9]+)/?
+  api/projects/(?P<parent_lookup_team_id>[^/.]+)/query/(?P<query_kind>[A-Z][A-Za-z]*)/?
+  api/projects/(?P<parent_lookup_team_id>[^/.]+)/query/(?P<query_kind>[A-Z][A-Za-z]*)/?\.(?P<format>[a-z0-9]+)/?
+  demo.*
+  signup\/[A-Za-z0-9\-]*
+  '''
+# ---

@@ -212,6 +212,30 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 OrganizationMembership.objects.filter(pk=membership.pk).update(invited_by_id=self.created_by_id)
                 membership.invited_by_id = self.created_by_id
 
+            membership_updates: list[str] = []
+            if self.is_guest_invite:
+                # Guest memberships live alongside regular ones; their access is governed entirely
+                # by AccessControl rows (written below via `apply_invite_grants`). The AC layer's
+                # default for is_guest=True is "deny", so a guest with no AC rows has no access.
+                membership.is_guest = True
+                membership_updates.append("is_guest")
+
+                from posthog.rbac.guest_grants import apply_invite_grants
+
+                apply_invite_grants(self, membership)
+
+            # SSO carve-out is scoped to this specific membership. The auth-flow check
+            # (posthog/api/authentication.py) only honors it when this membership's organization
+            # is the same org that owns the verified domain enforcing SSO for the user's email.
+            # This prevents a guest invite in Org B from leaking an SSO bypass into the user's
+            # logins against Org A (which actually owns the enforcement).
+            if self.bypass_sso:
+                membership.bypass_sso = True
+                membership_updates.append("bypass_sso")
+
+            if membership_updates:
+                membership.save(update_fields=[*membership_updates, "updated_at"])
+
             for item in self.private_project_access or []:
                 try:
                     team: Team = self.organization.teams.get(id=item["id"])

@@ -53,6 +53,58 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.assertEqual(response_data["id"], str(self.organization.id))
 
+    def test_team_payload_redacts_api_token_and_onboarding_fields_for_guest(self):
+        """Guests don't need write keys or onboarding metadata for the team they have grants in."""
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"},
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": "Advanced permissions"},
+        ]
+        self.organization.save()
+        # Promote ourselves to admin so we can downgrade self.user to a guest below.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        # Mark self.user as a guest with one AC row so the team passes the visibility filter.
+        guest_user = self.user.__class__.objects.create_user(email="g@posthog.com", password="pw", first_name="G")
+        guest_membership = OrganizationMembership.objects.create(
+            organization=self.organization, user=guest_user, is_guest=True
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="notebook",
+            resource_id="1",
+            organization_member=guest_membership,
+            access_level="viewer",
+            created_by=self.user,
+        )
+
+        self.client.force_login(guest_user)
+        response = self.client.get("/api/organizations/@current/")
+        teams = response.json()["teams"]
+        # Sanity: guest sees the team they have a grant in.
+        self.assertEqual(len(teams), 1)
+        # Sensitive / onboarding-only fields must be redacted.
+        for redacted_key in (
+            "api_token",
+            "completed_snippet_onboarding",
+            "has_completed_onboarding_for",
+            "ingested_event",
+        ):
+            self.assertNotIn(redacted_key, teams[0])
+        # Non-sensitive identifiers stay.
+        self.assertIn("id", teams[0])
+        self.assertIn("name", teams[0])
+
+    def test_team_payload_includes_api_token_for_regular_member(self):
+        """Regular members still get api_token in the team payload — we only redact for guests."""
+        response = self.client.get("/api/organizations/@current/")
+        teams = response.json()["teams"]
+        self.assertTrue(teams)
+        self.assertIn("api_token", teams[0])
+
     # Creating organizations
 
     def test_cant_create_organization_without_valid_license_on_self_hosted(self):

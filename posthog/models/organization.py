@@ -567,6 +567,10 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
             "per-resource AccessControl rows. Prefer the `.regular` manager unless you explicitly need guests."
         ),
     )
+    # SSO-enforcement carve-out for this specific membership. Only honored when the org that owns
+    # the verified domain enforcing SSO is the same org as this membership — the admin of that org
+    # is the one entitled to grant the exception. Set at invite acceptance time; reset on promotion.
+    bypass_sso = models.BooleanField(default=False)
     joined_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # Persisted at invite acceptance so the welcome dialog can attribute who invited the member —

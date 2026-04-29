@@ -284,6 +284,8 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                 "id": str(updated_membership.id),
                 "is_2fa_enabled": False,
                 "has_social_auth": False,
+                "is_guest": False,
+                "guest_grant_count": None,
                 "user": {
                     "id": user.id,
                     "uuid": str(user.uuid),
@@ -491,3 +493,85 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         member = next(m for m in results if m["user"]["email"] == f"{_name}@posthog.com")
 
         self.assertEqual(member["is_2fa_enabled"], expected)
+
+    def _make_guest(self, email: str = "guest@posthog.com") -> tuple[User, OrganizationMembership]:
+        user = User.objects.create_user(email=email, password="pw123", first_name="G")
+        membership = OrganizationMembership.objects.create(organization=self.organization, user=user, is_guest=True)
+        return user, membership
+
+    def test_default_member_listing_excludes_guests(self):
+        self._make_guest("hidden-guest@posthog.com")
+        response = self.client.get("/api/organizations/@current/members/")
+        emails = {row["user"]["email"] for row in response.json()["results"]}
+        self.assertNotIn("hidden-guest@posthog.com", emails)
+
+    def test_guests_only_filter_visible_to_any_member(self):
+        # Guest visibility matches member visibility: any member of the org can see
+        # the guest list. Mutating actions (promote, remove) are gated separately.
+        self._make_guest("a-guest@posthog.com")
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get("/api/organizations/@current/members/?guests_only=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = {row["user"]["email"] for row in response.json()["results"]}
+        self.assertEqual(emails, {"a-guest@posthog.com"})
+
+    def test_include_guests_filter_visible_to_any_member(self):
+        self._make_guest("a-guest@posthog.com")
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get("/api/organizations/@current/members/?include_guests=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = {row["user"]["email"] for row in response.json()["results"]}
+        self.assertIn("a-guest@posthog.com", emails)
+        self.assertIn(self.user.email, emails)
+
+    def test_guests_only_filter_returns_guest_list_for_admin(self):
+        self._make_guest("a-guest@posthog.com")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.get("/api/organizations/@current/members/?guests_only=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = {row["user"]["email"] for row in response.json()["results"]}
+        self.assertEqual(emails, {"a-guest@posthog.com"})
+
+    def test_member_payload_carries_guest_grant_count_for_guests(self):
+        # The Guests tab promote-to-member dialog uses this count to warn the admin how many
+        # grants will be revoked.
+        from products.notebooks.backend.models import Notebook
+
+        from ee.models.rbac.access_control import AccessControl
+
+        _user, membership = self._make_guest("countable-guest@posthog.com")
+        notebook_a = Notebook.objects.create(team=self.team, title="A", short_id="NCNT0001")
+        notebook_b = Notebook.objects.create(team=self.team, title="B", short_id="NCNT0002")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="notebook",
+            resource_id=str(notebook_a.pk),
+            organization_member=membership,
+            access_level="viewer",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="notebook",
+            resource_id=str(notebook_b.pk),
+            organization_member=membership,
+            access_level="viewer",
+        )
+
+        response = self.client.get("/api/organizations/@current/members/?guests_only=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = {row["user"]["email"]: row for row in response.json()["results"]}
+        guest_row = rows["countable-guest@posthog.com"]
+        self.assertEqual(guest_row["is_guest"], True)
+        self.assertEqual(guest_row["guest_grant_count"], 2)
+
+    def test_member_payload_returns_null_grant_count_for_regular_members(self):
+        # Regular members get a null `guest_grant_count` so the FE doesn't render a confusing
+        # "0 grants" badge on every regular member row.
+        response = self.client.get("/api/organizations/@current/members/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        for row in response.json()["results"]:
+            self.assertIsNone(row["guest_grant_count"], msg=f"row={row['user']['email']}")
+            self.assertFalse(row["is_guest"], msg=f"row={row['user']['email']}")

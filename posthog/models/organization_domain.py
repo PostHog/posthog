@@ -1,5 +1,8 @@
 import secrets
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 from django.db import models
 from django.utils import timezone
@@ -64,11 +67,16 @@ class OrganizationDomainManager(models.Manager):
         return False
 
     def get_sso_enforcement_for_email_address(
-        self, email: str, organization: Organization | None = None
+        self, email: str, organization: Organization | None = None, user: Optional["User"] = None
     ) -> Optional[str]:
         """
         Returns the specific `sso_enforcement` applicable for an email address or an `OrganizationDomain` objects.
         Validates SSO providers are properly configured and all the proper licenses exist.
+
+        If `user` is provided and has a membership with `bypass_sso=True` in the organization that
+        owns the enforcing domain, returns None (the user is carved out of enforcement for that org).
+        Bypass is scoped to the enforcing org's membership; a bypass granted by a different org
+        cannot override an enforcement the enforcing org has set.
         """
         domain = email[email.index("@") + 1 :]
         queryset = self.verified_domains().filter(domain__iexact=domain).exclude(sso_enforcement="")
@@ -82,6 +90,10 @@ class OrganizationDomainManager(models.Manager):
 
         if not query:
             return None
+
+        if user is not None and user.is_authenticated:
+            if user.organization_memberships.filter(organization_id=query["organization_id"], bypass_sso=True).exists():
+                return None
 
         candidate_sso_enforcement = query["sso_enforcement"]
 

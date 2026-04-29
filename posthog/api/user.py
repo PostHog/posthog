@@ -72,7 +72,7 @@ from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
-from posthog.models import Team, User, UserScenePersonalisation
+from posthog.models import OrganizationMembership, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
@@ -152,6 +152,8 @@ class UserSerializer(serializers.ModelSerializer):
     )
     role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
     is_organization_first_user = serializers.SerializerMethodField()
+    is_guest_in_current_project = serializers.SerializerMethodField()
+    guest_grants = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -196,6 +198,8 @@ class UserSerializer(serializers.ModelSerializer):
             "passkeys_enabled_for_2fa",
             "is_organization_first_user",
             "pending_invites",
+            "is_guest_in_current_project",
+            "guest_grants",
         ]
 
         read_only_fields = [
@@ -354,6 +358,94 @@ class UserSerializer(serializers.ModelSerializer):
             }
             for invite in invites
         ]
+
+    def get_is_guest_in_current_project(self, instance: User) -> bool:
+        team = instance.team
+        if team is None:
+            return False
+        request = self.context.get("request")
+        if request is not None:
+            from posthog.rbac.guest_request_cache import is_user_guest_in_org
+
+            return is_user_guest_in_org(request, team.organization_id)
+        # Fallback for serializer instantiations without a request context
+        # (e.g. management commands). Stays correct, just not cached.
+        return OrganizationMembership.objects.filter(
+            user=instance,
+            organization_id=team.organization_id,
+            is_guest=True,
+        ).exists()
+
+    def get_guest_grants(self, instance: User) -> list[dict]:
+        """Build the frontend-facing grant list directly from AccessControl rows.
+
+        The AC table stores the numeric PK in `resource_id`, but the FE uses URL-style
+        identifiers (notebook short_id). Translate before emitting so the landing scene
+        can build correct links.
+
+        Scope: notebook only — dashboard / insight rows land in the follow-up PR.
+        """
+        from products.notebooks.backend.models import Notebook
+
+        from ee.models.rbac.access_control import AccessControl
+
+        team = instance.team
+        if team is None:
+            return []
+        request = self.context.get("request")
+        if request is not None:
+            from posthog.rbac.guest_request_cache import get_user_guest_membership
+
+            membership = get_user_guest_membership(request, team.organization_id)
+            if membership is None:
+                return []
+        else:
+            try:
+                membership = OrganizationMembership.objects.get(
+                    user=instance,
+                    organization_id=team.organization_id,
+                )
+            except OrganizationMembership.DoesNotExist:
+                return []
+            if not membership.is_guest:
+                return []
+
+        ac_rows = list(
+            AccessControl.objects.filter(
+                organization_member=membership,
+                resource="notebook",
+            ).select_related("team")
+        )
+
+        notebook_ac_pk_strs = [ac.resource_id for ac in ac_rows if ac.resource_id]
+        notebook_meta = {
+            str(row[0]): row
+            for row in Notebook.objects.filter(id__in=notebook_ac_pk_strs).values_list("id", "short_id", "title")
+        }
+
+        out: list[dict] = []
+        for ac in ac_rows:
+            resource_id_pk = ac.resource_id
+            url_id = resource_id_pk
+            resource_name: str | None = None
+            if resource_id_pk:
+                meta = notebook_meta.get(resource_id_pk)
+                if meta:
+                    _id, short_id, title = meta
+                    url_id = short_id or resource_id_pk
+                    resource_name = title or None
+            out.append(
+                {
+                    "team_id": ac.team_id,
+                    "team_name": ac.team.name if ac.team else None,
+                    "resource": ac.resource,
+                    "resource_id_pk": resource_id_pk,
+                    "resource_id_url": url_id,
+                    "resource_name": resource_name,
+                    "access_level": ac.access_level,
+                }
+            )
+        return out
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -538,6 +630,20 @@ class UserSerializer(serializers.ModelSerializer):
         # Backfill shortcut_position default for frontend if null
         if data.get("shortcut_position") is None:
             data["shortcut_position"] = ShortcutPosition.ABOVE.value
+
+        # `team` is rendered through `TeamBasicSerializer` which exposes `api_token` and
+        # onboarding flags. The `OrganizationSerializer.get_teams` path strips those for
+        # guests, but the user's current-team field bypasses that path and would leak the
+        # write key to a guest. Gate at the call site so the redactor never runs in the
+        # hot path for regular members.
+        request = self.context.get("request")
+        if request is not None and isinstance(data.get("team"), dict):
+            from posthog.rbac.guest_request_cache import is_user_guest_in_any_org
+
+            if is_user_guest_in_any_org(request):
+                from posthog.rbac.guest_access_policy import redact_team_for_guest
+
+                data["team"] = redact_team_for_guest(data["team"], request)
 
         return data
 

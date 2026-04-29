@@ -200,6 +200,11 @@ class UserTeamPermissions:
         # Use prefetched data to check team privacy and access
         access_controls = self.p._prefetched_access_controls.get(self.team.id, [])
 
+        if organization_membership.is_guest:
+            from posthog.rbac.guest_access_policy import guest_effective_team_membership_level
+
+            return guest_effective_team_membership_level(organization_membership, self.team.id)
+
         # For private teams, check if the user has specific access
 
         # Organization admins and owners always have access
