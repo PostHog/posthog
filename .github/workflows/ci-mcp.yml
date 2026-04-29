@@ -6,7 +6,7 @@ on:
     pull_request:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.sha }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

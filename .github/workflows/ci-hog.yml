@@ -12,6 +12,10 @@ on:
             - rust/**
             - livestream/**
 
+# Uses github.ref (not github.sha) on master so all master pushes share one
+# concurrency group and serialize. The release-hogvm job below runs `npm publish
+# @posthog/hogvm` on master; parallel master pushes would race on the npm registry.
+# Other CI workflows use github.sha for per-commit attribution.
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
