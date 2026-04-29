@@ -30,11 +30,27 @@ export const manifest: ProductManifest = {
             activityScope: ActivityScope.LOG,
             layout: 'app-container',
         },
+        LogsSamplingNew: {
+            import: () => import('./frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
+            projectBased: true,
+            name: 'New sampling rule',
+            activityScope: ActivityScope.LOG,
+            layout: 'app-container',
+        },
+        LogsSamplingDetail: {
+            import: () => import('./frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
+            projectBased: true,
+            name: 'Sampling rule',
+            activityScope: ActivityScope.LOG,
+            layout: 'app-container',
+        },
     },
     routes: {
         '/logs': ['Logs', 'logs'],
         '/logs/alerts/new': ['LogsAlertNew', 'logsAlertNew'],
         '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
+        '/logs/sampling/new': ['LogsSamplingNew', 'logsSamplingNew'],
+        '/logs/sampling/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     },
     redirects: {},
     urls: {
@@ -42,6 +58,8 @@ export const manifest: ProductManifest = {
         logsAlertNew: (): string => '/logs/alerts/new',
         logsAlertDetail: (id: string, tab?: string): string =>
             tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
+        logsSamplingNew: (): string => '/logs/sampling/new',
+        logsSamplingDetail: (id: string): string => `/logs/sampling/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

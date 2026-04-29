@@ -2737,8 +2737,20 @@ const api = {
                 log_count: number
                 error_count: number
                 error_rate: number
+                volume_share_pct?: number
+                severity_breakdown?: {
+                    debug: number
+                    info: number
+                    warn: number
+                    error: number
+                }
+                active_rules?: { rule_id: string; rule_name: string; summary_string: string }[]
             }[]
             sparkline: { time: string; service_name: string; count: number }[]
+            summary?: {
+                top_services_count: number
+                top_services_volume_share_pct: number
+            }
         }> {
             return new ApiRequest().logsServices().create({ signal, data: { query } })
         },

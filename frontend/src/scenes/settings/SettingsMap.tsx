@@ -44,6 +44,7 @@ import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/fr
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
+import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -727,6 +728,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsRetentionSettings />,
                 flag: 'LOGS_SETTINGS_RETENTION',
                 keywords: ['retention', 'storage', 'delete', 'ttl'],
+            },
+            {
+                id: 'logs-sampling',
+                title: 'Sampling',
+                description:
+                    'Configure head sampling and path drops before logs reach storage. Rules are evaluated in ingestion order.',
+                component: <LogsSamplingSection />,
+                flag: 'LOGS_SAMPLING_RULES',
+                keywords: ['sample', 'sampling', 'drop', 'volume', 'noise'],
             },
             {
                 id: 'logs-alerting',

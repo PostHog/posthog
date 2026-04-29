@@ -190,6 +190,8 @@ export enum Scene {
     Logs = 'Logs',
     LogsAlertNew = 'LogsAlertNew',
     LogsAlertDetail = 'LogsAlertDetail',
+    LogsSamplingNew = 'LogsSamplingNew',
+    LogsSamplingDetail = 'LogsSamplingDetail',
     ManagedMigration = 'ManagedMigration',
     ManagedMigrationNew = 'ManagedMigrationNew',
     MarketingAnalytics = 'MarketingAnalytics',
