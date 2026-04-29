@@ -535,13 +535,6 @@ class TestIntegrationAPIKeyAccess:
             sensitive_config={"auth_token": "twilio-token"},
         )
 
-        self.vercel_integration = Integration.objects.create(
-            team=self.team,
-            kind="vercel",
-            config={"productId": "p", "name": "n", "metadata": {}, "billingPlanId": "b"},
-            sensitive_config={},
-        )
-
     def test_list_integrations_without_scope_fails(self, client: HttpClient):
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
@@ -559,7 +552,7 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "integration:read" in response.json()["detail"]
 
-    def test_list_integrations_with_scope_returns_all_kinds(self, client: HttpClient):
+    def test_list_integrations_with_scope_succeeds(self, client: HttpClient):
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -575,9 +568,9 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_200_OK
         kinds = {integration["kind"] for integration in response.json()["results"]}
-        assert kinds == {"github", "twilio", "vercel"}
+        assert kinds == {"github", "twilio"}
 
-    def test_retrieve_with_scope_succeeds(self, client: HttpClient):
+    def test_retrieve_github_integration_with_scope_succeeds(self, client: HttpClient):
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -586,14 +579,30 @@ class TestIntegrationAPIKeyAccess:
             scopes=["integration:read"],
         )
 
-        for integration in (self.github_integration, self.twilio_integration, self.vercel_integration):
-            response = client.get(
-                f"/api/environments/{self.team.pk}/integrations/{integration.id}/",
-                HTTP_AUTHORIZATION=f"Bearer {key_value}",
-            )
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
 
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json()["kind"] == integration.kind
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["kind"] == "github"
+
+    def test_retrieve_non_github_integration_with_api_key_succeeds(self, client: HttpClient):
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.twilio_integration.id}/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["kind"] == "twilio"
 
     @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
@@ -867,8 +876,11 @@ class TestIntegrationAPIKeyAccess:
         response = client.get(f"/api/environments/{self.team.pk}/integrations/")
 
         assert response.status_code == status.HTTP_200_OK
-        kinds = {integration["kind"] for integration in response.json()["results"]}
-        assert kinds == {"github", "twilio", "vercel"}
+        results = response.json()["results"]
+        assert len(results) == 2
+        kinds = [integration["kind"] for integration in results]
+        assert "github" in kinds
+        assert "twilio" in kinds
 
 
 class TestGitHubIntegrationStateValidation:
