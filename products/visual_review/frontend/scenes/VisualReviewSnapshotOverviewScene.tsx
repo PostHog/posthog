@@ -111,6 +111,15 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                         </button>
                     )}
                     <div className="text-xs text-muted">
+                        {filteredEntries.length > 0 && overview && (
+                            <>
+                                <span className="text-default">{filteredEntries.length.toLocaleString()}</span>
+                                {filteredEntries.length !== overview.entries.length && (
+                                    <> of {overview.entries.length.toLocaleString()}</>
+                                )}{' '}
+                                snapshots ·{' '}
+                            </>
+                        )}
                         Sorted by <span className="text-default">{sortLabel.label}</span>
                     </div>
                 </div>
@@ -122,6 +131,29 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                     {overview.totals.all_snapshots.toLocaleString()}. Refine filters to see more.
                 </LemonBanner>
             )}
+
+            {/* Legend lives above the grid so first-time viewers see what the
+                sparkline colors and the "tolerated" chip mean before they dive
+                into hundreds of cards. */}
+            <div className="flex items-center gap-3 text-[11px] text-muted">
+                <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--success)' }} />
+                    Clean
+                </span>
+                <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--primary-3000)' }} />
+                    Tolerated
+                </span>
+                <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--warning-dark)' }} />
+                    Changed
+                </span>
+                <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--danger)' }} />
+                    Quarantined
+                </span>
+                <span className="ml-auto">Sparkline shows last 30 days</span>
+            </div>
 
             <div className="flex gap-6 items-start">
                 <SnapshotFacetSidebar
@@ -177,14 +209,6 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                                     thumbnailBasePath={thumbnailBasePath}
                                 />
                             ))}
-                        </div>
-                    )}
-
-                    {filteredEntries.length > 0 && (
-                        <div className="text-xs text-muted mt-3">
-                            Showing {filteredEntries.length.toLocaleString()}
-                            {overview ? ` of ${overview.entries.length.toLocaleString()}` : ''} snapshots
-                            {isFiltered ? ' matching your filters' : ''}.
                         </div>
                     )}
                 </div>
