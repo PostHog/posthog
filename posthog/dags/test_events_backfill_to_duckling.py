@@ -13,16 +13,11 @@ from posthog.dags.events_backfill_to_duckling import (
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
-    MAX_RETRY_ATTEMPTS,
     PERSONS_COLUMNS,
     PERSONS_TABLE_DDL,
-    _connect_duckdb,
     _get_cluster,
-    _is_transaction_conflict,
     _set_table_partitioning,
     _validate_identifier,
-    delete_events_partition_data,
-    delete_persons_partition_data,
     duckling_events_full_backfill_sensor,
     get_months_in_range,
     get_s3_url_for_clickhouse,
@@ -122,37 +117,28 @@ class TestValidateIdentifier:
 
 
 class TestTableExists:
-    def test_returns_true_when_table_exists(self):
-        conn = duckdb.connect()
-        conn.execute("CREATE TABLE test_table (id INTEGER)")
-        assert table_exists(conn, "memory", "main", "test_table") is True
-        conn.close()
+    """Identifier-validation tests for `table_exists`.
 
-    def test_returns_false_when_table_does_not_exist(self):
-        conn = duckdb.connect()
-        assert table_exists(conn, "memory", "main", "nonexistent_table") is False
-        conn.close()
+    The actual existence check now runs against a duckgres pgwire server, so
+    the round-trip behavior is covered by integration tests rather than this
+    unit suite. The validation here still runs before any SQL executes,
+    so a `MagicMock()` connection is sufficient.
+    """
 
     def test_rejects_invalid_catalog_alias(self):
-        conn = duckdb.connect()
         with pytest.raises(ValueError) as exc_info:
-            table_exists(conn, "invalid;injection", "main", "test")
+            table_exists(MagicMock(), "invalid;injection", "main", "test")
         assert "Invalid SQL identifier" in str(exc_info.value)
-        conn.close()
 
     def test_rejects_invalid_schema(self):
-        conn = duckdb.connect()
         with pytest.raises(ValueError) as exc_info:
-            table_exists(conn, "memory", "DROP TABLE", "test")
+            table_exists(MagicMock(), "memory", "DROP TABLE", "test")
         assert "Invalid SQL identifier" in str(exc_info.value)
-        conn.close()
 
     def test_rejects_invalid_table(self):
-        conn = duckdb.connect()
         with pytest.raises(ValueError) as exc_info:
-            table_exists(conn, "memory", "main", "test'; DROP TABLE users;--")
+            table_exists(MagicMock(), "memory", "main", "test'; DROP TABLE users;--")
         assert "Invalid SQL identifier" in str(exc_info.value)
-        conn.close()
 
 
 class TestEventsDDL:
@@ -304,106 +290,17 @@ class TestGetMonthsInRange:
 
 
 class TestSetTablePartitioning:
-    def test_partitioning_is_idempotent_in_ducklake(self):
-        """Verify that SET PARTITIONED BY can be called multiple times safely."""
-        conn = duckdb.connect()
-        conn.execute("INSTALL ducklake; LOAD ducklake;")
-        conn.execute("ATTACH ':memory:' AS test_catalog (TYPE DUCKLAKE, DATA_PATH ':memory:')")
-        conn.execute("CREATE SCHEMA test_catalog.posthog")
-        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMP, event VARCHAR)")
-
-        mock_context = MagicMock()
-
-        # First call should succeed
-        result1 = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-        assert result1 is True
-
-        # Second call with same keys should also succeed (idempotent)
-        result2 = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-        assert result2 is True
-
-        # Third call should also succeed
-        result3 = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-        assert result3 is True
-
-        conn.close()
-
-    def test_partitioning_logs_success(self):
-        """Verify that successful partitioning logs appropriately."""
-        conn = duckdb.connect()
-        conn.execute("INSTALL ducklake; LOAD ducklake;")
-        conn.execute("ATTACH ':memory:' AS test_catalog (TYPE DUCKLAKE, DATA_PATH ':memory:')")
-        conn.execute("CREATE SCHEMA test_catalog.posthog")
-        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMP, event VARCHAR)")
-
-        mock_context = MagicMock()
-
-        result = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-
-        assert result is True
-        mock_context.log.info.assert_any_call("Setting partitioning on events table...")
-        mock_context.log.info.assert_any_call("Successfully set partitioning on events table")
-        conn.close()
-
-    def test_partitioning_handles_failure_gracefully(self):
-        """Verify that partitioning failures return False and log warning."""
-        conn = duckdb.connect()
-        # Don't load ducklake - table won't support SET PARTITIONED BY
-        conn.execute("CREATE SCHEMA posthog")
-        conn.execute("CREATE TABLE posthog.events (timestamp TIMESTAMP, event VARCHAR)")
-
-        mock_context = MagicMock()
-
-        # This should fail because regular DuckDB tables don't support SET PARTITIONED BY
-        result = _set_table_partitioning(
-            conn,
-            "memory",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-
-        assert result is False
-        mock_context.log.warning.assert_called()
-        conn.close()
+    """Identifier-validation only — the SET PARTITIONED BY behavior itself is a
+    DuckLake property and is exercised via duckgres integration tests rather
+    than this unit suite.
+    """
 
     def test_partitioning_rejects_invalid_identifiers(self):
-        """Verify that SQL injection attempts are blocked."""
-        conn = duckdb.connect()
         mock_context = MagicMock()
 
         with pytest.raises(ValueError) as exc_info:
             _set_table_partitioning(
-                conn,
+                MagicMock(),
                 "test; DROP TABLE",
                 "events",
                 "year(timestamp)",
@@ -414,7 +311,7 @@ class TestSetTablePartitioning:
 
         with pytest.raises(ValueError) as exc_info:
             _set_table_partitioning(
-                conn,
+                MagicMock(),
                 "test_catalog",
                 "events'; --",
                 "year(timestamp)",
@@ -422,8 +319,6 @@ class TestSetTablePartitioning:
                 team_id=123,
             )
         assert "Invalid SQL identifier" in str(exc_info.value)
-
-        conn.close()
 
 
 class TestExportSQLOrderBy:
@@ -466,32 +361,15 @@ class TestIsFullExportPartition:
         assert is_full_export_partition(key) == expected
 
 
-class TestConnectDuckdb:
-    def test_sets_memory_limit(self):
-        conn = _connect_duckdb()
-        try:
-            result = conn.execute("SELECT current_setting('memory_limit')").fetchone()
-            assert result is not None
-            # DuckDB reports memory in its own format; verify it's not the default (~80% of RAM)
-            # 4GB is reported as "3.7 GiB" by DuckDB
-            assert "GiB" in result[0] or "GB" in result[0]
-            # Parse the numeric value and verify it's approximately 4GB
-            numeric = float(result[0].split()[0])
-            assert 3.5 <= numeric <= 4.5
-        finally:
-            conn.close()
-
-    def test_sets_temp_directory(self):
-        conn = _connect_duckdb()
-        try:
-            result = conn.execute("SELECT current_setting('temp_directory')").fetchone()
-            assert result is not None
-            assert result[0] == "/tmp/duckdb_temp"
-        finally:
-            conn.close()
-
-
 class TestDeleteRangePredicate:
+    """Validate the half-open range predicate used by delete_*_partition_data.
+
+    These tests use in-process DuckDB ($N parameter binding) to verify the SQL
+    logic independently of the psycopg→duckgres connection path. The production
+    code uses psycopg %s bindings; the date-range predicate itself is binding-
+    agnostic and should behave identically through either binding layer.
+    """
+
     @parameterized.expand(
         [
             # (timestamps_to_insert, target_date, expected_deleted, expected_remaining)
@@ -550,187 +428,6 @@ class TestDeleteRangePredicate:
             assert remaining == expected_remaining
         finally:
             conn.close()
-
-
-class TestIsTransactionConflict:
-    @parameterized.expand(
-        [
-            (duckdb.TransactionException("Transaction conflict: write-write"), True),
-            (duckdb.TransactionException("Transaction conflict on table"), True),
-            (duckdb.TransactionException("Some other transaction error"), False),
-            (duckdb.CatalogException("Table not found"), False),
-            (RuntimeError("Transaction conflict"), False),
-        ]
-    )
-    def test_identifies_conflicts(self, exc, expected):
-        assert _is_transaction_conflict(exc) == expected
-
-
-class TestDeleteEventsRetry:
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_org_config")
-    def test_retries_on_transaction_conflict(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (5,)
-        mock_connect.side_effect = [conflict_conn, success_conn]
-
-        result = delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert result == 5
-        assert mock_connect.call_count == 2
-        mock_sleep.assert_called_once_with(4)
-        conflict_conn.close.assert_called_once()
-        success_conn.close.assert_called_once()
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_org_config")
-    def test_raises_non_conflict_exception(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conn = MagicMock()
-        conn.execute.side_effect = RuntimeError("Connection failed")
-        mock_connect.return_value = conn
-
-        with pytest.raises(RuntimeError, match="Connection failed"):
-            delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert mock_connect.call_count == 1
-        mock_sleep.assert_not_called()
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_org_config")
-    def test_raises_after_max_retries(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conn = MagicMock()
-        conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        mock_connect.return_value = conn
-
-        with pytest.raises(duckdb.TransactionException, match="Transaction conflict"):
-            delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert mock_connect.call_count == MAX_RETRY_ATTEMPTS
-        assert mock_sleep.call_count == MAX_RETRY_ATTEMPTS - 1
-
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_org_config")
-    def test_returns_zero_on_catalog_exception(self, mock_config, mock_connect, mock_cross, mock_attach):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conn = MagicMock()
-        conn.execute.side_effect = duckdb.CatalogException("Table does not exist")
-        mock_connect.return_value = conn
-
-        result = delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-        assert result == 0
-
-
-class TestDeletePersonsRetry:
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_org_config")
-    def test_retries_on_transaction_conflict(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (3,)
-        mock_connect.side_effect = [conflict_conn, success_conn]
-
-        result = delete_persons_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert result == 3
-        assert mock_connect.call_count == 2
-        mock_sleep.assert_called_once_with(4)
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_org_config")
-    def test_retries_on_full_export_conflict(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (10,)
-        mock_connect.side_effect = [conflict_conn, success_conn]
-
-        result = delete_persons_partition_data(mock_context, mock_catalog, 1, partition_date=None)
-
-        assert result == 10
-        assert mock_connect.call_count == 2
-        mock_sleep.assert_called_once_with(4)
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_org_config")
-    def test_exponential_backoff(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (0,)
-        # MAX_RETRY_ATTEMPTS=3: attempts 0,1 conflict and retry, attempt 2 succeeds
-        mock_connect.side_effect = [conflict_conn, conflict_conn, success_conn]
-
-        delete_persons_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        # Backoff: min(4 * 2^attempt, 60) -> 4, 8
-        assert mock_sleep.call_args_list == [
-            ((4,),),
-            ((8,),),
-        ]
 
 
 class TestFullBackfillSensorEarliestDate:

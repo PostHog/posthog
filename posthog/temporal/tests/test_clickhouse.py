@@ -14,6 +14,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseMemoryLimitExceededError,
     ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
+    ClickHouseTooManyBytesError,
     ClickHouseTooManySimultaneousQueriesError,
     add_log_comment_param,
     encode_clickhouse_data,
@@ -161,6 +162,17 @@ def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
     )
     with _mock_internal_session_post(mock_response):
         with pytest.raises(ClickHouseMemoryLimitExceededError):
+            with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
+                pass
+
+
+def test_clickhouse_too_many_bytes_error(clickhouse_client):
+    mock_response = MagicMock(
+        status_code=500,
+        text="Code: 307. DB::Exception: Limit for rows or bytes to read exceeded, max bytes: 50.00 TiB, current bytes: 50.00 TiB: While executing MergeTreeSelect(pool: ReadPool, algorithm: Thread). (TOO_MANY_BYTES) (version x.x.x.x (official build))",
+    )
+    with _mock_internal_session_post(mock_response):
+        with pytest.raises(ClickHouseTooManyBytesError):
             with clickhouse_client.post_query("SELECT 1", query_parameters={}, query_id=None):
                 pass
 

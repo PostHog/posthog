@@ -407,10 +407,16 @@ def _apply_cuped_adjustment_if_enabled(
     test_variant: ExperimentStatsBaseValidated,
     control_variant: ExperimentStatsBaseValidated,
 ) -> tuple[ExperimentStatistic, ExperimentStatistic, float | None]:
-    if not cuped_config.enabled or not isinstance(metric, ExperimentMeanMetric):
+    if not cuped_config.enabled:
         return test_stat, control_stat, None
 
-    if not isinstance(test_stat, SampleMeanStatistic) or not isinstance(control_stat, SampleMeanStatistic):
+    if not isinstance(metric, (ExperimentMeanMetric, ExperimentFunnelMetric)):
+        return test_stat, control_stat, None
+
+    # cuped_adjust supports SampleMeanStatistic and ProportionStatistic, but not RatioStatistic.
+    if not isinstance(test_stat, (SampleMeanStatistic, ProportionStatistic)) or not isinstance(
+        control_stat, (SampleMeanStatistic, ProportionStatistic)
+    ):
         return test_stat, control_stat, None
 
     cuped_result = cuped_adjust(

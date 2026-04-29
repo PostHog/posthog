@@ -114,8 +114,8 @@ export function LineChart<Meta = unknown>({
         [yScaleType, percentStackView, stackedData]
     )
 
-    const draw = useCallback(
-        ({ ctx, dimensions, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs) => {
+    const drawStatic = useCallback(
+        ({ ctx, dimensions, series: coloredSeries, labels: drawLabels, theme }: ChartDrawArgs) => {
             const d3Scales = d3ScalesRef.current
             if (!d3Scales) {
                 return
@@ -124,11 +124,6 @@ export function LineChart<Meta = unknown>({
             const resolveYScale = (s: Series): typeof d3Scales.y => {
                 const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
                 return d3Scales.yAxes?.[axisId]?.scale ?? d3Scales.y
-            }
-
-            const resolveChartYScale = (s: Series): ((value: number) => number) => {
-                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                return scales.yAxes?.[axisId]?.scale ?? scales.y
             }
 
             const baseDrawCtx: DrawContext = {
@@ -160,23 +155,32 @@ export function LineChart<Meta = unknown>({
                     drawPoints(drawCtx, s, yValues)
                 }
             }
+        },
+        [showGrid, stackedData]
+    )
 
-            if (hoverIndex >= 0) {
-                for (const s of coloredSeries) {
-                    if (s.visibility?.excluded || s.fill?.lowerData) {
-                        continue
-                    }
-                    const data = stackedData?.get(s.key)?.top ?? s.data
-                    const x = scales.x(drawLabels[hoverIndex])
-                    const yScaleFn = resolveChartYScale(s)
-                    const y = yScaleFn(data[hoverIndex])
-                    if (x != null && isFinite(y)) {
-                        drawHighlightPoint(ctx, x, y, s.color, theme.backgroundColor ?? '#ffffff')
-                    }
+    const drawHover = useCallback(
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs) => {
+            if (hoverIndex < 0) {
+                return
+            }
+            const resolveChartYScale = (s: Series): ((value: number) => number) => {
+                const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+                return scales.yAxes?.[axisId]?.scale ?? scales.y
+            }
+            for (const s of coloredSeries) {
+                if (s.visibility?.excluded || s.fill?.lowerData) {
+                    continue
+                }
+                const data = stackedData?.get(s.key)?.top ?? s.data
+                const x = scales.x(drawLabels[hoverIndex])
+                const y = resolveChartYScale(s)(data[hoverIndex])
+                if (x != null && isFinite(y)) {
+                    drawHighlightPoint(ctx, x, y, s.color, theme.backgroundColor ?? '#ffffff')
                 }
             }
         },
-        [showGrid, stackedData]
+        [stackedData]
     )
 
     const resolveValue = useMemo(() => {
@@ -200,7 +204,8 @@ export function LineChart<Meta = unknown>({
             config={chartConfig}
             theme={theme}
             createScales={createScales}
-            draw={draw}
+            drawStatic={drawStatic}
+            drawHover={drawHover}
             tooltip={tooltip}
             onPointClick={onPointClick}
             className={className}

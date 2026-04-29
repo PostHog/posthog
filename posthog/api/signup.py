@@ -841,6 +841,7 @@ def social_create_user(
             logger.info(f"social_create_user_is_not_new_unverified_has_password")
             user.set_unusable_password()
             user.is_email_verified = True
+            WebauthnCredential.objects.filter(user=user).delete()
             user.save()
 
         if invite_id:

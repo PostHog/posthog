@@ -26,6 +26,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.utils import get_instance_realm
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -1152,6 +1153,64 @@ class TestSignupAPI(APIBaseTest):
         # User and org are not created
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_first_time_sso_login_clears_password_and_passkeys_on_unverified_account(
+        self, mock_sso_providers, mock_request
+    ):
+        mock_sso_providers.return_value = {"google-oauth2": True}
+
+        new_org = Organization.objects.create(name="Hogflix Movies")
+        OrganizationDomain.objects.create(
+            domain="hogflix.posthog.com",
+            verified_at=timezone.now(),
+            jit_provisioning_enabled=True,
+            organization=new_org,
+        )
+        Team.objects.create(organization=new_org, name="My First Project")
+
+        existing_user = User.objects.create_and_join(
+            organization=new_org,
+            email="jane@hogflix.posthog.com",
+            password=VALID_TEST_PASSWORD,
+            first_name="Jane",
+        )
+        existing_user.is_email_verified = False
+        existing_user.save()
+        self.assertTrue(existing_user.has_usable_password())
+
+        WebauthnCredential.objects.create(
+            user=existing_user,
+            credential_id=b"test-credential-id",
+            label="Test passkey",
+            public_key=b"test-public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=True,
+        )
+
+        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+        mock_request.return_value.json.return_value = {
+            "access_token": "123",
+            "email": "jane@hogflix.posthog.com",
+            "sub": "123",
+        }
+
+        response = self.client.get(url, follow=True)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertRedirects(response, "/")
+
+        existing_user.refresh_from_db()
+        self.assertTrue(existing_user.is_email_verified)
+        self.assertFalse(existing_user.has_usable_password())
+        self.assertFalse(WebauthnCredential.objects.filter(user=existing_user).exists())
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")

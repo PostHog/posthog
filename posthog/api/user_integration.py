@@ -491,35 +491,22 @@ def github_link_complete(request: HttpRequest) -> HttpResponseRedirect:
     # An attacker could use their own OAuth code with someone else's installation_id
     # to obtain an installation token scoped to a different organisation's repos.
     try:
-        verify_response = requests.get(  # nosemgrep: python.django.security.injection.ssrf.ssrf-injection-requests.ssrf-injection-requests -- installation_id is validated as digits-only above
-            f"https://api.github.com/user/installations/{installation_id}/repositories",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {authorization.access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-            params={"per_page": 1},
-            timeout=10,
-        )
+        has_access = GitHubIntegration.verify_user_installation_access(installation_id, authorization.access_token)
     except requests.RequestException:
-        logger.warning("github_link: installation ownership check request failed", exc_info=True)
+        logger.warning(
+            "github_link: installation ownership check failed",
+            installation_id=installation_id,
+            user_id=request.user.id,
+            exc_info=True,
+        )
         return _error("installation_verify_failed")
-
-    if verify_response.status_code == 404:
+    if not has_access:
         logger.warning(
             "github_link: user does not have access to installation",
             installation_id=installation_id,
             user_id=request.user.id,
         )
         return _error("installation_not_authorized")
-    if verify_response.status_code != 200:
-        logger.warning(
-            "github_link: unexpected status verifying installation access",
-            installation_id=installation_id,
-            user_id=request.user.id,
-            status_code=verify_response.status_code,
-        )
-        return _error("installation_verify_failed")
 
     # Get installation info and access token
     try:
