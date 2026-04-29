@@ -12,6 +12,7 @@ import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import {
     cleanToolbarAuthHash,
     generatePKCE,
+    isSecureCryptoAvailable,
     LOCALSTORAGE_KEY,
     OAUTH_LOCALSTORAGE_KEY,
     PKCE_STORAGE_KEY,
@@ -199,6 +200,17 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
             toolbarLogger.info('auth', 'Authentication confirmed by user')
             toolbarPosthogJS.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
+
+            // Web Crypto's SubtleCrypto is only available in secure contexts. Bail out before
+            // any state transition so the user gets an actionable toast instead of a generic
+            // unhandled TypeError from `crypto.subtle.digest` further down the PKCE path.
+            if (!isSecureCryptoAvailable()) {
+                captureToolbarException(new Error('crypto.subtle unavailable – insecure context'), 'pkce_generation')
+                lemonToast.error('Failed to start authentication. Ensure you are on a secure (HTTPS) page.')
+                actions.setAuthStatus('idle')
+                return
+            }
+
             // Transition status BEFORE the async PKCE work so re-entrant calls bail early.
             actions.setAuthStatus('authenticating')
             actions.persistConfig()

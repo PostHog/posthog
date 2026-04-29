@@ -75,7 +75,25 @@ export function cleanToolbarAuthHash(): void {
     history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
 }
 
+/**
+ * Web Crypto's SubtleCrypto interface is only exposed in secure contexts (HTTPS or
+ * localhost). On plain HTTP, `window.crypto.subtle` is `undefined` and any property
+ * access throws a generic TypeError that's hard to attribute. Surface a named error
+ * instead so callers can branch on it cleanly.
+ */
+export function isSecureCryptoAvailable(): boolean {
+    return (
+        typeof window !== 'undefined' &&
+        window.isSecureContext === true &&
+        typeof crypto !== 'undefined' &&
+        typeof crypto.subtle !== 'undefined'
+    )
+}
+
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
+    if (!isSecureCryptoAvailable()) {
+        throw new Error('crypto.subtle unavailable – insecure context')
+    }
     const bytes = new Uint8Array(48)
     crypto.getRandomValues(bytes)
     const verifier = btoa(String.fromCharCode(...bytes))

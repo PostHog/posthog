@@ -286,6 +286,32 @@ describe('toolbar toolbarConfigLogic', () => {
             await expectLogic(logic).delay(0)
             expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
         })
+
+        it('confirmAuthenticate bails out cleanly when crypto.subtle is unavailable', async () => {
+            // Simulate non-HTTPS where SubtleCrypto isn't exposed. Without the guard
+            // this would surface as an unhandled TypeError from crypto.subtle.digest.
+            const originalIsSecureContext = window.isSecureContext
+            const originalSubtle = window.crypto.subtle
+            Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true })
+            Object.defineProperty(window.crypto, 'subtle', { value: undefined, configurable: true })
+
+            try {
+                const logic = toolbarConfigLogic.build({ uiHost: 'https://us.posthog.com' } as any)
+                logic.mount()
+                await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'idle' })
+
+                await expectLogic(logic, () => {
+                    logic.actions.confirmAuthenticate()
+                }).toMatchValues({ authStatus: 'idle' })
+                expect(localStorage.getItem(PKCE_STORAGE_KEY)).toBeNull()
+            } finally {
+                Object.defineProperty(window, 'isSecureContext', {
+                    value: originalIsSecureContext,
+                    configurable: true,
+                })
+                Object.defineProperty(window.crypto, 'subtle', { value: originalSubtle, configurable: true })
+            }
+        })
     })
 
     describe('reachability check gating', () => {
