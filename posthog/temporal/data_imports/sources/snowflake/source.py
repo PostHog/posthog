@@ -53,6 +53,14 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="snowflake://user:password@account_id/database/schema?warehouse=COMPUTE_WAREHOUSE&role=ACCOUNTADMIN",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
                         name="account_id",
                         label="Account id",
                         type=SourceFieldInputConfigType.TEXT,

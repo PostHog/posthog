@@ -70,7 +70,7 @@ from posthog.event_usage import (
 )
 from posthog.helpers.email_utils import validate_display_name
 from posthog.helpers.session_cache import SessionCache
-from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
+from posthog.helpers.two_factor_session import has_passkeys, set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at, is_read_only_impersonation
 from posthog.models import Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
@@ -724,7 +724,13 @@ class UserViewSet(
         user.save()
         report_user_verified_email(user)
 
+        user_has_passkeys = has_passkeys(user)
+        passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
+        if default_device(user) or passkeys_enabled_for_2fa:
+            return Response({"success": True, "token": token, "requires_2fa": True})
+
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
+        set_two_factor_verified_in_session(self.request)
         report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
@@ -746,6 +752,13 @@ class UserViewSet(
         except User.DoesNotExist:
             user = None
         if user:
+            # Allow re-requests when there's a pending email change that still
+            # needs to be verified, even though the current address is verified.
+            if user.is_email_verified and not user.pending_email:
+                raise serializers.ValidationError(
+                    "Email is already verified.",
+                    code="already_verified",
+                )
             EmailVerifier.create_token_and_send_email_verification(user)
 
         return Response({"success": True})
