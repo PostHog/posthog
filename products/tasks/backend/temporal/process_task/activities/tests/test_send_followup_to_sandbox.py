@@ -13,15 +13,15 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
 
 class TestGetStopReason(BaseTest):
     def test_returns_result_stop_reason_when_present(self):
-        self.assertEqual(_get_stop_reason({"result": {"stopReason": "max_tokens"}}), "max_tokens")
+        assert _get_stop_reason({"result": {"stopReason": "max_tokens"}}) == "max_tokens"
 
     def test_defaults_to_end_turn_when_missing(self):
-        self.assertEqual(_get_stop_reason({"result": {}}), "end_turn")
-        self.assertEqual(_get_stop_reason({}), "end_turn")
-        self.assertEqual(_get_stop_reason(None), "end_turn")
+        assert _get_stop_reason({"result": {}}) == "end_turn"
+        assert _get_stop_reason({}) == "end_turn"
+        assert _get_stop_reason(None) == "end_turn"
 
     def test_defaults_to_end_turn_when_result_is_not_a_dict(self):
-        self.assertEqual(_get_stop_reason({"result": "ok"}), "end_turn")
+        assert _get_stop_reason({"result": "ok"}) == "end_turn"
 
 
 class TestWriteTurnComplete(BaseTest):
@@ -34,8 +34,8 @@ class TestWriteTurnComplete(BaseTest):
 
         payload = mock_conn.xadd.call_args.args[1]["data"]
         event = json.loads(payload)
-        self.assertEqual(event["notification"]["method"], "_posthog/turn_complete")
-        self.assertEqual(event["notification"]["params"]["stopReason"], "max_tokens")
+        assert event["notification"]["method"] == "_posthog/turn_complete"
+        assert event["notification"]["params"]["stopReason"] == "max_tokens"
 
 
 class TestSendFollowupToSandbox(BaseTest):
@@ -60,4 +60,4 @@ class TestSendFollowupToSandbox(BaseTest):
 
         payload = mock_conn.xadd.call_args.args[1]["data"]
         event = json.loads(payload)
-        self.assertEqual(event["notification"]["params"]["stopReason"], "max_tokens")
+        assert event["notification"]["params"]["stopReason"] == "max_tokens"

@@ -26,16 +26,16 @@ class TestSQLMixins(NonAtomicBaseTest):
         mixin = self._node
         prompt_template = await mixin._construct_system_prompt()
         prompt = prompt_template.format()
-        self.assertIn("<project_schema>", prompt)
-        self.assertIn("Table", prompt)
-        self.assertIn("<core_memory>", prompt)
-        self.assertIn("system.insight_variables", prompt)
-        self.assertIn("FROM system.insight_variables", prompt)
+        assert "<project_schema>" in prompt
+        assert "Table" in prompt
+        assert "<core_memory>" in prompt
+        assert "system.insight_variables" in prompt
+        assert "FROM system.insight_variables" in prompt
 
     def test_assert_database_is_cached(self):
         mixin = self._node
         database = mixin._get_database()
-        self.assertEqual(mixin._database_instance, database)
+        assert mixin._database_instance == database
 
     def test_parse_output_success_path(self):
         """Test successful parsing in HogQLGeneratorMixin."""
@@ -45,13 +45,8 @@ class TestSQLMixins(NonAtomicBaseTest):
         test_output = {"query": "SELECT count() FROM events", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
-        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
-        self.assertEqual(
-            result,
-            SQLSchemaGeneratorOutput(
-                query=AssistantHogQLQuery(query="SELECT count() FROM events"), name="", description=""
-            ),
-        )
+        assert isinstance(result, SQLSchemaGeneratorOutput)
+        assert result == SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT count() FROM events"), name="", description="")
 
     def test_parse_output_with_empty_query(self):
         """Test parsing with empty query string."""
@@ -60,8 +55,8 @@ class TestSQLMixins(NonAtomicBaseTest):
         test_output = {"query": "", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
-        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
-        self.assertEqual(result.query.query, "")
+        assert isinstance(result, SQLSchemaGeneratorOutput)
+        assert result.query.query == ""
 
     def test_parse_output_removes_semicolon(self):
         """Test that semicolons are removed from the end of queries."""
@@ -70,8 +65,8 @@ class TestSQLMixins(NonAtomicBaseTest):
         test_output = {"query": "SELECT count() FROM events;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
-        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
-        self.assertEqual(result.query.query, "SELECT count() FROM events")
+        assert isinstance(result, SQLSchemaGeneratorOutput)
+        assert result.query.query == "SELECT count() FROM events"
 
     def test_parse_output_removes_multiple_semicolons(self):
         """Test that multiple semicolons are removed from the end of queries."""
@@ -80,8 +75,8 @@ class TestSQLMixins(NonAtomicBaseTest):
         test_output = {"query": "SELECT count() FROM events;;;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
-        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
-        self.assertEqual(result.query.query, "SELECT count() FROM events")
+        assert isinstance(result, SQLSchemaGeneratorOutput)
+        assert result.query.query == "SELECT count() FROM events"
 
     def test_parse_output_preserves_semicolons_in_middle(self):
         """Test that semicolons in the middle of queries are preserved."""
@@ -90,8 +85,8 @@ class TestSQLMixins(NonAtomicBaseTest):
         test_output = {"query": "SELECT 'hello;world' FROM events;", "name": "", "description": ""}
         result = mixin._parse_output(test_output)
 
-        self.assertIsInstance(result, SQLSchemaGeneratorOutput)
-        self.assertEqual(result.query.query, "SELECT 'hello;world' FROM events")
+        assert isinstance(result, SQLSchemaGeneratorOutput)
+        assert result.query.query == "SELECT 'hello;world' FROM events"
 
     async def test_quality_check_output_success_simple_query(self):
         """Test successful quality check with simple valid query."""
@@ -126,8 +121,8 @@ class TestSQLMixins(NonAtomicBaseTest):
         with self.assertRaises(PydanticOutputParserException) as context:
             await mixin._quality_check_output(invalid_output)
 
-        self.assertEqual(context.exception.llm_output, "SELECT * FROM nowhere")
-        self.assertEqual(context.exception.validation_message, "Unknown table `nowhere`.")
+        assert context.exception.llm_output == "SELECT * FROM nowhere"
+        assert context.exception.validation_message == "Unknown table `nowhere`."
 
     async def test_quality_check_output_empty_query_raises_exception(self):
         """Test quality check failure with empty query."""
@@ -139,8 +134,8 @@ class TestSQLMixins(NonAtomicBaseTest):
         with self.assertRaises(PydanticOutputParserException) as context:
             await mixin._quality_check_output(empty_output)
 
-        self.assertEqual(context.exception.llm_output, "")
-        self.assertEqual(context.exception.validation_message, "Output is empty")
+        assert context.exception.llm_output == ""
+        assert context.exception.validation_message == "Output is empty"
 
     async def test_quality_check_output_blank_query_raises_exception(self):
         """Test quality check failure with blank query string."""
@@ -151,8 +146,8 @@ class TestSQLMixins(NonAtomicBaseTest):
         with self.assertRaises(PydanticOutputParserException) as context:
             await mixin._quality_check_output(blank_output)
 
-        self.assertEqual(context.exception.llm_output, "")
-        self.assertEqual(context.exception.validation_message, "Output is empty")
+        assert context.exception.llm_output == ""
+        assert context.exception.validation_message == "Output is empty"
 
     async def test_quality_check_output_no_viable_alternative_error_handling(self):
         """Test that 'no viable alternative' errors get helpful messages."""
@@ -169,8 +164,8 @@ class TestSQLMixins(NonAtomicBaseTest):
             await mixin._quality_check_output(invalid_syntax_output)
 
         # Should replace unhelpful ANTLR error with better message
-        self.assertEqual(context.exception.llm_output, "SELECT 1 IS TRUE AS value")
-        self.assertIn("query isn't valid HogQL", context.exception.validation_message)
+        assert context.exception.llm_output == "SELECT 1 IS TRUE AS value"
+        assert "query isn't valid HogQL" in context.exception.validation_message
 
     async def test_quality_check_output_nonexistent_table_raises_exception(self):
         """Test quality check failure with nonexistent table."""
@@ -183,8 +178,8 @@ class TestSQLMixins(NonAtomicBaseTest):
         with self.assertRaises(PydanticOutputParserException) as context:
             await mixin._quality_check_output(invalid_table_output)
 
-        self.assertEqual(context.exception.llm_output, "SELECT count() FROM nonexistent_table")
-        self.assertEqual(context.exception.validation_message, "Unknown table `nonexistent_table`.")
+        assert context.exception.llm_output == "SELECT count() FROM nonexistent_table"
+        assert context.exception.validation_message == "Unknown table `nonexistent_table`."
 
     async def test_quality_check_output_complex_query_with_joins(self):
         """Test quality check success with complex query including joins."""

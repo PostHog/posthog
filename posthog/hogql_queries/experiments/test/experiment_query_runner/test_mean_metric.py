@@ -115,15 +115,15 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 60)
-        self.assertEqual(test_variant.sum, 120)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 60
+        assert test_variant.sum == 120
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
     @parameterized.expand(
         [
@@ -197,8 +197,8 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
-        self.assertEqual(result.baseline.sum, 25)
-        self.assertEqual(result.baseline.number_of_samples, 1)
+        assert result.baseline.sum == 25
+        assert result.baseline.number_of_samples == 1
 
     @parameterized.expand(
         [
@@ -291,15 +291,15 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 1056)
-        self.assertEqual(test_variant.sum, 1056)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 1056
+        assert test_variant.sum == 1056
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
     @parameterized.expand(
         [
@@ -394,15 +394,15 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 31)
-        self.assertEqual(test_variant.sum, 39)
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
+        assert control_variant.sum == 31
+        assert test_variant.sum == 39
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
 
     @parameterized.expand(
         [
@@ -495,15 +495,15 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 3)
-        self.assertEqual(test_variant.sum, 5)
-        self.assertEqual(control_variant.number_of_samples, 3)
-        self.assertEqual(test_variant.number_of_samples, 2)
+        assert control_variant.sum == 3
+        assert test_variant.sum == 5
+        assert control_variant.number_of_samples == 3
+        assert test_variant.number_of_samples == 2
 
     @parameterized.expand(
         [
@@ -582,15 +582,15 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 55)
-        self.assertEqual(test_variant.sum, 160)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 2)
+        assert control_variant.sum == 55
+        assert test_variant.sum == 160
+        assert control_variant.number_of_samples == 2
+        assert test_variant.number_of_samples == 2
 
     @parameterized.expand(
         [
@@ -669,15 +669,15 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 15)
-        self.assertEqual(test_variant.sum, 90)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 2)
+        assert control_variant.sum == 15
+        assert test_variant.sum == 90
+        assert control_variant.number_of_samples == 2
+        assert test_variant.number_of_samples == 2
 
     @parameterized.expand(
         [
@@ -756,15 +756,15 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.sum, 35)
-        self.assertEqual(test_variant.sum, 130)
-        self.assertEqual(control_variant.number_of_samples, 2)
-        self.assertEqual(test_variant.number_of_samples, 2)
+        assert control_variant.sum == 35
+        assert test_variant.sum == 130
+        assert control_variant.number_of_samples == 2
+        assert test_variant.number_of_samples == 2
 
     @parameterized.expand(
         [
@@ -866,15 +866,15 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.number_of_samples, 10)
-        self.assertEqual(test_variant.number_of_samples, 10)
-        self.assertEqual(control_variant.sum, 2300)
-        self.assertEqual(test_variant.sum, 4450)
+        assert control_variant.number_of_samples == 10
+        assert test_variant.number_of_samples == 10
+        assert control_variant.sum == 2300
+        assert test_variant.sum == 4450
 
     @parameterized.expand(
         [
@@ -959,17 +959,17 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # control_1: 2 unique, control_2: 2 unique, control_3: 0 unique → sum = 4
-        self.assertEqual(control_variant.sum, 4)
-        self.assertEqual(control_variant.number_of_samples, 3)
+        assert control_variant.sum == 4
+        assert control_variant.number_of_samples == 3
         # test_1: 3 unique, test_2: 1 unique → sum = 4
-        self.assertEqual(test_variant.sum, 4)
-        self.assertEqual(test_variant.number_of_samples, 2)
+        assert test_variant.sum == 4
+        assert test_variant.number_of_samples == 2
 
     @parameterized.expand(
         [
@@ -1054,18 +1054,18 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
         # Same expected results as uniqExact test
         # control_1: 2 unique, control_2: 2 unique, control_3: 0 unique → sum = 4
-        self.assertEqual(control_variant.sum, 4)
-        self.assertEqual(control_variant.number_of_samples, 3)
+        assert control_variant.sum == 4
+        assert control_variant.number_of_samples == 3
         # test_1: 3 unique, test_2: 1 unique → sum = 4
-        self.assertEqual(test_variant.sum, 4)
-        self.assertEqual(test_variant.number_of_samples, 2)
+        assert test_variant.sum == 4
+        assert test_variant.number_of_samples == 2
 
     @parameterized.expand(
         [
@@ -1177,13 +1177,13 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         # Only mature users should be counted (1 control, 1 test)
         assert result.baseline is not None
-        self.assertEqual(result.baseline.number_of_samples, 1)
-        self.assertEqual(result.baseline.sum, 50)
+        assert result.baseline.number_of_samples == 1
+        assert result.baseline.sum == 50
 
         assert result.variant_results is not None
         assert len(result.variant_results) == 1
-        self.assertEqual(result.variant_results[0].number_of_samples, 1)
-        self.assertEqual(result.variant_results[0].sum, 75)
+        assert result.variant_results[0].number_of_samples == 1
+        assert result.variant_results[0].sum == 75
 
     @parameterized.expand(
         [
@@ -1283,6 +1283,6 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         assert result.baseline is not None
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
-        self.assertEqual(result.baseline.number_of_samples, 10)
-        self.assertEqual(result.variant_results[0].number_of_samples, 10)
+        assert len(result.variant_results) == 1
+        assert result.baseline.number_of_samples == 10
+        assert result.variant_results[0].number_of_samples == 10

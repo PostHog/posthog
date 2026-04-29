@@ -267,8 +267,8 @@ class TestExperimentSavedMetricService(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             self._service().update_saved_metric(saved_metric, update_data)
 
-        self.assertIn("legacy query format", str(ctx.exception))
-        self.assertIn("cannot be updated", str(ctx.exception))
+        assert "legacy query format" in str(ctx.exception)
+        assert "cannot be updated" in str(ctx.exception)
 
     @parameterized.expand(
         [

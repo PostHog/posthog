@@ -19,7 +19,7 @@ class TestTextReprAPI(APIBaseTest):
         """Should require authentication to access text repr endpoints."""
         self.client.logout()
         response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/text_repr/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_stringify_generation_event(self):
         """Should stringify $ai_generation event."""
@@ -42,22 +42,22 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
 
-        self.assertIn("text", data)
-        self.assertIn("metadata", data)
-        self.assertIn("INPUT:", data["text"])
-        self.assertIn("OUTPUT:", data["text"])
-        self.assertIn("Hello", data["text"])
-        self.assertIn("Hi there", data["text"])
+        assert "text" in data
+        assert "metadata" in data
+        assert "INPUT:" in data["text"]
+        assert "OUTPUT:" in data["text"]
+        assert "Hello" in data["text"]
+        assert "Hi there" in data["text"]
 
         # Check metadata
-        self.assertEqual(data["metadata"]["event_type"], "$ai_generation")
-        self.assertEqual(data["metadata"]["event_id"], "gen123")
-        self.assertEqual(data["metadata"]["rendering"], "detailed")
-        self.assertGreater(data["metadata"]["char_count"], 0)
-        self.assertIsInstance(data["metadata"]["truncated"], bool)
+        assert data["metadata"]["event_type"] == "$ai_generation"
+        assert data["metadata"]["event_id"] == "gen123"
+        assert data["metadata"]["rendering"] == "detailed"
+        assert data["metadata"]["char_count"] > 0
+        assert isinstance(data["metadata"]["truncated"], bool)
 
     def test_stringify_span_event(self):
         """Should stringify $ai_span event."""
@@ -80,13 +80,13 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
 
-        self.assertIn("text", data)
-        self.assertIn("TEST-SPAN", data["text"])
-        self.assertIn("INPUT STATE:", data["text"])
-        self.assertIn("OUTPUT STATE:", data["text"])
+        assert "text" in data
+        assert "TEST-SPAN" in data["text"]
+        assert "INPUT STATE:" in data["text"]
+        assert "OUTPUT STATE:" in data["text"]
 
     def test_stringify_trace(self):
         """Should stringify $ai_trace with hierarchy."""
@@ -119,14 +119,14 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
 
-        self.assertIn("text", data)
-        self.assertIn("MY-TRACE", data["text"])
-        self.assertIn("TRACE HIERARCHY:", data["text"])
-        self.assertIn("[GEN]", data["text"])
-        self.assertEqual(data["metadata"]["trace_id"], "trace123")
+        assert "text" in data
+        assert "MY-TRACE" in data["text"]
+        assert "TRACE HIERARCHY:" in data["text"]
+        assert "[GEN]" in data["text"]
+        assert data["metadata"]["trace_id"] == "trace123"
 
     def test_missing_event_type(self):
         """Should return 400 for missing event_type."""
@@ -138,8 +138,8 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("event_type", str(response.data).lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "event_type" in str(response.data).lower()
 
     def test_missing_data(self):
         """Should return 400 for missing data."""
@@ -151,8 +151,8 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("data", str(response.data).lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "data" in str(response.data).lower()
 
     def test_missing_event_id(self):
         """Should return 400 when event ID is missing to prevent cache collisions."""
@@ -171,8 +171,8 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("id", str(response.data).lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "id" in str(response.data).lower()
 
     def test_missing_trace_id(self):
         """Should return 400 when trace ID is missing to prevent cache collisions."""
@@ -194,8 +194,8 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("id", str(response.data).lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "id" in str(response.data).lower()
 
     def test_default_options(self):
         """Should use default options when not provided."""
@@ -216,7 +216,7 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Should succeed with defaults
 
     def test_truncated_option(self):
@@ -240,10 +240,10 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
         # Should have truncation marker
-        self.assertTrue("TRUNCATED" in data["text"] or "truncated" in data["text"].lower())
+        assert "TRUNCATED" in data["text"] or "truncated" in data["text"].lower()
 
     def test_include_markers_option(self):
         """Should respect include_markers option."""
@@ -266,11 +266,11 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
         # Should not have interactive markers
-        self.assertNotIn("<<<TRUNCATED|", data["text"])
-        self.assertIn("chars truncated", data["text"])
+        assert "<<<TRUNCATED|" not in data["text"]
+        assert "chars truncated" in data["text"]
 
     def test_collapsed_option(self):
         """Should respect collapsed option for traces."""
@@ -303,11 +303,11 @@ class TestTextReprAPI(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
         # Should show tree but not expandable markers
-        self.assertIn("[GEN]", data["text"])
-        self.assertNotIn("GEN_EXPANDABLE", data["text"])
+        assert "[GEN]" in data["text"]
+        assert "GEN_EXPANDABLE" not in data["text"]
 
     def test_team_isolation(self):
         """Should enforce team isolation."""
@@ -330,7 +330,7 @@ class TestTextReprAPI(APIBaseTest):
         )
 
         # Should be forbidden
-        self.assertIn(response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+        assert response.status_code in [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND]
 
 
 class TestProviderFormats(APIBaseTest):
@@ -371,11 +371,11 @@ class TestProviderFormats(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
-        self.assertIn("Test", data["text"])
-        self.assertIn("Response", data["text"])
-        self.assertIn("test_func", data["text"])
+        assert "Test" in data["text"]
+        assert "Response" in data["text"]
+        assert "test_func" in data["text"]
 
     def test_anthropic_format(self):
         """Should handle Anthropic message format."""
@@ -411,11 +411,11 @@ class TestProviderFormats(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
-        self.assertIn("I'll help", data["text"])
-        self.assertIn("get_weather", data["text"])
-        self.assertIn("Dublin", data["text"])
+        assert "I'll help" in data["text"]
+        assert "get_weather" in data["text"]
+        assert "Dublin" in data["text"]
 
 
 class TestEdgeCases(APIBaseTest):
@@ -438,7 +438,7 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Should not crash
 
     def test_malformed_json(self):
@@ -449,7 +449,7 @@ class TestEdgeCases(APIBaseTest):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_very_long_content(self):
         """Should handle very long multi-line content via uniform sampling."""
@@ -474,11 +474,11 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
         # Should be truncated to approximately max_length via uniform sampling
-        self.assertLessEqual(data["metadata"]["char_count"], 55000)  # Allow some overhead
-        self.assertEqual(data["metadata"]["truncated"], True)
+        assert data["metadata"]["char_count"] <= 55000  # Allow some overhead
+        assert data["metadata"]["truncated"]
 
     def test_default_max_length(self):
         """Should use 2MB default max_length when not specified."""
@@ -505,10 +505,10 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
-        self.assertEqual(data["metadata"]["truncated"], False)
-        self.assertGreater(data["metadata"]["char_count"], 1500000)
+        assert not data["metadata"]["truncated"]
+        assert data["metadata"]["char_count"] > 1500000
 
         # Test content over 2MB - should truncate at max_length level
         # Each line is ~150 chars, so 17000 lines = ~2.5MB
@@ -524,10 +524,10 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
-        self.assertEqual(data["metadata"]["truncated"], True)
-        self.assertLessEqual(data["metadata"]["char_count"], 2100000)  # Allow some overhead for sampling
+        assert data["metadata"]["truncated"]
+        assert data["metadata"]["char_count"] <= 2100000  # Allow some overhead for sampling
 
     def test_unicode_content(self):
         """Should handle Unicode content correctly."""
@@ -548,11 +548,11 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
-        self.assertIn("世界", data["text"])
-        self.assertIn("🌍", data["text"])
-        self.assertIn("émojis", data["text"])
+        assert "世界" in data["text"]
+        assert "🌍" in data["text"]
+        assert "émojis" in data["text"]
 
     def test_null_values(self):
         """Should handle null values gracefully."""
@@ -574,7 +574,7 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Should not crash
 
     def test_complex_nested_structures(self):
@@ -599,9 +599,9 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
-        self.assertIn("deep", data["text"])
+        assert "deep" in data["text"]
 
     def test_available_tools_dictionary_format(self):
         """Should handle available tools in dictionary format."""
@@ -647,14 +647,14 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
         # Should show available tools section
-        self.assertIn("AVAILABLE TOOLS: 2", data["text"])
-        self.assertIn("lov-view(file_path: string, lines?: string)", data["text"])
-        self.assertIn("Use this tool to read the contents of a file.", data["text"])
-        self.assertIn("supabase--migration(migration_name: string)", data["text"])
-        self.assertIn("Create a Supabase migration file.", data["text"])
+        assert "AVAILABLE TOOLS: 2" in data["text"]
+        assert "lov-view(file_path: string, lines?: string)" in data["text"]
+        assert "Use this tool to read the contents of a file." in data["text"]
+        assert "supabase--migration(migration_name: string)" in data["text"]
+        assert "Create a Supabase migration file." in data["text"]
 
     def test_available_tools_array_format(self):
         """Should handle available tools in array format."""
@@ -691,12 +691,12 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
         # Should show available tools section
-        self.assertIn("AVAILABLE TOOLS: 1", data["text"])
-        self.assertIn("get_weather(location: string)", data["text"])
-        self.assertIn("Get current weather for a location.", data["text"])
+        assert "AVAILABLE TOOLS: 1" in data["text"]
+        assert "get_weather(location: string)" in data["text"]
+        assert "Get current weather for a location." in data["text"]
 
     def test_long_tools_list_collapsed(self):
         """Should collapse long tool lists (>5 tools) with expandable marker."""
@@ -734,13 +734,13 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
         # Should show collapsed marker
-        self.assertIn("<<<TOOLS_EXPANDABLE|", data["text"])
-        self.assertIn("AVAILABLE TOOLS: 10", data["text"])
+        assert "<<<TOOLS_EXPANDABLE|" in data["text"]
+        assert "AVAILABLE TOOLS: 10" in data["text"]
         # Should not show individual tools in main output
-        self.assertNotIn("tool0(param: string)", data["text"])
+        assert "tool0(param: string)" not in data["text"]
 
     def test_long_tools_list_collapsed_without_markers(self):
         """Should collapse long tool lists with plain text when include_markers=False."""
@@ -771,12 +771,12 @@ class TestEdgeCases(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.data
         # Should show plain text indicator
-        self.assertIn("[+] AVAILABLE TOOLS: 10", data["text"])
+        assert "[+] AVAILABLE TOOLS: 10" in data["text"]
         # Should not have interactive marker
-        self.assertNotIn("<<<TOOLS_EXPANDABLE|", data["text"])
+        assert "<<<TOOLS_EXPANDABLE|" not in data["text"]
 
 
 class TestCachingBehavior(APIBaseTest):
@@ -805,7 +805,7 @@ class TestCachingBehavior(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        assert response1.status_code == status.HTTP_200_OK
         first_text = response1.data["text"]
         first_metadata = response1.data["metadata"]
 
@@ -816,8 +816,8 @@ class TestCachingBehavior(APIBaseTest):
         viewset.team_id = self.team.id
         cache_key = viewset._get_cache_key("$ai_generation", "gen_cache_test", {"truncated": True})
         cached_result = cache.get(cache_key)
-        self.assertIsNotNone(cached_result)
-        self.assertEqual(cached_result["text"], first_text)
+        assert cached_result is not None
+        assert cached_result["text"] == first_text
 
         # Second identical request - should use cache and return same result
         response2 = self.client.post(
@@ -826,9 +826,9 @@ class TestCachingBehavior(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response2.status_code, status.HTTP_200_OK)
-        self.assertEqual(response2.data["text"], first_text)
-        self.assertEqual(response2.data["metadata"]["char_count"], first_metadata["char_count"])
+        assert response2.status_code == status.HTTP_200_OK
+        assert response2.data["text"] == first_text
+        assert response2.data["metadata"]["char_count"] == first_metadata["char_count"]
 
     def test_cache_key_differs_by_options(self):
         """Should use different cache keys for different options."""
@@ -852,7 +852,7 @@ class TestCachingBehavior(APIBaseTest):
             request1,
             format="json",
         )
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        assert response1.status_code == status.HTTP_200_OK
         text_with_truncation = response1.data["text"]
 
         # Request with truncated=False - should NOT use cache from request1
@@ -862,11 +862,11 @@ class TestCachingBehavior(APIBaseTest):
             request2,
             format="json",
         )
-        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        assert response2.status_code == status.HTTP_200_OK
         text_without_truncation = response2.data["text"]
 
         # Results should be different (truncation affects output)
-        self.assertNotEqual(text_with_truncation, text_without_truncation)
+        assert text_with_truncation != text_without_truncation
 
         # Verify both are cached with different keys
         from products.llm_analytics.backend.api.text_repr import LLMAnalyticsTextReprViewSet
@@ -877,9 +877,9 @@ class TestCachingBehavior(APIBaseTest):
         cache_key1 = viewset._get_cache_key("$ai_generation", "gen_options_test", {"truncated": True})
         cache_key2 = viewset._get_cache_key("$ai_generation", "gen_options_test", {"truncated": False})
 
-        self.assertNotEqual(cache_key1, cache_key2)
-        self.assertIsNotNone(cache.get(cache_key1))
-        self.assertIsNotNone(cache.get(cache_key2))
+        assert cache_key1 != cache_key2
+        assert cache.get(cache_key1) is not None
+        assert cache.get(cache_key2) is not None
 
     def test_cache_key_differs_by_event_id(self):
         """Should use different cache keys for different event IDs."""
@@ -900,7 +900,7 @@ class TestCachingBehavior(APIBaseTest):
             request1,
             format="json",
         )
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        assert response1.status_code == status.HTTP_200_OK
 
         # Different event ID - should NOT use cache
         request2 = {
@@ -917,7 +917,7 @@ class TestCachingBehavior(APIBaseTest):
             request2,
             format="json",
         )
-        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        assert response2.status_code == status.HTTP_200_OK
 
         # Verify different cache keys were used
         from products.llm_analytics.backend.api.text_repr import LLMAnalyticsTextReprViewSet
@@ -928,9 +928,9 @@ class TestCachingBehavior(APIBaseTest):
         cache_key1 = viewset._get_cache_key("$ai_generation", "gen_id_test_1", {})
         cache_key2 = viewset._get_cache_key("$ai_generation", "gen_id_test_2", {})
 
-        self.assertNotEqual(cache_key1, cache_key2)
-        self.assertIsNotNone(cache.get(cache_key1))
-        self.assertIsNotNone(cache.get(cache_key2))
+        assert cache_key1 != cache_key2
+        assert cache.get(cache_key1) is not None
+        assert cache.get(cache_key2) is not None
 
     def test_cache_isolation_by_team(self):
         """Should isolate cache by team."""
@@ -954,7 +954,7 @@ class TestCachingBehavior(APIBaseTest):
             request_data,
             format="json",
         )
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        assert response1.status_code == status.HTTP_200_OK
 
         # Verify cache key includes team ID
         from products.llm_analytics.backend.api.text_repr import LLMAnalyticsTextReprViewSet
@@ -968,9 +968,9 @@ class TestCachingBehavior(APIBaseTest):
         cache_key2 = viewset2._get_cache_key("$ai_generation", "gen_team_test", {})
 
         # Cache keys should be different due to different team IDs
-        self.assertNotEqual(cache_key1, cache_key2)
-        self.assertIn(str(self.team.id), cache_key1)
-        self.assertIn(str(other_team.id), cache_key2)
+        assert cache_key1 != cache_key2
+        assert str(self.team.id) in cache_key1
+        assert str(other_team.id) in cache_key2
 
     def test_cache_respects_trace_id(self):
         """Should cache traces separately by trace ID."""
@@ -993,7 +993,7 @@ class TestCachingBehavior(APIBaseTest):
             request1,
             format="json",
         )
-        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+        assert response1.status_code == status.HTTP_200_OK
 
         # Different trace ID - should NOT use cache
         request2 = {
@@ -1012,7 +1012,7 @@ class TestCachingBehavior(APIBaseTest):
             request2,
             format="json",
         )
-        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+        assert response2.status_code == status.HTTP_200_OK
 
         # Verify different cache keys were used
         from products.llm_analytics.backend.api.text_repr import LLMAnalyticsTextReprViewSet
@@ -1023,6 +1023,6 @@ class TestCachingBehavior(APIBaseTest):
         cache_key1 = viewset._get_cache_key("$ai_trace", "trace_cache_1", {})
         cache_key2 = viewset._get_cache_key("$ai_trace", "trace_cache_2", {})
 
-        self.assertNotEqual(cache_key1, cache_key2)
-        self.assertIsNotNone(cache.get(cache_key1))
-        self.assertIsNotNone(cache.get(cache_key2))
+        assert cache_key1 != cache_key2
+        assert cache.get(cache_key1) is not None
+        assert cache.get(cache_key2) is not None

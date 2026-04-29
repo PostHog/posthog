@@ -39,7 +39,7 @@ class TestEvaluationReportModel(BaseTest):
         now = timezone.now()
         report = self._scheduled_report()
         assert report.next_delivery_date is not None
-        self.assertGreater(report.next_delivery_date, now)
+        assert report.next_delivery_date > now
 
     def test_count_triggered_has_no_next_delivery_date(self):
         report = EvaluationReport.objects.create(
@@ -49,8 +49,8 @@ class TestEvaluationReportModel(BaseTest):
             trigger_threshold=100,
             delivery_targets=[],
         )
-        self.assertTrue(report.is_count_triggered)
-        self.assertIsNone(report.next_delivery_date)
+        assert report.is_count_triggered
+        assert report.next_delivery_date is None
         with self.assertRaises(ValueError):
             _ = report.rrule_object
 
@@ -58,8 +58,8 @@ class TestEvaluationReportModel(BaseTest):
         now = timezone.now()
         report = self._scheduled_report(rrule="FREQ=HOURLY", starts_at=now - dt.timedelta(hours=5))
         next_occurrence = report.rrule_object.after(now, inc=False)
-        self.assertIsNotNone(next_occurrence)
-        self.assertEqual(next_occurrence.minute, (now - dt.timedelta(hours=5)).minute)
+        assert next_occurrence is not None
+        assert next_occurrence.minute == (now - dt.timedelta(hours=5)).minute
 
     def test_rrule_object_weekly_with_byday(self):
         now = timezone.now()
@@ -68,15 +68,15 @@ class TestEvaluationReportModel(BaseTest):
             starts_at=now - dt.timedelta(weeks=1),
         )
         next_occurrence = report.rrule_object.after(now, inc=False)
-        self.assertIsNotNone(next_occurrence)
-        self.assertIn(next_occurrence.weekday(), [0, 4])
+        assert next_occurrence is not None
+        assert next_occurrence.weekday() in [0, 4]
 
     def test_set_next_delivery_date_uses_15min_buffer(self):
         now = timezone.now()
         report = self._scheduled_report(rrule="FREQ=HOURLY", starts_at=now - dt.timedelta(hours=1))
         report.set_next_delivery_date()
         assert report.next_delivery_date is not None
-        self.assertGreater(report.next_delivery_date, now + dt.timedelta(minutes=14))
+        assert report.next_delivery_date > now + dt.timedelta(minutes=14)
 
     def test_set_next_delivery_date_from_custom_dt(self):
         now = timezone.now()
@@ -84,7 +84,7 @@ class TestEvaluationReportModel(BaseTest):
         from_dt = now + dt.timedelta(hours=2)
         report.set_next_delivery_date(from_dt=from_dt)
         assert report.next_delivery_date is not None
-        self.assertGreater(report.next_delivery_date, from_dt)
+        assert report.next_delivery_date > from_dt
 
     def test_set_next_delivery_date_stays_at_local_wall_clock_across_dst(self):
         # 9am daily in New York: Sun 2026-03-01 14:00 UTC (EST = UTC-5).
@@ -104,8 +104,8 @@ class TestEvaluationReportModel(BaseTest):
         assert report.next_delivery_date is not None
         # Next fire should be at 09:00 local, i.e. 13:00 UTC (EDT), not 14:00 UTC.
         local = report.next_delivery_date.astimezone(ny)
-        self.assertEqual(local.hour, 9)
-        self.assertEqual(local.minute, 0)
+        assert local.hour == 9
+        assert local.minute == 0
 
     def test_save_with_update_fields_persists_changed_schedule_field(self):
         # Regression: save(update_fields=[...]) used to drop a changed schedule
@@ -116,7 +116,7 @@ class TestEvaluationReportModel(BaseTest):
         report.save(update_fields=["rrule"])
 
         report.refresh_from_db()
-        self.assertEqual(report.rrule, "FREQ=WEEKLY")
+        assert report.rrule == "FREQ=WEEKLY"
         assert report.next_delivery_date is not None
 
 
@@ -149,6 +149,6 @@ class TestEvaluationReportRunModel(BaseTest):
             period_start=now - dt.timedelta(hours=1),
             period_end=now,
         )
-        self.assertEqual(run.delivery_status, "pending")
-        self.assertEqual(run.delivery_errors, [])
-        self.assertEqual(run.report, report)
+        assert run.delivery_status == "pending"
+        assert run.delivery_errors == []
+        assert run.report == report

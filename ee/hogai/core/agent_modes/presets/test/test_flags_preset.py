@@ -20,10 +20,10 @@ class TestFlagsAgentToolkit(BaseTest):
         tool_classes = toolkit.tools
         tool_class_names = [tool_class.__name__ for tool_class in tool_classes]
 
-        self.assertIn("CreateFeatureFlagTool", tool_class_names)
-        self.assertIn("CreateExperimentTool", tool_class_names)
-        self.assertIn("ExperimentSummaryTool", tool_class_names)
+        assert "CreateFeatureFlagTool" in tool_class_names
+        assert "CreateExperimentTool" in tool_class_names
+        assert "ExperimentSummaryTool" in tool_class_names
 
     def test_toolkit_has_trajectory_examples(self):
-        self.assertIsNotNone(FlagsAgentToolkit.POSITIVE_TODO_EXAMPLES)
-        self.assertGreater(len(FlagsAgentToolkit.POSITIVE_TODO_EXAMPLES), 0)
+        assert FlagsAgentToolkit.POSITIVE_TODO_EXAMPLES is not None
+        assert len(FlagsAgentToolkit.POSITIVE_TODO_EXAMPLES) > 0

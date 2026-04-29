@@ -69,13 +69,13 @@ class TestStatsConfig(APIBaseTest):
         )
 
         assert result.baseline is not None
-        self.assertEqual(result.baseline.key, "control")
+        assert result.baseline.key == "control"
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
         assert variant.confidence_interval is not None
-        self.assertEqual(len(variant.confidence_interval), 2)
+        assert len(variant.confidence_interval) == 2
 
     @parameterized.expand(
         [
@@ -98,13 +98,13 @@ class TestStatsConfig(APIBaseTest):
         )
 
         assert result.baseline is not None
-        self.assertEqual(result.baseline.key, "control")
+        assert result.baseline.key == "control"
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
         variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
         assert variant.credible_interval is not None
-        self.assertEqual(len(variant.credible_interval), 2)
+        assert len(variant.credible_interval) == 2
         assert variant.chance_to_win is not None
 
     @parameterized.expand(
@@ -126,7 +126,7 @@ class TestStatsConfig(APIBaseTest):
         )
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
     @parameterized.expand(
         [
@@ -147,7 +147,7 @@ class TestStatsConfig(APIBaseTest):
         )
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
 
     def test_bayesian_ci_level_actually_affects_interval_width(self) -> None:
         metric = self.create_mean_metric()
@@ -180,7 +180,7 @@ class TestStatsConfig(APIBaseTest):
         width_90 = variant_90.credible_interval[1] - variant_90.credible_interval[0]
         width_99 = variant_99.credible_interval[1] - variant_99.credible_interval[0]
 
-        self.assertGreater(width_99, width_90, "99% CI should be wider than 90% CI")
+        assert width_99 > width_90, "99% CI should be wider than 90% CI"
 
     def test_numeric_validation_alpha_out_of_range_uses_default(self) -> None:
         metric = self.create_mean_metric()
@@ -210,8 +210,8 @@ class TestStatsConfig(APIBaseTest):
         assert variant_high.confidence_interval is not None
         assert variant_negative.confidence_interval is not None
 
-        self.assertEqual(variant_high.confidence_interval[0], variant_negative.confidence_interval[0])
-        self.assertEqual(variant_high.confidence_interval[1], variant_negative.confidence_interval[1])
+        assert variant_high.confidence_interval[0] == variant_negative.confidence_interval[0]
+        assert variant_high.confidence_interval[1] == variant_negative.confidence_interval[1]
 
     def test_numeric_validation_ci_level_out_of_range_uses_default(self) -> None:
         metric = self.create_mean_metric()
@@ -247,21 +247,21 @@ class TestStatsConfig(APIBaseTest):
         )
 
         assert result.baseline is not None
-        self.assertEqual(result.baseline.key, "control")
-        self.assertEqual(result.baseline.number_of_samples, data["control"][0])
-        self.assertEqual(result.baseline.sum, data["control"][1])
-        self.assertEqual(result.baseline.sum_squares, data["control"][2])
+        assert result.baseline.key == "control"
+        assert result.baseline.number_of_samples == data["control"][0]
+        assert result.baseline.sum == data["control"][1]
+        assert result.baseline.sum_squares == data["control"][2]
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
-        self.assertEqual(variant.key, "test")
-        self.assertEqual(variant.number_of_samples, data["test"][0])
-        self.assertEqual(variant.sum, data["test"][1])
-        self.assertEqual(variant.sum_squares, data["test"][2])
-        self.assertIsNone(variant.p_value)
-        self.assertIsNone(variant.confidence_interval)
-        self.assertIsNone(variant.significant)
+        assert variant.key == "test"
+        assert variant.number_of_samples == data["test"][0]
+        assert variant.sum == data["test"][1]
+        assert variant.sum_squares == data["test"][2]
+        assert variant.p_value is None
+        assert variant.confidence_interval is None
+        assert variant.significant is None
 
     @parameterized.expand(INSUFFICIENT_DATA_CASES)
     def test_bayesian_insufficient_data_returns_raw_values_without_stats(self, _name, data):
@@ -281,21 +281,21 @@ class TestStatsConfig(APIBaseTest):
         )
 
         assert result.baseline is not None
-        self.assertEqual(result.baseline.key, "control")
-        self.assertEqual(result.baseline.number_of_samples, data["control"][0])
-        self.assertEqual(result.baseline.sum, data["control"][1])
-        self.assertEqual(result.baseline.sum_squares, data["control"][2])
+        assert result.baseline.key == "control"
+        assert result.baseline.number_of_samples == data["control"][0]
+        assert result.baseline.sum == data["control"][1]
+        assert result.baseline.sum_squares == data["control"][2]
 
         assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
+        assert len(result.variant_results) == 1
         variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
-        self.assertEqual(variant.key, "test")
-        self.assertEqual(variant.number_of_samples, data["test"][0])
-        self.assertEqual(variant.sum, data["test"][1])
-        self.assertEqual(variant.sum_squares, data["test"][2])
-        self.assertIsNone(variant.chance_to_win)
-        self.assertIsNone(variant.credible_interval)
-        self.assertIsNone(variant.significant)
+        assert variant.key == "test"
+        assert variant.number_of_samples == data["test"][0]
+        assert variant.sum == data["test"][1]
+        assert variant.sum_squares == data["test"][2]
+        assert variant.chance_to_win is None
+        assert variant.credible_interval is None
+        assert variant.significant is None
 
     def test_frequentist_sufficient_data_returns_stats(self):
         metric = self.create_mean_metric()
@@ -311,9 +311,9 @@ class TestStatsConfig(APIBaseTest):
 
         assert result.variant_results is not None
         variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
-        self.assertIsNotNone(variant.p_value)
-        self.assertIsNotNone(variant.confidence_interval)
-        self.assertIsNotNone(variant.significant)
+        assert variant.p_value is not None
+        assert variant.confidence_interval is not None
+        assert variant.significant is not None
 
     def test_bayesian_sufficient_data_returns_stats(self):
         metric = self.create_mean_metric()
@@ -329,9 +329,9 @@ class TestStatsConfig(APIBaseTest):
 
         assert result.variant_results is not None
         variant = cast(ExperimentVariantResultBayesian, result.variant_results[0])
-        self.assertIsNotNone(variant.chance_to_win)
-        self.assertIsNotNone(variant.credible_interval)
-        self.assertIsNotNone(variant.significant)
+        assert variant.chance_to_win is not None
+        assert variant.credible_interval is not None
+        assert variant.significant is not None
 
     @parameterized.expand(
         [
@@ -348,8 +348,8 @@ class TestStatsConfig(APIBaseTest):
         kwargs = {"baseline_key": baseline_key} if baseline_key is not None else {}
         baseline, test_variants = split_baseline_and_test_variants(variants, **kwargs)
 
-        self.assertEqual(baseline.key, expected_baseline)
-        self.assertEqual([v.key for v in test_variants], expected_test_keys)
+        assert baseline.key == expected_baseline
+        assert [v.key for v in test_variants] == expected_test_keys
 
     def test_split_baseline_and_test_variants_missing_key_raises(self):
         variants = [
@@ -399,4 +399,4 @@ class TestStatsConfig(APIBaseTest):
 
         runner = ExperimentQueryRunner(query=query, team=self.team)
 
-        self.assertEqual(runner.baseline_variant_key, expected_baseline)
+        assert runner.baseline_variant_key == expected_baseline

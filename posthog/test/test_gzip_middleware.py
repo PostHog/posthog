@@ -16,39 +16,35 @@ class TestGzipMiddleware(APIBaseTest):
     def test_does_not_compress_outside_of_allow_list(self) -> None:
         with self.settings(GZIP_RESPONSE_ALLOW_LIST=["something-else", "not-root"]):
             response = self._get_path("/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             contentEncoding = response.headers.get("Content-Encoding", None)
-            self.assertEqual(contentEncoding, None)
+            assert contentEncoding is None
 
     @skip("fails in CI, but covered by test in test_clickhouse_session_recording")
     def test_compresses_when_on_allow_list(self) -> None:
         with self.settings(GZIP_RESPONSE_ALLOW_LIST=["something-else", "/home"]):
             response = self._get_path("/home")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             contentEncoding = response.headers.get("Content-Encoding", None)
-            self.assertEqual(contentEncoding, "gzip")
+            assert contentEncoding == "gzip"
 
     def test_no_compression_for_unsuccessful_requests_to_paths_on_the_allow_list(self) -> None:
         with self.settings(GZIP_RESPONSE_ALLOW_LIST=["something-else", "snapshots$"]):
             response = self._get_path(f"/api/projects/{self.team.pk}/session_recordings/blah/snapshots")
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_404_NOT_FOUND,
-                msg=response.content.decode("utf-8"),
-            )
+            assert response.status_code == status.HTTP_404_NOT_FOUND, response.content.decode("utf-8")
 
             contentEncoding = response.headers.get("Content-Encoding", None)
-            self.assertEqual(contentEncoding, None)
+            assert contentEncoding is None
 
     def test_no_compression_when_allow_list_is_empty(self) -> None:
         with self.settings(GZIP_RESPONSE_ALLOW_LIST=[]):
             response = self._get_path("/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
 
             contentEncoding = response.headers.get("Content-Encoding", None)
-            self.assertEqual(contentEncoding, None)
+            assert contentEncoding is None
 
     def test_sensible_error_if_bad_pattern(self) -> None:
         with raises(InvalidGZipAllowList):

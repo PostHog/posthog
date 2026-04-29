@@ -156,21 +156,12 @@ class TestIlikeMatches(BaseTest):
         clickhouse_result = result.results[0][0] == 1
 
         # Verify our expectation matches ClickHouse
-        self.assertEqual(
-            clickhouse_result,
-            expected,
-            f"ClickHouse ilike({text!r}, {pattern!r}) returned {clickhouse_result}, expected {expected}",
-        )
+        assert clickhouse_result == expected, f"ClickHouse ilike({text!r}, {pattern!r}) returned {clickhouse_result}, expected {expected}"
 
         # Verify our Python implementation matches ClickHouse
         python_result = ilike_matches(pattern, text)
 
-        self.assertEqual(
-            python_result,
-            clickhouse_result,
-            f"Python ilike_matches({pattern!r}, {text!r}) returned {python_result}, "
-            f"but ClickHouse returned {clickhouse_result}",
-        )
+        assert python_result == clickhouse_result, f"Python ilike_matches({pattern!r}, {text!r}) returned {python_result}, " f"but ClickHouse returned {clickhouse_result}"
 
 
 class TestLikeMatches(BaseTest):
@@ -327,20 +318,11 @@ class TestLikeMatches(BaseTest):
         )
         clickhouse_result = result.results[0][0] == 1
 
-        self.assertEqual(
-            clickhouse_result,
-            expected,
-            f"ClickHouse like({text!r}, {pattern!r}) returned {clickhouse_result}, expected {expected}",
-        )
+        assert clickhouse_result == expected, f"ClickHouse like({text!r}, {pattern!r}) returned {clickhouse_result}, expected {expected}"
 
         python_result = like_matches(pattern, text)
 
-        self.assertEqual(
-            python_result,
-            clickhouse_result,
-            f"Python like_matches({pattern!r}, {text!r}) returned {python_result}, "
-            f"but ClickHouse returned {clickhouse_result}",
-        )
+        assert python_result == clickhouse_result, f"Python like_matches({pattern!r}, {text!r}) returned {python_result}, " f"but ClickHouse returned {clickhouse_result}"
 
 
 class TestUtils(BaseTest):
@@ -366,7 +348,7 @@ class TestUtils(BaseTest):
         )
 
         assert isinstance(join_expr, ast.JoinExpr)
-        self.assertEqual(join_expr.join_type, join_type)
+        assert join_expr.join_type == join_type
 
     @parameterized.expand(
         [
@@ -385,7 +367,7 @@ class TestUtils(BaseTest):
                 }
             )
 
-        self.assertEqual(str(e.exception), f"Invalid join type: {join_type}")
+        assert str(e.exception) == f"Invalid join type: {join_type}"
 
     @parameterized.expand(
         [
@@ -403,7 +385,7 @@ class TestUtils(BaseTest):
         )
 
         assert isinstance(join_constraint, ast.JoinConstraint)
-        self.assertEqual(join_constraint.constraint_type, constraint_type)
+        assert join_constraint.constraint_type == constraint_type
 
     @parameterized.expand(
         [
@@ -421,7 +403,7 @@ class TestUtils(BaseTest):
                 }
             )
 
-        self.assertEqual(str(e.exception), f"Invalid join constraint type: {constraint_type}")
+        assert str(e.exception) == f"Invalid join constraint type: {constraint_type}"
 
     def test_deserialize_hx_ast(self):
         assert deserialize_hx_ast(
@@ -506,7 +488,7 @@ class TestUtils(BaseTest):
                     "unexpected": 2,
                 }
             )
-        self.assertEqual(str(e.exception), "Unexpected field 'unexpected' for AST node 'Constant'")
+        assert str(e.exception) == "Unexpected field 'unexpected' for AST node 'Constant'"
 
         with self.assertRaises(ValueError) as e:
             deserialize_hx_ast(
@@ -515,4 +497,4 @@ class TestUtils(BaseTest):
                     "value": 1,
                 }
             )
-        self.assertEqual(str(e.exception), "Invalid or missing '__hx_ast' kind: Invalid")
+        assert str(e.exception) == "Invalid or missing '__hx_ast' kind: Invalid"

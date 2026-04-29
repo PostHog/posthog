@@ -61,17 +61,17 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_one")
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_two")
 
-        self.assertEqual(self._count_rows(self.team.pk), 0)
+        assert self._count_rows(self.team.pk) == 0
 
         self._run_backfill(team_id=self.team.pk)
 
         rows = self._get_rows(self.team.pk)
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0]["fingerprint"], "fp_one")
-        self.assertEqual(rows[0]["issue_id"], str(issue.id))
-        self.assertEqual(rows[0]["issue_name"], "TestError")
-        self.assertEqual(rows[0]["issue_status"], "active")
-        self.assertEqual(rows[1]["fingerprint"], "fp_two")
+        assert len(rows) == 2
+        assert rows[0]["fingerprint"] == "fp_one"
+        assert rows[0]["issue_id"] == str(issue.id)
+        assert rows[0]["issue_name"] == "TestError"
+        assert rows[0]["issue_status"] == "active"
+        assert rows[1]["fingerprint"] == "fp_two"
 
     def test_backfill_includes_user_assignment(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="AssignedError", status="active")
@@ -81,8 +81,8 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self._run_backfill(team_id=self.team.pk)
 
         rows = self._get_rows(self.team.pk)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["assigned_user_id"], self.user.pk)
+        assert len(rows) == 1
+        assert rows[0]["assigned_user_id"] == self.user.pk
 
     def test_backfill_includes_role_assignment(self):
         from ee.models import Role
@@ -95,8 +95,8 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self._run_backfill(team_id=self.team.pk)
 
         rows = self._get_rows(self.team.pk)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(str(rows[0]["assigned_role_id"]), str(role.id))
+        assert len(rows) == 1
+        assert str(rows[0]["assigned_role_id"]) == str(role.id)
 
     def test_dry_run_does_not_produce(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="DryRunError", status="active")
@@ -104,7 +104,7 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
 
         self._run_backfill(team_id=self.team.pk, live_run=False)
 
-        self.assertEqual(self._count_rows(self.team.pk), 0)
+        assert self._count_rows(self.team.pk) == 0
 
     def test_start_from_team_id_skips_earlier_teams(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="SkippedError", status="active")
@@ -113,12 +113,12 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         # Use a start_from_team_id higher than our team to skip it
         self._run_backfill(start_from_team_id=self.team.pk + 1)
 
-        self.assertEqual(self._count_rows(self.team.pk), 0)
+        assert self._count_rows(self.team.pk) == 0
 
     def test_end_team_id_excludes_later_teams(self):
         team_first = Team.objects.create(organization=self.organization, name="End filter team A")
         team_second = Team.objects.create(organization=self.organization, name="End filter team B")
-        self.assertLess(team_first.pk, team_second.pk)
+        assert team_first.pk < team_second.pk
 
         issue_first = ErrorTrackingIssue.objects.create(team=team_first, name="First", status="active")
         issue_second = ErrorTrackingIssue.objects.create(team=team_second, name="Second", status="active")
@@ -127,15 +127,15 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
 
         self._run_backfill(end_team_id=team_first.pk)
 
-        self.assertEqual(self._count_rows(team_first.pk), 1)
-        self.assertEqual(self._count_rows(team_second.pk), 0)
+        assert self._count_rows(team_first.pk) == 1
+        assert self._count_rows(team_second.pk) == 0
 
     def test_start_and_end_team_id_limits_to_range(self):
         team_low = Team.objects.create(organization=self.organization, name="Range low")
         team_mid = Team.objects.create(organization=self.organization, name="Range mid")
         team_high = Team.objects.create(organization=self.organization, name="Range high")
-        self.assertLess(team_low.pk, team_mid.pk)
-        self.assertLess(team_mid.pk, team_high.pk)
+        assert team_low.pk < team_mid.pk
+        assert team_mid.pk < team_high.pk
 
         for team, fp in (
             (team_low, "fp_low"),
@@ -147,9 +147,9 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
 
         self._run_backfill(start_from_team_id=team_mid.pk, end_team_id=team_mid.pk)
 
-        self.assertEqual(self._count_rows(team_low.pk), 0)
-        self.assertEqual(self._count_rows(team_mid.pk), 1)
-        self.assertEqual(self._count_rows(team_high.pk), 0)
+        assert self._count_rows(team_low.pk) == 0
+        assert self._count_rows(team_mid.pk) == 1
+        assert self._count_rows(team_high.pk) == 0
 
     def test_backfill_version_is_fingerprint_created_at_epoch_ms(self):
         from datetime import datetime
@@ -162,8 +162,8 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self._run_backfill(team_id=self.team.pk)
 
         rows = self._get_rows(self.team.pk)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["version"], int(created_at.timestamp() * 1000))
+        assert len(rows) == 1
+        assert rows[0]["version"] == int(created_at.timestamp() * 1000)
 
     def test_backfill_uses_fingerprint_first_seen(self):
         from datetime import datetime
@@ -177,8 +177,8 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self._run_backfill(team_id=self.team.pk)
 
         rows = self._get_rows(self.team.pk)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["first_seen"], first_seen)
+        assert len(rows) == 1
+        assert rows[0]["first_seen"] == first_seen
 
     def test_backfill_falls_back_to_issue_created_at_when_first_seen_is_null(self):
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="NullSeenError", status="active")
@@ -188,10 +188,10 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self._run_backfill(team_id=self.team.pk)
 
         rows = self._get_rows(self.team.pk)
-        self.assertEqual(len(rows), 1)
+        assert len(rows) == 1
         # CH DateTime64(3) has millisecond precision, so truncate microseconds for comparison
         expected = issue.created_at.replace(microsecond=issue.created_at.microsecond // 1000 * 1000)
-        self.assertEqual(rows[0]["first_seen"], expected)
+        assert rows[0]["first_seen"] == expected
 
     def test_backfill_multiple_issues(self):
         issue_a = ErrorTrackingIssue.objects.create(team=self.team, name="ErrorA", status="active")
@@ -202,6 +202,6 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self._run_backfill(team_id=self.team.pk)
 
         rows = self._get_rows(self.team.pk)
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0]["issue_status"], "active")
-        self.assertEqual(rows[1]["issue_status"], "resolved")
+        assert len(rows) == 2
+        assert rows[0]["issue_status"] == "active"
+        assert rows[1]["issue_status"] == "resolved"

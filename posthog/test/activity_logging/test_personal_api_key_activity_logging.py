@@ -14,33 +14,33 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         mask_value = api_key["mask_value"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
-        self.assertTrue(len(logs) >= 1)
+        assert len(logs) >= 1
 
         log = logs.first()
-        self.assertIsNotNone(log)
         assert log is not None
-        self.assertEqual(log.scope, "PersonalAPIKey")
-        self.assertEqual(log.activity, "created")
-        self.assertEqual(log.item_id, str(api_key_id))
-        self.assertEqual(log.user, self.user)
-        self.assertFalse(log.was_impersonated or False)
-        self.assertFalse(log.is_system or False)
-        self.assertEqual(log.organization_id, self.organization.id)
-        self.assertIsNone(log.team_id)  # Global keys should have no team_id
+        assert log is not None
+        assert log.scope == "PersonalAPIKey"
+        assert log.activity == "created"
+        assert log.item_id == str(api_key_id)
+        assert log.user == self.user
+        assert not (log.was_impersonated or False)
+        assert not (log.is_system or False)
+        assert log.organization_id == self.organization.id
+        assert log.team_id is None  # Global keys should have no team_id
 
-        self.assertIsNotNone(log.detail)
+        assert log.detail is not None
         detail = log.detail
         assert detail is not None
-        self.assertEqual(detail["name"], mask_value)
-        self.assertIsNotNone(detail.get("context"))
+        assert detail["name"] == mask_value
+        assert detail.get("context") is not None
 
         context = detail["context"]
         assert context is not None
-        self.assertEqual(context["user_id"], self.user.id)
-        self.assertEqual(context["user_email"], self.user.email)
-        self.assertEqual(context["organization_name"], self.organization.name)
-        self.assertEqual(context["team_name"], "Unknown Project")  # Global keys have no team context
-        self.assertEqual(context["scopes"], ["*"])
+        assert context["user_id"] == self.user.id
+        assert context["user_email"] == self.user.email
+        assert context["organization_name"] == self.organization.name
+        assert context["team_name"] == "Unknown Project"  # Global keys have no team context
+        assert context["scopes"] == ["*"]
 
     def test_personal_api_key_update_activity_logging(self):
         api_key = self.create_personal_api_key(label="Original API Key")
@@ -49,21 +49,21 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.update_personal_api_key(api_key_id, {"label": "Updated API Key"})
 
         update_logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="updated")
-        self.assertTrue(len(update_logs) >= 1)
+        assert len(update_logs) >= 1
 
         update_log = update_logs.first()
-        self.assertIsNotNone(update_log)
         assert update_log is not None
-        self.assertIsNotNone(update_log.detail)
+        assert update_log is not None
+        assert update_log.detail is not None
         assert update_log.detail is not None
 
         changes = update_log.detail.get("changes", [])
         label_change = next((change for change in changes if change.get("field") == "label"), None)
-        self.assertIsNotNone(label_change)
         assert label_change is not None
-        self.assertEqual(label_change["action"], "changed")
-        self.assertEqual(label_change["before"], "Original API Key")
-        self.assertEqual(label_change["after"], "Updated API Key")
+        assert label_change is not None
+        assert label_change["action"] == "changed"
+        assert label_change["before"] == "Original API Key"
+        assert label_change["after"] == "Updated API Key"
 
     def test_personal_api_key_scopes_update_activity_logging(self):
         api_key = self.create_personal_api_key(label="Scoped API Key")
@@ -72,25 +72,25 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.update_personal_api_key(api_key_id, {"scopes": ["insight:read", "insight:write"]})
 
         update_logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="updated")
-        self.assertTrue(len(update_logs) >= 1)
+        assert len(update_logs) >= 1
 
         update_log = update_logs.first()
-        self.assertIsNotNone(update_log)
         assert update_log is not None
-        self.assertIsNotNone(update_log.detail)
+        assert update_log is not None
+        assert update_log.detail is not None
         assert update_log.detail is not None
 
         changes = update_log.detail.get("changes", [])
         scopes_change = next((change for change in changes if change.get("field") == "scopes"), None)
-        self.assertIsNotNone(scopes_change)
         assert scopes_change is not None
-        self.assertEqual(scopes_change["action"], "changed")
-        self.assertEqual(scopes_change["before"], ["*"])
-        self.assertEqual(scopes_change["after"], ["insight:read", "insight:write"])
+        assert scopes_change is not None
+        assert scopes_change["action"] == "changed"
+        assert scopes_change["before"] == ["*"]
+        assert scopes_change["after"] == ["insight:read", "insight:write"]
 
         context = update_log.detail.get("context")
         assert context is not None
-        self.assertEqual(context["scopes"], ["insight:read", "insight:write"])
+        assert context["scopes"] == ["insight:read", "insight:write"]
 
     def test_personal_api_key_deletion_activity_logging(self):
         api_key = self.create_personal_api_key(label="To Delete API Key")
@@ -98,47 +98,47 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         mask_value = api_key["mask_value"]
 
         response = self.client.delete(f"/api/personal_api_keys/{api_key_id}/")
-        self.assertEqual(response.status_code, 204)
+        assert response.status_code == 204
 
         delete_logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="deleted")
-        self.assertTrue(len(delete_logs) >= 1)
+        assert len(delete_logs) >= 1
 
         delete_log = delete_logs.first()
-        self.assertIsNotNone(delete_log)
         assert delete_log is not None
-        self.assertEqual(delete_log.scope, "PersonalAPIKey")
-        self.assertEqual(delete_log.activity, "deleted")
-        self.assertEqual(delete_log.item_id, str(api_key_id))
+        assert delete_log is not None
+        assert delete_log.scope == "PersonalAPIKey"
+        assert delete_log.activity == "deleted"
+        assert delete_log.item_id == str(api_key_id)
 
-        self.assertIsNotNone(delete_log.detail)
+        assert delete_log.detail is not None
         detail = delete_log.detail
         assert detail is not None
-        self.assertEqual(detail["name"], mask_value)
-        self.assertIsNotNone(detail.get("context"))
+        assert detail["name"] == mask_value
+        assert detail.get("context") is not None
 
         context = detail["context"]
         assert context is not None
-        self.assertEqual(context["user_id"], self.user.id)
-        self.assertEqual(context["user_email"], self.user.email)
+        assert context["user_id"] == self.user.id
+        assert context["user_email"] == self.user.email
 
     def test_personal_api_key_roll_activity_logging(self):
         api_key = self.create_personal_api_key(label="Rollable API Key")
         api_key_id = api_key["id"]
 
         response = self.client.post(f"/api/personal_api_keys/{api_key_id}/roll/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         update_logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="updated")
-        self.assertTrue(len(update_logs) >= 1)
+        assert len(update_logs) >= 1
 
         update_log = update_logs.first()
-        self.assertIsNotNone(update_log)
         assert update_log is not None
-        self.assertIsNotNone(update_log.detail)
+        assert update_log is not None
+        assert update_log.detail is not None
         assert update_log.detail is not None
 
         changes = update_log.detail.get("changes", [])
-        self.assertTrue(len(changes) >= 0)
+        assert len(changes) >= 0
 
     def test_personal_api_key_activity_log_properties(self):
         api_key = self.create_personal_api_key(label="Properties Test Key")
@@ -146,25 +146,25 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         mask_value = api_key["mask_value"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
-        self.assertTrue(len(logs) >= 1)
+        assert len(logs) >= 1
 
         log = logs.first()
-        self.assertIsNotNone(log)
         assert log is not None
-        self.assertEqual(log.scope, "PersonalAPIKey")
-        self.assertEqual(log.activity, "created")
-        self.assertEqual(log.item_id, str(api_key_id))
-        self.assertEqual(log.organization_id, self.organization.id)
-        self.assertEqual(log.user, self.user)
-        self.assertFalse(log.was_impersonated or False)
-        self.assertFalse(log.is_system or False)
+        assert log is not None
+        assert log.scope == "PersonalAPIKey"
+        assert log.activity == "created"
+        assert log.item_id == str(api_key_id)
+        assert log.organization_id == self.organization.id
+        assert log.user == self.user
+        assert not (log.was_impersonated or False)
+        assert not (log.is_system or False)
 
-        self.assertIsNotNone(log.detail)
+        assert log.detail is not None
         detail = log.detail
         assert detail is not None
-        self.assertEqual(detail["name"], mask_value)
-        self.assertIsNotNone(detail.get("context"))
-        self.assertIsNotNone(detail.get("changes"))
+        assert detail["name"] == mask_value
+        assert detail.get("context") is not None
+        assert detail.get("changes") is not None
 
     def test_personal_api_key_scoped_organizations_logging(self):
         second_org = Organization.objects.create(name="Second Organization")
@@ -176,16 +176,16 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         api_key_id = api_key["id"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
-        self.assertEqual(len(logs), 2)
+        assert len(logs) == 2
 
         org_ids = {str(log.organization_id) for log in logs}
         expected_org_ids = {str(self.organization.id), str(second_org.id)}
-        self.assertEqual(org_ids, expected_org_ids)
+        assert org_ids == expected_org_ids
 
         for log in logs:
-            self.assertIsNone(log.team_id)
+            assert log.team_id is None
             assert log.detail is not None
-            self.assertEqual(log.detail["context"]["team_name"], "Unknown Project")
+            assert log.detail["context"]["team_name"] == "Unknown Project"
 
     def test_personal_api_key_scoped_teams_logging(self):
         second_org = Organization.objects.create(name="Second Organization")
@@ -198,23 +198,23 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         api_key_id = api_key["id"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
-        self.assertEqual(len(logs), 2)
+        assert len(logs) == 2
 
         org_ids = {str(log.organization_id) for log in logs}
         expected_org_ids = {str(self.organization.id), str(second_org.id)}
-        self.assertEqual(org_ids, expected_org_ids)
+        assert org_ids == expected_org_ids
 
         team_ids = {log.team_id for log in logs}
         expected_team_ids = {self.team.id, second_team.id}
-        self.assertEqual(team_ids, expected_team_ids)
+        assert team_ids == expected_team_ids
 
         for log in logs:
-            self.assertIsNotNone(log.team_id)
+            assert log.team_id is not None
             assert log.detail is not None
             if log.team_id == self.team.id:
-                self.assertEqual(log.detail["context"]["team_name"], self.team.name)
+                assert log.detail["context"]["team_name"] == self.team.name
             elif log.team_id == second_team.id:
-                self.assertEqual(log.detail["context"]["team_name"], second_team.name)
+                assert log.detail["context"]["team_name"] == second_team.name
 
     def test_activity_log_api_returns_personal_api_key_logs(self):
         self.team.receive_org_level_activity_logs = True
@@ -225,24 +225,24 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         mask_value = api_key["mask_value"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
-        self.assertTrue(len(logs) >= 1)
+        assert len(logs) >= 1
 
         response = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=PersonalAPIKey")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         data = response.json()
 
-        self.assertTrue(len(data["results"]) >= 1)
+        assert len(data["results"]) >= 1
         found_log = None
         for result in data["results"]:
             if result["scope"] == "PersonalAPIKey" and result["item_id"] == api_key_id:
                 found_log = result
                 break
 
-        self.assertIsNotNone(found_log)
         assert found_log is not None
-        self.assertEqual(found_log["activity"], "created")
-        self.assertEqual(found_log["detail"]["name"], mask_value)
+        assert found_log is not None
+        assert found_log["activity"] == "created"
+        assert found_log["detail"]["name"] == mask_value
 
     def test_activity_log_api_excludes_org_level_logs_when_disabled(self):
         self.team.receive_org_level_activity_logs = False
@@ -252,10 +252,10 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         api_key_id = api_key["id"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
-        self.assertTrue(len(logs) >= 1)
+        assert len(logs) >= 1
 
         response = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=PersonalAPIKey")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         data = response.json()
 
@@ -265,7 +265,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
                 found_log = result
                 break
 
-        self.assertIsNone(found_log)
+        assert found_log is None
 
     def test_team_scoped_api_key_creation_activity_logging(self):
         """Test that team-scoped API keys create logs with correct team_id."""
@@ -274,31 +274,31 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         mask_value = api_key["mask_value"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
-        self.assertEqual(len(logs), 1)
+        assert len(logs) == 1
 
         log = logs.first()
-        self.assertIsNotNone(log)
         assert log is not None
-        self.assertEqual(log.scope, "PersonalAPIKey")
-        self.assertEqual(log.activity, "created")
-        self.assertEqual(log.item_id, str(api_key_id))
-        self.assertEqual(log.user, self.user)
-        self.assertEqual(log.organization_id, self.organization.id)
-        self.assertEqual(log.team_id, self.team.id)
+        assert log is not None
+        assert log.scope == "PersonalAPIKey"
+        assert log.activity == "created"
+        assert log.item_id == str(api_key_id)
+        assert log.user == self.user
+        assert log.organization_id == self.organization.id
+        assert log.team_id == self.team.id
 
-        self.assertIsNotNone(log.detail)
+        assert log.detail is not None
         detail = log.detail
         assert detail is not None
-        self.assertEqual(detail["name"], mask_value)
-        self.assertIsNotNone(detail.get("context"))
+        assert detail["name"] == mask_value
+        assert detail.get("context") is not None
 
         context = detail["context"]
         assert context is not None
-        self.assertEqual(context["user_id"], self.user.id)
-        self.assertEqual(context["user_email"], self.user.email)
-        self.assertEqual(context["organization_name"], self.organization.name)
-        self.assertEqual(context["team_name"], self.team.name)
-        self.assertEqual(context["scopes"], ["*"])
+        assert context["user_id"] == self.user.id
+        assert context["user_email"] == self.user.email
+        assert context["organization_name"] == self.organization.name
+        assert context["team_name"] == self.team.name
+        assert context["scopes"] == ["*"]
 
     def test_org_level_api_key_broadcasts_to_subscribed_teams(self):
         """Test that org-level PersonalAPIKey logs are broadcast to teams with receive_org_level_activity_logs=True."""
@@ -316,14 +316,14 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         with patch("posthog.tasks.activity_log.produce_internal_event") as mock_produce:
             self.create_personal_api_key(label="Org Level Key", scoped_organizations=[str(self.organization.id)])
 
-            self.assertEqual(mock_produce.call_count, 1)
+            assert mock_produce.call_count == 1
             call_team_ids = [call.kwargs["team_id"] for call in mock_produce.call_args_list]
-            self.assertIn(team_subscribed.id, call_team_ids)
-            self.assertNotIn(team_not_subscribed.id, call_team_ids)
-            self.assertNotIn(self.team.id, call_team_ids)
+            assert team_subscribed.id in call_team_ids
+            assert team_not_subscribed.id not in call_team_ids
+            assert self.team.id not in call_team_ids
 
             for call in mock_produce.call_args_list:
-                self.assertEqual(call.kwargs["event"].event, "$activity_log_entry_created")
+                assert call.kwargs["event"].event == "$activity_log_entry_created"
 
 
 class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):

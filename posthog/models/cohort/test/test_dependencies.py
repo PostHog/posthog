@@ -29,15 +29,15 @@ class TestCohortDependencies(BaseTest):
         return Cohort.objects.create(name=name, team=self.team, **kwargs)
 
     def _assert_depends_on(self, dependent_cohort: Cohort, dependency_cohort: Cohort) -> None:
-        self.assertEqual(cache.get(f"cohort:dependencies:{dependent_cohort.id}"), [dependency_cohort.id])
-        self.assertEqual(cache.get(f"cohort:dependents:{dependency_cohort.id}"), [dependent_cohort.id])
-        self.assertEqual(list(get_cohort_dependencies(dependent_cohort)), [dependency_cohort.id])
-        self.assertEqual(list(get_cohort_dependents(dependency_cohort)), [dependent_cohort.id])
+        assert cache.get(f"cohort:dependencies:{dependent_cohort.id}") == [dependency_cohort.id]
+        assert cache.get(f"cohort:dependents:{dependency_cohort.id}") == [dependent_cohort.id]
+        assert list(get_cohort_dependencies(dependent_cohort)) == [dependency_cohort.id]
+        assert list(get_cohort_dependents(dependency_cohort)) == [dependent_cohort.id]
 
     def _assert_cohorts_have_no_relationships(self, *cohorts: Cohort) -> None:
         for cohort in cohorts:
-            self.assertEqual(len(get_cohort_dependencies(cohort)), 0, f"Expected no dependencies for {cohort.name}")
-            self.assertEqual(len(get_cohort_dependents(cohort)), 0, f"Expected no dependents for {cohort.name}")
+            assert len(get_cohort_dependencies(cohort)) == 0, f"Expected no dependencies for {cohort.name}"
+            assert len(get_cohort_dependents(cohort)) == 0, f"Expected no dependents for {cohort.name}"
 
     def setUp(self) -> None:
         super().setUp()
@@ -102,24 +102,24 @@ class TestCohortDependencies(BaseTest):
 
         self._assert_depends_on(cohort_c, cohort_a)
         self._assert_cohorts_have_no_relationships(cohort_b)
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_a.id}"), [])
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [cohort_c.id])
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), [])
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_b.id}"), [])
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_c.id}"), [cohort_a.id])
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_c.id}"), [])
+        assert cache.get(f"cohort:dependencies:{cohort_a.id}") == []
+        assert cache.get(f"cohort:dependents:{cohort_a.id}") == [cohort_c.id]
+        assert cache.get(f"cohort:dependencies:{cohort_b.id}") == []
+        assert cache.get(f"cohort:dependents:{cohort_b.id}") == []
+        assert cache.get(f"cohort:dependencies:{cohort_c.id}") == [cohort_a.id]
+        assert cache.get(f"cohort:dependents:{cohort_c.id}") == []
 
         cohort_c.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort_b.id}]}]
         cohort_c.save()
 
         self._assert_depends_on(cohort_c, cohort_b)
         self._assert_cohorts_have_no_relationships(cohort_a)
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_a.id}"), [])
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [])
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), [])
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_b.id}"), [cohort_c.id])
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_c.id}"), [cohort_b.id])
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_c.id}"), [])
+        assert cache.get(f"cohort:dependencies:{cohort_a.id}") == []
+        assert cache.get(f"cohort:dependents:{cohort_a.id}") == []
+        assert cache.get(f"cohort:dependencies:{cohort_b.id}") == []
+        assert cache.get(f"cohort:dependents:{cohort_b.id}") == [cohort_c.id]
+        assert cache.get(f"cohort:dependencies:{cohort_c.id}") == [cohort_b.id]
+        assert cache.get(f"cohort:dependents:{cohort_c.id}") == []
 
     def test_cohort_dependency_deleted(self) -> None:
         """
@@ -155,8 +155,8 @@ class TestCohortDependencies(BaseTest):
         # You must filter out deleted cohorts
         self._assert_depends_on(cohort_b, cohort_a)
 
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_a.id}"), None)
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), [cohort_b.id])
+        assert cache.get(f"cohort:dependencies:{cohort_a.id}") is None
+        assert cache.get(f"cohort:dependents:{cohort_a.id}") == [cohort_b.id]
 
     def test_cohort_team_deleted(self) -> None:
         """
@@ -171,10 +171,10 @@ class TestCohortDependencies(BaseTest):
 
         self.team.delete()
 
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_a.id}"), None)
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), None)
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), None)
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_b.id}"), None)
+        assert cache.get(f"cohort:dependencies:{cohort_a.id}") is None
+        assert cache.get(f"cohort:dependencies:{cohort_b.id}") is None
+        assert cache.get(f"cohort:dependents:{cohort_a.id}") is None
+        assert cache.get(f"cohort:dependents:{cohort_b.id}") is None
 
     def test_warm_team_cohort_dependency_cache(self) -> None:
         """
@@ -186,10 +186,10 @@ class TestCohortDependencies(BaseTest):
         )
 
         cache.clear()
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_a.id}"), None)
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), None)
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), None)
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_b.id}"), None)
+        assert cache.get(f"cohort:dependencies:{cohort_a.id}") is None
+        assert cache.get(f"cohort:dependencies:{cohort_b.id}") is None
+        assert cache.get(f"cohort:dependents:{cohort_a.id}") is None
+        assert cache.get(f"cohort:dependents:{cohort_b.id}") is None
 
         warm_team_cohort_dependency_cache(self.team.id)
 
@@ -218,21 +218,21 @@ class TestCohortDependencies(BaseTest):
         cache.clear()
 
         for cohort in cohorts:
-            self.assertEqual(cache.get(f"cohort:dependencies:{cohort.id}"), None)
-            self.assertEqual(cache.get(f"cohort:dependents:{cohort.id}"), None)
+            assert cache.get(f"cohort:dependencies:{cohort.id}") is None
+            assert cache.get(f"cohort:dependents:{cohort.id}") is None
 
         warm_team_cohort_dependency_cache(self.team.id, batch_size=batch_size)
 
         for i, cohort in enumerate(cohorts):
             if i == 0:
-                self.assertEqual(cache.get(f"cohort:dependencies:{cohort.id}"), [])
-                self.assertEqual(cache.get(f"cohort:dependents:{cohort.id}"), [cohorts[1].id])
+                assert cache.get(f"cohort:dependencies:{cohort.id}") == []
+                assert cache.get(f"cohort:dependents:{cohort.id}") == [cohorts[1].id]
             elif i == len(cohorts) - 1:
-                self.assertEqual(cache.get(f"cohort:dependencies:{cohort.id}"), [cohorts[i - 1].id])
-                self.assertEqual(cache.get(f"cohort:dependents:{cohort.id}"), [])
+                assert cache.get(f"cohort:dependencies:{cohort.id}") == [cohorts[i - 1].id]
+                assert cache.get(f"cohort:dependents:{cohort.id}") == []
             else:
-                self.assertEqual(cache.get(f"cohort:dependencies:{cohort.id}"), [cohorts[i - 1].id])
-                self.assertEqual(cache.get(f"cohort:dependents:{cohort.id}"), [cohorts[i + 1].id])
+                assert cache.get(f"cohort:dependencies:{cohort.id}") == [cohorts[i - 1].id]
+                assert cache.get(f"cohort:dependents:{cohort.id}") == [cohorts[i + 1].id]
 
     def test_warm_team_cohort_dependency_cache_refreshes_ttl(self) -> None:
         cohort_a = self._create_cohort(name="Test Cohort A")
@@ -258,9 +258,9 @@ class TestCohortDependencies(BaseTest):
                 mock_touch.assert_any_call(key, timeout=DEPENDENCY_CACHE_TIMEOUT)
 
             # Verify set_many was called with timeout for dependents
-            self.assertTrue(mock_set_many.called)
+            assert mock_set_many.called
             args, kwargs = mock_set_many.call_args
-            self.assertEqual(kwargs.get("timeout"), DEPENDENCY_CACHE_TIMEOUT)
+            assert kwargs.get("timeout") == DEPENDENCY_CACHE_TIMEOUT
 
     def test_cache_miss_get_cohort_dependencies(self) -> None:
         cohort_a = self._create_cohort(name="Test Cohort A")
@@ -270,13 +270,13 @@ class TestCohortDependencies(BaseTest):
 
         cache.clear()
 
-        self.assertEqual(get_cohort_dependencies(cohort_b), [cohort_a.id])
+        assert get_cohort_dependencies(cohort_b) == [cohort_a.id]
 
         # get_cohort_dependencies is cheap - it doesn't need to warm the entire cache
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_a.id}"), None)
-        self.assertEqual(cache.get(f"cohort:dependencies:{cohort_b.id}"), [cohort_a.id])
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_a.id}"), None)
-        self.assertEqual(cache.get(f"cohort:dependents:{cohort_b.id}"), None)
+        assert cache.get(f"cohort:dependencies:{cohort_a.id}") is None
+        assert cache.get(f"cohort:dependencies:{cohort_b.id}") == [cohort_a.id]
+        assert cache.get(f"cohort:dependents:{cohort_a.id}") is None
+        assert cache.get(f"cohort:dependents:{cohort_b.id}") is None
 
     def test_cache_miss_get_cohort_dependents(self) -> None:
         cohort_a = self._create_cohort(name="Test Cohort A")
@@ -286,7 +286,7 @@ class TestCohortDependencies(BaseTest):
 
         cache.clear()
 
-        self.assertEqual(get_cohort_dependents(cohort_a), [cohort_b.id])
+        assert get_cohort_dependents(cohort_a) == [cohort_b.id]
 
         # get_cohort_dependents is a more expensive cache miss, it warms the entire cache because
         # it has to iterate all cohorts in the team
@@ -300,7 +300,7 @@ class TestCohortDependencies(BaseTest):
 
         cache.clear()
 
-        self.assertEqual(get_cohort_dependents(cohort_a.id), [cohort_b.id])
+        assert get_cohort_dependents(cohort_a.id) == [cohort_b.id]
         self._assert_depends_on(cohort_b, cohort_a)
 
     @parameterized.expand(
@@ -328,7 +328,7 @@ class TestCohortDependencies(BaseTest):
 
         # Verify hit counter incremented
         final_hits = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type=cache_type, result="hit")._value._value
-        self.assertEqual(final_hits, initial_hits + 1)
+        assert final_hits == initial_hits + 1
 
     @parameterized.expand(
         [
@@ -355,7 +355,7 @@ class TestCohortDependencies(BaseTest):
 
         # Verify miss counter incremented
         final_misses = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type=cache_type, result="miss")._value._value
-        self.assertEqual(final_misses, initial_misses + 1)
+        assert final_misses == initial_misses + 1
 
     def test_cache_hit_miss_sequence(self):
         cohort_a = self._create_cohort(name="Test Cohort A")
@@ -378,26 +378,26 @@ class TestCohortDependencies(BaseTest):
         # First call should be a miss
         get_cohort_dependencies(cohort_b)
         dep_after_first = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss")._value._value
-        self.assertEqual(dep_after_first, dep_initial_misses + 1)
+        assert dep_after_first == dep_initial_misses + 1
 
         # Second call should be a hit
         get_cohort_dependencies(cohort_b)
         dep_hits_after_second = COHORT_DEPENDENCY_CACHE_COUNTER.labels(
             cache_type="dependencies", result="hit"
         )._value._value
-        self.assertEqual(dep_hits_after_second, dep_initial_hits + 1)
+        assert dep_hits_after_second == dep_initial_hits + 1
 
         # First dependents call should be a miss (and warms cache)
         get_cohort_dependents(cohort_a)
         dept_after_first = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependents", result="miss")._value._value
-        self.assertEqual(dept_after_first, dept_initial_misses + 1)
+        assert dept_after_first == dept_initial_misses + 1
 
         # Second dependents call should be a hit
         get_cohort_dependents(cohort_a)
         dept_hits_after_second = COHORT_DEPENDENCY_CACHE_COUNTER.labels(
             cache_type="dependents", result="hit"
         )._value._value
-        self.assertEqual(dept_hits_after_second, dept_initial_hits + 1)
+        assert dept_hits_after_second == dept_initial_hits + 1
 
     def test_warming_does_not_increment_counters(self):
         """Verify that cache warming operations don't increment the counter metrics"""
@@ -416,8 +416,8 @@ class TestCohortDependencies(BaseTest):
         # Verify counters did not increment during warming
         final_hits = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="hit")._value._value
         final_misses = COHORT_DEPENDENCY_CACHE_COUNTER.labels(cache_type="dependencies", result="miss")._value._value
-        self.assertEqual(final_hits, initial_hits)
-        self.assertEqual(final_misses, initial_misses)
+        assert final_hits == initial_hits
+        assert final_misses == initial_misses
 
     def test_invalid_cohort_properties_handles_validation_error(self):
         cohort = self._create_cohort(name="Test Cohort")
@@ -430,11 +430,11 @@ class TestCohortDependencies(BaseTest):
             mock_properties.side_effect = ValidationError("Invalid filters")
             result = extract_cohort_dependencies(cohort)
 
-        self.assertEqual(result, set())
+        assert result == set()
         final_invalid = COHORT_DEPENDENCY_CACHE_COUNTER.labels(
             cache_type="dependencies", result="invalid"
         )._value._value
-        self.assertEqual(final_invalid, initial_invalid + 1)
+        assert final_invalid == initial_invalid + 1
 
 
 class TestCohortBackfillOnConditionsChanged(BaseTest):
@@ -472,7 +472,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
             },
         )
 
-        self.assertTrue(_has_person_property_filters(cohort))
+        assert _has_person_property_filters(cohort)
 
     def test_has_person_property_filters_without_required_fields(self):
         """Test that _has_person_property_filters returns False when required fields are missing"""
@@ -499,7 +499,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
             },
         )
 
-        self.assertFalse(_has_person_property_filters(cohort))
+        assert not _has_person_property_filters(cohort)
 
     def test_has_person_property_filters_with_behavioral_only(self):
         """Test that _has_person_property_filters returns False for behavioral filters only"""
@@ -525,12 +525,12 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
             },
         )
 
-        self.assertFalse(_has_person_property_filters(cohort))
+        assert not _has_person_property_filters(cohort)
 
     def test_has_person_property_filters_no_filters(self):
         """Test that _has_person_property_filters returns False for cohorts without filters"""
         cohort = self._create_cohort(name="Test Cohort")
-        self.assertFalse(_has_person_property_filters(cohort))
+        assert not _has_person_property_filters(cohort)
 
     @parameterized.expand(
         [
@@ -936,14 +936,14 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         filters_hash = _extract_person_property_filters(cohort)
 
         # Should return a non-empty hash string for filters with person properties
-        self.assertIsInstance(filters_hash, str)
-        self.assertTrue(len(filters_hash) > 0)
+        assert isinstance(filters_hash, str)
+        assert len(filters_hash) > 0
 
     def test_extract_person_property_filters_empty(self):
         """Test that _extract_person_property_filters returns empty string for no filters"""
         cohort = self._create_cohort(name="Test Cohort", filters={})
         filters_hash = _extract_person_property_filters(cohort)
-        self.assertEqual(filters_hash, "")
+        assert filters_hash == ""
 
     def test_extract_person_property_filters_behavioral_only(self):
         """Test that _extract_person_property_filters ignores behavioral filters"""
@@ -965,7 +965,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         )
 
         filters_hash = _extract_person_property_filters(cohort)
-        self.assertEqual(filters_hash, "")
+        assert filters_hash == ""
 
     def test_extract_person_property_filters_order_independence(self):
         """Test that _extract_person_property_filters produces same hash regardless of child order"""
@@ -1028,9 +1028,9 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         hash_2 = _extract_person_property_filters(cohort_order_2)
 
         # Both hashes should be identical despite different child order
-        self.assertEqual(hash_1, hash_2)
+        assert hash_1 == hash_2
         # And both should be non-empty since they have person property filters
-        self.assertTrue(len(hash_1) > 0)
+        assert len(hash_1) > 0
 
     def test_person_property_filters_changed_new_cohort(self):
         """Test that _person_property_filters_changed returns True for new cohorts"""
@@ -1038,7 +1038,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         cohort.pk = None  # Simulate new cohort
 
         result = _person_property_filters_changed(cohort)
-        self.assertTrue(result)
+        assert result
 
     def test_person_property_filters_changed_filters_changed(self):
         """Test that _person_property_filters_changed detects changes"""
@@ -1087,7 +1087,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         modified_cohort._previous_person_property_filters = original_hash
 
         result = _person_property_filters_changed(modified_cohort)
-        self.assertTrue(result)
+        assert result
 
     def test_person_property_filters_changed_no_change(self):
         """Test that _person_property_filters_changed returns False when filters haven't changed"""
@@ -1115,7 +1115,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         cohort._previous_person_property_filters = current_hash
 
         result = _person_property_filters_changed(cohort)
-        self.assertFalse(result)
+        assert not result
 
     def test_person_property_filters_changed_structural_change(self):
         """Test that _person_property_filters_changed detects structural changes even with same conditions"""
@@ -1198,7 +1198,7 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         modified_cohort._previous_person_property_filters = original_hash
 
         result = _person_property_filters_changed(modified_cohort)
-        self.assertTrue(result)
+        assert result
 
     def test_person_property_filters_changed_identical_structure(self):
         """Test that _person_property_filters_changed returns False for identical structure"""
@@ -1242,4 +1242,4 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
         cohort._previous_person_property_filters = current_hash
 
         result = _person_property_filters_changed(cohort)
-        self.assertFalse(result)
+        assert not result

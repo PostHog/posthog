@@ -16,8 +16,8 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
             team_id=self.team.id, scope="Annotation", item_id=str(annotation["id"]), activity="created"
         ).first()
         assert log is not None
-        self.assertIsNotNone(log)
-        self.assertIsNotNone(log.detail)
+        assert log is not None
+        assert log.detail is not None
 
     def test_annotation_update_activity_logging(self):
         annotation = self.create_annotation("Original annotation")
@@ -29,8 +29,8 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         ).first()
 
         assert update_log is not None
-        self.assertIsNotNone(update_log)
-        self.assertIsNotNone(update_log.detail)
+        assert update_log is not None
+        assert update_log.detail is not None
 
     def test_annotation_project_scope_context(self):
         """Test annotation with project scope includes correct context."""
@@ -40,16 +40,16 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
             team_id=self.team.id, scope="Annotation", item_id=str(annotation["id"]), activity="created"
         ).first()
 
-        self.assertIsNotNone(log)
         assert log is not None
-        self.assertIsNotNone(log.detail)
+        assert log is not None
+        assert log.detail is not None
         detail = cast(dict[str, Any], log.detail)
-        self.assertIsNotNone(detail.get("context"))
+        assert detail.get("context") is not None
 
         context = cast(dict[str, Any], detail["context"])
-        self.assertEqual(context["scope"], Annotation.Scope.PROJECT.value)
-        self.assertIsNone(context.get("dashboard_id"))
-        self.assertIsNone(context.get("dashboard_item_id"))
+        assert context["scope"] == Annotation.Scope.PROJECT.value
+        assert context.get("dashboard_id") is None
+        assert context.get("dashboard_item_id") is None
 
     def test_annotation_organization_scope_context(self):
         """Test annotation with organization scope includes correct context."""
@@ -61,16 +61,16 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
             team_id=self.team.id, scope="Annotation", item_id=str(annotation["id"]), activity="created"
         ).first()
 
-        self.assertIsNotNone(log)
         assert log is not None
-        self.assertIsNotNone(log.detail)
+        assert log is not None
+        assert log.detail is not None
         detail = cast(dict[str, Any], log.detail)
-        self.assertIsNotNone(detail.get("context"))
+        assert detail.get("context") is not None
 
         context = cast(dict[str, Any], detail["context"])
-        self.assertEqual(context["scope"], Annotation.Scope.ORGANIZATION.value)
-        self.assertIsNone(context.get("dashboard_id"))
-        self.assertIsNone(context.get("dashboard_item_id"))
+        assert context["scope"] == Annotation.Scope.ORGANIZATION.value
+        assert context.get("dashboard_id") is None
+        assert context.get("dashboard_item_id") is None
 
     def test_annotation_dashboard_scope_context(self):
         """Test annotation with dashboard scope includes correct context."""
@@ -85,17 +85,17 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
             team_id=self.team.id, scope="Annotation", item_id=str(annotation["id"]), activity="created"
         ).first()
 
-        self.assertIsNotNone(log)
         assert log is not None
-        self.assertIsNotNone(log.detail)
+        assert log is not None
+        assert log.detail is not None
         detail = cast(dict[str, Any], log.detail)
-        self.assertIsNotNone(detail.get("context"))
+        assert detail.get("context") is not None
 
         context = cast(dict[str, Any], detail["context"])
-        self.assertEqual(context["scope"], Annotation.Scope.DASHBOARD.value)
-        self.assertEqual(context["dashboard_id"], dashboard.id)
-        self.assertEqual(context["dashboard_name"], dashboard.name)
-        self.assertIsNone(context.get("dashboard_item_id"))
+        assert context["scope"] == Annotation.Scope.DASHBOARD.value
+        assert context["dashboard_id"] == dashboard.id
+        assert context["dashboard_name"] == dashboard.name
+        assert context.get("dashboard_item_id") is None
 
     def test_annotation_insight_scope_context(self):
         """Test annotation with insight scope includes correct context."""
@@ -112,18 +112,18 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
             team_id=self.team.id, scope="Annotation", item_id=str(annotation["id"]), activity="created"
         ).first()
 
-        self.assertIsNotNone(log)
         assert log is not None
-        self.assertIsNotNone(log.detail)
+        assert log is not None
+        assert log.detail is not None
         detail = cast(dict[str, Any], log.detail)
-        self.assertIsNotNone(detail.get("context"))
+        assert detail.get("context") is not None
 
         context = cast(dict[str, Any], detail["context"])
-        self.assertEqual(context["scope"], Annotation.Scope.INSIGHT.value)
-        self.assertEqual(context["dashboard_item_id"], insight.id)
-        self.assertEqual(context["dashboard_item_short_id"], insight.short_id)
-        self.assertEqual(context["dashboard_item_name"], insight.name)
-        self.assertIsNone(context.get("dashboard_id"))
+        assert context["scope"] == Annotation.Scope.INSIGHT.value
+        assert context["dashboard_item_id"] == insight.id
+        assert context["dashboard_item_short_id"] == insight.short_id
+        assert context["dashboard_item_name"] == insight.name
+        assert context.get("dashboard_id") is None
 
     def test_annotation_activity_log_properties(self):
         """Test all expected activity log properties are set correctly."""
@@ -133,19 +133,19 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
             team_id=self.team.id, scope="Annotation", item_id=str(annotation["id"]), activity="created"
         ).first()
 
-        self.assertIsNotNone(log)
         assert log is not None
-        self.assertEqual(log.scope, "Annotation")
-        self.assertEqual(log.activity, "created")
-        self.assertEqual(log.item_id, str(annotation["id"]))
-        self.assertEqual(log.team_id, self.team.id)
-        self.assertEqual(log.organization_id, self.organization.id)
-        self.assertEqual(log.user, self.user)
-        self.assertFalse(log.was_impersonated or False)
-        self.assertFalse(log.is_system or False)
+        assert log is not None
+        assert log.scope == "Annotation"
+        assert log.activity == "created"
+        assert log.item_id == str(annotation["id"])
+        assert log.team_id == self.team.id
+        assert log.organization_id == self.organization.id
+        assert log.user == self.user
+        assert not (log.was_impersonated or False)
+        assert not (log.is_system or False)
 
-        self.assertIsNotNone(log.detail)
+        assert log.detail is not None
         detail = cast(dict[str, Any], log.detail)
-        self.assertEqual(detail["name"], annotation["content"])
-        self.assertIsNotNone(detail.get("context"))
-        self.assertIsNotNone(detail.get("changes"))
+        assert detail["name"] == annotation["content"]
+        assert detail.get("context") is not None
+        assert detail.get("changes") is not None

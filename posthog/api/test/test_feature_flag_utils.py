@@ -63,10 +63,10 @@ class TestFeatureFlagUtils(APIBaseTest):
         # thus destination creation order: b, c, a
         destination_creation_order = [cohorts["b"].pk, cohorts["c"].pk, cohorts["a"].pk]
         topologically_sorted_cohort_ids = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
-        self.assertEqual(topologically_sorted_cohort_ids, destination_creation_order)
+        assert topologically_sorted_cohort_ids == destination_creation_order
 
     def test_empty_cohorts_set(self):
         cohort_ids: set[int] = set()
         seen_cohorts_cache: dict[int, CohortOrEmpty] = {}
         topologically_sorted_cohort_ids = sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
-        self.assertEqual(topologically_sorted_cohort_ids, [])
+        assert topologically_sorted_cohort_ids == []

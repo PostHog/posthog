@@ -42,17 +42,17 @@ class TestBroadcastActivityLogToOrganization(BaseTest):
                 user_data=user_data,
             )
 
-            self.assertEqual(mock_produce.call_count, 2)
+            assert mock_produce.call_count == 2
 
             call_team_ids = [call.kwargs["team_id"] for call in mock_produce.call_args_list]
-            self.assertIn(team_subscribed_1.id, call_team_ids)
-            self.assertIn(team_subscribed_2.id, call_team_ids)
-            self.assertNotIn(team_not_subscribed.id, call_team_ids)
+            assert team_subscribed_1.id in call_team_ids
+            assert team_subscribed_2.id in call_team_ids
+            assert team_not_subscribed.id not in call_team_ids
 
             for call in mock_produce.call_args_list:
-                self.assertEqual(call.kwargs["event"].event, "$activity_log_entry_created")
-                self.assertEqual(call.kwargs["event"].properties, serialized_data)
-                self.assertEqual(call.kwargs["person"].id, self.user.id)
+                assert call.kwargs["event"].event == "$activity_log_entry_created"
+                assert call.kwargs["event"].properties == serialized_data
+                assert call.kwargs["person"].id == self.user.id
 
     def test_handles_no_subscribed_teams(self) -> None:
         Team.objects.create(

@@ -66,8 +66,8 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], self.recording.session_id)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == self.recording.session_id
 
     def test_viewer_can_list_recordings(self):
         """Test that a user with viewer access can list recordings"""
@@ -76,7 +76,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
     def test_viewer_cannot_delete_recording(self, mock_load_metadata):
@@ -86,8 +86,8 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("You do not have editor access", response.json()["detail"])
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "You do not have editor access" in response.json()["detail"]
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
@@ -101,7 +101,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.editor_user)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
@@ -127,7 +127,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
     def test_no_access_user_cannot_view_recording(self, mock_load_metadata):
@@ -137,7 +137,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.no_access_user)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch("posthog.session_recordings.models.session_recording.SessionRecording.load_metadata", return_value=True)
     def test_specific_recording_access(self, mock_load_metadata):
@@ -161,11 +161,11 @@ class TestSessionRecordingAccessControl(APIBaseTest):
 
         # Should be able to access the first recording
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Should not be able to access the second recording
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{recording2.session_id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
@@ -183,7 +183,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
 
         # Should be able to delete without explicit permissions
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     @patch(
         "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
@@ -202,7 +202,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         self.client.force_login(self.editor_user)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     def test_manager_can_modify_access_controls(self):
         """Test that a user with manager access can modify access controls for recordings"""
@@ -213,7 +213,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         uac = UserAccessControl(self.editor_user, self.team)
         can_modify = uac.check_can_modify_access_levels_for_object(self.recording)
 
-        self.assertTrue(can_modify)
+        assert can_modify
 
     def test_summarize_respects_access_control(self):
         self._create_access_control(self.no_access_user, resource_id=str(self.recording.id), access_level="none")
@@ -223,7 +223,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         retrieve_response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/"
         )
-        self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
+        assert retrieve_response.status_code == status.HTTP_403_FORBIDDEN
 
         cache_key = f"summarize_recording_{self.team.pk}_{self.recording.session_id}"
         cache.set(cache_key, {"content": "sensitive session summary"}, timeout=30)
@@ -232,6 +232,6 @@ class TestSessionRecordingAccessControl(APIBaseTest):
             summarize_response = self.client.post(
                 f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/summarize/"
             )
-            self.assertEqual(summarize_response.status_code, status.HTTP_403_FORBIDDEN)
+            assert summarize_response.status_code == status.HTTP_403_FORBIDDEN
         finally:
             cache.delete(cache_key)

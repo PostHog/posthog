@@ -63,17 +63,17 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         request = self._pending_request()
         response = self._call_approve("GET", request)
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         context = response.context_data
-        self.assertTrue(context["supports_deferred"])
-        self.assertEqual(context["default_execution_mode"], ExecutionMode.IMMEDIATE)
+        assert context["supports_deferred"]
+        assert context["default_execution_mode"] == ExecutionMode.IMMEDIATE
 
     def test_approve_view_get_hides_picker_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
         response = self._call_approve("GET", request)
 
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.context_data["supports_deferred"])
+        assert response.status_code == 200
+        assert not response.context_data["supports_deferred"]
 
     @parameterized.expand(
         [
@@ -85,33 +85,33 @@ class TestDataDeletionRequestAdminApprovalFlow(BaseTest):
         request = self._pending_request()
         response = self._call_approve("POST", request, {"execution_mode": execution_mode.value})
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.APPROVED)
-        self.assertEqual(request.execution_mode, execution_mode)
-        self.assertTrue(request.approved)
+        assert request.status == RequestStatus.APPROVED
+        assert request.execution_mode == execution_mode
+        assert request.approved
 
     def test_approve_view_post_deferred_rejected_for_property_removal(self):
         request = self._pending_request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"])
         response = self._call_approve("POST", request, {"execution_mode": ExecutionMode.DEFERRED.value})
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
+        assert request.status == RequestStatus.PENDING
 
     def test_approve_view_rejects_non_clickhouse_team_user(self):
         request = self._pending_request()
         self.user.groups.clear()
         response = self._call_approve("POST", request, {"execution_mode": ExecutionMode.IMMEDIATE.value})
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
+        assert request.status == RequestStatus.PENDING
 
     def test_approve_view_rejects_invalid_execution_mode(self):
         request = self._pending_request()
         response = self._call_approve("POST", request, {"execution_mode": "bogus"})
 
-        self.assertEqual(response.status_code, 302)
+        assert response.status_code == 302
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
+        assert request.status == RequestStatus.PENDING

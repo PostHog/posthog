@@ -28,6 +28,7 @@ from posthog.models.property import Property, PropertyGroup
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
+from collections import Counter
 
 
 def _make_event_sequence(
@@ -77,7 +78,7 @@ def execute(filter: Filter, team: Team, max_retries: int = 5):
         q, params = cohort_query.get_query()
         res = sync_execute(q, {**params, **filter.hogql_context.values})
         try:
-            unittest.TestCase().assertCountEqual(res, cohort_query.hogql_result.results)
+            assert Counter(res) == Counter(cohort_query.hogql_result.results)
             assert ["id"] == cohort_query.hogql_result.columns
             return res, q, params
         except AssertionError as e:

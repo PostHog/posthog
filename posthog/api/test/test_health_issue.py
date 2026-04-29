@@ -28,13 +28,13 @@ class TestHealthIssueAPI(APIBaseTest):
         warning = self._create_issue(severity=HealthIssue.Severity.WARNING, unique_hash="h3")
 
         response = self.client.get(self._url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         results = response.json()["results"]
-        self.assertEqual(len(results), 3)
-        self.assertEqual(results[0]["id"], str(critical.id))
-        self.assertEqual(results[1]["id"], str(warning.id))
-        self.assertEqual(results[2]["id"], str(info.id))
+        assert len(results) == 3
+        assert results[0]["id"] == str(critical.id)
+        assert results[1]["id"] == str(warning.id)
+        assert results[2]["id"] == str(info.id)
 
     @parameterized.expand(
         [
@@ -57,8 +57,8 @@ class TestHealthIssueAPI(APIBaseTest):
         resolved.save(update_fields=["dismissed"])
 
         response = self.client.get(self._url(), {filter_name: filter_value})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), expected_count)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == expected_count
 
     @parameterized.expand(
         [
@@ -69,7 +69,7 @@ class TestHealthIssueAPI(APIBaseTest):
     )
     def test_invalid_filter_returns_400(self, filter_name, filter_value):
         response = self.client.get(self._url(), {filter_name: filter_value})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_team_scoping(self):
         self._create_issue(unique_hash="h1")
@@ -84,71 +84,71 @@ class TestHealthIssueAPI(APIBaseTest):
         )
 
         response = self.client.get(self._url())
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["kind"], "sdk_outdated")
+        assert len(results) == 1
+        assert results[0]["kind"] == "sdk_outdated"
 
     def test_retrieve_single_issue(self):
         issue = self._create_issue()
 
         response = self.client.get(self._url(f"/{issue.id}"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(data["id"], str(issue.id))
-        self.assertEqual(data["kind"], "sdk_outdated")
-        self.assertEqual(data["severity"], "warning")
-        self.assertEqual(data["status"], "active")
-        self.assertIn("payload", data)
-        self.assertIn("created_at", data)
-        self.assertIn("updated_at", data)
-        self.assertNotIn("unique_hash", data)
-        self.assertNotIn("team", data)
+        assert data["id"] == str(issue.id)
+        assert data["kind"] == "sdk_outdated"
+        assert data["severity"] == "warning"
+        assert data["status"] == "active"
+        assert "payload" in data
+        assert "created_at" in data
+        assert "updated_at" in data
+        assert "unique_hash" not in data
+        assert "team" not in data
 
     def test_retrieve_nonexistent_returns_404(self):
         response = self.client.get(self._url("/00000000-0000-0000-0000-000000000000"))
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_resolve_action(self):
         issue = self._create_issue()
 
         response = self.client.post(self._url(f"/{issue.id}/resolve"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], "resolved")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "resolved"
 
         issue.refresh_from_db()
-        self.assertEqual(issue.status, HealthIssue.Status.RESOLVED)
+        assert issue.status == HealthIssue.Status.RESOLVED
 
     def test_patch_dismiss(self):
         issue = self._create_issue()
 
         response = self.client.patch(self._url(f"/{issue.id}"), {"dismissed": True}, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["dismissed"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["dismissed"]
 
         issue.refresh_from_db()
-        self.assertTrue(issue.dismissed)
-        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
+        assert issue.dismissed
+        assert issue.status == HealthIssue.Status.ACTIVE
 
     def test_patch_undismiss(self):
         issue = self._create_issue(dismissed=True)
 
         response = self.client.patch(self._url(f"/{issue.id}"), {"dismissed": False}, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFalse(response.json()["dismissed"])
+        assert response.status_code == status.HTTP_200_OK
+        assert not response.json()["dismissed"]
 
         issue.refresh_from_db()
-        self.assertFalse(issue.dismissed)
+        assert not issue.dismissed
 
     def test_patch_dismiss_resolved_issue(self):
         issue = self._create_issue()
         issue.resolve()
 
         response = self.client.patch(self._url(f"/{issue.id}"), {"dismissed": True}, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["dismissed"])
-        self.assertEqual(response.json()["status"], "resolved")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["dismissed"]
+        assert response.json()["status"] == "resolved"
 
     @parameterized.expand(
         [
@@ -166,15 +166,15 @@ class TestHealthIssueAPI(APIBaseTest):
         issue = self._create_issue()
 
         response = self.client.patch(self._url(f"/{issue.id}"), {field: value}, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(field, response.json()["attr"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert field in response.json()["attr"]
 
     def test_resolve_sets_resolved_at(self):
         issue = self._create_issue()
 
         self.client.post(self._url(f"/{issue.id}/resolve"))
         issue.refresh_from_db()
-        self.assertIsNotNone(issue.resolved_at)
+        assert issue.resolved_at is not None
 
     def test_summary_excludes_resolved_and_dismissed(self):
         self._create_issue(severity=HealthIssue.Severity.CRITICAL, kind="sdk_outdated", unique_hash="h1")
@@ -187,27 +187,27 @@ class TestHealthIssueAPI(APIBaseTest):
         )
 
         response = self.client.get(self._url("/summary"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(data["total"], 3)
-        self.assertEqual(data["by_severity"], {"critical": 1, "warning": 2})
-        self.assertEqual(data["by_kind"], {"sdk_outdated": 2, "missing_events": 1})
+        assert data["total"] == 3
+        assert data["by_severity"] == {"critical": 1, "warning": 2}
+        assert data["by_kind"] == {"sdk_outdated": 2, "missing_events": 1}
 
     def test_summary_empty(self):
         response = self.client.get(self._url("/summary"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(data["total"], 0)
-        self.assertEqual(data["by_severity"], {})
-        self.assertEqual(data["by_kind"], {})
+        assert data["total"] == 0
+        assert data["by_severity"] == {}
+        assert data["by_kind"] == {}
 
     def test_resolve_already_resolved_returns_400(self):
         issue = self._create_issue(status=HealthIssue.Status.RESOLVED)
 
         response = self.client.post(self._url(f"/{issue.id}/resolve"))
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [
@@ -218,4 +218,4 @@ class TestHealthIssueAPI(APIBaseTest):
     )
     def test_forbidden_methods(self, method, path):
         response = getattr(self.client, method.lower())(self._url(path))
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED

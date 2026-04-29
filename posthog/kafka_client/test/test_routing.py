@@ -88,7 +88,7 @@ class ParseRoutingOverridesTest(TestCase):
         ]
     )
     def test_valid_inputs_parse(self, _name, raw, expected):
-        self.assertEqual(_parse_routing_overrides(raw), expected)
+        assert _parse_routing_overrides(raw) == expected
 
     @parameterized.expand(
         [
@@ -110,27 +110,24 @@ class CurrentTopicRoutingTest(TestCase):
     def test_without_overrides_returns_defaults(self):
         with override_settings(KAFKA_TOPIC_ROUTING_OVERRIDES=""):
             mapping = current_topic_routing()
-        self.assertEqual(mapping.get(KAFKA_WAREHOUSE_SOURCES_JOBS), KafkaClusterProfile.WAREHOUSE_SOURCES)
-        self.assertEqual(mapping.get(KAFKA_DWH_CDP_RAW_TABLE), KafkaClusterProfile.CYCLOTRON)
+        assert mapping.get(KAFKA_WAREHOUSE_SOURCES_JOBS) == KafkaClusterProfile.WAREHOUSE_SOURCES
+        assert mapping.get(KAFKA_DWH_CDP_RAW_TABLE) == KafkaClusterProfile.CYCLOTRON
         # KAFKA_APP_METRICS2 is routed to the INGESTION cluster.
-        self.assertEqual(mapping.get(KAFKA_APP_METRICS2), KafkaClusterProfile.INGESTION)
+        assert mapping.get(KAFKA_APP_METRICS2) == KafkaClusterProfile.INGESTION
 
     def test_env_overrides_add_new_topic(self):
         with override_settings(
             KAFKA_TOPIC_ROUTING_OVERRIDES=f"{KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES}=cyclotron"
         ):
             mapping = current_topic_routing()
-        self.assertEqual(
-            mapping.get(KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES),
-            KafkaClusterProfile.CYCLOTRON,
-        )
+        assert mapping.get(KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES) == KafkaClusterProfile.CYCLOTRON
         # Defaults still present.
-        self.assertEqual(mapping.get(KAFKA_WAREHOUSE_SOURCES_JOBS), KafkaClusterProfile.WAREHOUSE_SOURCES)
+        assert mapping.get(KAFKA_WAREHOUSE_SOURCES_JOBS) == KafkaClusterProfile.WAREHOUSE_SOURCES
 
     def test_env_overrides_win_over_defaults(self):
         with override_settings(KAFKA_TOPIC_ROUTING_OVERRIDES=f"{KAFKA_DWH_CDP_RAW_TABLE}=default"):
             mapping = current_topic_routing()
-        self.assertEqual(mapping.get(KAFKA_DWH_CDP_RAW_TABLE), KafkaClusterProfile.DEFAULT)
+        assert mapping.get(KAFKA_DWH_CDP_RAW_TABLE) == KafkaClusterProfile.DEFAULT
 
 
 class ResolveAndGetProducerTest(TestCase):
@@ -144,7 +141,7 @@ class ResolveAndGetProducerTest(TestCase):
         with _mock_kafka_backend() as (sync_build, _):
             producer = get_producer(topic=KAFKA_DEAD_LETTER_QUEUE)
             # Same call via the profile should reuse the cached producer.
-            self.assertIs(producer, get_producer(profile=KafkaClusterProfile.DEFAULT))
+            assert producer is get_producer(profile=KafkaClusterProfile.DEFAULT)
         sync_build.assert_called_once_with(KafkaClusterProfile.DEFAULT)
 
     def test_topic_in_map_resolves_to_profile(self):
@@ -171,15 +168,15 @@ class ResolveAndGetProducerTest(TestCase):
         with _mock_kafka_backend() as (sync_build, _):
             first = get_producer(profile=KafkaClusterProfile.DEFAULT)
             second = get_producer(profile=KafkaClusterProfile.DEFAULT)
-        self.assertIs(first, second)
+        assert first is second
         sync_build.assert_called_once()
 
     def test_get_producer_returns_distinct_producer_per_profile(self):
         with _mock_kafka_backend() as (sync_build, _):
             default_producer = get_producer(profile=KafkaClusterProfile.DEFAULT)
             cyclotron_producer = get_producer(profile=KafkaClusterProfile.CYCLOTRON)
-        self.assertIsNot(default_producer, cyclotron_producer)
-        self.assertEqual(sync_build.call_count, 2)
+        assert default_producer is not cyclotron_producer
+        assert sync_build.call_count == 2
 
 
 class ProducerScopeTest(TestCase):
@@ -258,8 +255,8 @@ class NewAsyncProducerTest(TestCase):
             async_build.side_effect = lambda profile: MagicMock(name=f"fresh[{profile}]")
             first = asyncio.run(new_async_producer(profile=KafkaClusterProfile.DEFAULT))
             second = asyncio.run(new_async_producer(profile=KafkaClusterProfile.DEFAULT))
-        self.assertIsNot(first, second)
-        self.assertEqual(async_build.call_count, 2)
+        assert first is not second
+        assert async_build.call_count == 2
 
 
 class FlushAllProducersTest(TestCase):

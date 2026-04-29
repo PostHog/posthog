@@ -80,16 +80,13 @@ def _create_research_agent_tools_node(
 
 class TestResearchAgentExecutable(ClickhouseTestMixin, BaseTest):
     def test_max_tool_calls_is_high(self):
-        self.assertEqual(ResearchAgentExecutable.MAX_TOOL_CALLS, 1_000_000)
+        assert ResearchAgentExecutable.MAX_TOOL_CALLS == 1000000
 
     def test_max_tokens_config(self):
-        self.assertEqual(ResearchAgentExecutable.MAX_TOKENS, 16_384)
+        assert ResearchAgentExecutable.MAX_TOKENS == 16384
 
     def test_thinking_config(self):
-        self.assertEqual(
-            ResearchAgentExecutable.THINKING_CONFIG,
-            {"type": "enabled", "budget_tokens": 4096},
-        )
+        assert ResearchAgentExecutable.THINKING_CONFIG == {"type": "enabled", "budget_tokens": 4096}
 
     async def test_arun_sets_supermode_and_agent_mode(self):
         """Test that arun modifies state correctly before calling parent"""
@@ -111,10 +108,10 @@ class TestResearchAgentExecutable(ClickhouseTestMixin, BaseTest):
         with patch.object(AgentExecutable, "arun", new=mock_parent_arun):
             await node.arun(state, {})
 
-            self.assertIsNotNone(captured_state)
+            assert captured_state is not None
             assert captured_state is not None  # for mypy
-            self.assertEqual(captured_state.supermode, AgentMode.PLAN)
-            self.assertEqual(captured_state.agent_mode, AgentMode.SQL)  # Plan mode defaults to SQL
+            assert captured_state.supermode == AgentMode.PLAN
+            assert captured_state.agent_mode == AgentMode.SQL  # Plan mode defaults to SQL
 
     async def test_arun_preserves_supermode_when_not_human_message(self):
         """Test that supermode is preserved when last message is not HumanMessage"""
@@ -140,9 +137,9 @@ class TestResearchAgentExecutable(ClickhouseTestMixin, BaseTest):
 
             # When last message is not HumanMessage and supermode is set,
             # the mode should be preserved
-            self.assertIsNotNone(captured_state)
+            assert captured_state is not None
             assert captured_state is not None  # for mypy
-            self.assertEqual(captured_state.supermode, AgentMode.RESEARCH)
+            assert captured_state.supermode == AgentMode.RESEARCH
 
     async def test_get_model_uses_opus_in_research_mode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.RESEARCH)
@@ -156,12 +153,12 @@ class TestResearchAgentExecutable(ClickhouseTestMixin, BaseTest):
 
             mock_anthropic.assert_called_once()
             call_kwargs = mock_anthropic.call_args.kwargs
-            self.assertEqual(call_kwargs["model"], "claude-opus-4-6")
-            self.assertEqual(call_kwargs["max_tokens"], 16_384)
-            self.assertEqual(call_kwargs["thinking"], {"type": "enabled", "budget_tokens": 4096})
-            self.assertTrue(call_kwargs["streaming"])
-            self.assertTrue(call_kwargs["billable"])
-            self.assertIn("interleaved-thinking-2025-05-14", call_kwargs["betas"])
+            assert call_kwargs["model"] == "claude-opus-4-6"
+            assert call_kwargs["max_tokens"] == 16384
+            assert call_kwargs["thinking"] == {"type": "enabled", "budget_tokens": 4096}
+            assert call_kwargs["streaming"]
+            assert call_kwargs["billable"]
+            assert "interleaved-thinking-2025-05-14" in call_kwargs["betas"]
 
     async def test_get_model_uses_sonnet_in_plan_mode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.PLAN)
@@ -175,7 +172,7 @@ class TestResearchAgentExecutable(ClickhouseTestMixin, BaseTest):
 
             mock_anthropic.assert_called_once()
             call_kwargs = mock_anthropic.call_args.kwargs
-            self.assertEqual(call_kwargs["model"], "claude-sonnet-4-6")
+            assert call_kwargs["model"] == "claude-sonnet-4-6"
 
     async def test_get_model_binds_tools_with_parallel_calls(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.RESEARCH)
@@ -189,13 +186,13 @@ class TestResearchAgentExecutable(ClickhouseTestMixin, BaseTest):
 
             mock_model.bind_tools.assert_called_once()
             call_kwargs = mock_model.bind_tools.call_args.kwargs
-            self.assertTrue(call_kwargs["parallel_tool_calls"])
+            assert call_kwargs["parallel_tool_calls"]
 
     def test_should_transition_is_not_on_root_executable(self):
         """Transition logic lives on the tools executable, not the root executable."""
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.PLAN)
         node = _create_research_agent_node(self.team, self.user, state=state)
-        self.assertFalse(hasattr(node, "_should_transition"))
+        assert not hasattr(node, "_should_transition")
 
 
 class TestResearchAgentToolsExecutable(ClickhouseTestMixin, BaseTest):
@@ -231,9 +228,9 @@ class TestResearchAgentToolsExecutable(ClickhouseTestMixin, BaseTest):
         with patch.object(AgentToolsExecutable, "arun", new=mock_parent_arun):
             result = await node.arun(state, {})
 
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(result.agent_mode, AgentMode.PRODUCT_ANALYTICS)
-            self.assertEqual(result.supermode, AgentMode.RESEARCH)
+            assert isinstance(result, PartialAssistantState)
+            assert result.agent_mode == AgentMode.PRODUCT_ANALYTICS
+            assert result.supermode == AgentMode.RESEARCH
 
     async def test_arun_does_not_transition_when_not_in_plan_supermode(self):
         state = AssistantState(
@@ -267,31 +264,31 @@ class TestResearchAgentToolsExecutable(ClickhouseTestMixin, BaseTest):
         with patch.object(AgentToolsExecutable, "arun", new=mock_parent_arun):
             result = await node.arun(state, {})
 
-            self.assertIsNone(result.supermode)
+            assert result.supermode is None
 
     def test_should_transition_returns_true_when_in_plan_supermode_and_agent_mode_is_research(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.PLAN)
         result = PartialAssistantState(agent_mode=AgentMode.RESEARCH)
         node = _create_research_agent_tools_node(self.team, self.user, state=state)
-        self.assertTrue(node._should_transition(state, result))
+        assert node._should_transition(state, result)
 
     def test_should_transition_returns_false_when_not_in_plan_supermode(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.RESEARCH)
         result = PartialAssistantState(agent_mode=AgentMode.RESEARCH)
         node = _create_research_agent_tools_node(self.team, self.user, state=state)
-        self.assertFalse(node._should_transition(state, result))
+        assert not node._should_transition(state, result)
 
     def test_should_transition_returns_false_when_agent_mode_is_not_research(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.PLAN)
         result = PartialAssistantState(agent_mode=AgentMode.SQL)
         node = _create_research_agent_tools_node(self.team, self.user, state=state)
-        self.assertFalse(node._should_transition(state, result))
+        assert not node._should_transition(state, result)
 
     def test_should_transition_returns_false_when_agent_mode_is_none(self):
         state = AssistantState(messages=[HumanMessage(content="Test")], supermode=AgentMode.PLAN)
         result = PartialAssistantState(agent_mode=None)
         node = _create_research_agent_tools_node(self.team, self.user, state=state)
-        self.assertFalse(node._should_transition(state, result))
+        assert not node._should_transition(state, result)
 
     def test_router_returns_end_on_final_notebook_with_content(self):
         state = AssistantState(
@@ -318,7 +315,7 @@ class TestResearchAgentToolsExecutable(ClickhouseTestMixin, BaseTest):
 
         # With the new approval flow, notebook creation doesn't end the conversation
         # The agent must ask for approval via create_form, then use switch_mode
-        self.assertEqual(result, "root")
+        assert result == "root"
 
     def test_router_returns_root_on_draft_notebook(self):
         state = AssistantState(
@@ -343,7 +340,7 @@ class TestResearchAgentToolsExecutable(ClickhouseTestMixin, BaseTest):
 
         result = node.router(state)
 
-        self.assertEqual(result, "root")
+        assert result == "root"
 
     def test_router_returns_root_when_not_in_supermode(self):
         state = AssistantState(
@@ -368,7 +365,7 @@ class TestResearchAgentToolsExecutable(ClickhouseTestMixin, BaseTest):
 
         result = node.router(state)
 
-        self.assertEqual(result, "root")
+        assert result == "root"
 
     def test_router_returns_root_when_no_notebook_tool_call(self):
         """When there's no CREATE_NOTEBOOK tool call, router should return 'root'"""
@@ -393,7 +390,7 @@ class TestResearchAgentToolsExecutable(ClickhouseTestMixin, BaseTest):
         node = _create_research_agent_tools_node(self.team, self.user, state=state)
 
         result = node.router(state)
-        self.assertEqual(result, "root")
+        assert result == "root"
 
     def test_router_returns_end_when_last_message_not_tool_call(self):
         """When the last message is not a tool call, the conversation ends."""
@@ -408,4 +405,4 @@ class TestResearchAgentToolsExecutable(ClickhouseTestMixin, BaseTest):
 
         result = node.router(state)
 
-        self.assertEqual(result, "end")
+        assert result == "end"

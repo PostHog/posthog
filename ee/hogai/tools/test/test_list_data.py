@@ -50,10 +50,10 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_instance.list_entities.assert_called_once_with("insight", 100, 0)
             mock_instance.format_entities.assert_called_once_with(entities_data)
 
-            self.assertIn("Offset 0, limit 100", result)
-            self.assertIn("Test Insight", result)
-            self.assertIn("insight-123", result)
-            self.assertIn("You reached the end of results", result)
+            assert "Offset 0, limit 100" in result
+            assert "Test Insight" in result
+            assert "insight-123" in result
+            assert "You reached the end of results" in result
 
     async def test_list_entities_with_pagination(self):
         """Test list entities pagination."""
@@ -71,10 +71,10 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
             result, _ = await self.tool._arun_impl(kind="dashboards", limit=2, offset=0)
 
-            self.assertIn("Offset 0, limit 2", result)
-            self.assertIn("To see more results, use offset=2", result)
-            self.assertIn("Dashboard 1", result)
-            self.assertIn("Dashboard 2", result)
+            assert "Offset 0, limit 2" in result
+            assert "To see more results, use offset=2" in result
+            assert "Dashboard 1" in result
+            assert "Dashboard 2" in result
 
     async def test_list_entities_rejects_invalid_kind(self):
         """Test that list entities rejects invalid entity kinds."""
@@ -97,4 +97,4 @@ class TestListDataTool(ClickhouseTestMixin, NonAtomicBaseTest):
             result, _ = await self.tool._arun_impl(kind="insights", limit=100, offset=0)
 
             mock_instance.list_entities.assert_called_once_with("insight", 100, 0)
-            self.assertIn("Offset 0, limit 100", result)
+            assert "Offset 0, limit 100" in result

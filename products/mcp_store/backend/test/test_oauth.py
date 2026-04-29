@@ -54,7 +54,7 @@ class TestResolveIssuer(TestCase):
     )
     def test_no_cross_validation_needed(self, _name, metadata, expected_issuer, expected_result):
         result = _resolve_issuer(metadata, expected_issuer)
-        self.assertEqual(result, expected_result)
+        assert result == expected_result
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.get")
@@ -77,9 +77,9 @@ class TestResolveIssuer(TestCase):
         }
         result = _resolve_issuer(metadata, "https://evil.com")
 
-        self.assertEqual(result, cross_validated)
+        assert result == cross_validated
         mock_get.assert_called_once()
-        self.assertIn("real-auth.example.com", mock_get.call_args.args[0])
+        assert "real-auth.example.com" in mock_get.call_args.args[0]
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.get")
@@ -148,14 +148,14 @@ class TestRefreshOauthToken(TestCase):
             )
 
         call_data = mock_post.call_args[1]["data"]
-        self.assertEqual(call_data["grant_type"], "refresh_token")
-        self.assertEqual(call_data["refresh_token"], "old-refresh")
-        self.assertEqual(call_data["client_id"], "my-client")
+        assert call_data["grant_type"] == "refresh_token"
+        assert call_data["refresh_token"] == "old-refresh"
+        assert call_data["client_id"] == "my-client"
         if expected_extra_data:
-            self.assertEqual(call_data["client_secret"], expected_extra_data["client_secret"])
+            assert call_data["client_secret"] == expected_extra_data["client_secret"]
         else:
-            self.assertNotIn("client_secret", call_data)
-        self.assertEqual(result["access_token"], "new-token")
+            assert "client_secret" not in call_data
+        assert result["access_token"] == "new-token"
 
     def test_http_error_raises_token_refresh_error(self):
         mock_resp = MagicMock()
@@ -168,7 +168,7 @@ class TestRefreshOauthToken(TestCase):
                     refresh_token="bad-refresh",
                     client_id="my-client",
                 )
-            self.assertIn("Token refresh request failed", str(ctx.exception))
+            assert "Token refresh request failed" in str(ctx.exception)
 
     def test_missing_access_token_raises_token_refresh_error(self):
         mock_resp = MagicMock()
@@ -183,7 +183,7 @@ class TestRefreshOauthToken(TestCase):
                     refresh_token="expired-refresh",
                     client_id="my-client",
                 )
-            self.assertIn("missing access_token", str(ctx.exception))
+            assert "missing access_token" in str(ctx.exception)
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(False, "Private IP address not allowed"))
     def test_ssrf_blocked_token_url_raises_token_refresh_error(self, _mock):
@@ -193,7 +193,7 @@ class TestRefreshOauthToken(TestCase):
                 refresh_token="tok",
                 client_id="cid",
             )
-        self.assertIn("SSRF protection", str(ctx.exception))
+        assert "SSRF protection" in str(ctx.exception)
 
 
 class TestIssuerValidation(TestCase):

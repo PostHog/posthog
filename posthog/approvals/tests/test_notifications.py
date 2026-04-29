@@ -63,8 +63,8 @@ class TestCustomerIOTemplateIDs(TestApprovalNotifications):
         ]
 
         for template in expected_templates:
-            self.assertIn(template, CUSTOMER_IO_TEMPLATE_ID_MAP)
-            self.assertIsNotNone(CUSTOMER_IO_TEMPLATE_ID_MAP[template])
+            assert template in CUSTOMER_IO_TEMPLATE_ID_MAP
+            assert CUSTOMER_IO_TEMPLATE_ID_MAP[template] is not None
 
 
 class TestBuildChangeRequestUrl(TestApprovalNotifications):
@@ -72,13 +72,13 @@ class TestBuildChangeRequestUrl(TestApprovalNotifications):
         with self.settings(SITE_URL="https://app.posthog.com"):
             url = _build_change_request_url(self.change_request)
             expected = f"https://app.posthog.com/project/{self.team.project_id}/approvals/{self.change_request.id}"
-            self.assertEqual(url, expected)
+            assert url == expected
 
     def test_strips_trailing_slash_from_site_url(self):
         with self.settings(SITE_URL="https://app.posthog.com/"):
             url = _build_change_request_url(self.change_request)
             expected = f"https://app.posthog.com/project/{self.team.project_id}/approvals/{self.change_request.id}"
-            self.assertEqual(url, expected)
+            assert url == expected
 
 
 class TestSendApprovalEmail(TestApprovalNotifications):
@@ -100,9 +100,9 @@ class TestSendApprovalEmail(TestApprovalNotifications):
 
         mock_email_message.assert_called_once()
         call_kwargs = mock_email_message.call_args[1]
-        self.assertEqual(call_kwargs["template_name"], "approval_requested")
-        self.assertEqual(call_kwargs["subject"], "Test User needs your sign-off")
-        self.assertTrue(call_kwargs["use_http"])
+        assert call_kwargs["template_name"] == "approval_requested"
+        assert call_kwargs["subject"] == "Test User needs your sign-off"
+        assert call_kwargs["use_http"]
         mock_message_instance.add_user_recipient.assert_called_once_with(self.approver)
         mock_message_instance.send.assert_called_once_with(send_async=True)
 
@@ -126,8 +126,8 @@ class TestSendApprovalEmail(TestApprovalNotifications):
             "Your change is live! 🎉",
         ]
         for subject in subjects:
-            self.assertNotIn("feature flag", subject.lower())
-            self.assertNotIn("rollout", subject.lower())
+            assert "feature flag" not in subject.lower()
+            assert "rollout" not in subject.lower()
 
 
 class TestSendApprovalRequestedNotification(TestApprovalNotifications):
@@ -135,12 +135,12 @@ class TestSendApprovalRequestedNotification(TestApprovalNotifications):
     def test_sends_to_all_approvers(self, mock_send_email):
         send_approval_requested_notification(self.change_request)
 
-        self.assertEqual(mock_send_email.call_count, 2)
+        assert mock_send_email.call_count == 2
 
         call_args_list = [call[1] for call in mock_send_email.call_args_list]
         recipients = [args["recipient"] for args in call_args_list]
-        self.assertIn(self.approver, recipients)
-        self.assertIn(self.approver2, recipients)
+        assert self.approver in recipients
+        assert self.approver2 in recipients
 
     @patch("posthog.approvals.notifications._send_approval_email")
     def test_skips_when_no_policy(self, mock_send_email):
@@ -155,8 +155,8 @@ class TestSendApprovalRequestedNotification(TestApprovalNotifications):
         send_approval_requested_notification(self.change_request)
 
         call_kwargs = mock_send_email.call_args_list[0][1]
-        self.assertEqual(call_kwargs["template_name"], "approval_requested")
-        self.assertIn("needs your sign-off", call_kwargs["subject"])
+        assert call_kwargs["template_name"] == "approval_requested"
+        assert "needs your sign-off" in call_kwargs["subject"]
 
     @patch("posthog.approvals.notifications._send_approval_email")
     def test_continues_on_individual_email_failure(self, mock_send_email):
@@ -164,7 +164,7 @@ class TestSendApprovalRequestedNotification(TestApprovalNotifications):
 
         send_approval_requested_notification(self.change_request)
 
-        self.assertEqual(mock_send_email.call_count, 2)
+        assert mock_send_email.call_count == 2
 
 
 class TestSendApprovalDecisionNotification(TestApprovalNotifications):
@@ -181,9 +181,9 @@ class TestSendApprovalDecisionNotification(TestApprovalNotifications):
 
         mock_send_email.assert_called_once()
         call_kwargs = mock_send_email.call_args[1]
-        self.assertEqual(call_kwargs["recipient"], self.user)
-        self.assertEqual(call_kwargs["template_name"], "approval_approved")
-        self.assertIn("approved your change", call_kwargs["subject"])
+        assert call_kwargs["recipient"] == self.user
+        assert call_kwargs["template_name"] == "approval_approved"
+        assert "approved your change" in call_kwargs["subject"]
 
     @patch("posthog.approvals.notifications._send_approval_email")
     def test_sends_rejection_notification(self, mock_send_email):
@@ -198,8 +198,8 @@ class TestSendApprovalDecisionNotification(TestApprovalNotifications):
 
         mock_send_email.assert_called_once()
         call_kwargs = mock_send_email.call_args[1]
-        self.assertEqual(call_kwargs["template_name"], "approval_rejected")
-        self.assertEqual(call_kwargs["subject"], "Your change request was declined")
+        assert call_kwargs["template_name"] == "approval_rejected"
+        assert call_kwargs["subject"] == "Your change request was declined"
 
     @patch("posthog.approvals.notifications._send_approval_email")
     def test_skips_when_no_requester(self, mock_send_email):
@@ -224,9 +224,9 @@ class TestSendApprovalExpiredNotification(TestApprovalNotifications):
 
         mock_send_email.assert_called_once()
         call_kwargs = mock_send_email.call_args[1]
-        self.assertEqual(call_kwargs["recipient"], self.user)
-        self.assertEqual(call_kwargs["template_name"], "approval_expired")
-        self.assertEqual(call_kwargs["subject"], "Your change request timed out")
+        assert call_kwargs["recipient"] == self.user
+        assert call_kwargs["template_name"] == "approval_expired"
+        assert call_kwargs["subject"] == "Your change request timed out"
 
     @patch("posthog.approvals.notifications._send_approval_email")
     def test_skips_when_no_requester(self, mock_send_email):
@@ -245,9 +245,9 @@ class TestSendApprovalAppliedNotification(TestApprovalNotifications):
 
         mock_send_email.assert_called_once()
         call_kwargs = mock_send_email.call_args[1]
-        self.assertEqual(call_kwargs["recipient"], self.user)
-        self.assertEqual(call_kwargs["template_name"], "approval_applied")
-        self.assertEqual(call_kwargs["subject"], "Your change is live! 🎉")
+        assert call_kwargs["recipient"] == self.user
+        assert call_kwargs["template_name"] == "approval_applied"
+        assert call_kwargs["subject"] == "Your change is live! 🎉"
 
     @patch("posthog.approvals.notifications._send_approval_email")
     def test_skips_when_no_requester(self, mock_send_email):
@@ -278,8 +278,8 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
                 },
             )
 
-            self.assertIn("needs your sign-off", message.html_body)
-            self.assertIn("Test Team", message.html_body)
+            assert "needs your sign-off" in message.html_body
+            assert "Test Team" in message.html_body
 
     @patch("posthog.approvals.notifications.is_email_available")
     def test_approval_approved_template_renders(self, mock_is_email_available):
@@ -299,8 +299,8 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
                 },
             )
 
-            self.assertIn("approved your change", message.html_body)
-            self.assertIn("Test Team", message.html_body)
+            assert "approved your change" in message.html_body
+            assert "Test Team" in message.html_body
 
     @patch("posthog.approvals.notifications.is_email_available")
     def test_approval_rejected_template_renders(self, mock_is_email_available):
@@ -320,8 +320,8 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
                 },
             )
 
-            self.assertIn("wasn't approved", message.html_body)
-            self.assertIn("Test Team", message.html_body)
+            assert "wasn't approved" in message.html_body
+            assert "Test Team" in message.html_body
 
     @patch("posthog.approvals.notifications.is_email_available")
     def test_approval_expired_template_renders(self, mock_is_email_available):
@@ -340,8 +340,8 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
                 },
             )
 
-            self.assertIn("expired", message.html_body)
-            self.assertIn("Test Team", message.html_body)
+            assert "expired" in message.html_body
+            assert "Test Team" in message.html_body
 
     @patch("posthog.approvals.notifications.is_email_available")
     def test_approval_applied_template_renders(self, mock_is_email_available):
@@ -360,8 +360,8 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
                 },
             )
 
-            self.assertIn("is live", message.html_body)
-            self.assertIn("Test Team", message.html_body)
+            assert "is live" in message.html_body
+            assert "Test Team" in message.html_body
 
     @patch("posthog.approvals.notifications.is_email_available")
     def test_templates_contain_cta_button(self, mock_is_email_available):
@@ -389,6 +389,4 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
                         "approver_name": "Admin User",
                     },
                 )
-                self.assertIn(
-                    expected_cta, message.html_body, f"Template {template_name} should have CTA button '{expected_cta}'"
-                )
+                assert expected_cta in message.html_body, f"Template {template_name} should have CTA button '{expected_cta}'"

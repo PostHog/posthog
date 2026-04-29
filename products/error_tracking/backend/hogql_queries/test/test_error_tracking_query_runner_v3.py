@@ -97,7 +97,7 @@ class TestErrorTrackingQueryRunnerV3(
     @freeze_time("2022-01-10T12:11:00")
     def test_column_names(self, _name, kwargs, expected_columns):
         columns = self._calculate(**kwargs)["columns"]
-        self.assertEqual(columns, expected_columns)
+        assert columns == expected_columns
 
     @freeze_time("2022-01-10T12:11:00")
     def test_user_assignee(self):
@@ -110,7 +110,7 @@ class TestErrorTrackingQueryRunnerV3(
         # Re-sync after assignment change
         sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
         results = self._calculate(assignee={"type": "user", "id": self.user.pk})["results"]
-        self.assertEqual([x["id"] for x in results], [issue_id])
+        assert [x["id"] for x in results] == [issue_id]
 
     @freeze_time("2022-01-10T12:11:00")
     def test_role_assignee(self):
@@ -124,7 +124,7 @@ class TestErrorTrackingQueryRunnerV3(
         # Re-sync after assignment change
         sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=self.team.pk)
         results = self._calculate(assignee={"type": "role", "id": str(role.id)})["results"]
-        self.assertEqual([x["id"] for x in results], [issue_id])
+        assert [x["id"] for x in results] == [issue_id]
 
     @freeze_time("2022-01-10T12:11:00")
     def test_status(self):
@@ -137,13 +137,13 @@ class TestErrorTrackingQueryRunnerV3(
         sync_issues_to_clickhouse(issue_ids=[self.issue_id_one], team_id=self.team.pk)
 
         results = self._calculate(status="active")["results"]
-        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two])
+        assert [r["id"] for r in results] == [self.issue_id_three, self.issue_id_two]
 
         results = self._calculate(status="resolved")["results"]
-        self.assertEqual([r["id"] for r in results], [self.issue_id_one])
+        assert [r["id"] for r in results] == [self.issue_id_one]
 
         results = self._calculate()["results"]
-        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
+        assert [r["id"] for r in results] == [self.issue_id_three, self.issue_id_two, self.issue_id_one]
 
         results = self._calculate(status="all")["results"]
-        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
+        assert [r["id"] for r in results] == [self.issue_id_three, self.issue_id_two, self.issue_id_one]

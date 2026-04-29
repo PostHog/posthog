@@ -200,3 +200,4 @@ junit.xml
 # Downloaded GitHub issues for signals
 products/signals/backend/github_issues/
 .pnpm-store
+pt009_fixer.py

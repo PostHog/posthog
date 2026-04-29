@@ -21,6 +21,7 @@ from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from collections import Counter
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention.data_warehouse"
 
@@ -195,18 +196,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 1, 1, 0],
-                    [2, 1, 0],
-                    [0, 0],
-                    [0],
-                    [0],
-                ]
-            ),
-        )
+        assert pluck(result, "values", "count") == pad([[2, 1, 1, 0], [2, 1, 0], [0, 0], [0], [0]])
 
     @parameterized.expand([("person",), ("group",)])
     def test_retention_data_warehouse_actor_query_maps_back_to_actors(self, actor_type: str) -> None:
@@ -279,34 +269,20 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(query=query)
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 1, 1, 0],
-                    [2, 1, 0],
-                    [0, 0],
-                    [0],
-                    [0],
-                ]
-            ),
-        )
+        assert pluck(result, "values", "count") == pad([[2, 1, 1, 0], [2, 1, 0], [0, 0], [0], [0]])
 
         actor_result = self.run_actors_query(interval=0, query=query, actor=actor_query_type)
 
-        self.assertEqual(len(actor_result), 2)
+        assert len(actor_result) == 2
 
         appearances_by_actor_id = {str(actor[0]["id"]): actor[1] for actor in actor_result}
-        self.assertEqual(appearances_by_actor_id[str(actor_ids["user-1"])], [0, 1])
-        self.assertEqual(appearances_by_actor_id[str(actor_ids["user-2"])], [0, 2])
+        assert appearances_by_actor_id[str(actor_ids["user-1"])] == [0, 1]
+        assert appearances_by_actor_id[str(actor_ids["user-2"])] == [0, 2]
 
         if actor_type == "person":
-            self.assertCountEqual(
-                [tuple(actor[0]["distinct_ids"]) for actor in actor_result],
-                [("user-1",), ("user-2",)],
-            )
+            assert Counter([tuple(actor[0]["distinct_ids"]) for actor in actor_result]) == Counter([("user-1",), ("user-2",)])
         else:
-            self.assertCountEqual([actor[0]["id"] for actor in actor_result], ["org:1", "org:2"])
+            assert Counter([actor[0]["id"] for actor in actor_result]) == Counter(["org:1", "org:2"])
 
     @snapshot_clickhouse_queries
     def test_retention_data_warehouse_different_tables(self):
@@ -372,18 +348,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 1, 1, 0],
-                    [2, 1, 0],
-                    [0, 0],
-                    [0],
-                    [0],
-                ]
-            ),
-        )
+        assert pluck(result, "values", "count") == pad([[2, 1, 1, 0], [2, 1, 0], [0, 0], [0], [0]])
 
     @snapshot_clickhouse_queries
     def test_retention_data_warehouse_and_events(self):
@@ -439,15 +404,4 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            pad(
-                [
-                    [2, 1, 1, 0],
-                    [2, 1, 0],
-                    [0, 0],
-                    [0],
-                    [0],
-                ]
-            ),
-        )
+        assert pluck(result, "values", "count") == pad([[2, 1, 1, 0], [2, 1, 0], [0, 0], [0], [0]])

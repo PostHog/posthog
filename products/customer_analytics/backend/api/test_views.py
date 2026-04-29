@@ -26,30 +26,30 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
     def assertActivityLog(self, config_id, activity):
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="CustomerProfileConfig", activity=activity)
-        self.assertEqual(logs.count(), 1)
+        assert logs.count() == 1
         log = logs.latest("created_at")
-        self.assertEqual(log.item_id, str(config_id))
+        assert log.item_id == str(config_id)
 
     def test_create_customer_profile_config_success(self):
         response = self.client.post(self.endpoint_base, self.valid_data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         response_data = response.json()
 
-        self.assertIn("id", response_data)
-        self.assertEqual("person", response_data["scope"])
-        self.assertEqual(self.valid_data["content"], response_data["content"])
-        self.assertEqual(self.valid_data["sidebar"], response_data["sidebar"])
-        self.assertIn("created_at", response_data)
-        self.assertIn("updated_at", response_data)
+        assert "id" in response_data
+        assert "person" == response_data["scope"]
+        assert self.valid_data["content"] == response_data["content"]
+        assert self.valid_data["sidebar"] == response_data["sidebar"]
+        assert "created_at" in response_data
+        assert "updated_at" in response_data
 
         # nosemgrep: idor-lookup-without-team (test assertion)
         config = CustomerProfileConfig.objects.get(id=response_data["id"])
-        self.assertEqual(config.scope, "person", "Should persist data")
-        self.assertEqual(config.team, self.team)
-        self.assertEqual(config.content, self.valid_data["content"])
-        self.assertEqual(config.sidebar, self.valid_data["sidebar"])
-        self.assertEqual(config.created_by, self.user)
+        assert config.scope == "person", "Should persist data"
+        assert config.team == self.team
+        assert config.content == self.valid_data["content"]
+        assert config.sidebar == self.valid_data["sidebar"]
+        assert config.created_by == self.user
         self.assertActivityLog(config.id, "created")
 
     def test_list_customer_profile_configs(self):
@@ -60,12 +60,12 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
-        self.assertEqual(response_data["count"], 2, "Should only return configs for current team")
+        assert response_data["count"] == 2, "Should only return configs for current team"
         config_ids = [config["id"] for config in response_data["results"]]
-        self.assertIn(str(config1.id), config_ids)
-        self.assertIn(str(config2.id), config_ids)
+        assert str(config1.id) in config_ids
+        assert str(config2.id) in config_ids
 
     def test_retrieve_customer_profile_config(self):
         config = CustomerProfileConfig.objects.create(
@@ -74,12 +74,12 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.get(f"{self.endpoint_base}{config.id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
-        self.assertEqual(str(config.id), response_data["id"])
-        self.assertEqual("person", response_data["scope"])
-        self.assertEqual(self.valid_data["content"], response_data["content"])
-        self.assertEqual(self.valid_data["sidebar"], response_data["sidebar"])
+        assert str(config.id) == response_data["id"]
+        assert "person" == response_data["scope"]
+        assert self.valid_data["content"] == response_data["content"]
+        assert self.valid_data["sidebar"] == response_data["sidebar"]
 
     def test_update_customer_profile_config(self):
         config = CustomerProfileConfig.objects.create(team=self.team, scope="person", content={"old": "data"})
@@ -87,16 +87,16 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.patch(f"{self.endpoint_base}{config.id}/", update_data, format="json")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         response_data = response.json()
 
-        self.assertEqual("group_0", response_data["scope"])
-        self.assertEqual(update_data["content"], response_data["content"])
-        self.assertEqual(update_data["sidebar"], response_data["sidebar"])
+        assert "group_0" == response_data["scope"]
+        assert update_data["content"] == response_data["content"]
+        assert update_data["sidebar"] == response_data["sidebar"]
 
         config.refresh_from_db()
-        self.assertEqual("group_0", config.scope)
-        self.assertEqual(update_data["content"], config.content, "Should update database")
+        assert "group_0" == config.scope
+        assert update_data["content"] == config.content, "Should update database"
         self.assertActivityLog(config.id, "updated")
 
     def test_delete_customer_profile_config(self):
@@ -105,8 +105,8 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         response = self.client.delete(f"{self.endpoint_base}{config.id}/")
 
-        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
-        self.assertFalse(CustomerProfileConfig.objects.filter(id=config.id).exists())
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        assert not CustomerProfileConfig.objects.filter(id=config.id).exists()
         self.assertActivityLog(config_id, "deleted")
 
     @parameterized.expand(
@@ -151,22 +151,22 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
     def test_validation_errors(self, name, invalid_data, expected_response):
         response = self.client.post(self.endpoint_base, invalid_data, format="json")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
         response_data = response.json()
-        self.assertEqual(response_data, expected_response)
+        assert response_data == expected_response
 
     def test_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization)
         other_config = CustomerProfileConfig.objects.create(team=other_team, scope="person", content={"other": "team"})
 
         response = self.client.get(f"{self.endpoint_base}{other_config.id}/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
         response = self.client.patch(f"{self.endpoint_base}{other_config.id}/", {"scope": "group_0"}, format="json")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
         response = self.client.delete(f"{self.endpoint_base}{other_config.id}/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
     def test_scope_choices_validation(self):
         valid_scopes = ["person", "group_0", "group_1", "group_2", "group_3", "group_4"]
@@ -174,17 +174,17 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
         for scope in valid_scopes:
             data = {"scope": scope, "content": {}}
             response = self.client.post(self.endpoint_base, data, format="json")
-            self.assertEqual(status.HTTP_201_CREATED, response.status_code, f"Failed for scope: {scope}")
+            assert status.HTTP_201_CREATED == response.status_code, f"Failed for scope: {scope}"
 
     def test_json_fields_defaults(self):
         data = {"scope": "person", "content": None, "sidebar": None}
 
         response = self.client.post(self.endpoint_base, data, format="json")
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code)
+        assert status.HTTP_201_CREATED == response.status_code
         response_data = response.json()
-        self.assertEqual({}, response_data["content"], "Should default to empty dict")
-        self.assertEqual({}, response_data["sidebar"], "Should default to empty dict")
+        assert {} == response_data["content"], "Should default to empty dict"
+        assert {} == response_data["sidebar"], "Should default to empty dict"
 
     def test_permissions_authentication_required(self):
         self.client.logout()
@@ -199,7 +199,7 @@ class TestCustomerProfileConfigViewSet(APIBaseTest):
 
         for method, url in endpoints:
             response = getattr(self.client, method.lower())(url, format="json")
-            self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+            assert response.status_code in [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN]
 
 
 class TestCustomerJourneyViewSet(APIBaseTest):
@@ -220,18 +220,18 @@ class TestCustomerJourneyViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        assert status.HTTP_201_CREATED == response.status_code, response.json()
         data = response.json()
-        self.assertIn("id", data)
-        self.assertEqual(data["name"], "My Journey")
-        self.assertEqual(data["description"], "A description")
-        self.assertEqual(data["insight"], self.insight.id)
-        self.assertIn("created_at", data)
-        self.assertIn("updated_at", data)
+        assert "id" in data
+        assert data["name"] == "My Journey"
+        assert data["description"] == "A description"
+        assert data["insight"] == self.insight.id
+        assert "created_at" in data
+        assert "updated_at" in data
 
         journey = CustomerJourney.objects.get(id=data["id"])  # nosemgrep: semgrep.rules.idor-lookup-without-team
-        self.assertEqual(journey.created_by, self.user)
-        self.assertEqual(journey.team, self.team)
+        assert journey.created_by == self.user
+        assert journey.team == self.team
 
     def test_list(self):
         insight2 = Insight.objects.create(team=self.team)
@@ -244,23 +244,23 @@ class TestCustomerJourneyViewSet(APIBaseTest):
 
         response = self.client.get(self.endpoint_base)
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         data = response.json()
-        self.assertEqual(data["count"], 2)
+        assert data["count"] == 2
         ids = {r["id"] for r in data["results"]}
-        self.assertEqual(ids, {str(j1.id), str(j2.id)})
+        assert ids == {str(j1.id), str(j2.id)}
 
     def test_retrieve(self):
         journey = self._create_journey(description="desc")
 
         response = self.client.get(f"{self.endpoint_base}{journey.id}/")
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         data = response.json()
-        self.assertEqual(data["id"], str(journey.id))
-        self.assertEqual(data["name"], "Test Journey")
-        self.assertEqual(data["description"], "desc")
-        self.assertEqual(data["insight"], self.insight.id)
+        assert data["id"] == str(journey.id)
+        assert data["name"] == "Test Journey"
+        assert data["description"] == "desc"
+        assert data["insight"] == self.insight.id
 
     def test_update(self):
         journey = self._create_journey()
@@ -271,10 +271,10 @@ class TestCustomerJourneyViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        assert status.HTTP_200_OK == response.status_code
         journey.refresh_from_db()
-        self.assertEqual(journey.name, "Updated")
-        self.assertEqual(journey.description, "New desc")
+        assert journey.name == "Updated"
+        assert journey.description == "New desc"
 
     def test_delete(self):
         journey = self._create_journey()
@@ -282,10 +282,8 @@ class TestCustomerJourneyViewSet(APIBaseTest):
 
         response = self.client.delete(f"{self.endpoint_base}{journey.id}/")
 
-        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
-        self.assertFalse(
-            CustomerJourney.objects.filter(id=journey_id).exists()  # nosemgrep: semgrep.rules.idor-lookup-without-team
-        )
+        assert status.HTTP_204_NO_CONTENT == response.status_code
+        assert not CustomerJourney.objects.filter(id=journey_id).exists()
 
     @parameterized.expand(
         [
@@ -318,7 +316,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         perform_action(self)
 
         logs = ActivityLog.objects.filter(team_id=self.team.id, scope="CustomerJourney", activity=expected_activity)
-        self.assertEqual(logs.count(), 1)
+        assert logs.count() == 1
 
     def test_unique_insight_per_team(self):
         self._create_journey()
@@ -329,8 +327,8 @@ class TestCustomerJourneyViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_409_CONFLICT, response.status_code)
-        self.assertIn("already exists", response.json()["detail"])
+        assert status.HTTP_409_CONFLICT == response.status_code
+        assert "already exists" in response.json()["detail"]
 
     def test_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -338,7 +336,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         other_journey = CustomerJourney.objects.create(team=other_team, insight=other_insight, name="Other")
 
         response = self.client.get(f"{self.endpoint_base}{other_journey.id}/")
-        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        assert status.HTTP_404_NOT_FOUND == response.status_code
 
     def test_cannot_create_journey_with_other_team_insight(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -350,10 +348,10 @@ class TestCustomerJourneyViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
         data = response.json()
-        self.assertEqual(data["attr"], "insight")
-        self.assertEqual(data["detail"], "The insight does not belong to this team.")
+        assert data["attr"] == "insight"
+        assert data["detail"] == "The insight does not belong to this team."
 
     @parameterized.expand(
         [
@@ -365,10 +363,10 @@ class TestCustomerJourneyViewSet(APIBaseTest):
     def test_validation_errors(self, _name, make_data, expected_error_field):
         response = self.client.post(self.endpoint_base, make_data(self), format="json")
 
-        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        assert status.HTTP_400_BAD_REQUEST == response.status_code
         data = response.json()
-        self.assertEqual(data["attr"], expected_error_field)
-        self.assertEqual(data["type"], "validation_error")
+        assert data["attr"] == expected_error_field
+        assert data["type"] == "validation_error"
 
     def test_authentication_required(self):
         self.client.logout()
@@ -382,7 +380,7 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         ]:
             with self.subTest(method):
                 response = getattr(self.client, method.lower())(url, format="json")
-                self.assertEqual(expected_status_code, response.status_code)
+                assert expected_status_code == response.status_code
 
 
 @pytest.mark.ee
@@ -444,14 +442,14 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self.journeys_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_viewer_can_retrieve_journey(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(f"{self.journeys_url}{self.journey.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     # -- Viewer cannot create/update/delete journeys --
 
@@ -465,7 +463,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"insight": insight2.id, "name": "New Journey"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_update_journey(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
@@ -476,14 +474,14 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"name": "Updated"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_viewer_cannot_delete_journey(self):
         self._set_access_level(self.viewer_user, access_level="viewer")
         self.client.force_login(self.viewer_user)
 
         response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # -- Editor can create/update/delete journeys --
 
@@ -497,7 +495,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"insight": insight2.id, "name": "Editor Journey"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_editor_can_update_journey(self):
         self._set_access_level(self.editor_user, access_level="editor")
@@ -508,14 +506,14 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"name": "Updated by editor"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_editor_can_delete_journey(self):
         self._set_access_level(self.editor_user, access_level="editor")
         self.client.force_login(self.editor_user)
 
         response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
     # -- None access blocks everything --
 
@@ -524,7 +522,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.client.force_login(self.no_access_user)
 
         response = self.client.get(self.journeys_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # -- Resource inheritance: customer_analytics access cascades to journeys --
 
@@ -533,14 +531,14 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
         self.client.force_login(self.viewer_user)
 
         response = self.client.get(self.journeys_url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_customer_analytics_none_blocks_journey_list(self):
         self._set_access_level(self.no_access_user, resource="customer_analytics", access_level="none")
         self.client.force_login(self.no_access_user)
 
         response = self.client.get(self.journeys_url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_customer_analytics_editor_can_create_journey(self):
         self._set_access_level(self.editor_user, resource="customer_analytics", access_level="editor")
@@ -552,7 +550,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"insight": insight2.id, "name": "Child Journey"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     def test_customer_analytics_viewer_cannot_create_journey(self):
         self._set_access_level(self.viewer_user, resource="customer_analytics", access_level="viewer")
@@ -564,7 +562,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"insight": insight2.id, "name": "Should Fail"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     # -- Org admin has full access without explicit permissions --
 
@@ -581,7 +579,7 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
             {"insight": insight2.id, "name": "Admin Journey"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         response = self.client.delete(f"{self.journeys_url}{self.journey.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT

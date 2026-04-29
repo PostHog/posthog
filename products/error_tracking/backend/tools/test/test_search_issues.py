@@ -155,9 +155,9 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        self.assertIn("No issues found", result_text)
-        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
-        self.assertEqual(artifact.issues, [])
+        assert "No issues found" in result_text
+        assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert artifact.issues == []
 
     async def test_returns_active_issues_by_default(self):
         tool = await self._create_tool()
@@ -165,12 +165,12 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        self.assertIn("Found 2 issues", result_text)
-        self.assertIn("TypeError", result_text)
-        self.assertIn("ReferenceError", result_text)
-        self.assertNotIn("SyntaxError", result_text)
-        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
-        self.assertEqual(len(artifact.issues), 2)
+        assert "Found 2 issues" in result_text
+        assert "TypeError" in result_text
+        assert "ReferenceError" in result_text
+        assert "SyntaxError" not in result_text
+        assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert len(artifact.issues) == 2
 
     async def test_returns_resolved_issues_when_filtered(self):
         tool = await self._create_tool()
@@ -178,11 +178,11 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        self.assertIn("Found 1 issue", result_text)
-        self.assertIn("SyntaxError", result_text)
-        self.assertNotIn("TypeError", result_text)
-        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
-        self.assertEqual(len(artifact.issues), 1)
+        assert "Found 1 issue" in result_text
+        assert "SyntaxError" in result_text
+        assert "TypeError" not in result_text
+        assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert len(artifact.issues) == 1
 
     async def test_returns_all_issues_when_status_all(self):
         tool = await self._create_tool()
@@ -190,12 +190,12 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        self.assertIn("Found 3 issues", result_text)
-        self.assertIn("TypeError", result_text)
-        self.assertIn("ReferenceError", result_text)
-        self.assertIn("SyntaxError", result_text)
-        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
-        self.assertEqual(len(artifact.issues), 3)
+        assert "Found 3 issues" in result_text
+        assert "TypeError" in result_text
+        assert "ReferenceError" in result_text
+        assert "SyntaxError" in result_text
+        assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert len(artifact.issues) == 3
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_search_query_filters_by_text(self, mock_process_query):
@@ -217,14 +217,14 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        self.assertIn("Found 1 issue", result_text)
-        self.assertIn("TypeError", result_text)
-        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
-        self.assertEqual(len(artifact.issues), 1)
-        self.assertEqual(artifact.search_query, "TypeError")
+        assert "Found 1 issue" in result_text
+        assert "TypeError" in result_text
+        assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert len(artifact.issues) == 1
+        assert artifact.search_query == "TypeError"
         call_args = mock_process_query.call_args
         query_dict = call_args[0][1]
-        self.assertEqual(query_dict["searchQuery"], "TypeError")
+        assert query_dict["searchQuery"] == "TypeError"
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_respects_limit(self, mock_process_query):
@@ -254,13 +254,13 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        self.assertIn("Found 2 issues", result_text)
-        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
-        self.assertEqual(len(artifact.issues), 2)
-        self.assertEqual(artifact.limit, 2)
+        assert "Found 2 issues" in result_text
+        assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert len(artifact.issues) == 2
+        assert artifact.limit == 2
         call_args = mock_process_query.call_args
         query_dict = call_args[0][1]
-        self.assertEqual(query_dict["limit"], 2)
+        assert query_dict["limit"] == 2
 
     async def test_formats_issue_with_aggregations(self):
         tool = await self._create_tool()
@@ -268,12 +268,12 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        self.assertIn("Status:", result_text)
-        self.assertIn("Occurrences:", result_text)
-        self.assertIn("Users:", result_text)
-        self.assertIn("Sessions:", result_text)
-        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
-        self.assertEqual(len(artifact.issues), 2)
+        assert "Status:" in result_text
+        assert "Occurrences:" in result_text
+        assert "Users:" in result_text
+        assert "Sessions:" in result_text
+        assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert len(artifact.issues) == 2
 
     async def test_limits_excessive_limit_to_100(self):
         tool = await self._create_tool()
@@ -281,9 +281,9 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        self.assertIn("Found 3 issues", result_text)
-        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
-        self.assertEqual(artifact.limit, 100)
+        assert "Found 3 issues" in result_text
+        assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert artifact.limit == 100
 
     async def test_defaults_to_50_when_no_limit(self):
         tool = await self._create_tool()
@@ -292,9 +292,9 @@ class TestSearchErrorTrackingIssuesTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result_text, artifact = await tool._arun_impl(query=query)
 
-        self.assertIn("Found 3 issues", result_text)
-        self.assertIsInstance(artifact, MaxErrorTrackingSearchResponse)
-        self.assertEqual(artifact.limit, 50)
+        assert "Found 3 issues" in result_text
+        assert isinstance(artifact, MaxErrorTrackingSearchResponse)
+        assert artifact.limit == 50
 
 
 class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
@@ -331,14 +331,14 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
 
         result = tool._format_issue(1, issue)
 
-        self.assertIn("1. TypeError: Cannot read 'undefined'", result)
-        self.assertIn("ID: 01234567-89ab-cdef-0123-456789abcdef", result)
-        self.assertIn("Status: active", result)
-        self.assertIn("Occurrences: 150", result)
-        self.assertIn("Users: 25", result)
-        self.assertIn("Sessions: 30", result)
-        self.assertIn("First seen:", result)
-        self.assertIn("Last seen:", result)
+        assert "1. TypeError: Cannot read 'undefined'" in result
+        assert "ID: 01234567-89ab-cdef-0123-456789abcdef" in result
+        assert "Status: active" in result
+        assert "Occurrences: 150" in result
+        assert "Users: 25" in result
+        assert "Sessions: 30" in result
+        assert "First seen:" in result
+        assert "Last seen:" in result
 
     async def test_format_issue_with_minimal_fields(self):
         tool = await self._create_tool()
@@ -353,16 +353,16 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
 
         result = tool._format_issue(1, issue)
 
-        self.assertIn("1. Unnamed issue", result)
-        self.assertIn("ID: abcd1234-5678-90ab-cdef-1234567890ab", result)
-        self.assertIn("Status: active", result)
+        assert "1. Unnamed issue" in result
+        assert "ID: abcd1234-5678-90ab-cdef-1234567890ab" in result
+        assert "Status: active" in result
 
     async def test_format_results_empty(self):
         tool = await self._create_tool()
 
         result = tool._format_results([])
 
-        self.assertIn("No issues found", result)
+        assert "No issues found" in result
 
     async def test_format_results_single(self):
         tool = await self._create_tool()
@@ -382,7 +382,7 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
 
         result = tool._format_results(issues)
 
-        self.assertIn("Found 1 issue", result)
+        assert "Found 1 issue" in result
 
     async def test_format_results_multiple(self):
         tool = await self._create_tool()
@@ -412,9 +412,9 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
 
         result = tool._format_results(issues)
 
-        self.assertIn("Found 2 issues", result)
-        self.assertIn("1. Error 1", result)
-        self.assertIn("2. Error 2", result)
+        assert "Found 2 issues" in result
+        assert "1. Error 1" in result
+        assert "2. Error 2" in result
 
     async def test_format_results_limits_to_10(self):
         tool = await self._create_tool()
@@ -435,11 +435,11 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
 
         result = tool._format_results(issues)
 
-        self.assertIn("Found 15 issues", result)
-        self.assertIn("...and 5 more issues", result)
-        self.assertIn("1. Error 0", result)
-        self.assertIn("10. Error 9", result)
-        self.assertNotIn("11.", result)
+        assert "Found 15 issues" in result
+        assert "...and 5 more issues" in result
+        assert "1. Error 0" in result
+        assert "10. Error 9" in result
+        assert "11." not in result
 
     @parameterized.expand(
         [
@@ -452,4 +452,4 @@ class TestSearchErrorTrackingIssuesToolFormatting(NonAtomicBaseTest):
     async def test_format_date_handles_various_formats(self, date_value, expected):
         tool = await self._create_tool()
         result = tool._format_date(date_value)
-        self.assertEqual(result, expected)
+        assert result == expected

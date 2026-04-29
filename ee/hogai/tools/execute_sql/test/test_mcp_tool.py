@@ -24,7 +24,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             ExecuteSQLMCPToolArgs(query="SELECT event, count() as cnt FROM events GROUP BY event"),
         )
 
-        self.assertIn("test_event", content)
+        assert "test_event" in content
 
     async def test_validation_error_for_invalid_query(self):
         with self.assertRaises(MaxToolRetryableError) as ctx:
@@ -32,7 +32,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 ExecuteSQLMCPToolArgs(query="INVALID SQL SYNTAX"),
             )
 
-        self.assertIn("validation failed", str(ctx.exception).lower())
+        assert "validation failed" in str(ctx.exception).lower()
 
     async def test_validation_error_for_empty_query(self):
         with self.assertRaises(MaxToolRetryableError):
@@ -41,11 +41,11 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             )
 
     async def test_tool_name_and_schema(self):
-        self.assertEqual(self.tool.name, "execute_sql")
-        self.assertIsNotNone(self.tool.args_schema)
+        assert self.tool.name == "execute_sql"
+        assert self.tool.args_schema is not None
 
         validated = self.tool.args_schema.model_validate({"query": "SELECT 1"})
-        self.assertEqual(validated.query, "SELECT 1")
+        assert validated.query == "SELECT 1"
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     async def test_select_from_system_insights(self):
@@ -59,4 +59,4 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             ExecuteSQLMCPToolArgs(query="SELECT id, name FROM system.insights"),
         )
 
-        self.assertIn("Revenue Trends", content)
+        assert "Revenue Trends" in content

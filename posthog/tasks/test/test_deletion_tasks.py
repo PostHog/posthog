@@ -26,7 +26,7 @@ class TestDeleteProjectDataAndNotifyTask(BaseTest):
             project_name="Team to delete",
         )
 
-        self.assertFalse(Team.objects.filter(id=team_id).exists())
+        assert not Team.objects.filter(id=team_id).exists()
 
     @patch("posthog.email.is_email_available", return_value=False)
     def test_deletes_project_and_teams(self, mock_email: Any) -> None:
@@ -45,8 +45,8 @@ class TestDeleteProjectDataAndNotifyTask(BaseTest):
             project_name="Project to delete",
         )
 
-        self.assertFalse(Project.objects.filter(id=project_id).exists())
-        self.assertFalse(Team.objects.filter(id=team_id).exists())
+        assert not Project.objects.filter(id=project_id).exists()
+        assert not Team.objects.filter(id=team_id).exists()
 
     @patch("posthog.tasks.email.send_project_deleted_email")
     @patch("posthog.email.is_email_available", return_value=True)
@@ -98,20 +98,20 @@ class TestDeleteProjectPersonsEndToEnd(BaseTest):
                 project_name="Team to delete",
             )
 
-            self.assertFalse(Team.objects.filter(id=team.id).exists())
+            assert not Team.objects.filter(id=team.id).exists()
 
             if personhog_enabled:
                 # Fake client doesn't touch Django DB — verify the RPC was called correctly
                 calls = fake.assert_called("delete_persons_batch_for_team")
                 team_ids_called = {c.request.team_id for c in calls}
-                self.assertIn(team.id, team_ids_called)
-                self.assertNotIn(other_team.id, team_ids_called)
+                assert team.id in team_ids_called
+                assert other_team.id not in team_ids_called
             else:
-                self.assertEqual(Person.objects.filter(team_id=team.id).count(), 0)
-                self.assertEqual(PersonDistinctId.objects.filter(team_id=team.id).count(), 0)
+                assert Person.objects.filter(team_id=team.id).count() == 0
+                assert PersonDistinctId.objects.filter(team_id=team.id).count() == 0
 
-                self.assertTrue(Person.objects.filter(id=p_other.id).exists())
-                self.assertEqual(PersonDistinctId.objects.filter(team_id=other_team.id).count(), 1)
+                assert Person.objects.filter(id=p_other.id).exists()
+                assert PersonDistinctId.objects.filter(team_id=other_team.id).count() == 1
 
 
 class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
@@ -131,8 +131,8 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
             project_names=["Team in org"],
         )
 
-        self.assertFalse(Organization.objects.filter(id=org_id).exists())
-        self.assertFalse(Team.objects.filter(id=team_id).exists())
+        assert not Organization.objects.filter(id=org_id).exists()
+        assert not Team.objects.filter(id=team_id).exists()
 
     @patch("posthog.ph_client.is_cloud", return_value=True)
     @patch("posthog.ph_client.get_client")
@@ -153,7 +153,7 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
 
         ph_client = mock_get_client.return_value
         event_names = [call.kwargs.get("event") for call in ph_client.capture.call_args_list]
-        self.assertIn("organization deletion completed", event_names)
+        assert "organization deletion completed" in event_names
         ph_client.shutdown.assert_called()
 
     @patch("posthog.email.is_email_available", return_value=False)
@@ -195,10 +195,10 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
             project_names=["Team in org"],
         )
 
-        self.assertFalse(Organization.objects.filter(id=org_id).exists())
-        self.assertFalse(Team.objects.filter(id=team_id).exists())
-        self.assertFalse(DataWarehouseSavedQuery.objects.filter(id=saved_query.id).exists())
-        self.assertFalse(Node.objects.filter(id=node.id).exists())
+        assert not Organization.objects.filter(id=org_id).exists()
+        assert not Team.objects.filter(id=team_id).exists()
+        assert not DataWarehouseSavedQuery.objects.filter(id=saved_query.id).exists()
+        assert not Node.objects.filter(id=node.id).exists()
 
     @patch("posthog.email.is_email_available", return_value=False)
     def test_deletes_organization_when_user_already_deleted(self, mock_email: Any) -> None:
@@ -221,9 +221,9 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
             project_names=["Team in org"],
         )
 
-        self.assertFalse(Organization.objects.filter(id=org_id).exists())
-        self.assertFalse(Team.objects.filter(id=team_id).exists())
-        self.assertFalse(Project.objects.filter(id=project_id).exists())
+        assert not Organization.objects.filter(id=org_id).exists()
+        assert not Team.objects.filter(id=team_id).exists()
+        assert not Project.objects.filter(id=project_id).exists()
 
     @patch("posthog.tasks.email.send_organization_deleted_email")
     @patch("posthog.email.is_email_available", return_value=True)

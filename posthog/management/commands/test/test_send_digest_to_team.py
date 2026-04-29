@@ -17,7 +17,7 @@ class TestSendDigestToTeamCommand(BaseTest):
         with self.assertRaises(CommandError) as cm:
             call_command("send_digest_to_team", 99999)
 
-        self.assertIn("Team with ID 99999 does not exist", str(cm.exception))
+        assert "Team with ID 99999 does not exist" in str(cm.exception)
 
     def test_send_digest_with_notification_settings(self):
         """Test that the command works with teams that have members with notification settings"""
@@ -37,4 +37,4 @@ class TestSendDigestToTeamCommand(BaseTest):
             with self.assertRaises(CommandError) as cm:
                 call_command("send_digest_to_team", self.team.id, "--email", "test@example.com")
 
-            self.assertIn("Failed to send digest: Task failed", str(cm.exception))
+            assert "Failed to send digest: Task failed" in str(cm.exception)

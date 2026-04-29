@@ -65,11 +65,11 @@ class TestSearchLLMTracesTool(BaseTest):
         query = TracesQuery(dateRange=DateRange(date_from="-7d"))
         content, artifact = tool._run(query=query, config=RunnableConfig(configurable={}))
 
-        self.assertIn("Found 2 traces", content)
-        self.assertIn("test-trace", content)
-        self.assertIn("second-trace", content)
-        self.assertIn("trace-1", content)
-        self.assertIsNone(artifact)
+        assert "Found 2 traces" in content
+        assert "test-trace" in content
+        assert "second-trace" in content
+        assert "trace-1" in content
+        assert artifact is None
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     def test_search_shows_has_more_with_cursor(self, mock_execute):
@@ -82,8 +82,8 @@ class TestSearchLLMTracesTool(BaseTest):
         query = TracesQuery(dateRange=DateRange(date_from="-7d"), limit=1)
         content, _ = tool._run(query=query, config=RunnableConfig(configurable={}))
 
-        self.assertIn("More traces are available", content)
-        self.assertIn('cursor="1"', content)
+        assert "More traces are available" in content
+        assert 'cursor="1"' in content
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     def test_search_without_cursor_uses_offset_zero(self, mock_execute):
@@ -94,7 +94,7 @@ class TestSearchLLMTracesTool(BaseTest):
         tool._run(query=query, config=RunnableConfig(configurable={}))
 
         called_query = mock_execute.call_args[0][0]
-        self.assertEqual(called_query.offset, 0)
+        assert called_query.offset == 0
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     def test_search_with_cursor_sets_offset(self, mock_execute):
@@ -108,8 +108,8 @@ class TestSearchLLMTracesTool(BaseTest):
         content, _ = tool._run(query=query, cursor="20", config=RunnableConfig(configurable={}))
 
         called_query = mock_execute.call_args[0][0]
-        self.assertEqual(called_query.offset, 20)
-        self.assertNotIn("cursor=", content)
+        assert called_query.offset == 20
+        assert "cursor=" not in content
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     def test_search_trims_detection_row_and_advances_cursor(self, mock_execute):
@@ -125,10 +125,10 @@ class TestSearchLLMTracesTool(BaseTest):
         content, _ = tool._run(query=query, cursor="20", config=RunnableConfig(configurable={}))
 
         # Only 10 traces shown (detection row trimmed)
-        self.assertIn("Found 10 traces", content)
-        self.assertNotIn("trace-10", content)
+        assert "Found 10 traces" in content
+        assert "trace-10" not in content
         # Cursor advances by the trimmed count: 20 + 10 = 30
-        self.assertIn('cursor="30"', content)
+        assert 'cursor="30"' in content
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     def test_search_empty_results(self, mock_execute):
@@ -138,7 +138,7 @@ class TestSearchLLMTracesTool(BaseTest):
         query = TracesQuery(dateRange=DateRange(date_from="-7d"))
         content, _ = tool._run(query=query, config=RunnableConfig(configurable={}))
 
-        self.assertIn("No traces found", content)
+        assert "No traces found" in content
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     def test_search_defaults_applied(self, mock_execute):
@@ -149,9 +149,9 @@ class TestSearchLLMTracesTool(BaseTest):
         tool._run(query=query, config=RunnableConfig(configurable={}))
 
         called_query = mock_execute.call_args[0][0]
-        self.assertEqual(called_query.limit, 50)
-        self.assertIsNotNone(called_query.dateRange)
-        self.assertEqual(called_query.filterTestAccounts, False)
+        assert called_query.limit == 50
+        assert called_query.dateRange is not None
+        assert not called_query.filterTestAccounts
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     def test_search_formats_trace_with_errors(self, mock_execute):
@@ -164,4 +164,4 @@ class TestSearchLLMTracesTool(BaseTest):
         query = TracesQuery(dateRange=DateRange(date_from="-7d"))
         content, _ = tool._run(query=query, config=RunnableConfig(configurable={}))
 
-        self.assertIn("Errors: 3", content)
+        assert "Errors: 3" in content

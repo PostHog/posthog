@@ -38,9 +38,9 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier = EmailMFAVerifier()
         result = verifier.should_send_email_mfa_verification(self.mock_user)
 
-        self.assertFalse(result.should_send)
-        self.assertTrue(result.suppression_bypassed)
-        self.assertEqual(result.suppression_reason, ESPSuppressionReason.SUPPRESSED)
+        assert not result.should_send
+        assert result.suppression_bypassed
+        assert result.suppression_reason == ESPSuppressionReason.SUPPRESSED
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -59,8 +59,8 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier = EmailMFAVerifier()
         result = verifier.should_send_email_mfa_verification(self.mock_user)
 
-        self.assertTrue(result.should_send)
-        self.assertFalse(result.suppression_bypassed)
+        assert result.should_send
+        assert not result.suppression_bypassed
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -90,8 +90,8 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "email_mfa_bypassed_due_to_suppression")
-        self.assertEqual(call_kwargs["distinct_id"], str(self.mock_user.distinct_id))
+        assert call_kwargs["event"] == "email_mfa_bypassed_due_to_suppression"
+        assert call_kwargs["distinct_id"] == str(self.mock_user.distinct_id)
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -120,8 +120,8 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier.should_send_email_mfa_verification(self.mock_user)
 
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.SUPPRESSED)
-        self.assertTrue(call_kwargs["properties"]["cached"])
+        assert call_kwargs["properties"]["reason"] == ESPSuppressionReason.SUPPRESSED
+        assert call_kwargs["properties"]["cached"]
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -149,13 +149,13 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier = EmailMFAVerifier()
         result = verifier.should_send_email_mfa_verification(self.mock_user)
 
-        self.assertFalse(result.should_send)
-        self.assertTrue(result.suppression_bypassed)
-        self.assertEqual(result.suppression_reason, ESPSuppressionReason.API_FAILURE_FALLBACK)
+        assert not result.should_send
+        assert result.suppression_bypassed
+        assert result.suppression_reason == ESPSuppressionReason.API_FAILURE_FALLBACK
 
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.API_FAILURE_FALLBACK)
-        self.assertFalse(call_kwargs["properties"]["cached"])
+        assert call_kwargs["properties"]["reason"] == ESPSuppressionReason.API_FAILURE_FALLBACK
+        assert not call_kwargs["properties"]["cached"]
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -176,8 +176,8 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier = EmailMFAVerifier()
         result = verifier.should_send_email_mfa_verification(self.mock_user)
 
-        self.assertIsInstance(result, EmailMFACheckResult)
-        self.assertFalse(result.should_send)
+        assert isinstance(result, EmailMFACheckResult)
+        assert not result.should_send
 
     @patch("posthog.helpers.two_factor_session.is_dev_mode")
     @patch("posthog.helpers.two_factor_session.is_email_available")
@@ -191,11 +191,11 @@ class TestEmailMFAVerifierSuppressionIntegration(SimpleTestCase):
         verifier = EmailMFAVerifier()
         result = verifier.should_send_email_mfa_verification(self.mock_user)
 
-        self.assertFalse(result.should_send)
-        self.assertTrue(result.suppression_bypassed)
-        self.assertEqual(result.suppression_reason, ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE)
+        assert not result.should_send
+        assert result.suppression_bypassed
+        assert result.suppression_reason == ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE
 
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args[1]
-        self.assertEqual(call_kwargs["event"], "email_mfa_bypassed_due_to_suppression")
-        self.assertEqual(call_kwargs["properties"]["reason"], ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE)
+        assert call_kwargs["event"] == "email_mfa_bypassed_due_to_suppression"
+        assert call_kwargs["properties"]["reason"] == ESPSuppressionReason.NO_EMAIL_HTTP_SERVICE

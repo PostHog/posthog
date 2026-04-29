@@ -50,7 +50,7 @@ class TestRevenueItemEventsBuilder(EventsSourceBaseTest):
 
         # Should use is_zero_decimal_in_stripe check
         # by comparing against a list of zero-decimal currencies
-        self.assertIn("in(original_currency, [", purchase_sql)
+        assert "in(original_currency, [" in purchase_sql
         self.assertQueryMatchesSnapshot(purchase_sql, replace_all_numbers=True)
 
         # Subscription charge event has currencyAwareDecimal=False
@@ -59,7 +59,7 @@ class TestRevenueItemEventsBuilder(EventsSourceBaseTest):
         subscription_sql = query.query.to_hogql()
 
         # Should use constant True for enable_currency_aware_divider
-        self.assertIn("true AS enable_currency_aware_divider", subscription_sql)
+        assert "true AS enable_currency_aware_divider" in subscription_sql
         self.assertQueryMatchesSnapshot(subscription_sql, replace_all_numbers=True)
 
     def test_revenue_item_specific_fields(self):
@@ -72,13 +72,13 @@ class TestRevenueItemEventsBuilder(EventsSourceBaseTest):
         query_sql = query.query.to_hogql()
 
         # Should include is_recurring based on subscription property
-        self.assertIn("isNotNull(properties.subscription_id) AS is_recurring", query_sql)
+        assert "isNotNull(properties.subscription_id) AS is_recurring" in query_sql
 
         # Should include product_id from productProperty
-        self.assertIn("properties.product_id AS product_id", query_sql)
+        assert "properties.product_id AS product_id" in query_sql
 
         # Should include subscription_id from subscriptionProperty
-        self.assertIn("properties.subscription_id AS subscription_id", query_sql)
+        assert "properties.subscription_id AS subscription_id" in query_sql
 
     def test_with_team_base_currency(self):
         """Test that team base currency is properly used."""
@@ -90,7 +90,7 @@ class TestRevenueItemEventsBuilder(EventsSourceBaseTest):
         query_sql = query.query.to_hogql()
 
         # Verify EUR is used as the base currency
-        self.assertIn("'EUR' AS currency", query_sql)
+        assert "'EUR' AS currency" in query_sql
 
     def test_is_recurring_logic(self):
         """Test that is_recurring field logic works correctly."""
@@ -112,4 +112,4 @@ class TestRevenueItemEventsBuilder(EventsSourceBaseTest):
         query_sql = query.query.to_hogql()
 
         # Should be hardcoded to false when no subscription property
-        self.assertIn("false AS is_recurring", query_sql)
+        assert "false AS is_recurring" in query_sql

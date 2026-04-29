@@ -55,11 +55,11 @@ class TestTicketCommand(BaseTest):
 
         result = await self.command.execute(config, state)
 
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
-        self.assertEqual(message.content, "Summary of the conversation")
+        assert message.content == "Summary of the conversation"
         mock_summarize.assert_called_once()
 
     @pytest.mark.asyncio
@@ -76,11 +76,11 @@ class TestTicketCommand(BaseTest):
 
         result = await self.command.execute(config, state)
 
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
-        self.assertIn("describe your issue", message.content.lower())
+        assert "describe your issue" in message.content.lower()
 
     @pytest.mark.asyncio
     async def test_execute_free_user_returns_upgrade_message(self):
@@ -92,11 +92,11 @@ class TestTicketCommand(BaseTest):
 
         result = await self.command.execute(config, state)
 
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
-        self.assertIn("paid plans", message.content)
+        assert "paid plans" in message.content
 
     @pytest.mark.asyncio
     async def test_execute_no_billing_context_returns_upgrade_message(self):
@@ -106,11 +106,11 @@ class TestTicketCommand(BaseTest):
 
         result = await self.command.execute(config, state)
 
-        self.assertEqual(len(result.messages), 1)
+        assert len(result.messages) == 1
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
-        self.assertIn("paid plans", message.content)
+        assert "paid plans" in message.content
 
     @pytest.mark.asyncio
     @patch.object(TicketCommand, "_summarize_conversation")
@@ -132,7 +132,7 @@ class TestTicketCommand(BaseTest):
 
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
-        self.assertNotIn("paid plans", message.content)
+        assert "paid plans" not in message.content
 
     @pytest.mark.asyncio
     async def test_execute_active_trial_allowed(self):
@@ -150,12 +150,12 @@ class TestTicketCommand(BaseTest):
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
-        self.assertIn("describe your issue", message.content.lower())
+        assert "describe your issue" in message.content.lower()
 
     def test_is_first_message_with_only_ticket_command(self):
         """Test that _is_first_message returns True when only /ticket is present."""
         state = AssistantState(messages=[HumanMessage(content="/ticket")])
-        self.assertTrue(self.command._is_first_message(state))
+        assert self.command._is_first_message(state)
 
     def test_is_first_message_with_prior_conversation(self):
         """Test that _is_first_message returns False when there's prior conversation."""
@@ -166,19 +166,19 @@ class TestTicketCommand(BaseTest):
                 HumanMessage(content="/ticket"),
             ]
         )
-        self.assertFalse(self.command._is_first_message(state))
+        assert not self.command._is_first_message(state)
 
     def test_is_organization_new_returns_true_for_recent_org(self):
         """Test that _is_organization_new returns True for org created less than 3 months ago."""
         self.team.organization.created_at = timezone.now() - timedelta(days=30)
         self.team.organization.save()
-        self.assertTrue(self.command._is_organization_new())
+        assert self.command._is_organization_new()
 
     def test_is_organization_new_returns_false_for_old_org(self):
         """Test that _is_organization_new returns False for org created more than 3 months ago."""
         self.team.organization.created_at = timezone.now() - timedelta(days=100)
         self.team.organization.save()
-        self.assertFalse(self.command._is_organization_new())
+        assert not self.command._is_organization_new()
 
     @pytest.mark.asyncio
     @patch.object(TicketCommand, "_is_organization_new", return_value=True)
@@ -194,7 +194,7 @@ class TestTicketCommand(BaseTest):
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
-        self.assertIn("describe your issue", message.content.lower())
+        assert "describe your issue" in message.content.lower()
 
     @pytest.mark.asyncio
     @patch.object(TicketCommand, "_is_organization_new", return_value=False)
@@ -210,4 +210,4 @@ class TestTicketCommand(BaseTest):
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
-        self.assertIn("paid plans", message.content)
+        assert "paid plans" in message.content

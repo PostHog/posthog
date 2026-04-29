@@ -59,10 +59,10 @@ class TestChTs(SimpleTestCase):
     )
     def test_converts_iso_to_utc_datetime(self, _name, iso_input, expected):
         result = _ch_ts(iso_input)
-        self.assertEqual(result, expected)
+        assert result == expected
         # Returning a datetime (not string) so HogQL serializes with correct TZ alignment.
-        self.assertIsInstance(result, dt.datetime)
-        self.assertEqual(result.tzinfo, dt.UTC)
+        assert isinstance(result, dt.datetime)
+        assert result.tzinfo == dt.UTC
 
 
 class TestWidenedTsWindow(SimpleTestCase):
@@ -72,96 +72,96 @@ class TestWidenedTsWindow(SimpleTestCase):
             "period_end": "2026-04-08T15:00:00+00:00",
         }
         ts_start, ts_end = _widened_ts_window(state)
-        self.assertEqual(ts_start, dt.datetime(2026, 4, 1, 14, 0, tzinfo=dt.UTC))
-        self.assertEqual(ts_end, dt.datetime(2026, 4, 9, 15, 0, tzinfo=dt.UTC))
+        assert ts_start == dt.datetime(2026, 4, 1, 14, 0, tzinfo=dt.UTC)
+        assert ts_end == dt.datetime(2026, 4, 9, 15, 0, tzinfo=dt.UTC)
 
     def test_falls_back_to_sentinels_on_missing_keys(self):
         ts_start, ts_end = _widened_ts_window({})
         # Wide sentinel bounds so a bad state doesn't prevent partition pruning
-        self.assertEqual(ts_start.year, 2020)
-        self.assertEqual(ts_end.year, 2099)
+        assert ts_start.year == 2020
+        assert ts_end.year == 2099
 
     def test_falls_back_on_malformed_timestamps(self):
         state = {"period_start": "not-a-timestamp", "period_end": "also-bad"}
         ts_start, ts_end = _widened_ts_window(state)
-        self.assertEqual(ts_start.year, 2020)
-        self.assertEqual(ts_end.year, 2099)
+        assert ts_start.year == 2020
+        assert ts_end.year == 2099
 
 
 class TestUuidRegex(SimpleTestCase):
     def test_matches_canonical_uuid(self):
-        self.assertIsNotNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789abc"))
+        assert _UUID_RE.fullmatch("12345678-1234-1234-1234-123456789abc") is not None
 
     def test_rejects_uppercase(self):
         # Our pattern is strict lowercase — matches the format PostHog emits.
-        self.assertIsNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789ABC"))
+        assert _UUID_RE.fullmatch("12345678-1234-1234-1234-123456789ABC") is None
 
     def test_rejects_too_short(self):
-        self.assertIsNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789ab"))
+        assert _UUID_RE.fullmatch("12345678-1234-1234-1234-123456789ab") is None
 
     def test_rejects_extra_chars(self):
-        self.assertIsNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789abc-extra"))
+        assert _UUID_RE.fullmatch("12345678-1234-1234-1234-123456789abc-extra") is None
 
 
 class TestSetTitle(SimpleTestCase):
     def test_sets_title_on_state(self):
         state = _state_with_empty_report()
         result = _set_title_fn(state=state, title="Pass rate steady at 94%")
-        self.assertEqual(state["report"].title, "Pass rate steady at 94%")
-        self.assertIn("Pass rate steady at 94%", result)
+        assert state["report"].title == "Pass rate steady at 94%"
+        assert "Pass rate steady at 94%" in result
 
     def test_strips_whitespace(self):
         state = _state_with_empty_report()
         _set_title_fn(state=state, title="  padded title  ")
-        self.assertEqual(state["report"].title, "padded title")
+        assert state["report"].title == "padded title"
 
     def test_rejects_empty_title(self):
         state = _state_with_empty_report()
         result = _set_title_fn(state=state, title="")
-        self.assertIn("Error", result)
-        self.assertEqual(state["report"].title, "")
+        assert "Error" in result
+        assert state["report"].title == ""
 
     def test_rejects_whitespace_only_title(self):
         state = _state_with_empty_report()
         result = _set_title_fn(state=state, title="   ")
-        self.assertIn("Error", result)
-        self.assertEqual(state["report"].title, "")
+        assert "Error" in result
+        assert state["report"].title == ""
 
     def test_clips_very_long_title(self):
         state = _state_with_empty_report()
         long_title = "x" * 500
         _set_title_fn(state=state, title=long_title)
-        self.assertLessEqual(len(state["report"].title), 200)
-        self.assertTrue(state["report"].title.endswith("..."))
+        assert len(state["report"].title) <= 200
+        assert state["report"].title.endswith("...")
 
 
 class TestAddSection(SimpleTestCase):
     def test_appends_section(self):
         state = _state_with_empty_report()
         result = _add_section_fn(state=state, title="Summary", content="Pass rate is 94%.")
-        self.assertEqual(len(state["report"].sections), 1)
-        self.assertEqual(state["report"].sections[0].title, "Summary")
-        self.assertEqual(state["report"].sections[0].content, "Pass rate is 94%.")
-        self.assertIn("Summary", result)
+        assert len(state["report"].sections) == 1
+        assert state["report"].sections[0].title == "Summary"
+        assert state["report"].sections[0].content == "Pass rate is 94%."
+        assert "Summary" in result
 
     def test_rejects_empty_title(self):
         state = _state_with_empty_report()
         result = _add_section_fn(state=state, title="", content="body")
-        self.assertIn("Error", result)
-        self.assertEqual(state["report"].sections, [])
+        assert "Error" in result
+        assert state["report"].sections == []
 
     def test_rejects_empty_content(self):
         state = _state_with_empty_report()
         result = _add_section_fn(state=state, title="Summary", content="")
-        self.assertIn("Error", result)
-        self.assertEqual(state["report"].sections, [])
+        assert "Error" in result
+        assert state["report"].sections == []
 
     def test_allows_up_to_max_sections(self):
         state = _state_with_empty_report()
         for i in range(MAX_REPORT_SECTIONS):
             result = _add_section_fn(state=state, title=f"Section {i}", content=f"Body {i}")
-            self.assertNotIn("Error", result)
-        self.assertEqual(len(state["report"].sections), MAX_REPORT_SECTIONS)
+            assert "Error" not in result
+        assert len(state["report"].sections) == MAX_REPORT_SECTIONS
 
     def test_rejects_over_max_sections(self):
         state = _state_with_empty_report()
@@ -170,9 +170,9 @@ class TestAddSection(SimpleTestCase):
             _add_section_fn(state=state, title=f"Section {i}", content="body")
         # Next one should be rejected
         result = _add_section_fn(state=state, title="One too many", content="body")
-        self.assertIn("Error", result)
-        self.assertIn("maximum", result)
-        self.assertEqual(len(state["report"].sections), MAX_REPORT_SECTIONS)
+        assert "Error" in result
+        assert "maximum" in result
+        assert len(state["report"].sections) == MAX_REPORT_SECTIONS
 
     def test_preserves_section_order(self):
         state = _state_with_empty_report()
@@ -180,7 +180,7 @@ class TestAddSection(SimpleTestCase):
         _add_section_fn(state=state, title="Second", content="b")
         _add_section_fn(state=state, title="Third", content="c")
         titles = [s.title for s in state["report"].sections]
-        self.assertEqual(titles, ["First", "Second", "Third"])
+        assert titles == ["First", "Second", "Third"]
 
 
 class TestAddCitation(SimpleTestCase):
@@ -192,13 +192,13 @@ class TestAddCitation(SimpleTestCase):
             trace_id=_VALID_TRACE_ID,
             reason="high_cost",
         )
-        self.assertEqual(len(state["report"].citations), 1)
+        assert len(state["report"].citations) == 1
         cit = state["report"].citations[0]
-        self.assertIsInstance(cit, Citation)
-        self.assertEqual(cit.generation_id, _VALID_GEN_ID)
-        self.assertEqual(cit.trace_id, _VALID_TRACE_ID)
-        self.assertEqual(cit.reason, "high_cost")
-        self.assertIn("Citation", result)
+        assert isinstance(cit, Citation)
+        assert cit.generation_id == _VALID_GEN_ID
+        assert cit.trace_id == _VALID_TRACE_ID
+        assert cit.reason == "high_cost"
+        assert "Citation" in result
 
     def test_rejects_non_uuid_generation_id(self):
         state = _state_with_empty_report()
@@ -208,8 +208,8 @@ class TestAddCitation(SimpleTestCase):
             trace_id=_VALID_TRACE_ID,
             reason="r",
         )
-        self.assertIn("Error", result)
-        self.assertEqual(state["report"].citations, [])
+        assert "Error" in result
+        assert state["report"].citations == []
 
     def test_rejects_non_uuid_trace_id(self):
         state = _state_with_empty_report()
@@ -219,14 +219,14 @@ class TestAddCitation(SimpleTestCase):
             trace_id="also-not-a-uuid",
             reason="r",
         )
-        self.assertIn("Error", result)
-        self.assertEqual(state["report"].citations, [])
+        assert "Error" in result
+        assert state["report"].citations == []
 
     def test_rejects_empty_ids(self):
         state = _state_with_empty_report()
         result = _add_citation_fn(state=state, generation_id="", trace_id="", reason="r")
-        self.assertIn("Error", result)
-        self.assertEqual(state["report"].citations, [])
+        assert "Error" in result
+        assert state["report"].citations == []
 
     def test_clips_very_long_reason(self):
         state = _state_with_empty_report()
@@ -237,15 +237,15 @@ class TestAddCitation(SimpleTestCase):
             trace_id=_VALID_TRACE_ID,
             reason=long_reason,
         )
-        self.assertLessEqual(len(state["report"].citations[0].reason), 200)
+        assert len(state["report"].citations[0].reason) <= 200
 
     def test_multiple_citations_preserve_order(self):
         state = _state_with_empty_report()
         _add_citation_fn(state=state, generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID, reason="first")
         _add_citation_fn(state=state, generation_id=_VALID_GEN_ID, trace_id=_VALID_TRACE_ID, reason="second")
-        self.assertEqual(len(state["report"].citations), 2)
-        self.assertEqual(state["report"].citations[0].reason, "first")
-        self.assertEqual(state["report"].citations[1].reason, "second")
+        assert len(state["report"].citations) == 2
+        assert state["report"].citations[0].reason == "first"
+        assert state["report"].citations[1].reason == "second"
 
 
 class TestListAndGetReportRun(BaseTest):
@@ -301,29 +301,29 @@ class TestListAndGetReportRun(BaseTest):
 
     def test_list_returns_compact_index_newest_first(self):
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0]["title"], "Recent report")
-        self.assertEqual(result[0]["pass_rate"], 94.2)
-        self.assertEqual(result[0]["total_runs"], 53)
-        self.assertIn("run_id", result[0])
+        assert len(result) == 2
+        assert result[0]["title"] == "Recent report"
+        assert result[0]["pass_rate"] == 94.2
+        assert result[0]["total_runs"] == 53
+        assert "run_id" in result[0]
         # Full content intentionally omitted
-        self.assertNotIn("content", result[0])
+        assert "content" not in result[0]
 
     def test_list_filters_by_since_days(self):
         result = json.loads(_list_recent_report_runs_fn(state=self.state, since_days=3))
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["title"], "Recent report")
+        assert len(result) == 1
+        assert result[0]["title"] == "Recent report"
 
     def test_list_clamps_limit(self):
         # limit > 200 should be clamped; easier to assert by passing 0 and checking clamp to 1
         result = json.loads(_list_recent_report_runs_fn(state=self.state, limit=0))
-        self.assertEqual(len(result), 1)
+        assert len(result) == 1
 
     def test_get_returns_full_content(self):
         result = json.loads(_get_report_run_fn(state=self.state, run_id=str(self.recent_run.id)))
-        self.assertEqual(result["content"]["title"], "Recent report")
-        self.assertEqual(len(result["content"]["sections"]), 1)
-        self.assertEqual(result["metadata"]["pass_rate"], 94.2)
+        assert result["content"]["title"] == "Recent report"
+        assert len(result["content"]["sections"]) == 1
+        assert result["metadata"]["pass_rate"] == 94.2
 
     def test_list_includes_back_to_back_previous_run(self):
         # Regression: period_end exactly equal to the current period_start used to be
@@ -339,10 +339,10 @@ class TestListAndGetReportRun(BaseTest):
         )
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
         titles = [r["title"] for r in result]
-        self.assertIn("Back-to-back report", titles)
+        assert "Back-to-back report" in titles
         boundary_entry = next(r for r in result if r["run_id"] == str(boundary_run.id))
-        self.assertEqual(boundary_entry["pass_rate"], 77.7)
-        self.assertEqual(boundary_entry["total_runs"], 11)
+        assert boundary_entry["pass_rate"] == 77.7
+        assert boundary_entry["total_runs"] == 11
 
     def test_list_falls_back_to_content_metrics_when_metadata_empty(self):
         # The agent's output contract carries metrics inside content; only the
@@ -362,12 +362,12 @@ class TestListAndGetReportRun(BaseTest):
         )
         result = json.loads(_list_recent_report_runs_fn(state=self.state))
         entry = next(r for r in result if r["run_id"] == str(content_only_run.id))
-        self.assertEqual(entry["pass_rate"], 42.5)
-        self.assertEqual(entry["total_runs"], 8)
+        assert entry["pass_rate"] == 42.5
+        assert entry["total_runs"] == 8
 
     def test_get_rejects_non_uuid(self):
         result = json.loads(_get_report_run_fn(state=self.state, run_id="not-a-uuid"))
-        self.assertIn("error", result)
+        assert "error" in result
 
     def test_get_rejects_run_from_other_evaluation(self):
         # Another evaluation with its own report + run
@@ -403,7 +403,7 @@ class TestListAndGetReportRun(BaseTest):
         )
         # Agent state is scoped to self.evaluation — other_run must not be visible
         result = json.loads(_get_report_run_fn(state=self.state, run_id=str(other_run.id)))
-        self.assertIn("error", result)
+        assert "error" in result
 
 
 class TestToolsCoordinate(SimpleTestCase):
@@ -426,7 +426,7 @@ class TestToolsCoordinate(SimpleTestCase):
         )
 
         report = state["report"]
-        self.assertEqual(report.title, "Pass rate steady, one bucket dip")
-        self.assertEqual(len(report.sections), 2)
-        self.assertIsInstance(report.sections[0], ReportSection)
-        self.assertEqual(len(report.citations), 1)
+        assert report.title == "Pass rate steady, one bucket dip"
+        assert len(report.sections) == 2
+        assert isinstance(report.sections[0], ReportSection)
+        assert len(report.citations) == 1

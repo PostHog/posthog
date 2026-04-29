@@ -14,16 +14,16 @@ class TestHealthIssue(BaseTest):
             payload={"sdk_version": "1.0.0", "latest_version": "2.0.0"},
             unique_hash="test_hash",
         )
-        self.assertIsNotNone(issue.id)
-        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
-        self.assertIsNotNone(issue.created_at)
+        assert issue.id is not None
+        assert issue.status == HealthIssue.Status.ACTIVE
+        assert issue.created_at is not None
 
     def test_compute_unique_hash_deterministic(self):
         payload = {"key": "value", "number": 42}
         hash1 = HealthIssue.compute_unique_hash("test_kind", payload)
         hash2 = HealthIssue.compute_unique_hash("test_kind", payload)
-        self.assertEqual(hash1, hash2)
-        self.assertEqual(len(hash1), 64)
+        assert hash1 == hash2
+        assert len(hash1) == 64
 
     def test_compute_unique_hash_with_hash_keys(self):
         payload = {"important": "value", "transient": "ignored"}
@@ -31,13 +31,13 @@ class TestHealthIssue(BaseTest):
         hash2 = HealthIssue.compute_unique_hash(
             "test", {"important": "value", "transient": "different"}, hash_keys=["important"]
         )
-        self.assertEqual(hash1, hash2)
+        assert hash1 == hash2
 
     def test_compute_unique_hash_with_hash_keys_order_independent(self):
         payload = {"a": "1", "b": "2", "c": "3"}
         hash1 = HealthIssue.compute_unique_hash("test", payload, hash_keys=["b", "a"])
         hash2 = HealthIssue.compute_unique_hash("test", payload, hash_keys=["a", "b"])
-        self.assertEqual(hash1, hash2)
+        assert hash1 == hash2
 
     def test_upsert_creates_new_issue(self):
         issue, created = HealthIssue.upsert_issue(
@@ -46,9 +46,9 @@ class TestHealthIssue(BaseTest):
             severity="warning",
             payload={"detail": "test"},
         )
-        self.assertTrue(created)
-        self.assertEqual(issue.kind, "test_issue")
-        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
+        assert created
+        assert issue.kind == "test_issue"
+        assert issue.status == HealthIssue.Status.ACTIVE
 
     def test_upsert_updates_existing_active_issue(self):
         issue1, created1 = HealthIssue.upsert_issue(
@@ -63,11 +63,11 @@ class TestHealthIssue(BaseTest):
             severity="critical",
             payload={"detail": "test"},
         )
-        self.assertTrue(created1)
-        self.assertFalse(created2)
-        self.assertEqual(issue1.id, issue2.id)
+        assert created1
+        assert not created2
+        assert issue1.id == issue2.id
         issue2.refresh_from_db()
-        self.assertEqual(issue2.severity, "critical")
+        assert issue2.severity == "critical"
 
     def test_partial_unique_constraint_allows_resolved_duplicates(self):
         issue1 = HealthIssue.objects.create(
@@ -86,7 +86,7 @@ class TestHealthIssue(BaseTest):
             unique_hash="same_hash",
             status=HealthIssue.Status.ACTIVE,
         )
-        self.assertNotEqual(issue1.id, issue2.id)
+        assert issue1.id != issue2.id
 
     def test_partial_unique_constraint_blocks_active_duplicates(self):
         HealthIssue.objects.create(
@@ -117,7 +117,7 @@ class TestHealthIssue(BaseTest):
         )
         issue.resolve()
         issue.refresh_from_db()
-        self.assertEqual(issue.status, HealthIssue.Status.RESOLVED)
+        assert issue.status == HealthIssue.Status.RESOLVED
 
     def test_resolve_already_resolved_raises(self):
         issue = HealthIssue.objects.create(
@@ -141,4 +141,4 @@ class TestHealthIssue(BaseTest):
         )
         issue.resolve()
         issue.refresh_from_db()
-        self.assertIsNotNone(issue.resolved_at)
+        assert issue.resolved_at is not None

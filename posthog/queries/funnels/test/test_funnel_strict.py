@@ -10,6 +10,7 @@ from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrict
 from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.test.test_journeys import journeys_for
+from collections import Counter
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
@@ -118,8 +119,8 @@ class TestFunnelStrictStepsBreakdown(
                 },
             ],
         )
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Safari"]), [people["person2"].uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Safari"]), [people["person2"].uuid])
+        assert Counter(self._get_actor_ids_at_step(filter, 1, ["Safari"])) == Counter([people["person2"].uuid])
+        assert Counter(self._get_actor_ids_at_step(filter, 2, ["Safari"])) == Counter([people["person2"].uuid])
 
         assert_funnel_results_equal(
             result[1],
@@ -152,8 +153,8 @@ class TestFunnelStrictStepsBreakdown(
                 },
             ],
         )
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome"]), [people["person1"].uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome"]), [])
+        assert Counter(self._get_actor_ids_at_step(filter, 1, ["Chrome"])) == Counter([people["person1"].uuid])
+        assert Counter(self._get_actor_ids_at_step(filter, 2, ["Chrome"])) == Counter([])
 
 
 class TestFunnelStrictStepsConversionTime(
@@ -281,37 +282,33 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         result = funnel.run()
 
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[1]["name"], "$pageview")
-        self.assertEqual(result[2]["name"], "insight viewed")
-        self.assertEqual(result[0]["count"], 7)
+        assert result[0]["name"] == "user signed up"
+        assert result[1]["name"] == "$pageview"
+        assert result[2]["name"] == "insight viewed"
+        assert result[0]["count"] == 7
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 1),
-            [
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_insight_view.uuid,
-                person4_stopped_after_insight_view_not_strict_order.uuid,
-                person5_stopped_after_insight_view_random.uuid,
-                person6.uuid,
-                person7.uuid,
-            ],
+        assert (
+            Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
+            person1_stopped_after_signup.uuid,
+            person2_stopped_after_one_pageview.uuid,
+            person3_stopped_after_insight_view.uuid,
+            person4_stopped_after_insight_view_not_strict_order.uuid,
+            person5_stopped_after_insight_view_random.uuid,
+            person6.uuid,
+            person7.uuid,
+            ])
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 2),
-            [person3_stopped_after_insight_view.uuid, person7.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person3_stopped_after_insight_view.uuid, person7.uuid])
 
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 3), [person7.uuid])
+        assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter([person7.uuid])
 
         with override_instance_config("AGGREGATE_BY_DISTINCT_IDS_TEAMS", f"{self.team.pk}"):
             result = funnel.run()
-            self.assertEqual(result[0]["name"], "user signed up")
-            self.assertEqual(result[1]["name"], "$pageview")
-            self.assertEqual(result[2]["name"], "insight viewed")
-            self.assertEqual(result[0]["count"], 7)
+            assert result[0]["name"] == "user signed up"
+            assert result[1]["name"] == "$pageview"
+            assert result[2]["name"] == "insight viewed"
+            assert result[0]["count"] == 7
 
     def test_advanced_strict_funnel(self):
         sign_up_action = _create_action(
@@ -466,44 +463,39 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         result = funnel.run()
 
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[1]["name"], "sign up")
-        self.assertEqual(result[2]["name"], "$pageview")
-        self.assertEqual(result[3]["name"], "pageview")
-        self.assertEqual(result[0]["count"], 8)
+        assert result[0]["name"] == "user signed up"
+        assert result[1]["name"] == "sign up"
+        assert result[2]["name"] == "$pageview"
+        assert result[3]["name"] == "pageview"
+        assert result[0]["count"] == 8
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 1),
-            [
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_insight_view.uuid,
-                person4.uuid,
-                person5.uuid,
-                person6.uuid,
-                person7.uuid,
-                person8.uuid,
-            ],
+        assert (
+            Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
+            person1_stopped_after_signup.uuid,
+            person2_stopped_after_one_pageview.uuid,
+            person3_stopped_after_insight_view.uuid,
+            person4.uuid,
+            person5.uuid,
+            person6.uuid,
+            person7.uuid,
+            person8.uuid,
+            ])
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 2),
-            [
-                person3_stopped_after_insight_view.uuid,
-                person4.uuid,
-                person5.uuid,
-                person6.uuid,
-                person7.uuid,
-                person8.uuid,
-            ],
+        assert (
+            Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([
+            person3_stopped_after_insight_view.uuid,
+            person4.uuid,
+            person5.uuid,
+            person6.uuid,
+            person7.uuid,
+            person8.uuid,
+            ])
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 3),
-            [person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter([person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid])
 
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 4), [person8.uuid])
+        assert Counter(self._get_actor_ids_at_step(filter, 4)) == Counter([person8.uuid])
 
     def test_basic_strict_funnel_conversion_times(self):
         filter = Filter(
@@ -569,35 +561,30 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
 
         result = funnel.run()
 
-        self.assertEqual(result[0]["name"], "user signed up")
-        self.assertEqual(result[1]["name"], "$pageview")
-        self.assertEqual(result[2]["name"], "insight viewed")
-        self.assertEqual(result[0]["count"], 3)
+        assert result[0]["name"] == "user signed up"
+        assert result[1]["name"] == "$pageview"
+        assert result[2]["name"] == "insight viewed"
+        assert result[0]["count"] == 3
 
-        self.assertEqual(result[1]["average_conversion_time"], 5400)
+        assert result[1]["average_conversion_time"] == 5400
         # 1 hour for Person 2, 2 hours for Person 3, average = 1.5 hours
 
-        self.assertEqual(result[2]["average_conversion_time"], 7200)
+        assert result[2]["average_conversion_time"] == 7200
         # 2 hours for Person 3
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 1),
-            [
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_insight_view.uuid,
-            ],
+        assert (
+            Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
+            person1_stopped_after_signup.uuid,
+            person2_stopped_after_one_pageview.uuid,
+            person3_stopped_after_insight_view.uuid,
+            ])
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 2),
-            [
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_insight_view.uuid,
-            ],
+        assert (
+            Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([
+            person2_stopped_after_one_pageview.uuid,
+            person3_stopped_after_insight_view.uuid,
+            ])
         )
 
-        self.assertCountEqual(
-            self._get_actor_ids_at_step(filter, 3),
-            [person3_stopped_after_insight_view.uuid],
-        )
+        assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter([person3_stopped_after_insight_view.uuid])

@@ -67,8 +67,8 @@ class TestDispatcherIntegration(BaseTest):
         with patch("ee.hogai.utils.dispatcher.get_stream_writer", side_effect=RuntimeError("Not streaming")):
             await node(state, config)
 
-        self.assertTrue(node.arun_called)
-        self.assertIsNotNone(node.dispatcher)
+        assert node.arun_called
+        assert node.dispatcher is not None
 
     async def test_node_path_propagation(self):
         """Test that node_path is correctly set and propagated."""
@@ -79,7 +79,7 @@ class TestDispatcherIntegration(BaseTest):
 
         node = MockAssistantNode(self.mock_team, self.mock_user, node_path=node_path)
 
-        self.assertEqual(node.node_path, node_path)
+        assert node.node_path == node_path
 
     async def test_dispatcher_dispatches_node_start_and_end(self):
         """Test that NODE_START and NODE_END actions are dispatched."""
@@ -103,15 +103,15 @@ class TestDispatcherIntegration(BaseTest):
         # 3. MessageAction (intermediate)
         # 4. UpdateAction ("Done!")
         # 5. NODE_END with final state
-        self.assertGreater(len(dispatched_actions), 0)
+        assert len(dispatched_actions) > 0
 
         # Verify NODE_START is first
-        self.assertIsInstance(dispatched_actions[0].action, NodeStartAction)
+        assert isinstance(dispatched_actions[0].action, NodeStartAction)
 
         # Verify NODE_END is last
         last_action = dispatched_actions[-1].action
-        self.assertIsInstance(last_action, NodeEndAction)
-        self.assertIsNotNone(cast(NodeEndAction, last_action).state)
+        assert isinstance(last_action, NodeEndAction)
+        assert cast(NodeEndAction, last_action).state is not None
 
     async def test_messages_dispatched_during_node_execution(self):
         """Test that messages dispatched during node execution are sent to writer."""
@@ -133,14 +133,14 @@ class TestDispatcherIntegration(BaseTest):
         message_actions = [e for e in dispatched_actions if isinstance(e.action, MessageAction)]
 
         # Should have 2 updates: "Processing..." and "Done!"
-        self.assertEqual(len(update_actions), 2)
-        self.assertEqual(cast(UpdateAction, update_actions[0].action).content, "Processing...")
-        self.assertEqual(cast(UpdateAction, update_actions[1].action).content, "Done!")
+        assert len(update_actions) == 2
+        assert cast(UpdateAction, update_actions[0].action).content == "Processing..."
+        assert cast(UpdateAction, update_actions[1].action).content == "Done!"
 
         # Should have 1 message: intermediate (final message is in NODE_END state, not dispatched separately)
-        self.assertEqual(len(message_actions), 1)
+        assert len(message_actions) == 1
         msg = cast(MessageAction, message_actions[0].action).message
-        self.assertEqual(cast(AssistantMessage, msg).content, "Intermediate result")
+        assert cast(AssistantMessage, msg).content == "Intermediate result"
 
     async def test_node_path_included_in_dispatched_events(self):
         """Test that node_path is included in all dispatched events."""
@@ -164,7 +164,7 @@ class TestDispatcherIntegration(BaseTest):
 
         # Verify all events have the correct node_path
         for event in dispatched_events:
-            self.assertEqual(event.node_path, node_path)
+            assert event.node_path == node_path
 
     async def test_node_run_id_included_in_dispatched_events(self):
         """Test that node_run_id is included in all dispatched events."""
@@ -185,7 +185,7 @@ class TestDispatcherIntegration(BaseTest):
             await node(state, config)
         # Verify all events have the correct node_run_id
         for event in dispatched_events:
-            self.assertEqual(event.node_run_id, checkpoint_ns)
+            assert event.node_run_id == checkpoint_ns
 
     async def test_dispatcher_error_handling_does_not_crash_node(self):
         """Test that errors in dispatcher don't crash node execution."""
@@ -208,7 +208,7 @@ class TestDispatcherIntegration(BaseTest):
         with patch("ee.hogai.utils.dispatcher.get_stream_writer", return_value=failing_writer):
             # Should not crash - node should complete
             result = await node(state, config)
-            self.assertIsNotNone(result)
+            assert result is not None
 
     async def test_messages_in_partial_state_dispatched_via_node_end(self):
         """Test that messages in PartialState are dispatched via NODE_END."""
@@ -238,12 +238,12 @@ class TestDispatcherIntegration(BaseTest):
 
         # Should have NODE_END action with state containing messages
         node_end_actions = [e for e in dispatched_events if isinstance(e.action, NodeEndAction)]
-        self.assertEqual(len(node_end_actions), 1)
+        assert len(node_end_actions) == 1
 
         node_end_state = cast(NodeEndAction, node_end_actions[0].action).state
-        self.assertIsNotNone(node_end_state)
         assert node_end_state is not None
-        self.assertEqual(len(node_end_state.messages), 2)
+        assert node_end_state is not None
+        assert len(node_end_state.messages) == 2
 
     async def test_node_returns_none_state_handling(self):
         """Test that node can return None state without errors."""
@@ -262,7 +262,7 @@ class TestDispatcherIntegration(BaseTest):
         with patch("ee.hogai.utils.dispatcher.get_stream_writer", side_effect=RuntimeError("Not streaming")):
             result = await node(state, config)
             # Should handle None gracefully
-            self.assertIsNone(result)
+            assert result is None
 
     async def test_nested_node_path_in_dispatched_events(self):
         """Test that nested nodes have correct node_path."""
@@ -291,12 +291,12 @@ class TestDispatcherIntegration(BaseTest):
 
         # Verify all events have the nested path
         for event in dispatched_events:
-            self.assertIsNotNone(event.node_path)
             assert event.node_path is not None
-            self.assertEqual(event.node_path, parent_path)
-            self.assertEqual(len(event.node_path), 4)
-            self.assertEqual(event.node_path[1].message_id, "msg_123")
-            self.assertEqual(event.node_path[1].tool_call_id, "tc_123")
+            assert event.node_path is not None
+            assert event.node_path == parent_path
+            assert len(event.node_path) == 4
+            assert event.node_path[1].message_id == "msg_123"
+            assert event.node_path[1].tool_call_id == "tc_123"
 
     async def test_update_actions_include_node_metadata(self):
         """Test that update actions include correct node metadata."""
@@ -317,9 +317,9 @@ class TestDispatcherIntegration(BaseTest):
         update_events = [e for e in dispatched_events if isinstance(e.action, UpdateAction)]
 
         for event in update_events:
-            self.assertEqual(event.node_name, AssistantNodeName.ROOT)
-            self.assertEqual(event.node_run_id, "cp_9")
-            self.assertIsNotNone(event.node_path)
+            assert event.node_name == AssistantNodeName.ROOT
+            assert event.node_run_id == "cp_9"
+            assert event.node_path is not None
 
     async def test_concurrent_node_executions_independent_dispatchers(self):
         """Test that concurrent node executions use independent dispatchers."""
@@ -350,12 +350,12 @@ class TestDispatcherIntegration(BaseTest):
             await node2(state, config2)
 
         # Verify events went to separate lists
-        self.assertGreater(len(events1), 0)
-        self.assertGreater(len(events2), 0)
+        assert len(events1) > 0
+        assert len(events2) > 0
 
         # Verify node_run_ids are different
         for event in events1:
-            self.assertEqual(event.node_run_id, "cp_10a")
+            assert event.node_run_id == "cp_10a"
 
         for event in events2:
-            self.assertEqual(event.node_run_id, "cp_10b")
+            assert event.node_run_id == "cp_10b"

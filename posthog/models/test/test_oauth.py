@@ -44,9 +44,9 @@ class TestOAuthModels(TestCase):
             organization=self.organization,
             algorithm="RS256",
         )
-        self.assertEqual(app.name, "Test App")
-        self.assertEqual(app.client_id, "test_client_id")
-        self.assertEqual(app.algorithm, "RS256")
+        assert app.name == "Test App"
+        assert app.client_id == "test_client_id"
+        assert app.algorithm == "RS256"
 
     @freeze_time("2024-01-01 00:00:00")
     def test_create_oauth_application_with_skip_authorization_fails(self):
@@ -83,8 +83,8 @@ class TestOAuthModels(TestCase):
             code_challenge_method="S256",
             expires=timezone.now() + timedelta(minutes=15),
         )
-        self.assertEqual(grant.code, "test_code")
-        self.assertEqual(grant.code_challenge_method, "S256")
+        assert grant.code == "test_code"
+        assert grant.code_challenge_method == "S256"
 
     def test_token_expiry(self):
         app = OAuthApplication.objects.create(
@@ -106,10 +106,10 @@ class TestOAuthModels(TestCase):
             expires=timezone.now() + timedelta(minutes=5),
             scoped_organizations=[self.organization.id],
         )
-        self.assertTrue(grant.expires > timezone.now())
+        assert grant.expires > timezone.now()
 
         with freeze_time(timezone.now() + timedelta(minutes=10)):
-            self.assertTrue(grant.expires < timezone.now())
+            assert grant.expires < timezone.now()
 
     def test_create_oauth_application_with_https_redirect_url(self):
         app = OAuthApplication.objects.create(
@@ -122,7 +122,7 @@ class TestOAuthModels(TestCase):
             organization=self.organization,
             algorithm="RS256",
         )
-        self.assertEqual(app.redirect_uris, "https://example.com/callback")
+        assert app.redirect_uris == "https://example.com/callback"
 
     @override_settings(DEBUG=False)
     def test_cannot_create_application_with_http_redirect_url_when_debug_is_false(self):
@@ -173,7 +173,7 @@ class TestOAuthModels(TestCase):
             organization=self.organization,
             algorithm="RS256",
         )
-        self.assertEqual(app.redirect_uris, redirect_uri)
+        assert app.redirect_uris == redirect_uri
 
     malicious_localhost_domains = [
         ("subdomain of evil.com", "http://localhost.evil.com/callback"),
@@ -210,8 +210,8 @@ class TestOAuthModels(TestCase):
             organization=self.organization,
             algorithm="RS256",
         )
-        self.assertIn("localhost", app.redirect_uris)
-        self.assertIn("example.com", app.redirect_uris)
+        assert "localhost" in app.redirect_uris
+        assert "example.com" in app.redirect_uris
 
     def test_unique_client_id_constraint(self):
         OAuthApplication.objects.create(
@@ -270,7 +270,7 @@ class TestOAuthModels(TestCase):
             organization=self.organization,
             algorithm="RS256",
         )
-        self.assertEqual(app.redirect_uris, redirect_uri)
+        assert app.redirect_uris == redirect_uri
 
     def test_custom_scheme_with_fragment_still_rejected(self):
         with self.assertRaises(ValidationError):
@@ -319,9 +319,9 @@ class TestOAuthModels(TestCase):
             organization=self.organization,
             algorithm="RS256",
         )
-        self.assertIn("posthog-code://", app.redirect_uris)
-        self.assertIn("https://example.com", app.redirect_uris)
-        self.assertIn("localhost", app.redirect_uris)
+        assert "posthog-code://" in app.redirect_uris
+        assert "https://example.com" in app.redirect_uris
+        assert "localhost" in app.redirect_uris
 
     def test_invalid_redirect_uri_fragment(self):
         with self.assertRaises(ValidationError):
@@ -406,7 +406,7 @@ class TestOAuthModels(TestCase):
         )
         app_id = app.id
         app.delete()
-        self.assertFalse(OAuthGrant.objects.filter(application_id=app_id).exists())
+        assert not OAuthGrant.objects.filter(application_id=app_id).exists()
 
     def test_user_and_organization_association(self):
         app = OAuthApplication.objects.create(
@@ -420,7 +420,7 @@ class TestOAuthModels(TestCase):
             algorithm="RS256",
         )
 
-        self.assertEqual(app.organization, self.organization)
+        assert app.organization == self.organization
 
     def test_oauth_models_have_reverse_relationships(self):
         app = OAuthApplication.objects.create(
@@ -463,12 +463,12 @@ class TestOAuthModels(TestCase):
             token="test_token",
         )
 
-        self.assertIn(app, self.organization.oauth_applications.all())
+        assert app in self.organization.oauth_applications.all()
 
-        self.assertIn(grant, self.user.oauth_grants.all())
-        self.assertIn(id_token, self.user.oauth_id_tokens.all())
-        self.assertIn(access_token, self.user.oauth_access_tokens.all())
-        self.assertIn(refresh_token, self.user.oauth_refresh_tokens.all())
+        assert grant in self.user.oauth_grants.all()
+        assert id_token in self.user.oauth_id_tokens.all()
+        assert access_token in self.user.oauth_access_tokens.all()
+        assert refresh_token in self.user.oauth_refresh_tokens.all()
 
     def test_get_allowed_schemes_extracts_schemes_from_redirect_uris(self):
         app = OAuthApplication.objects.create(
@@ -482,10 +482,10 @@ class TestOAuthModels(TestCase):
             algorithm="RS256",
         )
         schemes = app.get_allowed_schemes()
-        self.assertIn("https", schemes)
-        self.assertIn("posthog-code", schemes)
-        self.assertIn("http", schemes)
-        self.assertEqual(len(schemes), 3)
+        assert "https" in schemes
+        assert "posthog-code" in schemes
+        assert "http" in schemes
+        assert len(schemes) == 3
 
     def test_get_allowed_schemes_filters_out_blocked_schemes(self):
         app = OAuthApplication.objects.create(
@@ -502,8 +502,8 @@ class TestOAuthModels(TestCase):
         # to test filtering (bypassing validation for test purposes)
         app.redirect_uris = "https://example.com/callback javascript:alert(1)"
         schemes = app.get_allowed_schemes()
-        self.assertEqual(schemes, ["https"])
-        self.assertNotIn("javascript", schemes)
+        assert schemes == ["https"]
+        assert "javascript" not in schemes
 
     def test_get_allowed_schemes_returns_https_fallback_when_no_valid_schemes(self):
         app = OAuthApplication.objects.create(
@@ -519,7 +519,7 @@ class TestOAuthModels(TestCase):
         # Manually set redirect_uris to empty to test fallback
         app.redirect_uris = ""
         schemes = app.get_allowed_schemes()
-        self.assertEqual(schemes, ["https"])
+        assert schemes == ["https"]
 
     def test_revoke_oauth_session_revokes_all_tokens_for_user_and_application(self):
         app = OAuthApplication.objects.create(
@@ -560,10 +560,10 @@ class TestOAuthModels(TestCase):
 
         revoke_oauth_session(access_token=access_token)
 
-        self.assertEqual(OAuthAccessToken.objects.filter(user=self.user, application=app).count(), 0)
-        self.assertEqual(OAuthGrant.objects.filter(user=self.user, application=app).count(), 0)
+        assert OAuthAccessToken.objects.filter(user=self.user, application=app).count() == 0
+        assert OAuthGrant.objects.filter(user=self.user, application=app).count() == 0
         refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        assert refresh_token.revoked is not None
 
     def test_revoke_oauth_session_with_null_user_still_revokes_specific_token(self):
         app = OAuthApplication.objects.create(
@@ -586,4 +586,4 @@ class TestOAuthModels(TestCase):
 
         revoke_oauth_session(access_token=access_token)
 
-        self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())
+        assert not OAuthAccessToken.objects.filter(id=token_id).exists()

@@ -453,12 +453,12 @@ class TestSurvey(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         response_data = response.json()
 
         # Ensure that a FeatureFlag has been created
         ff_instance = FeatureFlag.objects.get(id=response_data["internal_targeting_flag"]["id"])
-        self.assertIsNotNone(ff_instance)
+        assert ff_instance is not None
 
         # Verify that report_user_action was called for the feature flag creation
         mock_report_user_action.assert_any_call(
@@ -691,7 +691,7 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response_data
         assert response_data["linked_flag"]["id"] == notebooks_flag.id
         assert FeatureFlag.objects.filter(id=response_data["targeting_flag"]["id"]).exists()
-        self.assertNotEqual(response_data["targeting_flag"]["key"], "survey-targeting-power-users-survey")
+        assert response_data["targeting_flag"]["key"] != "survey-targeting-power-users-survey"
         assert re.match(r"^survey-targeting-[a-z0-9]+$", response_data["targeting_flag"]["key"])
         assert response_data["schedule"] == "once"
         assert response_data["enable_partial_responses"] is False
@@ -868,15 +868,12 @@ class TestSurvey(APIBaseTest):
 
         with self.assertNumQueries(21):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             result = response.json()
 
-            self.assertEqual(result["count"], 2)
+            assert result["count"] == 2
 
-            self.assertEqual(
-                [(res["key"], sorted([survey["id"] for survey in res["surveys"]])) for res in result["results"]],
-                [("flag_0", []), (ff_key, sorted([created_survey1, created_survey2]))],
-            )
+            assert [(res["key"], sorted([survey["id"] for survey in res["surveys"]])) for res in result["results"]] == [("flag_0", []), (ff_key, sorted([created_survey1, created_survey2]))]
 
     def test_updating_survey_with_invalid_iteration_count_is_rejected(self):
         survey_with_targeting = self.client.post(
@@ -2291,7 +2288,7 @@ class TestSurvey(APIBaseTest):
             data={"targeting_flag_filters": new_filters},
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         expected_activity_log = [
             {
@@ -2330,7 +2327,7 @@ class TestSurvey(APIBaseTest):
                 "questions": [{"type": "open", "question": "What's your favorite feature?"}],
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         survey_id = response.json()["id"]
 
         self._assert_survey_activity(
@@ -2369,7 +2366,7 @@ class TestSurvey(APIBaseTest):
                 "questions": [{"type": "open", "question": "Updated question?", "id": str(survey.questions[0]["id"])}],
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         self._assert_survey_activity(
             [
@@ -2435,7 +2432,7 @@ class TestSurvey(APIBaseTest):
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={"start_date": start_date},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         expected_properties = {
             "name": "Date Test Survey",
@@ -2463,7 +2460,7 @@ class TestSurvey(APIBaseTest):
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={"end_date": end_date},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         mock_report_user_action.assert_called_once_with(
             self.user,
@@ -2483,7 +2480,7 @@ class TestSurvey(APIBaseTest):
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={"end_date": None},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         mock_report_user_action.assert_called_once_with(
             self.user,
@@ -2507,7 +2504,7 @@ class TestSurvey(APIBaseTest):
         )
 
         response = self.client.delete(f"/api/projects/{self.team.id}/surveys/{survey.id}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         self._assert_survey_activity(
             [
@@ -2533,7 +2530,7 @@ class TestSurvey(APIBaseTest):
         results = activity["results"]
         for item in results:
             item.pop("id", None)
-        self.assertEqual(results, expected)
+        assert results == expected
 
     def test_validate_schedule_on_create(self):
         response = self.client.post(
@@ -2595,14 +2592,14 @@ class TestSurvey(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         response_data = response.json()
 
         # Check that all questions have IDs
         for question in response_data["questions"]:
-            self.assertIn("id", question)
-            self.assertIsNotNone(question["id"])
-            self.assertTrue(len(question["id"]) > 0)
+            assert "id" in question
+            assert question["id"] is not None
+            assert len(question["id"]) > 0
 
     def test_question_ids_preserved_when_updating_survey(self):
         """Test that question IDs are preserved when updating a survey through the API."""
@@ -2627,7 +2624,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        assert create_response.status_code == status.HTTP_201_CREATED
         survey_data = create_response.json()
         survey_id = survey_data["id"]
 
@@ -2655,19 +2652,19 @@ class TestSurvey(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        assert update_response.status_code == status.HTTP_200_OK
         updated_data = update_response.json()
 
         # Check that we have 2 questions
-        self.assertEqual(len(updated_data["questions"]), 2)
+        assert len(updated_data["questions"]) == 2
 
         # First question should keep its ID
-        self.assertEqual(updated_data["questions"][0]["id"], original_question_ids[0])
+        assert updated_data["questions"][0]["id"] == original_question_ids[0]
 
         # Second question should have a new ID
-        self.assertIn("id", updated_data["questions"][1])
-        self.assertIsNotNone(updated_data["questions"][1]["id"])
-        self.assertNotIn(updated_data["questions"][1]["id"], original_question_ids)
+        assert "id" in updated_data["questions"][1]
+        assert updated_data["questions"][1]["id"] is not None
+        assert updated_data["questions"][1]["id"] not in original_question_ids
 
     def test_custom_question_ids_accepted_when_creating_survey(self):
         """Test that custom question IDs are accepted when creating a survey."""
@@ -2695,12 +2692,12 @@ class TestSurvey(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         response_data = response.json()
 
         # Check that the custom IDs were preserved
-        self.assertEqual(response_data["questions"][0]["id"], custom_id_1)
-        self.assertEqual(response_data["questions"][1]["id"], custom_id_2)
+        assert response_data["questions"][0]["id"] == custom_id_1
+        assert response_data["questions"][1]["id"] == custom_id_2
 
     def test_search_survey_by_name(self):
         self.client.post(
@@ -2715,10 +2712,10 @@ class TestSurvey(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=NPS")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data["results"]), 1)
-        self.assertEqual(data["results"][0]["name"], "NPS Survey 2024")
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "NPS Survey 2024"
 
     def test_search_survey_by_description(self):
         self.client.post(
@@ -2733,16 +2730,16 @@ class TestSurvey(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=product")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data["results"]), 1)
-        self.assertEqual(data["results"][0]["name"], "Product Feedback Survey")
+        assert len(data["results"]) == 1
+        assert data["results"][0]["name"] == "Product Feedback Survey"
 
     def test_search_survey_with_no_results(self):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=nonexistent")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data["results"]), 0)
+        assert len(data["results"]) == 0
 
     def test_search_survey_with_pagination(self):
         for i in range(15):
@@ -2759,11 +2756,11 @@ class TestSurvey(APIBaseTest):
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=Product&limit=10")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data["results"]), 10)  # Should return only 10 results
-        self.assertTrue(data["next"] is not None)  # Should have next page
-        self.assertTrue(data["count"] > 10)  # Total count should be more than 10
+        assert len(data["results"]) == 10  # Should return only 10 results
+        assert data["next"] is not None  # Should have next page
+        assert data["count"] > 10  # Total count should be more than 10
 
     def test_create_survey_in_specific_folder(self):
         response = self.client.post(
@@ -2812,10 +2809,10 @@ class TestSurvey(APIBaseTest):
         self.client.force_login(user2)
 
         retrieve_response = self.client.get(f"/api/projects/{self.team.pk}/surveys/{survey.id}/")
-        self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
+        assert retrieve_response.status_code == status.HTTP_403_FORBIDDEN
 
         activity_response = self.client.get(f"/api/projects/{self.team.pk}/surveys/{survey.id}/activity/")
-        self.assertEqual(activity_response.status_code, status.HTTP_403_FORBIDDEN)
+        assert activity_response.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestMultipleChoiceQuestions(APIBaseTest):
@@ -3916,19 +3913,19 @@ class TestSurveyResponseSampling(APIBaseTest):
         survey = self._create_survey_with_sampling_limits("day", 10, 500, datetime(2024, 12, 12))
         assert survey.response_sampling_daily_limits is not None
         schedule = json.loads(survey.response_sampling_daily_limits)
-        self.assertEqual(len(schedule), 10)
+        assert len(schedule) == 10
         for day, entry in enumerate(schedule):
-            self.assertEqual(entry["daily_response_limit"], 50 * (day + 1))
-            self.assertEqual(entry["rollout_percentage"], 10 * (day + 1))
+            assert entry["daily_response_limit"] == 50 * (day + 1)
+            assert entry["rollout_percentage"] == 10 * (day + 1)
 
     def test_can_remove_adaptive_response_sampling(self):
         survey = self._create_survey_with_sampling_limits("day", 10, 500, datetime(2024, 12, 12))
         assert survey.response_sampling_daily_limits is not None
         schedule = json.loads(survey.response_sampling_daily_limits)
-        self.assertEqual(len(schedule), 10)
+        assert len(schedule) == 10
         for day, entry in enumerate(schedule):
-            self.assertEqual(entry["daily_response_limit"], 50 * (day + 1))
-            self.assertEqual(entry["rollout_percentage"], 10 * (day + 1))
+            assert entry["daily_response_limit"] == 50 * (day + 1)
+            assert entry["rollout_percentage"] == 10 * (day + 1)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
@@ -4155,7 +4152,7 @@ class TestSurveysRecurringIterations(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
         survey.refresh_from_db()
-        self.assertIsNotNone(survey.current_iteration)
+        assert survey.current_iteration is not None
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             data={
@@ -4243,10 +4240,10 @@ class TestSurveyAPITokens(PersonalAPIKeysBaseTest, APIBaseTest):
                 )
 
         response = self._do_request(f"/api/projects/{self.team.id}/surveys/responses_count")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(data, survey_counts)
+        assert data == survey_counts
 
 
 class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
@@ -4274,10 +4271,10 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
                 )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(data, survey_counts)
+        assert data == survey_counts
 
     @snapshot_clickhouse_queries
     @freeze_time("2024-05-01 14:40:09")
@@ -4308,17 +4305,17 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
                 )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(data, expected_survey_counts)
+        assert data == expected_survey_counts
 
     def test_responses_count_zero_responses(self):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(data, {})
+        assert data == {}
 
     @snapshot_clickhouse_queries
     @freeze_time("2024-06-11 11:00:00")
@@ -4404,7 +4401,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
 
@@ -4416,7 +4413,7 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
             survey2_id: 2,
         }
 
-        self.assertEqual(data, expected_counts)
+        assert data == expected_counts
 
     @freeze_time("2024-05-01 14:40:09")
     def test_responses_count_excludes_archived_responses(self):
@@ -4438,24 +4435,24 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
         # Before archiving - should count the response
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[survey_id], 1)
+        assert data[survey_id] == 1
 
         # Archive the response
         SurveyResponseArchive.objects.create(team=self.team, survey=survey, response_uuid=response_uuid)
 
         # After archiving, default behavior should still include archived
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[survey_id], 1)
+        assert data[survey_id] == 1
 
         # With exclude_archived=true - should not count
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?exclude_archived=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data.get(survey_id, 0), 0)
+        assert data.get(survey_id, 0) == 0
 
     @freeze_time("2024-05-01 14:40:09")
     def test_responses_count_filters_by_survey_ids(self):
@@ -4477,43 +4474,43 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
         # Without filter - should return all surveys
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data[survey_id_1], 5)
-        self.assertEqual(data[survey_id_2], 3)
-        self.assertEqual(data[survey_id_3], 7)
+        assert data[survey_id_1] == 5
+        assert data[survey_id_2] == 3
+        assert data[survey_id_3] == 7
 
         # Filter to single survey
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids={survey_id_1}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data, {survey_id_1: 5})
+        assert data == {survey_id_1: 5}
 
         # Filter to multiple surveys
         response = self.client.get(
             f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids={survey_id_1},{survey_id_2}"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data, {survey_id_1: 5, survey_id_2: 3})
+        assert data == {survey_id_1: 5, survey_id_2: 3}
 
         # Filter with spaces around IDs (should be trimmed)
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids= {survey_id_3} ")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data, {survey_id_3: 7})
+        assert data == {survey_id_3: 7}
 
         # Empty survey_ids should return all
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids=")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(len(data), 3)
+        assert len(data) == 3
 
 
 class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
     def test_survey_stats_nonexistent_survey(self):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/12345/stats/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_survey_stats_zero_responses(self):
         survey = Survey.objects.create(
@@ -4524,30 +4521,30 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         stats = data["stats"]
         for event_type in ["survey shown", "survey dismissed", "survey sent"]:
-            self.assertEqual(stats[event_type]["total_count"], 0)
-            self.assertEqual(stats[event_type]["unique_persons"], 0)
-            self.assertEqual(stats[event_type]["first_seen"], None)
-            self.assertEqual(stats[event_type]["last_seen"], None)
+            assert stats[event_type]["total_count"] == 0
+            assert stats[event_type]["unique_persons"] == 0
+            assert stats[event_type]["first_seen"] is None
+            assert stats[event_type]["last_seen"] is None
 
         rates = data["rates"]
-        self.assertEqual(rates["response_rate"], 0.0)
-        self.assertEqual(rates["dismissal_rate"], 0.0)
+        assert rates["response_rate"] == 0.0
+        assert rates["dismissal_rate"] == 0.0
 
     def test_global_stats_no_surveys(self):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/stats/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         stats = data["stats"]
-        self.assertEqual(stats, {})
+        assert stats == {}
         rates = data["rates"]
-        self.assertEqual(rates["response_rate"], 0.0)
-        self.assertEqual(rates["dismissal_rate"], 0.0)
+        assert rates["response_rate"] == 0.0
+        assert rates["dismissal_rate"] == 0.0
 
     def test_global_stats_archived_surveys(self):
         # Create one active and one archived survey
@@ -4590,20 +4587,20 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/stats/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
         stats = data["stats"]
 
         # Should only include stats from active survey
-        self.assertEqual(stats["survey shown"]["total_count"], 2)
-        self.assertEqual(stats["survey sent"]["total_count"], 2)
-        self.assertEqual(stats["survey shown"]["unique_persons"], 1)
-        self.assertEqual(stats["survey sent"]["unique_persons"], 1)
+        assert stats["survey shown"]["total_count"] == 2
+        assert stats["survey sent"]["total_count"] == 2
+        assert stats["survey shown"]["unique_persons"] == 1
+        assert stats["survey sent"]["unique_persons"] == 1
 
         rates = data["rates"]
-        self.assertEqual(rates["response_rate"], 100.0)  # 1 sent / 1 shown
-        self.assertEqual(rates["dismissal_rate"], 0.0)  # 0 dismissed / 1 shown
+        assert rates["response_rate"] == 100.0  # 1 sent / 1 shown
+        assert rates["dismissal_rate"] == 0.0  # 0 dismissed / 1 shown
 
     @freeze_time("2024-06-10 10:00:00")
     def test_survey_stats_partial_responses(self):
@@ -4703,31 +4700,31 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data: dict[str, Any] = response.json()
         stats: dict[str, Any] = data["stats"]  # Use Any for the inner value type
 
         # Check counts based on unique events/persons
-        self.assertEqual(stats["survey shown"]["total_count"], 3)
-        self.assertEqual(stats["survey shown"]["unique_persons"], 3)
+        assert stats["survey shown"]["total_count"] == 3
+        assert stats["survey shown"]["unique_persons"] == 3
 
-        self.assertEqual(stats["survey dismissed"]["total_count"], 1)
-        self.assertEqual(stats["survey dismissed"]["unique_persons"], 1)
+        assert stats["survey dismissed"]["total_count"] == 1
+        assert stats["survey dismissed"]["unique_persons"] == 1
 
         # Check 'survey sent' stats - should count unique submissions
         # 1 legacy + 1 for sub_id_1 (latest) + 1 for sub_id_2 = 3 unique submissions
-        self.assertEqual(stats["survey sent"]["total_count"], 3)
+        assert stats["survey sent"]["total_count"] == 3
         # user_1 submitted legacy and sub_id_1, user_2 submitted sub_id_2
-        self.assertEqual(stats["survey sent"]["unique_persons"], 2)
+        assert stats["survey sent"]["unique_persons"] == 2
 
         # Check rates (based on unique persons)
         # Re-assign rates here, as the previous assignment might have type issues
         rates_reassigned: dict[str, float] = data["rates"]
         # (Unique persons sent / Unique persons shown) * 100 = (2 / 2) * 100 = 100.0
-        self.assertEqual(rates_reassigned["response_rate"], 100.0)
+        assert rates_reassigned["response_rate"] == 100.0
         # (Unique persons dismissed / Unique persons shown) * 100 = (1 / 3) * 100 = 33.33
-        self.assertEqual(rates_reassigned["dismissal_rate"], 33.33)
+        assert rates_reassigned["dismissal_rate"] == 33.33
 
     @freeze_time("2024-06-10 10:00:00")
     def test_survey_stats_uses_created_at_when_start_date_is_missing(self):
@@ -4757,11 +4754,11 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(data["stats"]["survey sent"]["total_count"], 1)
-        self.assertEqual(data["stats"]["survey sent"]["unique_persons"], 1)
+        assert data["stats"]["survey sent"]["total_count"] == 1
+        assert data["stats"]["survey sent"]["unique_persons"] == 1
 
     @freeze_time("2024-05-01 12:00:00")
     def test_survey_stats_excludes_archived_responses(self):
@@ -4787,24 +4784,24 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
 
         # Before archiving
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["stats"]["survey sent"]["total_count"], 1)
+        assert data["stats"]["survey sent"]["total_count"] == 1
 
         # Archive the response
         SurveyResponseArchive.objects.create(team=self.team, survey=survey, response_uuid=response_uuid)
 
         # After archiving, default behavior should still include archived
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["stats"]["survey sent"]["total_count"], 1)
+        assert data["stats"]["survey sent"]["total_count"] == 1
 
         # With exclude_archived=true - should not count
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/?exclude_archived=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["stats"]["survey sent"]["total_count"], 0)
+        assert data["stats"]["survey sent"]["total_count"] == 0
 
     def test_create_survey_with_valid_linked_flag_variant(self):
         """Test creating a survey with a valid linkedFlagVariant"""
@@ -4836,10 +4833,10 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         survey_data = response.json()
-        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
-        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "control")
+        assert survey_data["linked_flag"]["id"] == flag.id
+        assert survey_data["conditions"]["linkedFlagVariant"] == "control"
 
     def test_create_survey_with_invalid_linked_flag_variant(self):
         """Test creating a survey with an invalid linkedFlagVariant"""
@@ -4871,10 +4868,10 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_data = response.json()
-        self.assertIn("Feature flag variant 'non_existent_variant' does not exist", error_data["detail"])
-        self.assertIn("Available variants: control, treatment", error_data["detail"])
+        assert "Feature flag variant 'non_existent_variant' does not exist" in error_data["detail"]
+        assert "Available variants: control, treatment" in error_data["detail"]
 
     def test_create_survey_with_linked_flag_variant_any(self):
         """Test creating a survey with linkedFlagVariant set to 'any'"""
@@ -4907,10 +4904,10 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         survey_data = response.json()
-        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
-        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "any")
+        assert survey_data["linked_flag"]["id"] == flag.id
+        assert survey_data["conditions"]["linkedFlagVariant"] == "any"
 
     def test_create_survey_with_linked_flag_variant_no_variants(self):
         """Test creating a survey with linkedFlagVariant when flag has no variants"""
@@ -4934,12 +4931,9 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_data = response.json()
-        self.assertIn(
-            "Feature flag variant 'some_variant' specified but the linked feature flag has no variants",
-            error_data["detail"],
-        )
+        assert "Feature flag variant 'some_variant' specified but the linked feature flag has no variants" in error_data["detail"]
 
     def test_create_survey_with_linked_flag_variant_without_flag_id(self):
         """Test creating a survey with linkedFlagVariant but no linked_flag_id"""
@@ -4954,9 +4948,9 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_data = response.json()
-        self.assertEqual(error_data["detail"], "linkedFlagVariant can only be used when a linked_flag_id is specified")
+        assert error_data["detail"] == "linkedFlagVariant can only be used when a linked_flag_id is specified"
 
     def test_update_survey_with_valid_linked_flag_variant(self):
         """Test updating a survey to add a valid linkedFlagVariant"""
@@ -4989,10 +4983,10 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         survey_data = response.json()
-        self.assertEqual(survey_data["linked_flag"]["id"], flag.id)
-        self.assertEqual(survey_data["conditions"]["linkedFlagVariant"], "alpha")
+        assert survey_data["linked_flag"]["id"] == flag.id
+        assert survey_data["conditions"]["linkedFlagVariant"] == "alpha"
 
     def test_update_survey_with_invalid_linked_flag_variant(self):
         """Test updating a survey with an invalid linkedFlagVariant"""
@@ -5028,10 +5022,10 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_data = response.json()
-        self.assertIn("Feature flag variant 'invalid_option' does not exist", error_data["detail"])
-        self.assertIn("Available variants: option_1, option_2", error_data["detail"])
+        assert "Feature flag variant 'invalid_option' does not exist" in error_data["detail"]
+        assert "Available variants: option_1, option_2" in error_data["detail"]
 
 
 class TestExternalSurveyValidation(APIBaseTest):
@@ -5536,22 +5530,22 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         results = activity["results"]
         for item in results:
             item.pop("id", None)
-        self.assertEqual(results, expected)
+        assert results == expected
 
     @freeze_time("2024-05-01 12:00:00")
     def test_archive_response(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/{self.response_uuid}/archive"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify archive record was created
         archive = SurveyResponseArchive.objects.filter(
             team=self.team, survey=self.survey, response_uuid=self.response_uuid
         ).first()
-        self.assertIsNotNone(archive)
+        assert archive is not None
         assert archive is not None  # for mypy
-        self.assertEqual(str(archive.response_uuid), self.response_uuid)
+        assert str(archive.response_uuid) == self.response_uuid
 
         # Verify activity log
         self._assert_survey_activity(
@@ -5578,7 +5572,7 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/{self.response_uuid}/archive"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         initial_count = SurveyResponseArchive.objects.count()
 
@@ -5586,10 +5580,10 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/{self.response_uuid}/archive"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Should still have only one record
-        self.assertEqual(SurveyResponseArchive.objects.count(), initial_count)
+        assert SurveyResponseArchive.objects.count() == initial_count
 
     @freeze_time("2024-05-01 12:00:00")
     def test_unarchive_response(self):
@@ -5600,13 +5594,13 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/{self.response_uuid}/unarchive"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify archive record was deleted
         archive_exists = SurveyResponseArchive.objects.filter(
             team=self.team, survey=self.survey, response_uuid=self.response_uuid
         ).exists()
-        self.assertFalse(archive_exists)
+        assert not archive_exists
 
         # Verify activity log
         self._assert_survey_activity(
@@ -5633,21 +5627,21 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/{self.response_uuid}/unarchive"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_archive_invalid_uuid_format(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/not-a-uuid/archive"
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Invalid UUID format")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Invalid UUID format"
 
     def test_unarchive_invalid_uuid_format(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/{self.survey.id}/responses/not-a-uuid/unarchive"
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Invalid UUID format")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Invalid UUID format"
 
     def test_archive_response_cross_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
@@ -5662,12 +5656,12 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/{other_survey.id}/responses/{self.response_uuid}/archive"
         )
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_get_archived_response_uuids_empty(self):
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/archived-response-uuids")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), [])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == []
 
     def test_get_archived_response_uuids(self):
         uuid1 = str(uuid.uuid4())
@@ -5685,10 +5679,10 @@ class TestSurveyResponseArchive(ClickhouseTestMixin, APIBaseTest):
         SurveyResponseArchive.objects.create(team=self.team, survey=other_survey, response_uuid=uuid3)
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{self.survey.id}/archived-response-uuids")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         uuids = response.json()
-        self.assertEqual(len(uuids), 2)
-        self.assertIn(uuid1, uuids)
-        self.assertIn(uuid2, uuids)
-        self.assertNotIn(uuid3, uuids)
+        assert len(uuids) == 2
+        assert uuid1 in uuids
+        assert uuid2 in uuids
+        assert uuid3 not in uuids

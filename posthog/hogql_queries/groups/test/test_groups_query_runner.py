@@ -67,11 +67,11 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["group_name"])
-        self.assertEqual(result.results[0][0], {"display_name": "org0.inc", "key": "org0"})
-        self.assertEqual(result.results[1][0], {"display_name": "org1.inc", "key": "org1"})
-        self.assertEqual(result.results[2][0], {"display_name": "org2.inc", "key": "org2"})
+        assert len(result.results) == 3
+        assert result.columns == ["group_name"]
+        assert result.results[0][0] == {"display_name": "org0.inc", "key": "org0"}
+        assert result.results[1][0] == {"display_name": "org1.inc", "key": "org1"}
+        assert result.results[2][0] == {"display_name": "org2.inc", "key": "org2"}
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -86,9 +86,9 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["group_name"])
-        self.assertEqual(result.results[0][0], {"display_name": "org2.inc", "key": "org2"})
+        assert len(result.results) == 1
+        assert result.columns == ["group_name"]
+        assert result.results[0][0] == {"display_name": "org2.inc", "key": "org2"}
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -104,13 +104,13 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
-        self.assertEqual(result.results[0][0], {"display_name": "org0.inc", "key": "org0"})
-        self.assertEqual(result.results[0][1], "org0")
-        self.assertEqual(result.results[0][2], 150)
-        self.assertEqual(result.results[1][2], 0)
-        self.assertEqual(result.results[2][2], 300)
+        assert len(result.results) == 3
+        assert result.columns == ["group_name", "key", "properties.arr"]
+        assert result.results[0][0] == {"display_name": "org0.inc", "key": "org0"}
+        assert result.results[0][1] == "org0"
+        assert result.results[0][2] == 150
+        assert result.results[1][2] == 0
+        assert result.results[2][2] == 300
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -126,9 +126,9 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["group_name"])
-        self.assertEqual(result.results[0][0], {"display_name": "org2.inc", "key": "org2"})
+        assert len(result.results) == 1
+        assert result.columns == ["group_name"]
+        assert result.results[0][0] == {"display_name": "org2.inc", "key": "org2"}
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -162,13 +162,13 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), len(test_groups), "Should match all groups")
-        self.assertEqual(result.columns, ["group_name"])
-        self.assertEqual(result.results[0][0], {"display_name": "test", "key": "exact"})
-        self.assertEqual(result.results[1][0], {"display_name": "testable", "key": "prefix2"})
-        self.assertEqual(result.results[2][0], {"display_name": "testing", "key": "prefix"})
-        self.assertEqual(result.results[3][0], {"display_name": "best_test_ever", "key": "contains2"})
-        self.assertEqual(result.results[4][0], {"display_name": "my_test_group", "key": "contains"})
+        assert len(result.results) == len(test_groups), "Should match all groups"
+        assert result.columns == ["group_name"]
+        assert result.results[0][0] == {"display_name": "test", "key": "exact"}
+        assert result.results[1][0] == {"display_name": "testable", "key": "prefix2"}
+        assert result.results[2][0] == {"display_name": "testing", "key": "prefix"}
+        assert result.results[3][0] == {"display_name": "best_test_ever", "key": "contains2"}
+        assert result.results[4][0] == {"display_name": "my_test_group", "key": "contains"}
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -201,10 +201,10 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), len(test_groups), "Should match all groups")
-        self.assertEqual(result.results[0][0]["key"], "api", "Exact match ranked first")
-        self.assertEqual(result.results[1][0]["key"], "api_v2", "Prefix match ranked second")
-        self.assertEqual(result.results[2][0]["key"], "legacy_api", "Contains match ranked last")
+        assert len(result.results) == len(test_groups), "Should match all groups"
+        assert result.results[0][0]["key"] == "api", "Exact match ranked first"
+        assert result.results[1][0]["key"] == "api_v2", "Prefix match ranked second"
+        assert result.results[2][0]["key"] == "legacy_api", "Contains match ranked last"
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -237,15 +237,13 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
-        self.assertEqual(len(result.results), len(test_groups), "Should match all groups")
-        self.assertEqual(
-            result.results[0][0]["display_name"], "my_test_group", "Contains match ranked first, highest arr"
-        )
-        self.assertEqual(result.results[0][2], "300")
-        self.assertEqual(result.results[1][0]["display_name"], "test", "Exact match ranked second, mid arr")
-        self.assertEqual(result.results[1][2], "200")
-        self.assertEqual(result.results[2][0]["display_name"], "testing", "Prefix match ranked last, lowest arr")
-        self.assertEqual(result.results[2][2], "100")
+        assert len(result.results) == len(test_groups), "Should match all groups"
+        assert result.results[0][0]["display_name"] == "my_test_group", "Contains match ranked first, highest arr"
+        assert result.results[0][2] == "300"
+        assert result.results[1][0]["display_name"] == "test", "Exact match ranked second, mid arr"
+        assert result.results[1][2] == "200"
+        assert result.results[2][0]["display_name"] == "testing", "Prefix match ranked last, lowest arr"
+        assert result.results[2][2] == "100"
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -264,11 +262,11 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
-        self.assertEqual(result.results[0][2], 300)
-        self.assertEqual(result.results[1][2], 150)
-        self.assertEqual(result.results[2][2], 0)
+        assert len(result.results) == 3
+        assert result.columns == ["group_name", "key", "properties.arr"]
+        assert result.results[0][2] == 300
+        assert result.results[1][2] == 150
+        assert result.results[2][2] == 0
 
         # Default to ASC
         query = GroupsQuery(
@@ -282,11 +280,11 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
-        self.assertEqual(result.results[0][2], 0)
-        self.assertEqual(result.results[1][2], 150)
-        self.assertEqual(result.results[2][2], 300)
+        assert len(result.results) == 3
+        assert result.columns == ["group_name", "key", "properties.arr"]
+        assert result.results[0][2] == 0
+        assert result.results[1][2] == 150
+        assert result.results[2][2] == 300
 
         # group_name has special case behavior
         query = GroupsQuery(
@@ -299,11 +297,11 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 3)
-        self.assertEqual(result.columns, ["group_name"])
-        self.assertEqual(result.results[0][0], {"display_name": "org2.inc", "key": "org2"})
-        self.assertEqual(result.results[1][0], {"display_name": "org1.inc", "key": "org1"})
-        self.assertEqual(result.results[2][0], {"display_name": "org0.inc", "key": "org0"})
+        assert len(result.results) == 3
+        assert result.columns == ["group_name"]
+        assert result.results[0][0] == {"display_name": "org2.inc", "key": "org2"}
+        assert result.results[1][0] == {"display_name": "org1.inc", "key": "org1"}
+        assert result.results[2][0] == {"display_name": "org0.inc", "key": "org0"}
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -328,9 +326,9 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["group_name"])
-        self.assertEqual(result.results[0][0], {"display_name": "org0.inc", "key": "org0"})
+        assert len(result.results) == 1
+        assert result.columns == ["group_name"]
+        assert result.results[0][0] == {"display_name": "org0.inc", "key": "org0"}
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -355,12 +353,12 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 2)
-        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
-        self.assertEqual(result.results[0][0], {"display_name": "org0.inc", "key": "org0"})
-        self.assertEqual(result.results[0][1], "org0")
-        self.assertEqual(result.results[0][2], 150)
-        self.assertEqual(result.results[1][2], 300)
+        assert len(result.results) == 2
+        assert result.columns == ["group_name", "key", "properties.arr"]
+        assert result.results[0][0] == {"display_name": "org0.inc", "key": "org0"}
+        assert result.results[0][1] == "org0"
+        assert result.results[0][2] == 150
+        assert result.results[1][2] == 300
 
     @freeze_time("2025-01-01")
     @snapshot_clickhouse_queries
@@ -414,11 +412,11 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["group_name", "key", "properties.arr"])
-        self.assertEqual(result.results[0][0], {"display_name": "org0.inc", "key": "org0"})
-        self.assertEqual(result.results[0][1], "org0")
-        self.assertEqual(result.results[0][2], 200)
+        assert len(result.results) == 1
+        assert result.columns == ["group_name", "key", "properties.arr"]
+        assert result.results[0][0] == {"display_name": "org0.inc", "key": "org0"}
+        assert result.results[0][1] == "org0"
+        assert result.results[0][2] == 200
 
     @snapshot_clickhouse_queries
     def test_select_property_name_with_whitespaces(self):
@@ -439,9 +437,9 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = query_runner.calculate()
 
         group = result.results[0]
-        self.assertEqual(group[0], {"display_name": "myorg.inc", "key": "myorg"})
-        self.assertEqual(group[1], "myorg")
-        self.assertEqual(group[2], "true")
+        assert group[0] == {"display_name": "myorg.inc", "key": "myorg"}
+        assert group[1] == "myorg"
+        assert group[2] == "true"
 
     def test_column_ordering_respects_user_select(self):
         create_group_type_mapping_without_created_at(
@@ -519,10 +517,10 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
                 result = GroupsQueryRunner(query=query, team=self.team).calculate()
 
-                self.assertEqual(result.columns, expected_columns)
+                assert result.columns == expected_columns
 
                 for index, expected_value in expected_values.items():
-                    self.assertEqual(result.results[0][index], expected_value)
+                    assert result.results[0][index] == expected_value
 
     def test_groups_query_count_total(self):
         self.create_standard_test_groups()
@@ -534,9 +532,9 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 1)
-        self.assertEqual(result.columns, ["count(*)"])
-        self.assertEqual(result.results[0][0], 3, "Should match number of groups created")
+        assert len(result.results) == 1
+        assert result.columns == ["count(*)"]
+        assert result.results[0][0] == 3, "Should match number of groups created"
 
     def test_groups_query_count_with_filters(self):
         self.create_standard_test_groups()
@@ -557,7 +555,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(result.results[0][0], 2, "Should count groups with arr > 100")
+        assert result.results[0][0] == 2, "Should count groups with arr > 100"
 
     def test_groups_query_count_with_search(self):
         self.create_standard_test_groups()
@@ -570,4 +568,4 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(result.results[0][0], 1, "Should count only org1")
+        assert result.results[0][0] == 1, "Should count only org1"

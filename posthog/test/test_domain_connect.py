@@ -64,11 +64,7 @@ class TestExtractRootDomainAndHost(BaseTest):
         ]
     )
     def test_extraction(self, name: str, full_domain: str, expected: tuple[str, str]) -> None:
-        self.assertEqual(
-            extract_root_domain_and_host(full_domain),
-            expected,
-            f"Failed for case {name} for domain {full_domain}",
-        )
+        assert extract_root_domain_and_host(full_domain) == expected, f"Failed for case {name} for domain {full_domain}"
 
 
 class TestGetServiceIdForRegion(BaseTest):
@@ -83,7 +79,7 @@ class TestGetServiceIdForRegion(BaseTest):
     )
     def test_region_mapping(self, _name: str, deployment: str | None, expected: str) -> None:
         with self.settings(CLOUD_DEPLOYMENT=deployment):
-            self.assertEqual(get_service_id_for_region("email-verification"), expected)
+            assert get_service_id_for_region("email-verification") == expected
 
 
 class TestBuildSyncApplyUrl(BaseTest):
@@ -97,10 +93,10 @@ class TestBuildSyncApplyUrl(BaseTest):
             host="ph",
         )
 
-        self.assertIn("/v2/domainTemplates/providers/posthog.com/services/reverse-proxy-us/apply?", url)
-        self.assertIn("domain=example.com", url)
-        self.assertIn("host=ph", url)
-        self.assertIn("target=abc123.proxy.posthog.com", url)
+        assert "/v2/domainTemplates/providers/posthog.com/services/reverse-proxy-us/apply?" in url
+        assert "domain=example.com" in url
+        assert "host=ph" in url
+        assert "target=abc123.proxy.posthog.com" in url
 
     def test_url_without_host(self) -> None:
         url = build_sync_apply_url(
@@ -111,9 +107,9 @@ class TestBuildSyncApplyUrl(BaseTest):
             variables={"verifyToken": "abc123"},
         )
 
-        self.assertNotIn("host=", url)
-        self.assertIn("domain=example.com", url)
-        self.assertIn("verifyToken=abc123", url)
+        assert "host=" not in url
+        assert "domain=example.com" in url
+        assert "verifyToken=abc123" in url
 
     def test_url_with_redirect(self) -> None:
         url = build_sync_apply_url(
@@ -126,7 +122,7 @@ class TestBuildSyncApplyUrl(BaseTest):
             redirect_uri="https://us.posthog.com/settings?domain_connect=proxy",
         )
 
-        self.assertIn("redirect_uri=", url)
+        assert "redirect_uri=" in url
 
     def test_url_with_signing(self) -> None:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -142,8 +138,8 @@ class TestBuildSyncApplyUrl(BaseTest):
             key_id="_dcpubkeyv1",
         )
 
-        self.assertIn("sig=", url)
-        self.assertIn("key=_dcpubkeyv1", url)
+        assert "sig=" in url
+        assert "key=_dcpubkeyv1" in url
 
     def test_url_without_signing_key_has_no_sig(self) -> None:
         url = build_sync_apply_url(
@@ -155,8 +151,8 @@ class TestBuildSyncApplyUrl(BaseTest):
             host="ph",
         )
 
-        self.assertNotIn("sig=", url)
-        self.assertNotIn("key=", url)
+        assert "sig=" not in url
+        assert "key=" not in url
 
 
 class TestSignQueryString(BaseTest):
@@ -191,11 +187,11 @@ class TestDiscoverDomainConnect(BaseTest):
         with patch.dict(DOMAIN_CONNECT_PROVIDERS, {"api.cloudflare.com/client/v4/dns/domainconnect": "Cloudflare"}):
             result = discover_domain_connect("example.com")
 
-        self.assertIsNotNone(result)
+        assert result is not None
 
         if result:
-            self.assertEqual(result["provider_name"], "Cloudflare")
-            self.assertEqual(result["url_sync_ux"], "https://dash.cloudflare.com/domainconnect")
+            assert result["provider_name"] == "Cloudflare"
+            assert result["url_sync_ux"] == "https://dash.cloudflare.com/domainconnect"
 
     @patch("posthog.domain_connect._lookup_domain_connect_endpoint")
     def test_unsupported_provider(self, mock_lookup: MagicMock) -> None:
@@ -203,7 +199,7 @@ class TestDiscoverDomainConnect(BaseTest):
 
         result = discover_domain_connect("example.com")
 
-        self.assertIsNone(result)
+        assert result is None
 
     @patch("posthog.domain_connect._lookup_domain_connect_endpoint")
     def test_no_txt_record(self, mock_lookup: MagicMock) -> None:
@@ -211,7 +207,7 @@ class TestDiscoverDomainConnect(BaseTest):
 
         result = discover_domain_connect("example.com")
 
-        self.assertIsNone(result)
+        assert result is None
 
     @patch("posthog.domain_connect._fetch_provider_settings")
     @patch("posthog.domain_connect._lookup_domain_connect_endpoint")
@@ -222,7 +218,7 @@ class TestDiscoverDomainConnect(BaseTest):
         with patch.dict(DOMAIN_CONNECT_PROVIDERS, {"api.cloudflare.com/client/v4/dns/domainconnect": "Cloudflare"}):
             result = discover_domain_connect("example.com")
 
-        self.assertIsNone(result)
+        assert result is None
 
 
 class TestGetAvailableProviders(BaseTest):
@@ -234,16 +230,16 @@ class TestGetAvailableProviders(BaseTest):
         ):
             providers = get_available_providers()
 
-        self.assertEqual(len(providers), 2)
+        assert len(providers) == 2
         names = {p["name"] for p in providers}
-        self.assertIn("Cloudflare", names)
-        self.assertIn("GoDaddy", names)
+        assert "Cloudflare" in names
+        assert "GoDaddy" in names
 
     def test_empty_when_no_providers(self) -> None:
         with patch.dict(DOMAIN_CONNECT_PROVIDERS, {}, clear=True):
             providers = get_available_providers()
 
-        self.assertEqual(providers, [])
+        assert providers == []
 
 
 class TestGenerateApplyUrl(BaseTest):
@@ -269,8 +265,8 @@ class TestGenerateApplyUrl(BaseTest):
             provider_endpoint="api.cloudflare.com/client/v4/dns/domainconnect",
         )
 
-        self.assertIn("domain=example.com", url)
-        self.assertIn("sig=", url)
+        assert "domain=example.com" in url
+        assert "sig=" in url
 
     @patch("posthog.domain_connect.get_signing_key")
     def test_rejects_signing_required_provider_without_key(self, mock_key: MagicMock) -> None:
@@ -328,10 +324,10 @@ class TestTemplateResolverAlignment(BaseTest):
         with self.settings(CLOUD_DEPLOYMENT=region):
             domain, service_id, host, variables = resolve_proxy_context("test-id", "test-org")
 
-        self.assertEqual(set(variables.keys()), expected_vars)
-        self.assertEqual(service_id, template["serviceId"])
+        assert set(variables.keys()) == expected_vars
+        assert service_id == template["serviceId"]
         if template.get("hostRequired"):
-            self.assertTrue(host, "hostRequired template but resolver returned empty host")
+            assert host, "hostRequired template but resolver returned empty host"
 
     @parameterized.expand(
         [
@@ -371,5 +367,5 @@ class TestTemplateResolverAlignment(BaseTest):
         with self.settings(CLOUD_DEPLOYMENT=region, SES_REGION="us-east-1"):
             domain, service_id, variables = resolve_email_context(1, 1)
 
-        self.assertEqual(set(variables.keys()), expected_vars)
-        self.assertEqual(service_id, template["serviceId"])
+        assert set(variables.keys()) == expected_vars
+        assert service_id == template["serviceId"]

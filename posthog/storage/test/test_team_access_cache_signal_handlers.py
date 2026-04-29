@@ -469,11 +469,11 @@ class TestUserSavedSignalHandler(TestCase):
         mock_user._original_is_active = True
 
         user_saved(sender=User, instance=mock_user, created=False)
-        self.assertEqual(mock_on_commit.call_count, 1)
-        self.assertEqual(mock_user._original_is_active, False)
+        assert mock_on_commit.call_count == 1
+        assert not mock_user._original_is_active
 
         user_saved(sender=User, instance=mock_user, created=False)
-        self.assertEqual(mock_on_commit.call_count, 1)
+        assert mock_on_commit.call_count == 1
 
     @patch("django.db.transaction.on_commit")
     def test_from_db_sets_original_is_active_for_change_detection(self, mock_on_commit):
@@ -481,7 +481,7 @@ class TestUserSavedSignalHandler(TestCase):
         mock_on_commit.reset_mock()
 
         loaded_user = User.objects.get(pk=user.pk)
-        self.assertEqual(loaded_user._original_is_active, True)
+        assert loaded_user._original_is_active
 
         loaded_user.is_active = False
         loaded_user.save()

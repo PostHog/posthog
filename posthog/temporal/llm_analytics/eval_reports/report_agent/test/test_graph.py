@@ -33,10 +33,10 @@ class TestSystemPromptFormat(SimpleTestCase):
             report_prompt_guidance_section="",
             max_sections=MAX_REPORT_SECTIONS,
         )
-        self.assertIn("Test Eval", formatted)
-        self.assertIn("llm_judge", formatted)
-        self.assertIn(str(MAX_REPORT_SECTIONS), formatted)
-        self.assertNotIn("{", formatted.split("```")[0])  # No unfilled placeholders
+        assert "Test Eval" in formatted
+        assert "llm_judge" in formatted
+        assert str(MAX_REPORT_SECTIONS) in formatted
+        assert "{" not in formatted.split("```")[0]  # No unfilled placeholders
 
     def test_format_with_guidance_section(self):
         guidance_section = "\n## User guidance\n\n```\nFocus on cost regressions\n```\n"
@@ -50,7 +50,7 @@ class TestSystemPromptFormat(SimpleTestCase):
             report_prompt_guidance_section=guidance_section,
             max_sections=MAX_REPORT_SECTIONS,
         )
-        self.assertIn("Focus on cost regressions", formatted)
+        assert "Focus on cost regressions" in formatted
 
 
 class TestFallbackContent(SimpleTestCase):
@@ -64,11 +64,11 @@ class TestFallbackContent(SimpleTestCase):
             period_end="2026-04-08T15:00:00+00:00",
         )
         content = _fallback_content("Relevance", metrics, "agent timed out")
-        self.assertIn("Relevance", content.title)
-        self.assertEqual(len(content.sections), 1)
-        self.assertIn("No evaluation runs", content.sections[0].content)
-        self.assertIn("agent timed out", content.sections[0].content)
-        self.assertEqual(content.metrics, metrics)
+        assert "Relevance" in content.title
+        assert len(content.sections) == 1
+        assert "No evaluation runs" in content.sections[0].content
+        assert "agent timed out" in content.sections[0].content
+        assert content.metrics == metrics
 
     def test_populated_metrics_stable_trend(self):
         metrics = EvalReportMetrics(
@@ -80,10 +80,10 @@ class TestFallbackContent(SimpleTestCase):
             previous_pass_rate=80.0,
         )
         content = _fallback_content("Helpfulness", metrics, "validation failed")
-        self.assertEqual(len(content.sections), 1)
+        assert len(content.sections) == 1
         body = content.sections[0].content
-        self.assertIn("80.0%", body)
-        self.assertIn("stable", body)
+        assert "80.0%" in body
+        assert "stable" in body
 
     @parameterized.expand(
         [
@@ -100,18 +100,18 @@ class TestFallbackContent(SimpleTestCase):
             previous_pass_rate=previous_pass_rate,
         )
         content = _fallback_content("X", metrics, "why")
-        self.assertIn(expected_phrase, content.sections[0].content)
+        assert expected_phrase in content.sections[0].content
 
     def test_includes_fallback_note(self):
         metrics = EvalReportMetrics(total_runs=1, pass_count=1, pass_rate=100.0)
         content = _fallback_content("X", metrics, "custom reason here")
-        self.assertIn("custom reason here", content.sections[0].content)
-        self.assertIn("fallback", content.sections[0].content.lower())
+        assert "custom reason here" in content.sections[0].content
+        assert "fallback" in content.sections[0].content.lower()
 
     def test_citations_empty(self):
         metrics = EvalReportMetrics(total_runs=0)
         content = _fallback_content("X", metrics, "reason")
-        self.assertEqual(content.citations, [])
+        assert content.citations == []
 
 
 class TestValidateAgentOutput(SimpleTestCase):
@@ -125,51 +125,51 @@ class TestValidateAgentOutput(SimpleTestCase):
 
     def test_valid_content_returns_none(self):
         content = self._valid_content()
-        self.assertIsNone(_validate_agent_output(content))
+        assert _validate_agent_output(content) is None
 
     def test_missing_title_fails(self):
         content = self._valid_content()
         content.title = ""
-        self.assertIsNotNone(_validate_agent_output(content))
+        assert _validate_agent_output(content) is not None
 
     def test_whitespace_title_fails(self):
         content = self._valid_content()
         content.title = "   "
-        self.assertIsNotNone(_validate_agent_output(content))
+        assert _validate_agent_output(content) is not None
 
     def test_zero_sections_fails(self):
         content = self._valid_content()
         content.sections = []
         reason = _validate_agent_output(content)
-        self.assertIsNotNone(reason)
-        self.assertIn("0", reason or "")
+        assert reason is not None
+        assert "0" in (reason or "")
 
     def test_too_many_sections_fails(self):
         content = self._valid_content()
         content.sections = [ReportSection(title=f"S{i}", content=f"c{i}") for i in range(MAX_REPORT_SECTIONS + 1)]
         reason = _validate_agent_output(content)
-        self.assertIsNotNone(reason)
-        self.assertIn("maximum", reason or "")
+        assert reason is not None
+        assert "maximum" in (reason or "")
 
     def test_exactly_max_sections_passes(self):
         content = self._valid_content()
         content.sections = [ReportSection(title=f"S{i}", content=f"c{i}") for i in range(MAX_REPORT_SECTIONS)]
-        self.assertIsNone(_validate_agent_output(content))
+        assert _validate_agent_output(content) is None
 
     def test_empty_section_title_fails(self):
         content = self._valid_content()
         content.sections.append(ReportSection(title="", content="body"))
-        self.assertIsNotNone(_validate_agent_output(content))
+        assert _validate_agent_output(content) is not None
 
     def test_empty_section_content_fails(self):
         content = self._valid_content()
         content.sections.append(ReportSection(title="Title", content=""))
-        self.assertIsNotNone(_validate_agent_output(content))
+        assert _validate_agent_output(content) is not None
 
     def test_citations_do_not_affect_validation(self):
         content = self._valid_content()
         content.citations = [Citation(generation_id="g", trace_id="t", reason="r")]
-        self.assertIsNone(_validate_agent_output(content))
+        assert _validate_agent_output(content) is None
 
 
 class TestAppendReferencesSection(SimpleTestCase):
@@ -180,7 +180,7 @@ class TestAppendReferencesSection(SimpleTestCase):
             citations=[],
         )
         _append_references_section(content)
-        self.assertEqual(len(content.sections), 1)
+        assert len(content.sections) == 1
 
     def test_appends_references_as_final_section(self):
         content = EvalReportContent(
@@ -189,9 +189,9 @@ class TestAppendReferencesSection(SimpleTestCase):
             citations=[Citation(generation_id="g1", trace_id="t1", reason="r1")],
         )
         _append_references_section(content)
-        self.assertEqual(len(content.sections), 2)
-        self.assertEqual(content.sections[-1].title, "References")
-        self.assertIn("g1", content.sections[-1].content)
+        assert len(content.sections) == 2
+        assert content.sections[-1].title == "References"
+        assert "g1" in content.sections[-1].content
 
     def test_references_does_not_displace_content_at_max_sections(self):
         # Regression: previously the auto-appended References section replaced
@@ -202,7 +202,7 @@ class TestAppendReferencesSection(SimpleTestCase):
             citations=[Citation(generation_id="g1", trace_id="t1", reason="r1")],
         )
         _append_references_section(content)
-        self.assertEqual(len(content.sections), MAX_REPORT_SECTIONS + 1)
+        assert len(content.sections) == MAX_REPORT_SECTIONS + 1
         # Agent's last section is preserved
-        self.assertEqual(content.sections[MAX_REPORT_SECTIONS - 1].title, f"S{MAX_REPORT_SECTIONS - 1}")
-        self.assertEqual(content.sections[-1].title, "References")
+        assert content.sections[MAX_REPORT_SECTIONS - 1].title == f"S{MAX_REPORT_SECTIONS - 1}"
+        assert content.sections[-1].title == "References"

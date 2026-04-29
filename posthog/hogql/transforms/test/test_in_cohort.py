@@ -50,8 +50,8 @@ class TestInCohort(BaseTest):
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
-        self.assertEqual(len(response.results or []), 1)
-        self.assertEqual((response.results or [])[0][0], random_uuid)
+        assert len(response.results or []) == 1
+        assert (response.results or [])[0][0] == random_uuid
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -119,7 +119,7 @@ class TestInCohort(BaseTest):
                 modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.SUBQUERY),
                 pretty=False,
             )
-        self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
+        assert str(e.exception) == "cohort() takes exactly one string or integer argument"
 
         with self.assertRaises(QueryError) as e:
             execute_hogql_query(
@@ -128,7 +128,7 @@ class TestInCohort(BaseTest):
                 modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.SUBQUERY),
                 pretty=False,
             )
-        self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
+        assert str(e.exception) == "Could not find a cohort with the name 'blabla'"
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -177,8 +177,8 @@ class TestInCohort(BaseTest):
             pretty=False,
         )
         assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
-        self.assertEqual(len(response.results or []), 1)
-        self.assertEqual((response.results or [])[0][0], random_uuid)
+        assert len(response.results or []) == 1
+        assert (response.results or [])[0][0] == random_uuid
 
     @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
@@ -190,7 +190,7 @@ class TestInCohort(BaseTest):
                 modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
                 pretty=False,
             )
-        self.assertEqual(str(e.exception), "cohort() takes exactly one string or integer argument")
+        assert str(e.exception) == "cohort() takes exactly one string or integer argument"
 
         with self.assertRaises(QueryError) as e:
             execute_hogql_query(
@@ -199,7 +199,7 @@ class TestInCohort(BaseTest):
                 modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN_CONJOINED),
                 pretty=False,
             )
-        self.assertEqual(str(e.exception), "Could not find a cohort with the name 'blabla'")
+        assert str(e.exception) == "Could not find a cohort with the name 'blabla'"
 
 
 class TestInlineCohortLeftjoin(QueryMatchingTest, BaseTest):

@@ -91,9 +91,9 @@ class TestTimeSlicedResults(TestCase):
 
         results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
 
-        self.assertEqual(results, ["a", "b", "c"])
+        assert results == ["a", "b", "c"]
         # No slicing should have been done — make_runner never called
-        self.assertEqual(len(created_ranges), 0)
+        assert len(created_ranges) == 0
 
     def test_medium_range_one_slice(self):
         now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
@@ -113,8 +113,8 @@ class TestTimeSlicedResults(TestCase):
 
         results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
 
-        self.assertEqual(results, ["a", "b", "c"])
-        self.assertEqual(len(created_ranges), 2)
+        assert results == ["a", "b", "c"]
+        assert len(created_ranges) == 2
 
     def test_large_range_all_slices(self):
         now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
@@ -138,8 +138,8 @@ class TestTimeSlicedResults(TestCase):
 
         results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
 
-        self.assertEqual(results, ["a", "b", "c", "d"])
-        self.assertEqual(len(created_ranges), 6)
+        assert results == ["a", "b", "c", "d"]
+        assert len(created_ranges) == 6
 
     def test_stops_when_limit_reached_first_slice(self):
         now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
@@ -158,7 +158,7 @@ class TestTimeSlicedResults(TestCase):
 
         results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
 
-        self.assertEqual(results, ["a", "b", "c"])
+        assert results == ["a", "b", "c"]
 
     def test_stops_when_limit_reached_second_slice(self):
         now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
@@ -179,7 +179,7 @@ class TestTimeSlicedResults(TestCase):
 
         results = list(time_sliced_results(runner, order_by_earliest=False, make_runner=make_runner))
 
-        self.assertEqual(results, ["a", "b", "c"])
+        assert results == ["a", "b", "c"]
 
     @parameterized.expand(
         [
@@ -201,20 +201,20 @@ class TestTimeSlicedResults(TestCase):
 
         list(time_sliced_results(runner, order_by_earliest=order_by_earliest, make_runner=make_runner))
 
-        self.assertEqual(len(created_ranges), 2)
+        assert len(created_ranges) == 2
         slice_range = created_ranges[0]
         remainder_range = created_ranges[1]
 
         if order_by_earliest:
             # Slice should be at the start of the range
-            self.assertEqual(slice_range.date_from, date_from.isoformat())
+            assert slice_range.date_from == date_from.isoformat()
             # Remainder should be after the slice
-            self.assertEqual(remainder_range.date_to, now.isoformat())
+            assert remainder_range.date_to == now.isoformat()
         else:
             # Slice should be at the end of the range
-            self.assertEqual(slice_range.date_to, now.isoformat())
+            assert slice_range.date_to == now.isoformat()
             # Remainder should be before the slice
-            self.assertEqual(remainder_range.date_from, date_from.isoformat())
+            assert remainder_range.date_from == date_from.isoformat()
 
     def test_analytics_props_passed_through(self):
         now = dt.datetime(2024, 1, 1, 12, 0, tzinfo=ZoneInfo("UTC"))
@@ -229,4 +229,4 @@ class TestTimeSlicedResults(TestCase):
 
         run_mock.assert_called_once()
         _, kwargs = run_mock.call_args
-        self.assertEqual(kwargs["analytics_props"], props)
+        assert kwargs["analytics_props"] == props

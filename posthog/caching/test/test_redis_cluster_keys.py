@@ -27,7 +27,7 @@ class TestRedisClusterKeySlots(BaseTest):
             key_slot(tracker.sizes_key.encode()),
             key_slot(tracker.total_key.encode()),
         }
-        self.assertEqual(len(slots), 1, f"Keys must hash to same slot, got slots: {slots}")
+        assert len(slots) == 1, f"Keys must hash to same slot, got slots: {slots}"
 
     @parameterized.expand(
         [
@@ -38,6 +38,6 @@ class TestRedisClusterKeySlots(BaseTest):
     def test_keys_always_use_hash_tag_format(self, _name: str, team_id: int):
         tracker = TeamCacheSizeTracker(team_id)
 
-        self.assertEqual(tracker.entries_key, f"posthog:cache_sizes:{{{team_id}}}")
-        self.assertEqual(tracker.sizes_key, f"posthog:cache_entry_sizes:{{{team_id}}}")
-        self.assertEqual(tracker.total_key, f"posthog:cache_total:{{{team_id}}}")
+        assert tracker.entries_key == f"posthog:cache_sizes:{{{team_id}}}"
+        assert tracker.sizes_key == f"posthog:cache_entry_sizes:{{{team_id}}}"
+        assert tracker.total_key == f"posthog:cache_total:{{{team_id}}}"

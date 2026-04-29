@@ -8,15 +8,15 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
         # Verify that BatchImport inherits from ModelActivityMixin
         from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
-        self.assertTrue(issubclass(BatchImport, ModelActivityMixin))
+        assert issubclass(BatchImport, ModelActivityMixin)
 
         # Test that the model can be created
         batch_import = BatchImport.objects.create(
             team=self.team, created_by_id=self.user.id, import_config={"source": {"type": "test"}}, secrets="{}"
         )
 
-        self.assertIsNotNone(batch_import)
-        self.assertEqual(batch_import.team, self.team)
+        assert batch_import is not None
+        assert batch_import.team == self.team
 
     def test_batch_import_field_exclusions_configured(self):
         """Test that field exclusions are properly configured"""
@@ -25,12 +25,12 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
         batch_import_exclusions = field_exclusions.get("BatchImport", [])
 
         # Verify sensitive fields are excluded
-        self.assertIn("secrets", batch_import_exclusions)
-        self.assertIn("lease_id", batch_import_exclusions)
-        self.assertIn("state", batch_import_exclusions)
-        self.assertIn("status_message", batch_import_exclusions)
-        self.assertIn("backoff_attempt", batch_import_exclusions)
-        self.assertIn("backoff_until", batch_import_exclusions)
+        assert "secrets" in batch_import_exclusions
+        assert "lease_id" in batch_import_exclusions
+        assert "state" in batch_import_exclusions
+        assert "status_message" in batch_import_exclusions
+        assert "backoff_attempt" in batch_import_exclusions
+        assert "backoff_until" in batch_import_exclusions
 
     def test_batch_import_scope_in_activity_log_types(self):
         """Test that BatchImport scope is defined in ActivityScope"""
@@ -40,7 +40,7 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
 
         # Check that BatchImport is in the literal type
         # We can't directly test literal types, but we can test that the string value works
-        self.assertIn("BatchImport", get_args(ActivityScope))
+        assert "BatchImport" in get_args(ActivityScope)
 
     def test_batch_import_masked_fields_configured(self):
         """Test that masked fields are properly configured"""
@@ -49,7 +49,7 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
         batch_import_masked = field_with_masked_contents.get("BatchImport", [])
 
         # Verify import_config is masked
-        self.assertIn("import_config", batch_import_masked)
+        assert "import_config" in batch_import_masked
 
     def test_batch_import_integration_test(self):
         """Integration test to verify the basic setup works"""
@@ -58,7 +58,7 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
         activity_storage.set_user(self.user)
         try:
             batch_import = self.create_batch_import()
-            self.assertIsNotNone(batch_import["id"])
+            assert batch_import["id"] is not None
 
             self.update_batch_import(batch_import["id"], {"status": "completed"})
         finally:
@@ -76,24 +76,24 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
                 import_config={"source": {"type": "s3"}, "data_format": {"content": {"type": "mixpanel"}}}
             )
 
-            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
+            assert ActivityLog.objects.count() == initial_count + 1
 
             activity_log = ActivityLog.objects.filter(
                 scope="BatchImport", activity="created", item_id=batch_import["id"]
             ).first()
 
-            self.assertIsNotNone(activity_log)
             assert activity_log is not None
-            self.assertEqual(activity_log.user, self.user)
-            self.assertEqual(activity_log.team_id, self.team.id)
-            self.assertEqual(activity_log.organization_id, self.team.organization_id)
+            assert activity_log is not None
+            assert activity_log.user == self.user
+            assert activity_log.team_id == self.team.id
+            assert activity_log.organization_id == self.team.organization_id
 
             assert activity_log.detail is not None
             context = activity_log.detail.get("context")
-            self.assertIsNotNone(context)
-            self.assertEqual(context["source_type"], "s3")
-            self.assertEqual(context["content_type"], "mixpanel")
-            self.assertEqual(context["created_by_user_id"], str(self.user.id))
+            assert context is not None
+            assert context["source_type"] == "s3"
+            assert context["content_type"] == "mixpanel"
+            assert context["created_by_user_id"] == str(self.user.id)
         finally:
             activity_storage.clear_user()
 
@@ -108,19 +108,19 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
 
             self.update_batch_import(batch_import["id"], {"status": "completed"})
 
-            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
+            assert ActivityLog.objects.count() == initial_count + 1
 
             activity_log = ActivityLog.objects.filter(
                 scope="BatchImport", activity="updated", item_id=batch_import["id"]
             ).first()
 
-            self.assertIsNotNone(activity_log)
             assert activity_log is not None
-            self.assertEqual(activity_log.user, self.user)
+            assert activity_log is not None
+            assert activity_log.user == self.user
 
             assert activity_log.detail is not None
             changes = activity_log.detail.get("changes", [])
-            self.assertTrue(len(changes) > 0)
+            assert len(changes) > 0
         finally:
             activity_storage.clear_user()
 
@@ -136,14 +136,14 @@ class TestBatchImportActivityLogging(ActivityLogTestHelper):
 
             self.delete_batch_import(batch_import_id)
 
-            self.assertEqual(ActivityLog.objects.count(), initial_count + 1)
+            assert ActivityLog.objects.count() == initial_count + 1
 
             activity_log = ActivityLog.objects.filter(
                 scope="BatchImport", activity="deleted", item_id=batch_import_id
             ).first()
 
-            self.assertIsNotNone(activity_log)
             assert activity_log is not None
-            self.assertEqual(activity_log.user, self.user)
+            assert activity_log is not None
+            assert activity_log.user == self.user
         finally:
             activity_storage.clear_user()

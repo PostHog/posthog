@@ -83,7 +83,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     def test_can_create_new_subscription(self):
         response = self._create_subscription()
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
         assert data == {
             "id": data["id"],
@@ -124,7 +124,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     def test_can_create_new_subscription_without_invite_message(self):
         response = self._create_subscription(invite_message=None)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         self.mock_temporal_client.start_workflow.assert_called_once()
 

@@ -336,7 +336,7 @@ class SetupWizardTests(APIBaseTest):
     )
     def test_authenticate_requires_hash(self):
         response = self.client.post(f"/api/wizard/authenticate", data={}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @override_settings(
         CACHES={
@@ -351,7 +351,7 @@ class SetupWizardTests(APIBaseTest):
             data={"hash": "nonexistent", "projectId": self.team.id},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_authenticate_missing_projectId(self):
         response = self.client.post(
@@ -359,7 +359,7 @@ class SetupWizardTests(APIBaseTest):
             data={"hash": "valid_hash"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_authenticate_invalid_projectId(self):
         response = self.client.post(
@@ -367,7 +367,7 @@ class SetupWizardTests(APIBaseTest):
             data={"hash": "valid_hash", "projectId": 999999},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @override_settings(
         CACHES={
@@ -386,14 +386,14 @@ class SetupWizardTests(APIBaseTest):
             data={"hash": "valid_hash", "projectId": self.team.id},
             format="json",
         )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(response.json(), {"success": True})
+        assert response.status_code == 200, response.content
+        assert response.json() == {"success": True}
 
         updated_data = cache.get(cache_key)
-        self.assertIsNotNone(updated_data)
-        self.assertEqual(updated_data["project_api_key"], self.team.api_token)
-        self.assertEqual(updated_data["host"], get_api_host())
-        self.assertEqual(updated_data["user_distinct_id"], self.user.distinct_id)
+        assert updated_data is not None
+        assert updated_data["project_api_key"] == self.team.api_token
+        assert updated_data["host"] == get_api_host()
+        assert updated_data["user_distinct_id"] == self.user.distinct_id
 
     @override_settings(
         CACHES={
@@ -412,13 +412,13 @@ class SetupWizardTests(APIBaseTest):
         data = {"hash": "valid_hash", "projectId": self.team.id}
 
         response_1 = self.client.post(url, data=data, format="json")
-        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
+        assert response_1.status_code == status.HTTP_200_OK
 
         response_2 = self.client.post(url, data=data, format="json")
-        self.assertEqual(response_2.status_code, status.HTTP_200_OK)
+        assert response_2.status_code == status.HTTP_200_OK
 
         response_3 = self.client.post(url, data=data, format="json")
-        self.assertEqual(response_3.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        assert response_3.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
     @override_settings(
         CACHES={
@@ -439,11 +439,11 @@ class SetupWizardTests(APIBaseTest):
         data = {"hash": "valid_hash", "projectId": self.team.id}
 
         response = self.client.post(url, data=data, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        self.assertEqual(response_data["code"], "permission_denied")
-        self.assertEqual(response_data["detail"], "You don't have access to this project.")
-        self.assertEqual(response_data["attr"], "projectId")
+        assert response_data["code"] == "permission_denied"
+        assert response_data["detail"] == "You don't have access to this project."
+        assert response_data["attr"] == "projectId"
 
     def tearDown(self):
         super().tearDown()

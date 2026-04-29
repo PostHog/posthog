@@ -63,31 +63,19 @@ class DeletedPrimaryDashboardTestCase(TestMigrations):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore
 
         # CASE 1:
-        self.assertEqual(
-            Team.objects.get(name="t1").primary_dashboard.id,
-            Dashboard.objects.get(name="d1").id,
-        )
+        assert Team.objects.get(name="t1").primary_dashboard.id == Dashboard.objects.get(name="d1").id
 
         # CASE 2:
-        self.assertEqual(Team.objects.get(name="t2").primary_dashboard, None)
+        assert Team.objects.get(name="t2").primary_dashboard is None
 
         # CASE 3:
-        self.assertEqual(
-            Team.objects.get(name="t3").primary_dashboard.id,
-            Dashboard.objects.get(name="d4").id,
-        )
+        assert Team.objects.get(name="t3").primary_dashboard.id == Dashboard.objects.get(name="d4").id
 
         # CASE 4:
-        self.assertEqual(
-            Team.objects.get(name="t4").primary_dashboard.id,
-            Dashboard.objects.get(name="d6").id,
-        )
+        assert Team.objects.get(name="t4").primary_dashboard.id == Dashboard.objects.get(name="d6").id
 
         # CASE 5:
-        self.assertEqual(
-            Team.objects.get(name="t5").primary_dashboard.id,
-            Dashboard.objects.get(name="d9").id,
-        )
+        assert Team.objects.get(name="t5").primary_dashboard.id == Dashboard.objects.get(name="d9").id
 
     def tearDown(self):
         Team = self.apps.get_model("posthog", "Team")  # type: ignore

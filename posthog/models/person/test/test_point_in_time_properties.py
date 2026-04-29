@@ -29,31 +29,31 @@ class TestPointInTimeProperties(TestCase):
         # Test invalid team_id
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(0, timestamp, ["user123"])
-        self.assertIn("team_id must be a positive integer", str(cm.exception))
+        assert "team_id must be a positive integer" in str(cm.exception)
 
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(-1, timestamp, ["user123"])
-        self.assertIn("team_id must be a positive integer", str(cm.exception))
+        assert "team_id must be a positive integer" in str(cm.exception)
 
         # Test invalid timestamp
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(1, cast(datetime, "2023-01-01"), ["user123"])
-        self.assertIn("timestamp must be a datetime object", str(cm.exception))
+        assert "timestamp must be a datetime object" in str(cm.exception)
 
         # Test invalid distinct_ids (empty list)
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(1, timestamp, [])
-        self.assertIn("distinct_ids must be a non-empty list", str(cm.exception))
+        assert "distinct_ids must be a non-empty list" in str(cm.exception)
 
         # Test invalid distinct_ids (not a list)
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(1, timestamp, "not_a_list")  # type: ignore[arg-type]
-        self.assertIn("distinct_ids must be a non-empty list", str(cm.exception))
+        assert "distinct_ids must be a non-empty list" in str(cm.exception)
 
         # Test invalid distinct_ids (contains empty string)
         with self.assertRaises(ValueError) as cm:
             build_person_properties_at_time(1, timestamp, ["user123", ""])
-        self.assertIn("All distinct_ids must be non-empty strings", str(cm.exception))
+        assert "All distinct_ids must be non-empty strings" in str(cm.exception)
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_empty_result(self, mock_sync_execute):
@@ -63,7 +63,7 @@ class TestPointInTimeProperties(TestCase):
         timestamp = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
         result = build_person_properties_at_time(1, timestamp, ["user123"])
 
-        self.assertEqual(result, {})
+        assert result == {}
         mock_sync_execute.assert_called_once()
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
@@ -79,7 +79,7 @@ class TestPointInTimeProperties(TestCase):
         result = build_person_properties_at_time(1, timestamp, ["user123"])
 
         expected = {"name": "John Doe", "email": "john@example.com"}
-        self.assertEqual(result, expected)
+        assert result == expected
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_multiple_sets(self, mock_sync_execute):
@@ -100,7 +100,7 @@ class TestPointInTimeProperties(TestCase):
         result = build_person_properties_at_time(1, timestamp, ["user123"])
 
         expected = {"name": "John Doe", "age": 26, "location": "SF"}
-        self.assertEqual(result, expected)
+        assert result == expected
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_malformed_json(self, mock_sync_execute):
@@ -117,7 +117,7 @@ class TestPointInTimeProperties(TestCase):
 
         # Should only get the valid $set event
         expected = {"name": "John"}
-        self.assertEqual(result, expected)
+        assert result == expected
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_clickhouse_error(self, mock_sync_execute):
@@ -129,7 +129,7 @@ class TestPointInTimeProperties(TestCase):
         with self.assertRaises(Exception) as cm:
             build_person_properties_at_time(1, timestamp, ["user123"])
 
-        self.assertIn("Failed to query ClickHouse events", str(cm.exception))
+        assert "Failed to query ClickHouse events" in str(cm.exception)
 
 
 class TestPointInTimePropertiesWithSetOnce(TestCase):
@@ -152,7 +152,7 @@ class TestPointInTimePropertiesWithSetOnce(TestCase):
         # name should remain "John" (not overwritten by $set_once)
         # email should be set by $set_once since it didn't exist
         expected = {"name": "John", "email": "jane@example.com"}
-        self.assertEqual(result, expected)
+        assert result == expected
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_with_set_once_order_matters(self, mock_sync_execute):
@@ -172,7 +172,7 @@ class TestPointInTimePropertiesWithSetOnce(TestCase):
 
         # $set_once sets name first, then $set overwrites it
         expected = {"name": "John", "email": "jane@example.com"}
-        self.assertEqual(result, expected)
+        assert result == expected
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_with_set_once_multiple_set_once(self, mock_sync_execute):
@@ -196,7 +196,7 @@ class TestPointInTimePropertiesWithSetOnce(TestCase):
 
         # First $set_once should win for name, second should set location
         expected = {"name": "First", "email": "first@example.com", "location": "SF"}
-        self.assertEqual(result, expected)
+        assert result == expected
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_build_person_properties_at_time_with_distinct_ids_direct(self, mock_sync_execute):
@@ -211,12 +211,12 @@ class TestPointInTimePropertiesWithSetOnce(TestCase):
         result = build_person_properties_at_time(1, timestamp, distinct_ids=["user123", "user456", "user789"])
 
         expected = {"name": "Jane Doe", "email": "jane@example.com"}
-        self.assertEqual(result, expected)
+        assert result == expected
 
         # Verify the query was called with all distinct_ids
         mock_sync_execute.assert_called_once()
         call_args = mock_sync_execute.call_args
-        self.assertEqual(call_args[0][1]["distinct_ids"], ["user123", "user456", "user789"])
+        assert call_args[0][1]["distinct_ids"] == ["user123", "user456", "user789"]
 
 
 class TestGetPersonAndDistinctIdsForIdentifierValidation(SimpleTestCase):

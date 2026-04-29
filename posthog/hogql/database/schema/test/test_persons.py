@@ -105,8 +105,8 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(response.results) == 2
         assert response.clickhouse
-        self.assertIn("where_optimization", response.clickhouse)
-        self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
+        assert "where_optimization" in response.clickhouse
+        assert "in(tuple(person.id, person.version)" not in response.clickhouse
 
     @snapshot_clickhouse_queries
     def test_joins_are_left_alone_for_now(self):
@@ -117,8 +117,8 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(response.results) == 2
         assert response.clickhouse
-        self.assertIn("in(tuple(person.id, person.version)", response.clickhouse)
-        self.assertNotIn("where_optimization", response.clickhouse)
+        assert "in(tuple(person.id, person.version)" in response.clickhouse
+        assert "where_optimization" not in response.clickhouse
 
     def test_person_modal_not_optimized_yet(self):
         source_query = TrendsQuery(
@@ -146,7 +146,7 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         query_runner = ActorsQueryRunner(query=actors_query, team=self.team)
         response = execute_hogql_query(query_runner.to_query(), self.team, modifiers=self.modifiers)
         assert response.clickhouse
-        self.assertNotIn("where_optimization", response.clickhouse)
+        assert "where_optimization" not in response.clickhouse
 
     @snapshot_clickhouse_queries
     def test_order_by_limit_transferred(self):
@@ -159,8 +159,8 @@ class TestPersonOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         assert len(response.results) == 2
         assert response.clickhouse
-        self.assertIn("where_optimization", response.clickhouse)
-        self.assertNotIn("in(tuple(person.id, person.version)", response.clickhouse)
+        assert "where_optimization" in response.clickhouse
+        assert "in(tuple(person.id, person.version)" not in response.clickhouse
 
 
 class TestPersonsV2LimitPushDown(ClickhouseTestMixin, APIBaseTest):
@@ -448,7 +448,7 @@ class TestVirtualFieldDetection(APIBaseTest):
     )
     def test_is_virtual_field_requiring_join(self, name: str, expr: ast.Expr, expected: bool):
         result = _is_virtual_field_requiring_join(expr)
-        self.assertEqual(result, expected, f"Failed for test case: {name}")
+        assert result == expected, f"Failed for test case: {name}"
 
     def test_complex_nested_expression(self):
         complex_expr = ast.CompareOperation(
@@ -465,7 +465,7 @@ class TestVirtualFieldDetection(APIBaseTest):
 
         result = _is_virtual_field_requiring_join(complex_expr)
 
-        self.assertTrue(result, "Complex expression with virtual field should return True")
+        assert result, "Complex expression with virtual field should return True"
 
     def test_multiple_virtual_fields(self):
         expr = ast.ArithmeticOperation(
@@ -476,7 +476,7 @@ class TestVirtualFieldDetection(APIBaseTest):
 
         result = _is_virtual_field_requiring_join(expr)
 
-        self.assertTrue(result, "Expression with multiple virtual fields should return True")
+        assert result, "Expression with multiple virtual fields should return True"
 
     def test_no_exception_on_malformed_ast(self):
         class MockASTNode:
@@ -486,4 +486,4 @@ class TestVirtualFieldDetection(APIBaseTest):
         mock_node = MockASTNode()
 
         result = _is_virtual_field_requiring_join(mock_node)  # type: ignore
-        self.assertFalse(result, "Malformed AST should return False without exception")
+        assert not result, "Malformed AST should return False without exception"

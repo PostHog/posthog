@@ -101,11 +101,11 @@ class TestOtelInstrumentation(BaseTest):
         mock_resource_cls.create.assert_called_once_with(attributes={"service.name": "test-service"})
 
         # Check TracerProvider call with sampler
-        self.assertEqual(mock_tracer_provider_cls.call_count, 1)
+        assert mock_tracer_provider_cls.call_count == 1
         call_args = mock_tracer_provider_cls.call_args
-        self.assertEqual(call_args[1]["resource"], mock_resource_instance)
+        assert call_args[1]["resource"] == mock_resource_instance
         # No longer passing sampler manually - OpenTelemetry SDK handles it via env vars
-        self.assertNotIn("sampler", call_args[1])
+        assert "sampler" not in call_args[1]
 
         mock_otlp_exporter_cls.assert_called_once_with()
         mock_batch_processor_cls.assert_called_once_with(mock_otlp_exporter_cls.return_value)
@@ -116,9 +116,9 @@ class TestOtelInstrumentation(BaseTest):
         mock_django_instrumentor_instance.instrument.assert_called_once()
 
         instrument_call_args = mock_django_instrumentor_instance.instrument.call_args
-        self.assertEqual(instrument_call_args[1]["tracer_provider"], mock_provider_instance)
-        self.assertEqual(instrument_call_args[1]["request_hook"], _otel_django_request_hook)
-        self.assertEqual(instrument_call_args[1]["response_hook"], _otel_django_response_hook)
+        assert instrument_call_args[1]["tracer_provider"] == mock_provider_instance
+        assert instrument_call_args[1]["request_hook"] == _otel_django_request_hook
+        assert instrument_call_args[1]["response_hook"] == _otel_django_response_hook
 
         # Assert RedisInstrumentor call
         mock_redis_instrumentor_cls.assert_called_once_with()
@@ -155,16 +155,16 @@ class TestOtelInstrumentation(BaseTest):
                 if kwargs.get("sampler_type") == "parentbased_traceidratio" and kwargs.get("sampler_arg") == "0":
                     found_sampler_config_log = True
 
-        self.assertTrue(found_init_success_log, "Expected OTel initialization success log not found or incorrect.")
-        self.assertTrue(found_sdk_config_log, "Expected OTel SDK logging configuration log not found.")
-        self.assertTrue(found_sampler_config_log, "Expected OTel sampler configuration log not found or incorrect.")
+        assert found_init_success_log, "Expected OTel initialization success log not found or incorrect."
+        assert found_sdk_config_log, "Expected OTel SDK logging configuration log not found."
+        assert found_sampler_config_log, "Expected OTel sampler configuration log not found or incorrect."
 
         # Check standard library logger configurations
         root_logger = logging.getLogger()
-        self.assertEqual(root_logger.level, logging.DEBUG)  # OTEL_PYTHON_LOG_LEVEL is debug
+        assert root_logger.level == logging.DEBUG  # OTEL_PYTHON_LOG_LEVEL is debug
         django_otel_lib_logger = logging.getLogger("opentelemetry.instrumentation.django")
-        self.assertEqual(django_otel_lib_logger.level, logging.DEBUG)  # Always set to DEBUG
-        self.assertTrue(django_otel_lib_logger.propagate)
+        assert django_otel_lib_logger.level == logging.DEBUG  # Always set to DEBUG
+        assert django_otel_lib_logger.propagate
 
     @mock.patch("posthog.otel_instrumentation.AIOKafkaInstrumentor")
     @mock.patch("posthog.otel_instrumentation.KafkaInstrumentor")
@@ -199,14 +199,14 @@ class TestOtelInstrumentation(BaseTest):
             if event_name == "otel_manual_init_status_from_instrumentation_module":
                 if kwargs.get("status") == "disabled":
                     found_disabled_log = True
-        self.assertTrue(found_disabled_log, "Expected OTel disabled status log not found or incorrect.")
+        assert found_disabled_log, "Expected OTel disabled status log not found or incorrect."
 
         # Check standard library logger configurations (logging setup still happens)
         root_logger = logging.getLogger()
-        self.assertEqual(root_logger.level, logging.INFO)  # OTEL_PYTHON_LOG_LEVEL is info
+        assert root_logger.level == logging.INFO  # OTEL_PYTHON_LOG_LEVEL is info
         django_otel_lib_logger = logging.getLogger("opentelemetry.instrumentation.django")
-        self.assertEqual(django_otel_lib_logger.level, logging.DEBUG)  # Always set to DEBUG
-        self.assertTrue(django_otel_lib_logger.propagate)
+        assert django_otel_lib_logger.level == logging.DEBUG  # Always set to DEBUG
+        assert django_otel_lib_logger.propagate
 
     def test_otel_django_request_hook(self):
         mock_span = mock.Mock()
@@ -219,7 +219,7 @@ class TestOtelInstrumentation(BaseTest):
 
         mock_span.set_attribute.assert_any_call("http.method", "GET")
         mock_span.set_attribute.assert_any_call("http.url", "/test/path")
-        self.assertEqual(mock_span.set_attribute.call_count, 2)
+        assert mock_span.set_attribute.call_count == 2
 
     def test_otel_django_request_hook_not_recording(self):
         mock_span = mock.Mock()
@@ -316,11 +316,11 @@ class TestOtelInstrumentation(BaseTest):
         mock_resource_cls.create.assert_called_once_with(attributes={"service.name": "test-service-custom-sample"})
 
         # Check TracerProvider call with sampler
-        self.assertEqual(mock_tracer_provider_cls.call_count, 1)
+        assert mock_tracer_provider_cls.call_count == 1
         call_args = mock_tracer_provider_cls.call_args
-        self.assertEqual(call_args[1]["resource"], mock_resource_instance)
+        assert call_args[1]["resource"] == mock_resource_instance
         # No longer passing sampler manually - OpenTelemetry SDK handles it via env vars
-        self.assertNotIn("sampler", call_args[1])
+        assert "sampler" not in call_args[1]
 
         mock_set_tracer_provider.assert_called_once_with(mock_provider_instance)
 
@@ -332,9 +332,7 @@ class TestOtelInstrumentation(BaseTest):
             if event_name == "otel_sampler_configured":
                 if kwargs.get("sampler_type") == "parentbased_traceidratio" and kwargs.get("sampler_arg") == "0.5":
                     found_sampler_config_log = True
-        self.assertTrue(
-            found_sampler_config_log, "Expected OTel sampler configuration log with custom ratio not found."
-        )
+        assert found_sampler_config_log, "Expected OTel sampler configuration log with custom ratio not found."
 
         # Assert KafkaInstrumentor call
         mock_kafka_instrumentor_cls.assert_called_once_with()

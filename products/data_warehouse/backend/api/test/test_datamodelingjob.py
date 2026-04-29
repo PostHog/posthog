@@ -53,32 +53,32 @@ class TestDataModelingJob(APIBaseTest):
 
     def test_list_data_modeling_jobs(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         data = response.json()
-        self.assertIn("results", data)
+        assert "results" in data
         results = data["results"]
-        self.assertEqual(len(results), 3)
+        assert len(results) == 3
 
         # Most recent should be first
         job_ids = [job["id"] for job in results]
         expected_ids = [str(job.id) for job in [self.job3, self.job2, self.job1]]
-        self.assertEqual(job_ids, expected_ids)
+        assert job_ids == expected_ids
 
         first_job = results[0]
-        self.assertEqual(first_job["status"], DataModelingJob.Status.FAILED)
-        self.assertEqual(first_job["saved_query_id"], str(self.saved_query.id))
-        self.assertEqual(first_job["rows_materialized"], 0)
-        self.assertEqual(first_job["error"], "Something went wrong")
+        assert first_job["status"] == DataModelingJob.Status.FAILED
+        assert first_job["saved_query_id"] == str(self.saved_query.id)
+        assert first_job["rows_materialized"] == 0
+        assert first_job["error"] == "Something went wrong"
 
     def test_retrieve_data_modeling_job(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/{self.job1.id}/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         data = response.json()
-        self.assertEqual(data["id"], str(self.job1.id))
-        self.assertEqual(data["status"], DataModelingJob.Status.COMPLETED)
-        self.assertEqual(data["rows_materialized"], 100)
+        assert data["id"] == str(self.job1.id)
+        assert data["status"] == DataModelingJob.Status.COMPLETED
+        assert data["rows_materialized"] == 100
         other_saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Another saved query")
         other_job = DataModelingJob.objects.create(
             team=self.team,
@@ -91,31 +91,31 @@ class TestDataModelingJob(APIBaseTest):
         response = self.client.get(
             f"/api/environments/{self.team.pk}/data_modeling_jobs/?saved_query_id={self.saved_query.id}"
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         data = response.json()
-        self.assertIn("results", data)
+        assert "results" in data
         results = data["results"]
-        self.assertEqual(len(results), 3)
-        self.assertNotIn(str(other_job.id), [job["id"] for job in results])
+        assert len(results) == 3
+        assert str(other_job.id) not in [job["id"] for job in results]
 
         response = self.client.get(
             f"/api/environments/{self.team.pk}/data_modeling_jobs/?saved_query_id={other_saved_query.id}"
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         data = response.json()
-        self.assertIn("results", data)
+        assert "results" in data
         results = data["results"]
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], str(other_job.id))
+        assert len(results) == 1
+        assert results[0]["id"] == str(other_job.id)
 
     def test_cannot_access_other_teams_jobs(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/{self.other_team_job.id}/")
-        self.assertEqual(response.status_code, 404)
+        assert response.status_code == 404
 
         response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         job_ids = [job["id"] for job in response.json()["results"]]
-        self.assertNotIn(str(self.other_team_job.id), job_ids)
+        assert str(self.other_team_job.id) not in job_ids

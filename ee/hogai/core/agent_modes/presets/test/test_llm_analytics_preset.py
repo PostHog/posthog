@@ -18,8 +18,8 @@ class TestLLMAnalyticsAgentToolkit(BaseTest):
         tool_classes = toolkit.tools
         tool_class_names = [tool_class.__name__ for tool_class in tool_classes]
 
-        self.assertIn("SearchLLMTracesTool", tool_class_names)
+        assert "SearchLLMTracesTool" in tool_class_names
 
     def test_toolkit_has_trajectory_examples(self):
-        self.assertIsNotNone(LLMAnalyticsAgentToolkit.POSITIVE_TODO_EXAMPLES)
-        self.assertGreater(len(LLMAnalyticsAgentToolkit.POSITIVE_TODO_EXAMPLES or []), 0)
+        assert LLMAnalyticsAgentToolkit.POSITIVE_TODO_EXAMPLES is not None
+        assert len(LLMAnalyticsAgentToolkit.POSITIVE_TODO_EXAMPLES or []) > 0

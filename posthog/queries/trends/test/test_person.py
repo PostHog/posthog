@@ -19,6 +19,7 @@ from posthog.models.group.util import create_group
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from collections import Counter
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
@@ -74,23 +75,22 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         entity = Entity(event)
 
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
-        self.assertEqual(len(serialized_actors), 1)
-        self.assertEqual(len(serialized_actors[0]["matched_recordings"]), 1)
-        self.assertEqual(serialized_actors[0]["matched_recordings"][0]["session_id"], "s1")
-        self.assertCountEqual(
-            serialized_actors[0]["matched_recordings"][0]["events"],
-            [
-                {
-                    "window_id": "w1",
-                    "timestamp": timezone.now() + relativedelta(hours=3),
-                    "uuid": UUID("206e5a5e-e001-4293-af81-ac73e194569d"),
-                },
-                {
-                    "window_id": "w1",
-                    "timestamp": timezone.now() + relativedelta(hours=2),
-                    "uuid": UUID("b06e5a5e-e001-4293-af81-ac73e194569d"),
-                },
-            ],
+        assert len(serialized_actors) == 1
+        assert len(serialized_actors[0]["matched_recordings"]) == 1
+        assert serialized_actors[0]["matched_recordings"][0]["session_id"] == "s1"
+        assert (
+            Counter(serialized_actors[0]["matched_recordings"][0]["events"]) == Counter([
+            {
+            "window_id": "w1",
+            "timestamp": timezone.now() + relativedelta(hours=3),
+            "uuid": UUID("206e5a5e-e001-4293-af81-ac73e194569d"),
+            },
+            {
+            "window_id": "w1",
+            "timestamp": timezone.now() + relativedelta(hours=2),
+            "uuid": UUID("b06e5a5e-e001-4293-af81-ac73e194569d"),
+            },
+            ])
         )
 
     @snapshot_clickhouse_queries
@@ -110,7 +110,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         entity = Entity(event)
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
-        self.assertEqual(serialized_actors[0].get("matched_recordings"), [])
+        assert serialized_actors[0].get("matched_recordings") == []
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
@@ -165,18 +165,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
-        self.assertCountEqual(
-            serialized_actors[0].get("matched_recordings", []),
-            [
-                {
-                    "session_id": "s1",
-                    "events": [
-                        {
-                            "window_id": "w1",
-                            "timestamp": timezone.now() + relativedelta(hours=2),
-                            "uuid": UUID("b06e5a5e-e001-4293-af81-ac73e194569d"),
-                        }
-                    ],
-                }
+        assert (
+            Counter(serialized_actors[0].get("matched_recordings", [])) == Counter([
+            {
+            "session_id": "s1",
+            "events": [
+            {
+            "window_id": "w1",
+            "timestamp": timezone.now() + relativedelta(hours=2),
+            "uuid": UUID("b06e5a5e-e001-4293-af81-ac73e194569d"),
+            }
             ],
+            }
+            ])
         )

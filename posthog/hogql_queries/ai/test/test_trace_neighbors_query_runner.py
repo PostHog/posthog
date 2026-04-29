@@ -73,10 +73,10 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(response.olderTraceId, "trace1")
-        self.assertEqual(response.olderTimestamp, datetime(2025, 1, 15, 0, 0, tzinfo=UTC).isoformat())
-        self.assertEqual(response.newerTraceId, "trace3")
-        self.assertEqual(response.newerTimestamp, datetime(2025, 1, 15, 2, 0, tzinfo=UTC).isoformat())
+        assert response.olderTraceId == "trace1"
+        assert response.olderTimestamp == datetime(2025, 1, 15, 0, 0, tzinfo=UTC).isoformat()
+        assert response.newerTraceId == "trace3"
+        assert response.newerTimestamp == datetime(2025, 1, 15, 2, 0, tzinfo=UTC).isoformat()
 
     def test_no_prev_trace_when_first(self):
         """Test that no previous trace is returned when current trace is first."""
@@ -104,10 +104,10 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertIsNone(response.olderTraceId)
-        self.assertIsNone(response.olderTimestamp)
-        self.assertEqual(response.newerTraceId, "trace2")
-        self.assertEqual(response.newerTimestamp, datetime(2025, 1, 15, 1, 0, tzinfo=UTC).isoformat())
+        assert response.olderTraceId is None
+        assert response.olderTimestamp is None
+        assert response.newerTraceId == "trace2"
+        assert response.newerTimestamp == datetime(2025, 1, 15, 1, 0, tzinfo=UTC).isoformat()
 
     def test_no_next_trace_when_last(self):
         """Test that no next trace is returned when current trace is last."""
@@ -135,10 +135,10 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(response.olderTraceId, "trace1")
-        self.assertEqual(response.olderTimestamp, datetime(2025, 1, 15, 0, 0, tzinfo=UTC).isoformat())
-        self.assertIsNone(response.newerTraceId)
-        self.assertIsNone(response.newerTimestamp)
+        assert response.olderTraceId == "trace1"
+        assert response.olderTimestamp == datetime(2025, 1, 15, 0, 0, tzinfo=UTC).isoformat()
+        assert response.newerTraceId is None
+        assert response.newerTimestamp is None
 
     def test_identical_timestamps_deterministic_ordering(self):
         """Test that traces with identical timestamps are ordered deterministically by trace_id."""
@@ -176,8 +176,8 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(response.olderTraceId, "trace_a")
-        self.assertEqual(response.newerTraceId, "trace_c")
+        assert response.olderTraceId == "trace_a"
+        assert response.newerTraceId == "trace_c"
 
         # Query from trace_a (first)
         response = TraceNeighborsQueryRunner(
@@ -188,8 +188,8 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertIsNone(response.olderTraceId)
-        self.assertEqual(response.newerTraceId, "trace_b")
+        assert response.olderTraceId is None
+        assert response.newerTraceId == "trace_b"
 
         # Query from trace_c (last)
         response = TraceNeighborsQueryRunner(
@@ -200,8 +200,8 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(response.olderTraceId, "trace_b")
-        self.assertIsNone(response.newerTraceId)
+        assert response.olderTraceId == "trace_b"
+        assert response.newerTraceId is None
 
     def test_uses_max_timestamp_per_trace(self):
         """Test that the query uses max timestamp per trace when trace has multiple events."""
@@ -246,8 +246,8 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(response.olderTraceId, "trace1")
-        self.assertEqual(response.newerTraceId, "trace3")
+        assert response.olderTraceId == "trace1"
+        assert response.newerTraceId == "trace3"
 
     def test_respects_date_range_filter(self):
         """Test that explicit date range is respected."""
@@ -287,8 +287,8 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
 
         # Should not find trace_old since it's outside date range
-        self.assertIsNone(response.olderTraceId)
-        self.assertEqual(response.newerTraceId, "trace_recent")
+        assert response.olderTraceId is None
+        assert response.newerTraceId == "trace_recent"
 
     def test_default_date_range_window(self):
         """Test that default date range is ±3 days around trace timestamp."""
@@ -340,8 +340,8 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
 
         # Should find neighbors within 3-day window
-        self.assertEqual(response.olderTraceId, "trace_prev")
-        self.assertEqual(response.newerTraceId, "trace_next")
+        assert response.olderTraceId == "trace_prev"
+        assert response.newerTraceId == "trace_next"
 
     def test_property_filters(self):
         """Test that property filters are applied correctly."""
@@ -388,8 +388,8 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
 
         # Should skip trace3_dev and find trace4
-        self.assertEqual(response.olderTraceId, "trace1")
-        self.assertEqual(response.newerTraceId, "trace4")
+        assert response.olderTraceId == "trace1"
+        assert response.newerTraceId == "trace4"
 
     @freeze_time("2025-01-15T00:00:00Z")
     def test_filter_test_accounts(self):
@@ -433,8 +433,8 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
 
         # Should skip trace2_test
-        self.assertEqual(response.olderTraceId, "trace1_real")
-        self.assertIsNone(response.newerTraceId)
+        assert response.olderTraceId == "trace1_real"
+        assert response.newerTraceId is None
 
     def test_only_trace_in_range(self):
         """Test behavior when there's only one trace in the date range."""
@@ -455,10 +455,10 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertIsNone(response.olderTraceId)
-        self.assertIsNone(response.olderTimestamp)
-        self.assertIsNone(response.newerTraceId)
-        self.assertIsNone(response.newerTimestamp)
+        assert response.olderTraceId is None
+        assert response.olderTimestamp is None
+        assert response.newerTraceId is None
+        assert response.newerTimestamp is None
 
     def test_multiple_event_types_in_trace(self):
         """Test that all AI event types are considered when finding neighbors."""
@@ -506,8 +506,8 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        self.assertEqual(response.olderTraceId, "trace1")
-        self.assertEqual(response.newerTraceId, "trace3")
+        assert response.olderTraceId == "trace1"
+        assert response.newerTraceId == "trace3"
 
     def test_empty_trace_id_excluded(self):
         """Test that events with empty trace_id are excluded."""
@@ -546,7 +546,7 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
 
         # Should skip the empty trace_id and find trace3
-        self.assertEqual(response.newerTraceId, "trace3")
+        assert response.newerTraceId == "trace3"
 
     def test_filter_support_traces(self):
         """Test that support traces can be filtered out."""
@@ -588,4 +588,4 @@ class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
 
         # Should skip trace2_support
-        self.assertEqual(response.newerTraceId, "trace3")
+        assert response.newerTraceId == "trace3"

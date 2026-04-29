@@ -26,7 +26,7 @@ class TestAssistantBase(BaseTest):
         )
 
         result = node._is_first_turn(state)
-        self.assertTrue(result)
+        assert result
 
     def test_is_first_turn_false_with_conversation(self):
         """Test _is_first_turn returns False when there's been conversation"""
@@ -42,7 +42,7 @@ class TestAssistantBase(BaseTest):
         )
 
         result = node._is_first_turn(state)
-        self.assertFalse(result)
+        assert not result
 
     def test_is_first_turn_false_with_assistant_message_last(self):
         """Test _is_first_turn returns False when last message is not human"""
@@ -57,7 +57,7 @@ class TestAssistantBase(BaseTest):
         )
 
         result = node._is_first_turn(state)
-        self.assertFalse(result)
+        assert not result
 
     def test_is_first_turn_with_start_id(self):
         """Test _is_first_turn respects start_id parameter"""
@@ -74,7 +74,7 @@ class TestAssistantBase(BaseTest):
         )
 
         result = node._is_first_turn(state)
-        self.assertTrue(result)
+        assert result
 
         # Add more messages after the start - should be False
         state_with_conversation = AssistantState(
@@ -89,4 +89,4 @@ class TestAssistantBase(BaseTest):
         )
 
         result = node._is_first_turn(state_with_conversation)
-        self.assertFalse(result)
+        assert not result

@@ -22,11 +22,11 @@ class TestRepoViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        self.assertEqual(data["repo_full_name"], "org/my-repo")
-        self.assertEqual(data["repo_external_id"], 12345)
-        self.assertIn("id", data)
+        assert data["repo_full_name"] == "org/my-repo"
+        assert data["repo_external_id"] == 12345
+        assert "id" in data
 
     def test_list_repos(self):
         existing_count = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/").json()["count"]
@@ -35,24 +35,24 @@ class TestRepoViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["count"] - existing_count, 2)
+        assert data["count"] - existing_count == 2
 
     def test_retrieve_project(self):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=333, repo_full_name="org/test")
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["repo_full_name"], "org/test")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["repo_full_name"] == "org/test"
 
     def test_retrieve_project_not_found(self):
         import uuid
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/repos/{uuid.uuid4()}/")
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
 class TestRunViewSet(APIBaseTest):
@@ -86,13 +86,13 @@ class TestRunViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        self.assertIn("run_id", data)
-        self.assertIn("uploads", data)
-        self.assertEqual(len(data["uploads"]), 2)
+        assert "run_id" in data
+        assert "uploads" in data
+        assert len(data["uploads"]) == 2
         upload_hashes = {u["content_hash"] for u in data["uploads"]}
-        self.assertEqual(upload_hashes, {"hash1", "hash2"})
+        assert upload_hashes == {"hash1", "hash2"}
 
     def test_retrieve_run(self):
         create_result = api.create_run(
@@ -108,10 +108,10 @@ class TestRunViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        self.assertEqual(data["commit_sha"], "abc123")
-        self.assertEqual(data["status"], "pending")
+        assert data["commit_sha"] == "abc123"
+        assert data["status"] == "pending"
 
     def test_get_run_snapshots(self):
         create_result = api.create_run(
@@ -130,12 +130,12 @@ class TestRunViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/snapshots/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         data = response.json()
         results = data["results"]
-        self.assertEqual(len(results), 2)
+        assert len(results) == 2
         identifiers = {s["identifier"] for s in results}
-        self.assertEqual(identifiers, {"Button", "Card"})
+        assert identifiers == {"Button", "Card"}
 
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_no_changes(self, mock_delay):
@@ -153,8 +153,8 @@ class TestRunViewSet(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/complete/")
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], "completed")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == "completed"
         mock_delay.assert_not_called()
 
     def test_approve_run(self):
@@ -186,6 +186,6 @@ class TestRunViewSet(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         # Per-snapshot approval is DB only — run not finalized
-        self.assertFalse(response.json()["run"]["approved"])
+        assert not response.json()["run"]["approved"]

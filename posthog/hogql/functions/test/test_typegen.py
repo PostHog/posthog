@@ -13,9 +13,9 @@ class TestTypegen(BaseTest):
             fixed_types=[StringType()], variadic_types=[StringType(), IntegerType()], min_variadic=0, max_variadic=0
         )
 
-        self.assertEqual(len(signatures), 1)
-        self.assertEqual(len(signatures[0]), 1)
-        self.assertIsInstance(signatures[0][0], StringType)
+        assert len(signatures) == 1
+        assert len(signatures[0]) == 1
+        assert isinstance(signatures[0][0], StringType)
 
     def test_generate_variadic_signatures_with_variadic(self):
         """Test variadic signature generation with variadic arguments."""
@@ -28,7 +28,7 @@ class TestTypegen(BaseTest):
         # - 2 variadic: (String, String, String), (String, String, Integer),
         #               (String, Integer, String), (String, Integer, Integer)
         # Total: 2 + 4 = 6 signatures
-        self.assertEqual(len(signatures), 6)
+        assert len(signatures) == 6
 
         # Convert to type names for easier comparison
         sig_names = [tuple(type(t).__name__ for t in sig) for sig in signatures]
@@ -41,7 +41,7 @@ class TestTypegen(BaseTest):
             ("StringType", "IntegerType", "IntegerType"),
         ]
 
-        self.assertEqual(set(sig_names), set(expected_names))
+        assert set(sig_names) == set(expected_names)
 
     def test_generate_json_path_signatures_no_paths(self):
         """Test JSON path signature generation with no paths allowed."""
@@ -50,11 +50,11 @@ class TestTypegen(BaseTest):
         )
 
         # Should generate only: (StringType,) -> IntegerType
-        self.assertEqual(len(signatures), 1)
+        assert len(signatures) == 1
         inputs, output = signatures[0]
-        self.assertEqual(len(inputs), 1)
-        self.assertIsInstance(inputs[0], StringType)
-        self.assertIsInstance(output, IntegerType)
+        assert len(inputs) == 1
+        assert isinstance(inputs[0], StringType)
+        assert isinstance(output, IntegerType)
 
     def test_generate_json_path_signatures_with_paths(self):
         """Test JSON path signature generation with path arguments."""
@@ -67,15 +67,15 @@ class TestTypegen(BaseTest):
         # - 2 paths: (String, String, String) -> Bool, (String, String, Integer) -> Bool,
         #           (String, Integer, String) -> Bool, (String, Integer, Integer) -> Bool
         # Total: 2 + 4 = 6 signatures
-        self.assertEqual(len(signatures), 6)
+        assert len(signatures) == 6
 
         # All should return BooleanType
         for inputs, output in signatures:
-            self.assertIsInstance(output, BooleanType)
+            assert isinstance(output, BooleanType)
             # All should start with StringType (JSON parameter)
-            self.assertIsInstance(inputs[0], StringType)
+            assert isinstance(inputs[0], StringType)
             # All should have 2 or 3 total parameters
-            self.assertIn(len(inputs), [2, 3])
+            assert len(inputs) in [2, 3]
 
     def test_generate_json_path_signatures_multiple_fixed(self):
         """Test JSON path signature generation with multiple fixed parameters."""
@@ -90,15 +90,15 @@ class TestTypegen(BaseTest):
         # - 0 paths: (String, String) -> Float
         # - 1 path: (String, String, String) -> Float, (String, String, Integer) -> Float
         # Total: 1 + 2 = 3 signatures
-        self.assertEqual(len(signatures), 3)
+        assert len(signatures) == 3
 
         for inputs, output in signatures:
-            self.assertIsInstance(output, FloatType)
+            assert isinstance(output, FloatType)
             # All should start with two StringType parameters
-            self.assertIsInstance(inputs[0], StringType)
-            self.assertIsInstance(inputs[1], StringType)
+            assert isinstance(inputs[0], StringType)
+            assert isinstance(inputs[1], StringType)
             # Should have 2 or 3 total parameters
-            self.assertIn(len(inputs), [2, 3])
+            assert len(inputs) in [2, 3]
 
     def test_generate_json_path_signatures_realistic_jsonhas(self):
         """Test signature generation that matches JSONHas function requirements."""
@@ -111,7 +111,7 @@ class TestTypegen(BaseTest):
         # 2 paths: 4 signatures
         # 3 paths: 8 signatures
         # Total: 2 + 4 + 8 = 14 signatures
-        self.assertEqual(len(signatures), 14)
+        assert len(signatures) == 14
 
         # Group by input length
         by_length: dict[int, list[tuple[tuple[AnyConstantType, ...], AnyConstantType]]] = {}
@@ -127,9 +127,9 @@ class TestTypegen(BaseTest):
             )
 
         # Check we have the right number for each length
-        self.assertEqual(len(by_length[2]), 2)  # 1 path argument
-        self.assertEqual(len(by_length[3]), 4)  # 2 path arguments
-        self.assertEqual(len(by_length[4]), 8)  # 3 path arguments
+        assert len(by_length[2]) == 2  # 1 path argument
+        assert len(by_length[3]) == 4  # 2 path arguments
+        assert len(by_length[4]) == 8  # 3 path arguments
 
     def test_generate_json_path_signatures_edge_cases(self):
         """Test edge cases for JSON path signature generation."""
@@ -137,7 +137,7 @@ class TestTypegen(BaseTest):
         signatures = generate_json_path_signatures(
             fixed_types=[StringType()], return_type=IntegerType(), min_paths=3, max_paths=1
         )
-        self.assertEqual(len(signatures), 0)
+        assert len(signatures) == 0
 
         # Test with min_paths == max_paths
         signatures = generate_json_path_signatures(
@@ -145,7 +145,7 @@ class TestTypegen(BaseTest):
         )
         # Should generate only signatures with exactly 2 path arguments
         # 2 paths: 2^2 = 4 combinations
-        self.assertEqual(len(signatures), 4)
+        assert len(signatures) == 4
         for inputs, output in signatures:
-            self.assertEqual(len(inputs), 3)  # JSON + 2 paths
-            self.assertEqual(type(output), IntegerType)
+            assert len(inputs) == 3  # JSON + 2 paths
+            assert type(output) == IntegerType

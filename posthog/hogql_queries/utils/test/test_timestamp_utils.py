@@ -212,7 +212,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         ]
         earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
 
-        self.assertEqual(earliest_timestamp, datetime.datetime(2021, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+        assert earliest_timestamp == datetime.datetime(2021, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
 
     def test_returns_earliest_timestamp_series_nodes(self):
         _create_event(
@@ -234,12 +234,12 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
             EventsNode(event="$pageleave"),
         ]
         earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
-        self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+        assert earliest_timestamp == datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
 
         earliest_timestamp_pageview = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageview")])
-        self.assertEqual(earliest_timestamp_pageview, datetime.datetime(2022, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+        assert earliest_timestamp_pageview == datetime.datetime(2022, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
         earliest_timestamp_pageleave = get_earliest_timestamp_from_series(self.team, [EventsNode(event="$pageleave")])
-        self.assertEqual(earliest_timestamp_pageleave, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+        assert earliest_timestamp_pageleave == datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
 
     def test_returns_earliest_timestamp_for_all_events(self):
         """Test that event=None returns earliest across ALL events"""
@@ -259,7 +259,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         # When event is None, it should return the earliest timestamp across ALL events
         earliest_timestamp = get_earliest_timestamp_from_series(self.team, [EventsNode(event=None)])
-        self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+        assert earliest_timestamp == datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
 
     def test_returns_earliest_timestamp_multiple_actions(self):
         """Test that multiple actions return the earliest timestamp across all actions"""
@@ -282,7 +282,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         series = [ActionsNode(id=action1.id), ActionsNode(id=action2.id)]
         earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
-        self.assertEqual(earliest_timestamp, datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+        assert earliest_timestamp == datetime.datetime(2020, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
 
     def test_returns_earliest_timestamp_mixed_nodes(self):
         """Test that mixing EventsNode and ActionsNode returns earliest timestamp across all"""
@@ -304,7 +304,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         series = [ActionsNode(id=action.id), EventsNode(event="$pageleave")]
         earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
-        self.assertEqual(earliest_timestamp, datetime.datetime(2019, 1, 1, 12, 0, 0, tzinfo=datetime.UTC))
+        assert earliest_timestamp == datetime.datetime(2019, 1, 1, 12, 0, 0, tzinfo=datetime.UTC)
 
     def test_caches_earliest_timestamp(self):
         _create_event(
@@ -337,4 +337,4 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         # should still return the earliest timestamp from the first query
         cached_earliest_timestamp = get_earliest_timestamp_from_series(self.team, series)  # type: ignore
-        self.assertEqual(cached_earliest_timestamp, earliest_timestamp)
+        assert cached_earliest_timestamp == earliest_timestamp

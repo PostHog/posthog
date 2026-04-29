@@ -22,9 +22,9 @@ class TestInternalAPIAuth(APIBaseTest):
     def test_valid_secret_allows_access(self):
         request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="test-secret-123"))
         user, auth = self.authentication.authenticate(request)
-        self.assertTrue(user.is_authenticated)
-        self.assertFalse(user.is_anonymous)
-        self.assertIsNone(auth)
+        assert user.is_authenticated
+        assert not user.is_anonymous
+        assert auth is None
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_invalid_secret_denies_access(self):
@@ -65,13 +65,13 @@ class TestInternalAPIAuth(APIBaseTest):
 
             user, auth = self.authentication.authenticate(request)
 
-        self.assertEqual(user.current_team_id, mocked_team.id)
-        self.assertEqual(user.current_organization_id, mocked_team.organization_id)
-        self.assertIsNone(auth)
+        assert user.current_team_id == mocked_team.id
+        assert user.current_organization_id == mocked_team.organization_id
+        assert auth is None
 
     def test_authenticate_header(self):
         request = self.factory.get("/internal/endpoint")
-        self.assertEqual(self.authentication.authenticate_header(request), "InternalApiSecret")
+        assert self.authentication.authenticate_header(request) == "InternalApiSecret"
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_sets_org_and_team_from_team_id_route_param(self):
@@ -85,8 +85,8 @@ class TestInternalAPIAuth(APIBaseTest):
 
         user, _ = self.authentication.authenticate(request)
 
-        self.assertEqual(user.current_organization_id, self.organization.id)
-        self.assertEqual(user.current_team_id, self.team.id)
+        assert user.current_organization_id == self.organization.id
+        assert user.current_team_id == self.team.id
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_invalid_team_id_route_param_denies_access(self):
@@ -110,5 +110,5 @@ class TestInternalAPIAuth(APIBaseTest):
             headers={"x-internal-api-secret": "test-secret-123"},
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"error": "Missing filters for which to get blast radius"})
+        assert response.status_code == 400
+        assert response.json() == {"error": "Missing filters for which to get blast radius"}

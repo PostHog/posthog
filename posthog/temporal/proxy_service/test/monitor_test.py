@@ -29,8 +29,8 @@ class TestCheckProxyIsLive(TestCase):
         result = await check_proxy_is_live(self.input)
 
         # Should succeed without errors or warnings
-        self.assertEqual(result.errors, [])
-        self.assertEqual(result.warnings, [])
+        assert result.errors == []
+        assert result.warnings == []
 
     @pytest.mark.asyncio
     @freeze_time("2024-01-16 10:00:00")  # Frozen at Jan 16, cert expires Feb 15 (30 days later)
@@ -67,8 +67,8 @@ class TestCheckProxyIsLive(TestCase):
             data=json.dumps({"event": "test", "api_key": "test", "distinct_id": "test"}),
         )
 
-        self.assertEqual(result.errors, [])
-        self.assertEqual(result.warnings, [])
+        assert result.errors == []
+        assert result.warnings == []
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.requests.post")
@@ -80,8 +80,8 @@ class TestCheckProxyIsLive(TestCase):
 
         result = await check_proxy_is_live(self.input)
 
-        self.assertEqual(result.errors, ["Failed to connect to proxy: invalid SSL certificate"])
-        self.assertEqual(result.warnings, [])
+        assert result.errors == ["Failed to connect to proxy: invalid SSL certificate"]
+        assert result.warnings == []
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.requests.post")
@@ -93,8 +93,8 @@ class TestCheckProxyIsLive(TestCase):
 
         result = await check_proxy_is_live(self.input)
 
-        self.assertEqual(result.errors, ["Failed to connect to proxy"])
-        self.assertEqual(result.warnings, [])
+        assert result.errors == ["Failed to connect to proxy"]
+        assert result.warnings == []
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.requests.post")
@@ -109,8 +109,8 @@ class TestCheckProxyIsLive(TestCase):
 
         result = await check_proxy_is_live(self.input)
 
-        self.assertEqual(result.errors, ["Failed to send event to proxy, expected 200 but got 500"])
-        self.assertEqual(result.warnings, [])
+        assert result.errors == ["Failed to send event to proxy, expected 200 but got 500"]
+        assert result.warnings == []
 
     @pytest.mark.asyncio
     @freeze_time("2024-01-16 10:00:00")  # Frozen at Jan 16, cert expires Jan 25 (9 days later, < 14 day threshold)
@@ -140,5 +140,5 @@ class TestCheckProxyIsLive(TestCase):
 
         result = await check_proxy_is_live(self.input)
 
-        self.assertEqual(result.errors, ["Live proxy certificate is expiring soon"])
-        self.assertEqual(result.warnings, [])
+        assert result.errors == ["Live proxy certificate is expiring soon"]
+        assert result.warnings == []

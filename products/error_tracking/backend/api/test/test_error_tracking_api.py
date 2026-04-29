@@ -286,11 +286,11 @@ class TestErrorTracking(APIBaseTest):
             data={"ids": [str(ss1.id), str(ss2.id)]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertGreaterEqual(response.json()["deleted"], 2)
-        self.assertFalse(ErrorTrackingSymbolSet.objects.filter(id=ss1.id).exists())
-        self.assertFalse(ErrorTrackingSymbolSet.objects.filter(id=ss2.id).exists())
-        self.assertTrue(ErrorTrackingSymbolSet.objects.filter(id=ss3.id).exists())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["deleted"] >= 2
+        assert not ErrorTrackingSymbolSet.objects.filter(id=ss1.id).exists()
+        assert not ErrorTrackingSymbolSet.objects.filter(id=ss2.id).exists()
+        assert ErrorTrackingSymbolSet.objects.filter(id=ss3.id).exists()
 
     def test_bulk_delete_ignores_other_teams(self) -> None:
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -302,9 +302,9 @@ class TestErrorTracking(APIBaseTest):
             data={"ids": [str(ss1.id), str(other_ss.id)]},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertGreaterEqual(response.json()["deleted"], 1)
-        self.assertTrue(ErrorTrackingSymbolSet.objects.filter(id=other_ss.id).exists())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["deleted"] >= 1
+        assert ErrorTrackingSymbolSet.objects.filter(id=other_ss.id).exists()
 
     def test_bulk_delete_requires_ids(self) -> None:
         response = self.client.post(
@@ -312,7 +312,7 @@ class TestErrorTracking(APIBaseTest):
             data={},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_fetching_symbol_sets(self):
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -324,11 +324,11 @@ class TestErrorTracking(APIBaseTest):
             ref="source_2", team=other_team, storage_ptr="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js"
         )
 
-        self.assertEqual(ErrorTrackingSymbolSet.objects.count(), 3)
+        assert ErrorTrackingSymbolSet.objects.count() == 3
 
         # it only fetches symbol sets for the specified team
         response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets")
-        self.assertEqual(len(response.json()["results"]), 2)
+        assert len(response.json()["results"]) == 2
 
     def test_fetching_stack_frames(self):
         other_team = self.create_team_with_organization(organization=self.organization)
@@ -344,38 +344,38 @@ class TestErrorTracking(APIBaseTest):
             raw_id="raw_id", team=other_team, symbol_set=symbol_set, resolved=True, contents={}
         )
 
-        self.assertEqual(ErrorTrackingStackFrame.objects.count(), 3)
+        assert ErrorTrackingStackFrame.objects.count() == 3
 
         # it only fetches stack traces for the specified team
         response = self.client.post(f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get")
-        self.assertEqual(len(response.json()["results"]), 2)
+        assert len(response.json()["results"]) == 2
 
         # fetching can be filtered by raw_ids
         data = {"raw_ids": ["raw_id"]}
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
         )
-        self.assertEqual(len(response.json()["results"]), 1)
+        assert len(response.json()["results"]) == 1
 
         # fetching can be filtered by symbol set
         data = {"symbol_set": symbol_set.id}
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
         )
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["symbol_set_ref"] == symbol_set.ref
 
     def test_assigning_issues(self):
         issue = self.create_issue()
 
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+        assert ErrorTrackingIssueAssignment.objects.count() == 0
         self.client.patch(
             f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
             data={"assignee": {"id": self.user.id, "type": "user"}},
         )
         # assigns the issue
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 1)
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count(), 1)
+        assert ErrorTrackingIssueAssignment.objects.count() == 1
+        assert ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count() == 1
 
         self._assert_logs_the_activity(
             issue.id,
@@ -410,7 +410,7 @@ class TestErrorTracking(APIBaseTest):
             data={"assignee": None},
         )
         # deletes the assignment
-        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+        assert ErrorTrackingIssueAssignment.objects.count() == 0
 
         other_team = self.create_team_with_organization(organization=self.organization)
         response = self.client.patch(
@@ -418,14 +418,14 @@ class TestErrorTracking(APIBaseTest):
             data={"assignee": None},
         )
         # cannot assign issues from other teams
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_error_tracking_issue_bulk_resolve(self):
         issue_one = self.create_issue()
         issue_two = self.create_issue()
 
-        self.assertEqual(issue_one.status, ErrorTrackingIssue.Status.ACTIVE)
-        self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.ACTIVE)
+        assert issue_one.status == ErrorTrackingIssue.Status.ACTIVE
+        assert issue_two.status == ErrorTrackingIssue.Status.ACTIVE
 
         self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
@@ -435,8 +435,8 @@ class TestErrorTracking(APIBaseTest):
         issue_one.refresh_from_db()
         issue_two.refresh_from_db()
 
-        self.assertEqual(issue_one.status, ErrorTrackingIssue.Status.RESOLVED)
-        self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.RESOLVED)
+        assert issue_one.status == ErrorTrackingIssue.Status.RESOLVED
+        assert issue_two.status == ErrorTrackingIssue.Status.RESOLVED
 
     def test_error_tracking_issue_bulk_assign(self):
         issue_one = self.create_issue()
@@ -455,10 +455,8 @@ class TestErrorTracking(APIBaseTest):
             },
         )
 
-        self.assertEqual(len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)), 0)
-        self.assertEqual(
-            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)), 2
-        )
+        assert len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)) == 0
+        assert len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], role=role)) == 2
 
     def test_can_start_bulk_symbol_set_upload(self) -> None:
         chunk_id_one = uuid7()
@@ -773,14 +771,14 @@ class TestErrorTracking(APIBaseTest):
         for item in activity:
             item.pop("id", None)
         self.maxDiff = None
-        self.assertEqual(activity, expected)
+        assert activity == expected
 
     def _get_error_tracking_issue_activity(
         self, error_tracking_issue_id: int, expected_status: int = status.HTTP_200_OK
     ) -> dict:
         url = f"/api/environments/{self.team.id}/error_tracking/issues/{error_tracking_issue_id}/activity"
         activity = self.client.get(url)
-        self.assertEqual(activity.status_code, expected_status)
+        assert activity.status_code == expected_status
         return activity.json()
 
     def test_fetch_release_by_hash_id(self) -> None:

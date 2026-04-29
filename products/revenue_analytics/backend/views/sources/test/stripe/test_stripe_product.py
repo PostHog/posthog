@@ -87,10 +87,10 @@ class TestProductStripeBuilder(StripeSourceBaseTest):
         query_sql = query.query.to_hogql()
 
         # Check for specific fields in the query
-        self.assertIn("id", query_sql)
-        self.assertIn("source_label", query_sql)
-        self.assertIn("name", query_sql)
+        assert "id" in query_sql
+        assert "source_label" in query_sql
+        assert "name" in query_sql
 
         # Check that source_label contains the expected prefix
         expected_prefix = f"stripe.{self.external_data_source.prefix}"
-        self.assertIn(f"'{expected_prefix}'", query_sql)
+        assert f"'{expected_prefix}'" in query_sql

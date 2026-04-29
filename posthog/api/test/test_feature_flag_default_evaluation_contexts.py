@@ -37,10 +37,10 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag", team=self.team)
-        self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+        assert flag.tagged_items.count() == 0
+        assert flag.flag_evaluation_contexts.count() == 0
 
     def test_create_flag_with_default_contexts_enabled(self):
         self.team.default_evaluation_contexts_enabled = True
@@ -55,10 +55,10 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-with-defaults", team=self.team)
-        self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+        assert flag.tagged_items.count() == 0
+        assert flag.flag_evaluation_contexts.count() == 0
 
     def test_create_flag_with_explicit_tags_overrides(self):
         self.team.default_evaluation_contexts_enabled = True
@@ -77,10 +77,10 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-explicit", team=self.team)
         eval_context_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
-        self.assertEqual(eval_context_names, {"custom-tag"})
+        assert eval_context_names == {"custom-tag"}
 
     def test_create_flag_with_explicit_tags_only(self):
         self.team.default_evaluation_contexts_enabled = True
@@ -99,11 +99,11 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-explicit-only", team=self.team)
         tag_names = set(flag.tagged_items.values_list("tag__name", flat=True))
-        self.assertEqual(tag_names, {"custom-tag"})
-        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+        assert tag_names == {"custom-tag"}
+        assert flag.flag_evaluation_contexts.count() == 0
 
     def test_create_flag_with_empty_evaluation_contexts(self):
         self.team.default_evaluation_contexts_enabled = True
@@ -121,9 +121,9 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-empty", team=self.team)
-        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+        assert flag.flag_evaluation_contexts.count() == 0
 
     def test_update_flag_doesnt_apply_defaults(self):
         self.team.default_evaluation_contexts_enabled = True
@@ -144,10 +144,10 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         flag.refresh_from_db()
-        self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+        assert flag.tagged_items.count() == 0
+        assert flag.flag_evaluation_contexts.count() == 0
 
     def test_create_flag_with_none_evaluation_contexts(self):
         self.team.default_evaluation_contexts_enabled = True
@@ -166,7 +166,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_flag_with_explicit_evaluation_contexts(self):
         self.team.default_evaluation_contexts_enabled = True
@@ -186,10 +186,10 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-explicit-eval", team=self.team)
         eval_context_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
-        self.assertEqual(eval_context_names, {"custom-tag"})
+        assert eval_context_names == {"custom-tag"}
 
     def test_no_default_contexts_configured(self):
         self.team.default_evaluation_contexts_enabled = True
@@ -201,7 +201,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         flag = FeatureFlag.objects.get(key="test-flag-no-defaults", team=self.team)
-        self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+        assert flag.tagged_items.count() == 0
+        assert flag.flag_evaluation_contexts.count() == 0

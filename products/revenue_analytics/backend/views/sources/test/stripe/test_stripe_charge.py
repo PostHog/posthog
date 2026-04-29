@@ -91,8 +91,8 @@ class TestChargeStripeBuilder(StripeSourceBaseTest):
 
         # Check for currency conversion functions in the query
         # The specific implementation may vary, but should include conversion logic
-        self.assertIn("currency", query_sql)
-        self.assertIn("EUR", query_sql)
+        assert "currency" in query_sql
+        assert "EUR" in query_sql
 
         # Print and snapshot for currency conversion case
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)

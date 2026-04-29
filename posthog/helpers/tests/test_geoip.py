@@ -47,21 +47,21 @@ class TestGeoIPDBError(TestCase):
     def test_geoip_with_invalid_database_file_returns_successfully(self):
         properties = get_geoip_properties(australia_ip)
 
-        self.assertEqual(properties, {})
+        assert properties == {}
 
 
 class TestGeoIPError(TestCase):
     def test_geoip_on_localhost_ip_returns_successfully(self):
         properties = get_geoip_properties(localhost_ip)
 
-        self.assertEqual(properties, {})
+        assert properties == {}
 
     def test_geoip_on_local_network_ip_returns_successfully(self):
         properties = get_geoip_properties(local_network_ip)
 
-        self.assertEqual(properties, {})
+        assert properties == {}
 
     def test_geoip_on_invalid_ip_returns_successfully(self):
         properties = get_geoip_properties(None)
 
-        self.assertEqual(properties, {})
+        assert properties == {}

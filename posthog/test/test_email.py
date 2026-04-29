@@ -46,12 +46,12 @@ class TestEmail(BaseTest):
         with override_instance_config("EMAIL_HOST", None):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
-            self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
+            assert str(e.exception) == "Email is not enabled in this instance."
 
         with override_instance_config("EMAIL_ENABLED", False):
             with self.assertRaises(ImproperlyConfigured) as e:
                 EmailMessage(campaign_key="test_campaign", subject="Subject", template_name="template")
-            self.assertEqual(str(e.exception), "Email is not enabled in this instance.")
+            assert str(e.exception) == "Email is not enabled in this instance."
 
     def test_cant_send_same_campaign_twice(self) -> None:
         with override_instance_config("EMAIL_HOST", "localhost"):
@@ -74,10 +74,10 @@ class TestEmail(BaseTest):
                     headers={},
                 )
 
-            self.assertEqual(len(mail.outbox), 0)
+            assert len(mail.outbox) == 0
 
             record.refresh_from_db()
-            self.assertEqual(record.sent_at, sent_at)
+            assert record.sent_at == sent_at
 
     def test_applies_default_utm_tags(self) -> None:
         with override_instance_config("EMAIL_HOST", "localhost"):
@@ -182,7 +182,7 @@ class TestEmail(BaseTest):
 
             # Verify the message wasn't marked as sent
             record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
-            self.assertIsNone(record)
+            assert record is None
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection
@@ -203,28 +203,25 @@ class TestEmail(BaseTest):
         sanitized = sanitize_email_properties(properties)
 
         # Check that strings are properly escaped
-        self.assertEqual(sanitized["name"], "Test User&quot;&gt;&lt;img src=1 onerror=alert(1)&gt;")
-        self.assertEqual(sanitized["project_name"], "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;")
+        assert sanitized["name"] == "Test User&quot;&gt;&lt;img src=1 onerror=alert(1)&gt;"
+        assert sanitized["project_name"] == "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;"
 
         # Check that nested dictionaries are sanitized
-        self.assertEqual(
-            sanitized["nested"]["html_content"],
-            "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:alert(1)&quot;&gt;",
-        )
+        assert sanitized["nested"]["html_content"] == "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:alert(1)&quot;&gt;"
 
         # Check that numbers and booleans are preserved
-        self.assertEqual(sanitized["nested"]["safe_number"], 123)
-        self.assertEqual(sanitized["decimal_value"], 1.23)
-        self.assertEqual(sanitized["boolean_value"], True)
-        self.assertEqual(sanitized["none_value"], None)
+        assert sanitized["nested"]["safe_number"] == 123
+        assert sanitized["decimal_value"] == 1.23
+        assert sanitized["boolean_value"]
+        assert sanitized["none_value"] is None
 
         # Check that lists are sanitized
-        self.assertEqual(sanitized["list_with_html"][0], "normal text")
-        self.assertEqual(sanitized["list_with_html"][1], "&lt;script&gt;bad()&lt;/script&gt;")
-        self.assertEqual(sanitized["list_with_html"][2], 42)
+        assert sanitized["list_with_html"][0] == "normal text"
+        assert sanitized["list_with_html"][1] == "&lt;script&gt;bad()&lt;/script&gt;"
+        assert sanitized["list_with_html"][2] == 42
 
         # Check that utm_tags are not sanitized (to preserve valid URL query parameters)
-        self.assertEqual(sanitized["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test")
+        assert sanitized["utm_tags"] == "utm_source=posthog&utm_medium=email&utm_campaign=test"
 
     def test_sanitize_email_properties_handles_dataclasses(self) -> None:
         # Regression test: facade contracts (frozen dataclasses) used to raise TypeError,
@@ -256,14 +253,11 @@ class TestEmail(BaseTest):
 
         sanitized = sanitize_email_properties({"assignment": outer})
 
-        self.assertEqual(sanitized["assignment"]["id"], "00000000-0000-0000-0000-000000000001")
-        self.assertEqual(sanitized["assignment"]["created_at"], "2024-01-01T12:00:00")
-        self.assertEqual(sanitized["assignment"]["issue"]["id"], "00000000-0000-0000-0000-000000000002")
-        self.assertEqual(
-            sanitized["assignment"]["issue"]["name"],
-            "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;",
-        )
-        self.assertIsNone(sanitized["assignment"]["issue"]["description"])
+        assert sanitized["assignment"]["id"] == "00000000-0000-0000-0000-000000000001"
+        assert sanitized["assignment"]["created_at"] == "2024-01-01T12:00:00"
+        assert sanitized["assignment"]["issue"]["id"] == "00000000-0000-0000-0000-000000000002"
+        assert sanitized["assignment"]["issue"]["name"] == "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;"
+        assert sanitized["assignment"]["issue"]["description"] is None
 
     def test_sanitize_email_properties_raises_for_unsupported_types(self) -> None:
         # Test that sanitize_email_properties raises TypeError for unsupported types
@@ -275,8 +269,8 @@ class TestEmail(BaseTest):
             sanitize_email_properties(properties)
 
         # Check that the error message contains useful information
-        self.assertIn("Unsupported type in email properties: CustomObject", str(context.exception))
-        self.assertIn("Only str, int, float, bool, NoneType, Decimal", str(context.exception))
+        assert "Unsupported type in email properties: CustomObject" in str(context.exception)
+        assert "Only str, int, float, bool, NoneType, Decimal" in str(context.exception)
 
     def test_email_message_sanitizes_properties(self) -> None:
         # Test that EmailMessage constructor properly sanitizes template_context
@@ -295,16 +289,14 @@ class TestEmail(BaseTest):
             )
 
             # Verify properties were sanitized
-            self.assertEqual(message.properties["name"], "User&quot;&gt;&lt;img src=x onerror=alert(1)&gt;")
-            self.assertEqual(message.properties["project_name"], "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;")
+            assert message.properties["name"] == "User&quot;&gt;&lt;img src=x onerror=alert(1)&gt;"
+            assert message.properties["project_name"] == "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;"
 
             # Verify utm_tags are preserved without sanitization
-            self.assertEqual(
-                message.properties["utm_tags"], "utm_source=posthog&utm_medium=email&utm_campaign=test_custom"
-            )
+            assert message.properties["utm_tags"] == "utm_source=posthog&utm_medium=email&utm_campaign=test_custom"
 
             # Original template_context should be used for rendering (Django templates have their own escaping)
-            self.assertIn("utm_source=posthog", message.properties["utm_tags"])
+            assert "utm_source=posthog" in message.properties["utm_tags"]
 
     def test_add_recipient_sanitizes_name(self) -> None:
         # Test that add_recipient properly sanitizes the name parameter
@@ -315,10 +307,7 @@ class TestEmail(BaseTest):
             message.add_recipient(email="test@example.com", name='Malicious"><script>alert("XSS")</script>')
 
             # Verify the name was properly sanitized in the recipient string
-            self.assertEqual(
-                message.to[0]["recipient"],
-                '"Malicious&quot;&gt;&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;" <test@example.com>',
-            )
+            assert message.to[0]["recipient"] == '"Malicious&quot;&gt;&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;" <test@example.com>'
 
             # Raw email should remain unchanged
-            self.assertEqual(message.to[0]["raw_email"], "test@example.com")
+            assert message.to[0]["raw_email"] == "test@example.com"

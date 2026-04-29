@@ -39,9 +39,9 @@ class TestAssistantTypes(BaseTest):
         result = add_and_merge_messages(left, right)
 
         # Verify that the message from the right list replaces the one in the left list
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0].id, message_id)
-        self.assertEqual(cast(AssistantMessage, result[0]).content, "Right message content")
+        assert len(result) == 1
+        assert result[0].id == message_id
+        assert cast(AssistantMessage, result[0]).content == "Right message content"
 
     def test_merge_messages_with_same_content_no_id(self):
         """Test that messages with the same content but no ID are not merged."""
@@ -55,12 +55,12 @@ class TestAssistantTypes(BaseTest):
         result = add_and_merge_messages(left, right)
 
         # Verify that both messages are in the result with different IDs
-        self.assertEqual(len(result), 2)
-        self.assertEqual(cast(AssistantMessage, result[0]).content, "Same content")
-        self.assertEqual(cast(AssistantMessage, result[1]).content, "Same content")
-        self.assertIsNotNone(result[0].id)
-        self.assertIsNotNone(result[1].id)
-        self.assertNotEqual(result[0].id, result[1].id)
+        assert len(result) == 2
+        assert cast(AssistantMessage, result[0]).content == "Same content"
+        assert cast(AssistantMessage, result[1]).content == "Same content"
+        assert result[0].id is not None
+        assert result[1].id is not None
+        assert result[0].id != result[1].id
 
     def test_replace_messages(self):
         """Test that ReplaceMessages replaces the messages."""
@@ -74,9 +74,9 @@ class TestAssistantTypes(BaseTest):
         result = add_and_merge_messages(left, ReplaceMessages(right))
 
         # Verify that both messages are in the result with different IDs
-        self.assertEqual(len(result), 1)
-        self.assertEqual(cast(AssistantMessage, result[0]).content, "Different content")
-        self.assertIsNotNone(result[0].id)
+        assert len(result) == 1
+        assert cast(AssistantMessage, result[0]).content == "Different content"
+        assert result[0].id is not None
 
     async def test_replace_messages_in_graph(self):
         """Test that ReplaceMessages type is preserved through graph execution, so the reducer merges the state correctly."""
@@ -106,11 +106,11 @@ class TestAssistantTypes(BaseTest):
         )
 
         # Should be replaced, not merged
-        self.assertEqual(len(res["messages"]), 2)
-        self.assertEqual(cast(AssistantMessage, res["messages"][0]).content, "Replaced message 2")
-        self.assertEqual(cast(AssistantMessage, res["messages"][0]).id, "2")
-        self.assertEqual(cast(AssistantMessage, res["messages"][1]).content, "Replaced message 1")
-        self.assertEqual(cast(AssistantMessage, res["messages"][1]).id, "1")
+        assert len(res["messages"]) == 2
+        assert cast(AssistantMessage, res["messages"][0]).content == "Replaced message 2"
+        assert cast(AssistantMessage, res["messages"][0]).id == "2"
+        assert cast(AssistantMessage, res["messages"][1]).content == "Replaced message 1"
+        assert cast(AssistantMessage, res["messages"][1]).id == "1"
 
     async def test_memory_collection_messages_is_not_reset_by_unset_values(self):
         """Test that memory_collection_messages is not reset by unset values"""
@@ -120,7 +120,7 @@ class TestAssistantTypes(BaseTest):
         graph.add_edge("node", END)
         compiled_graph = graph.compile()
         res = await compiled_graph.ainvoke({"memory_collection_messages": [AIMessage(content="test")]})
-        self.assertEqual(len(res["memory_collection_messages"]), 1)
+        assert len(res["memory_collection_messages"]) == 1
 
     async def test_memory_collection_messages_is_reset_by_set_values(self):
         """Test that memory_collection_messages is reset by explicitly set values"""
@@ -130,12 +130,12 @@ class TestAssistantTypes(BaseTest):
         graph.add_edge("node", END)
         compiled_graph = graph.compile()
         res = await compiled_graph.ainvoke({"memory_collection_messages": [AIMessage(content="test")]})
-        self.assertIsNone(res["memory_collection_messages"])
+        assert res["memory_collection_messages"] is None
 
     def test_all_fields_have_default_values(self):
         """Test that all fields have default values"""
-        self.assertIsInstance(AssistantState(), AssistantState)
-        self.assertIsInstance(PartialAssistantState(), PartialAssistantState)
+        assert isinstance(AssistantState(), AssistantState)
+        assert isinstance(PartialAssistantState(), PartialAssistantState)
 
     def test_get_reset_state_no_exceptions(self):
         """Test that get_reset_state doesn't throw exceptions"""
@@ -143,7 +143,7 @@ class TestAssistantTypes(BaseTest):
         reset_state = PartialAssistantState.get_reset_state()
 
         # Should return a PartialAssistantState instance
-        self.assertIsInstance(reset_state, PartialAssistantState)
+        assert isinstance(reset_state, PartialAssistantState)
 
 
 class TestArtifactRefMessage(BaseTest):
@@ -154,8 +154,8 @@ class TestArtifactRefMessage(BaseTest):
             artifact_id="abc123",
             source=ArtifactSource.ARTIFACT,
         )
-        self.assertEqual(message.artifact_id, "abc123")
-        self.assertEqual(message.content_type, ArtifactContentType.VISUALIZATION)
+        assert message.artifact_id == "abc123"
+        assert message.content_type == ArtifactContentType.VISUALIZATION
 
 
 class TestIsVisualizationArtifactMessage(BaseTest):
@@ -170,7 +170,7 @@ class TestIsVisualizationArtifactMessage(BaseTest):
             source=ArtifactSource.ARTIFACT,
             content=content,
         )
-        self.assertTrue(is_visualization_artifact_message(message))
+        assert is_visualization_artifact_message(message)
 
     @parameterized.expand(
         [
@@ -181,7 +181,7 @@ class TestIsVisualizationArtifactMessage(BaseTest):
         ]
     )
     def test_returns_false_for_non_artifact_messages(self, _name: str, value):
-        self.assertFalse(is_visualization_artifact_message(value))
+        assert not is_visualization_artifact_message(value)
 
 
 class TestConvertVisualizationMessagesToArtifacts(BaseTest):
@@ -195,17 +195,17 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
         state = AssistantState(messages=[viz_message])
 
         # After validation: VisualizationMessage first, then ArtifactRefMessage
-        self.assertEqual(len(state.messages), 2)
+        assert len(state.messages) == 2
         original_viz = state.messages[0]
         artifact_msg = state.messages[1]
 
-        self.assertIsInstance(original_viz, VisualizationMessage)
-        self.assertIsInstance(artifact_msg, ArtifactRefMessage)
+        assert isinstance(original_viz, VisualizationMessage)
+        assert isinstance(artifact_msg, ArtifactRefMessage)
 
         # Artifact ref ID must be unique and different from viz message ID to avoid deduplication
         assert isinstance(artifact_msg, ArtifactRefMessage)
-        self.assertEqual(artifact_msg.artifact_id, "viz-123")
-        self.assertNotEqual(artifact_msg.id, original_viz.id)
+        assert artifact_msg.artifact_id == "viz-123"
+        assert artifact_msg.id != original_viz.id
 
     def test_does_not_convert_visualization_message_without_id(self):
         viz_message = VisualizationMessage(
@@ -216,8 +216,8 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
         state = AssistantState(messages=[viz_message])
 
         # Messages without IDs are not converted (just passed through)
-        self.assertEqual(len(state.messages), 1)
-        self.assertIsInstance(state.messages[0], VisualizationMessage)
+        assert len(state.messages) == 1
+        assert isinstance(state.messages[0], VisualizationMessage)
 
     def test_handles_mixed_messages(self):
         assistant_msg = AssistantMessage(id=str(uuid4()), content="Hello")
@@ -230,16 +230,16 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
         state = AssistantState(messages=[assistant_msg, viz_message])
 
         # Order: assistant_msg, VisualizationMessage, ArtifactRefMessage
-        self.assertEqual(len(state.messages), 3)
-        self.assertEqual(state.messages[0], assistant_msg)
-        self.assertIsInstance(state.messages[1], VisualizationMessage)
-        self.assertIsInstance(state.messages[2], ArtifactRefMessage)
+        assert len(state.messages) == 3
+        assert state.messages[0] == assistant_msg
+        assert isinstance(state.messages[1], VisualizationMessage)
+        assert isinstance(state.messages[2], ArtifactRefMessage)
 
         # Artifact ref ID must be unique and different from viz message ID
         artifact_msg = state.messages[2]
         assert isinstance(artifact_msg, ArtifactRefMessage)
-        self.assertEqual(artifact_msg.artifact_id, "viz-456")
-        self.assertNotEqual(artifact_msg.id, viz_message.id)
+        assert artifact_msg.artifact_id == "viz-456"
+        assert artifact_msg.id != viz_message.id
 
     async def test_preserves_replace_messages_wrapper_in_graph(self):
         """Test that ReplaceMessages wrapper is preserved when visualization messages are converted."""
@@ -277,13 +277,13 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
         )
 
         # Should replace messages (not merge), so only the new viz and its artifact ref
-        self.assertEqual(len(res["messages"]), 2)
-        self.assertIsInstance(res["messages"][0], VisualizationMessage)
-        self.assertEqual(cast(VisualizationMessage, res["messages"][0]).id, "viz-replaced")
-        self.assertIsInstance(res["messages"][1], ArtifactRefMessage)
-        self.assertEqual(cast(ArtifactRefMessage, res["messages"][1]).artifact_id, "viz-replaced")
+        assert len(res["messages"]) == 2
+        assert isinstance(res["messages"][0], VisualizationMessage)
+        assert cast(VisualizationMessage, res["messages"][0]).id == "viz-replaced"
+        assert isinstance(res["messages"][1], ArtifactRefMessage)
+        assert cast(ArtifactRefMessage, res["messages"][1]).artifact_id == "viz-replaced"
         # Artifact ref ID must be unique and different from viz message ID
-        self.assertNotEqual(res["messages"][1].id, res["messages"][0].id)
+        assert res["messages"][1].id != res["messages"][0].id
 
     async def test_artifact_ref_messages_are_only_created_once_for_each_visualization_message(self):
         """
@@ -313,13 +313,13 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
             )
 
             # Should be replaced, not merged
-            self.assertEqual(len(res["messages"]), 2)
+            assert len(res["messages"]) == 2
             viz, artifact = res["messages"]
             assert isinstance(viz, VisualizationMessage)
             assert isinstance(artifact, ArtifactRefMessage)
-            self.assertEqual(viz.id, "viz-123")
-            self.assertEqual(artifact.artifact_id, "viz-123")
-            self.assertNotEqual(viz.id, artifact.id)
+            assert viz.id == "viz-123"
+            assert artifact.artifact_id == "viz-123"
+            assert viz.id != artifact.id
 
 
 class TestUnwrapVisualizationArtifactContent(BaseTest):
@@ -338,10 +338,10 @@ class TestUnwrapVisualizationArtifactContent(BaseTest):
 
         result = unwrap_visualization_artifact_content(message)
 
-        self.assertIsNotNone(result)
         assert result is not None
-        self.assertEqual(result.name, "Test Chart")
-        self.assertEqual(result.description, "A test chart")
+        assert result is not None
+        assert result.name == "Test Chart"
+        assert result.description == "A test chart"
 
     @parameterized.expand(
         [
@@ -353,4 +353,4 @@ class TestUnwrapVisualizationArtifactContent(BaseTest):
     )
     def test_returns_none_for_non_artifact_messages(self, _name: str, value):
         result = unwrap_visualization_artifact_content(value)
-        self.assertIsNone(result)
+        assert result is None

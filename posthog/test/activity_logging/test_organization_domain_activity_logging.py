@@ -34,7 +34,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
             "/api/organizations/@current/domains/",
             {"domain": domain},
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         domain_obj = OrganizationDomain.objects.get(id=response.json()["id"])
         domain_obj.verified_at = timezone.now()
         domain_obj.save()
@@ -49,7 +49,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
             "/api/organizations/@current/domains/",
             {"domain": "new.example.com"},
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         log = ActivityLog.objects.filter(
             organization_id=self.organization.id,
@@ -59,20 +59,20 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
 
         assert log is not None
         assert log.detail is not None
-        self.assertEqual(log.user, self.user)
-        self.assertIn("new.example.com", log.detail["name"])
-        self.assertIn(self.organization.name, log.detail["name"])
+        assert log.user == self.user
+        assert "new.example.com" in log.detail["name"]
+        assert self.organization.name in log.detail["name"]
 
         context = log.detail.get("context", {})
-        self.assertEqual(context["organization_id"], str(self.organization.id))
-        self.assertEqual(context["domain"], "new.example.com")
+        assert context["organization_id"] == str(self.organization.id)
+        assert context["domain"] == "new.example.com"
 
     def test_domain_deletion_activity_logging(self):
         domain = self._create_verified_domain("delete-me.example.com")
         domain_id = str(domain.id)
 
         response = self.client.delete(f"/api/organizations/@current/domains/{domain.id}")
-        self.assertEqual(response.status_code, 204)
+        assert response.status_code == 204
 
         log = ActivityLog.objects.filter(
             organization_id=self.organization.id,
@@ -82,9 +82,9 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
 
         assert log is not None
         assert log.detail is not None
-        self.assertEqual(log.item_id, domain_id)
-        self.assertIn("delete-me.example.com", log.detail["name"])
-        self.assertIn("removed", log.detail["name"])
+        assert log.item_id == domain_id
+        assert "delete-me.example.com" in log.detail["name"]
+        assert "removed" in log.detail["name"]
 
     @parameterized.expand(
         [
@@ -129,7 +129,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
             f"/api/organizations/@current/domains/{domain.id}/",
             {field: value},
         )
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         log = ActivityLog.objects.filter(
             organization_id=self.organization.id,
@@ -142,7 +142,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
         changes = log.detail.get("changes", [])
         field_change = next((c for c in changes if c["field"] == expected_field_name), None)
         assert field_change is not None, f"Expected change for '{expected_field_name}' not found in {changes}"
-        self.assertEqual(field_change["after"], expected_logged_value)
+        assert field_change["after"] == expected_logged_value
 
     @patch("posthog.models.organization_domain.dns.resolver.resolve")
     def test_domain_verification_activity_logging(self, mock_dns_query):
@@ -150,7 +150,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
             "/api/organizations/@current/domains/",
             {"domain": "verify.example.com"},
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         domain = OrganizationDomain.objects.get(id=response.json()["id"])
         ActivityLog.objects.filter(
             organization_id=self.organization.id,
@@ -171,8 +171,8 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
 
         with freeze_time("2024-01-15T12:00:00Z"):
             response = self.client.post(f"/api/organizations/@current/domains/{domain.id}/verify")
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["is_verified"])
+        assert response.status_code == 200
+        assert response.json()["is_verified"]
 
         log = ActivityLog.objects.filter(
             organization_id=self.organization.id,
@@ -192,7 +192,7 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
             "/api/organizations/@current/domains/",
             {"domain": "fail-verify.example.com"},
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         domain = OrganizationDomain.objects.get(id=response.json()["id"])
         ActivityLog.objects.filter(
             organization_id=self.organization.id,
@@ -202,8 +202,8 @@ class TestOrganizationDomainActivityLogging(APIBaseTest):
         mock_dns_query.side_effect = dns.resolver.NoAnswer()
 
         response = self.client.post(f"/api/organizations/@current/domains/{domain.id}/verify")
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.json()["is_verified"])
+        assert response.status_code == 200
+        assert not response.json()["is_verified"]
 
         logs = ActivityLog.objects.filter(
             organization_id=self.organization.id,

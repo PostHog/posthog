@@ -47,8 +47,8 @@ class TestDistinctIdUsageAggregation(ClickhouseTestMixin, BaseTest):
         result = self._query_distinct_id_usage(self.team.pk)
 
         # SummingMergeTree should sum the counts
-        self.assertEqual(result["user_1"], 8)
-        self.assertEqual(result["user_2"], 2)
+        assert result["user_1"] == 8
+        assert result["user_2"] == 2
 
     def test_separates_by_team_id(self):
         now = datetime.now().replace(second=0, microsecond=0)
@@ -59,7 +59,7 @@ class TestDistinctIdUsageAggregation(ClickhouseTestMixin, BaseTest):
         result = self._query_distinct_id_usage(self.team.pk)
 
         # Should only see this team's data
-        self.assertEqual(result["shared_user"], 10)
+        assert result["shared_user"] == 10
 
     def test_separates_by_minute(self):
         now = datetime.now().replace(second=0, microsecond=0)
@@ -71,7 +71,7 @@ class TestDistinctIdUsageAggregation(ClickhouseTestMixin, BaseTest):
         result = self._query_distinct_id_usage(self.team.pk)
 
         # Both minutes should be summed in the query
-        self.assertEqual(result["user_1"], 8)
+        assert result["user_1"] == 8
 
     def test_can_find_high_volume_distinct_ids(self):
         now = datetime.now().replace(second=0, microsecond=0)
@@ -96,9 +96,9 @@ class TestDistinctIdUsageAggregation(ClickhouseTestMixin, BaseTest):
         )
 
         # Should only find the abusive distinct_id
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], "test_label")
-        self.assertEqual(result[0][1], 10000)
+        assert len(result) == 1
+        assert result[0][0] == "test_label"
+        assert result[0][1] == 10000
 
     def test_can_count_unique_distinct_ids_per_team(self):
         now = datetime.now().replace(second=0, microsecond=0)
@@ -118,4 +118,4 @@ class TestDistinctIdUsageAggregation(ClickhouseTestMixin, BaseTest):
             {"team_id": self.team.pk},
         )
 
-        self.assertEqual(result[0][0], 100)
+        assert result[0][0] == 100

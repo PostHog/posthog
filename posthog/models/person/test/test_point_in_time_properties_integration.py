@@ -111,7 +111,7 @@ class TestPointInTimePropertiesIntegration(TestCase):
             "occupation": "Software Engineer",
             "profile_complete": True,
         }
-        self.assertEqual(properties_day_2, expected_day_2)
+        assert properties_day_2 == expected_day_2
 
         # Test: What were Alice's properties at the end of Day 3?
         day_3_end = datetime(2023, 1, 3, 23, 59, 59, tzinfo=UTC)
@@ -123,7 +123,7 @@ class TestPointInTimePropertiesIntegration(TestCase):
             "state": "CA",
             "timezone": "America/Los_Angeles",
         }
-        self.assertEqual(properties_day_3, expected_day_3)
+        assert properties_day_3 == expected_day_3
 
     @patch("posthog.models.person.point_in_time_properties.sync_execute")
     def test_set_once_behavior_demonstration(self, mock_sync_execute):
@@ -219,4 +219,4 @@ class TestPointInTimePropertiesIntegration(TestCase):
             "utm_campaign": "winter_2023",  # Set by $set_once since it was new
         }
 
-        self.assertEqual(properties, expected)
+        assert properties == expected

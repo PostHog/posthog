@@ -80,14 +80,10 @@ class TestAnthropicConversationSummarizer(BaseTest):
         # Extract the actual messages from the prompt template
         messages = result.messages[1:-1]  # Skip system prompt and user prompt
 
-        self.assertEqual(len(messages), len(expected_contents), f"Wrong number of messages in test case: {name}")
+        assert len(messages) == len(expected_contents), f"Wrong number of messages in test case: {name}"
 
         for i, (message, expected_content) in enumerate(zip(messages, expected_contents)):
-            self.assertEqual(
-                message.content,
-                expected_content,
-                f"Message {i} content mismatch in test case: {name}",
-            )
+            assert message.content == expected_content, f"Message {i} content mismatch in test case: {name}"
 
     @parameterized.expand(
         [
@@ -107,7 +103,7 @@ class TestAnthropicConversationSummarizer(BaseTest):
     )
     def test_handles_non_dict_content_without_errors(self, name, input_messages):
         result = self.summarizer._construct_messages(input_messages)
-        self.assertIsNotNone(result)
+        assert result is not None
 
     def test_original_message_not_modified(self):
         original_content: list[str | dict[Any, Any]] = [
@@ -117,14 +113,14 @@ class TestAnthropicConversationSummarizer(BaseTest):
 
         # Store the original cache_control to verify it's not modified
         content_list = cast(list[dict[str, Any]], message.content)
-        self.assertIn("cache_control", content_list[0])
+        assert "cache_control" in content_list[0]
 
         self.summarizer._construct_messages([message])
 
         # Verify original message still has cache_control
         content_list = cast(list[dict[str, Any]], message.content)
-        self.assertIn("cache_control", content_list[0])
-        self.assertEqual(content_list[0]["cache_control"], {"type": "ephemeral"})
+        assert "cache_control" in content_list[0]
+        assert content_list[0]["cache_control"] == {"type": "ephemeral"}
 
     def test_deep_copy_prevents_modification(self):
         original_content: list[str | dict[Any, Any]] = [
@@ -144,8 +140,8 @@ class TestAnthropicConversationSummarizer(BaseTest):
 
         # Verify original message structure unchanged
         content_list = cast(list[dict[str, Any]], message.content)
-        self.assertEqual(set(content_list[0].keys()), original_keys)
-        self.assertIn("cache_control", content_list[0])
+        assert set(content_list[0].keys()) == original_keys
+        assert "cache_control" in content_list[0]
 
     def test_preserves_other_content_properties(self):
         input_messages = [
@@ -167,11 +163,11 @@ class TestAnthropicConversationSummarizer(BaseTest):
 
         # Verify other fields are preserved
         content = messages[0].content[0]
-        self.assertEqual(content["custom_field"], "custom_value")
-        self.assertEqual(content["another_field"], 123)
-        self.assertNotIn("cache_control", content)
+        assert content["custom_field"] == "custom_value"
+        assert content["another_field"] == 123
+        assert "cache_control" not in content
 
     def test_empty_messages_list(self):
         result = self.summarizer._construct_messages([])
         # Should return prompt template with just system and user prompts
-        self.assertEqual(len(result.messages), 2)
+        assert len(result.messages) == 2

@@ -29,16 +29,16 @@ class TestDag(APIBaseTest):
         response = self.client.get(
             f"/api/projects/{self.team.id}/warehouse_dag",
         )
-        self.assertEqual(response.status_code, 200, response.content)
+        assert response.status_code == 200, response.content
         dag = response.json()
 
-        self.assertIn([parent_saved_query.id.hex, child_saved_query.id.hex], dag["edges"])
-        self.assertIn(["events", parent_saved_query.id.hex], dag["edges"])
-        self.assertIn(["persons", parent_saved_query.id.hex], dag["edges"])
-        self.assertEqual(len(dag["edges"]), 3)
+        assert [parent_saved_query.id.hex, child_saved_query.id.hex] in dag["edges"]
+        assert ["events", parent_saved_query.id.hex] in dag["edges"]
+        assert ["persons", parent_saved_query.id.hex] in dag["edges"]
+        assert len(dag["edges"]) == 3
 
-        self.assertIn([child_saved_query.id.hex, "SavedQuery"], dag["nodes"])
-        self.assertIn([parent_saved_query.id.hex, "SavedQuery"], dag["nodes"])
-        self.assertIn(["events", "PostHog"], dag["nodes"])
-        self.assertIn(["persons", "PostHog"], dag["nodes"])
-        self.assertEqual(len(dag["nodes"]), 4)
+        assert [child_saved_query.id.hex, "SavedQuery"] in dag["nodes"]
+        assert [parent_saved_query.id.hex, "SavedQuery"] in dag["nodes"]
+        assert ["events", "PostHog"] in dag["nodes"]
+        assert ["persons", "PostHog"] in dag["nodes"]
+        assert len(dag["nodes"]) == 4

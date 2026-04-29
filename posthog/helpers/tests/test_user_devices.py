@@ -27,17 +27,17 @@ class TestHasValidKnownDeviceCookie(BaseTest):
         user = self._make_user()
         value = build_known_device_cookie_value(user)
         request = self._request_with_cookies({KNOWN_DEVICE_COOKIE.format(user_id=user.id): value})
-        self.assertTrue(has_valid_known_device_cookie(request, user))
+        assert has_valid_known_device_cookie(request, user)
 
     def test_returns_false_when_cookie_absent(self):
         user = self._make_user()
         request = self._request_with_cookies({"sessionid": "abc"})
-        self.assertFalse(has_valid_known_device_cookie(request, user))
+        assert not has_valid_known_device_cookie(request, user)
 
     def test_returns_false_for_forged_unsigned_cookie(self):
         user = self._make_user()
         request = self._request_with_cookies({KNOWN_DEVICE_COOKIE.format(user_id=user.id): "1"})
-        self.assertFalse(has_valid_known_device_cookie(request, user))
+        assert not has_valid_known_device_cookie(request, user)
 
     def test_returns_false_for_different_user(self):
         user_a = self._make_user()
@@ -45,7 +45,7 @@ class TestHasValidKnownDeviceCookie(BaseTest):
         value = build_known_device_cookie_value(user_a)
         # Place user_a's signed value under user_b's cookie name
         request = self._request_with_cookies({KNOWN_DEVICE_COOKIE.format(user_id=user_b.id): value})
-        self.assertFalse(has_valid_known_device_cookie(request, user_b))
+        assert not has_valid_known_device_cookie(request, user_b)
 
     def test_returns_false_after_password_change(self):
         user = self._make_user()
@@ -53,7 +53,7 @@ class TestHasValidKnownDeviceCookie(BaseTest):
         user.set_password("new-password-that-changes-the-hash")
         user.save()
         request = self._request_with_cookies({KNOWN_DEVICE_COOKIE.format(user_id=user.id): value})
-        self.assertFalse(has_valid_known_device_cookie(request, user))
+        assert not has_valid_known_device_cookie(request, user)
 
     @parameterized.expand(
         [
@@ -68,4 +68,4 @@ class TestHasValidKnownDeviceCookie(BaseTest):
         # Garbage values must not propagate exceptions
         user = self._make_user()
         request = self._request_with_cookies({KNOWN_DEVICE_COOKIE.format(user_id=user.id): value})
-        self.assertFalse(has_valid_known_device_cookie(request, user))
+        assert not has_valid_known_device_cookie(request, user)

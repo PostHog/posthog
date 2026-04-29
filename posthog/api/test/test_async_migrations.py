@@ -29,15 +29,15 @@ class TestAsyncMigration(APIBaseTest):
 
     def test_get_async_migrations_without_staff_status(self):
         response = self.client.get(f"/api/async_migrations/").json()
-        self.assertEqual(response["count"], 0)
+        assert response["count"] == 0
 
         self.user.is_staff = False
         self.user.save()
 
         response = self.client.get(f"/api/async_migrations/").json()
 
-        self.assertEqual(response["code"], "permission_denied")
-        self.assertEqual(response["detail"], "You are not a staff user, contact your instance admin.")
+        assert response["code"] == "permission_denied"
+        assert response["detail"] == "You are not a staff user, contact your instance admin."
 
     def test_get_async_migrations(self):
         create_async_migration(name="0002_events_sample_by")
@@ -45,9 +45,9 @@ class TestAsyncMigration(APIBaseTest):
 
         response = self.client.get(f"/api/async_migrations/").json()
 
-        self.assertEqual(len(response["results"]), 2)
-        self.assertEqual(response["results"][0]["name"], "0002_events_sample_by")
-        self.assertEqual(response["results"][1]["name"], "0003_fill_person_distinct_id2")
+        assert len(response["results"]) == 2
+        assert response["results"][0]["name"] == "0002_events_sample_by"
+        assert response["results"][1]["name"] == "0003_fill_person_distinct_id2"
 
     @patch("posthog.tasks.async_migrations.run_async_migration.delay")
     def test_trigger_endpoint(self, mock_run_async_migration):
@@ -60,9 +60,9 @@ class TestAsyncMigration(APIBaseTest):
         sm1.refresh_from_db()
 
         mock_run_async_migration.assert_called_once()
-        self.assertEqual(response["success"], True)
-        self.assertEqual(sm1.status, MigrationStatus.Starting)
-        self.assertEqual(sm1.parameters, {"SOME_KEY": 1234})
+        assert response["success"]
+        assert sm1.status == MigrationStatus.Starting
+        assert sm1.parameters == {"SOME_KEY": 1234}
 
     @patch("posthog.tasks.async_migrations.run_async_migration.delay")
     def test_trigger_with_another_migration_running(self, mock_run_async_migration):
@@ -71,8 +71,8 @@ class TestAsyncMigration(APIBaseTest):
 
         response = self.client.post(f"/api/async_migrations/{sm1.id}/trigger").json()
         mock_run_async_migration.assert_not_called()
-        self.assertEqual(response["success"], False)
-        self.assertEqual(response["error"], "No more than 1 async migration can run at once.")
+        assert not response["success"]
+        assert response["error"] == "No more than 1 async migration can run at once."
 
     @patch("posthog.celery.app.control.revoke")
     def test_force_stop_endpoint(self, mock_run_async_migration):
@@ -82,11 +82,11 @@ class TestAsyncMigration(APIBaseTest):
         sm1.refresh_from_db()
 
         mock_run_async_migration.assert_called_once()
-        self.assertEqual(response["success"], True)
-        self.assertEqual(sm1.status, MigrationStatus.Errored)
+        assert response["success"]
+        assert sm1.status == MigrationStatus.Errored
         errors = AsyncMigrationError.objects.filter(async_migration=sm1)
-        self.assertEqual(errors.count(), 1)
-        self.assertEqual(errors[0].description, "Force stopped by user")
+        assert errors.count() == 1
+        assert errors[0].description == "Force stopped by user"
 
     @patch("posthog.celery.app.control.revoke")
     def test_force_stop_endpoint_non_running_migration(self, mock_run_async_migration):
@@ -96,11 +96,11 @@ class TestAsyncMigration(APIBaseTest):
         sm1.refresh_from_db()
 
         mock_run_async_migration.assert_not_called()
-        self.assertEqual(response["success"], False)
-        self.assertEqual(response["error"], "Can't stop a migration that isn't running.")
+        assert not response["success"]
+        assert response["error"] == "Can't stop a migration that isn't running."
 
         # didn't change
-        self.assertEqual(sm1.status, MigrationStatus.RolledBack)
+        assert sm1.status == MigrationStatus.RolledBack
 
     @patch("posthog.async_migrations.runner.get_async_migration_definition")
     def test_force_rollback_endpoint(self, mock_get_migration_definition):
@@ -110,15 +110,12 @@ class TestAsyncMigration(APIBaseTest):
         response = self.client.post(f"/api/async_migrations/{sm1.id}/force_rollback").json()
 
         mock_get_migration_definition.assert_called_once()
-        self.assertEqual(response["success"], True)
+        assert response["success"]
 
     def test_force_rollback_endpoint_migration_not_complete(self):
         sm1 = create_async_migration(status=MigrationStatus.Running)
 
         response = self.client.post(f"/api/async_migrations/{sm1.id}/force_rollback").json()
 
-        self.assertEqual(response["success"], False)
-        self.assertEqual(
-            response["error"],
-            "Can't force rollback a migration that did not complete successfully.",
-        )
+        assert not response["success"]
+        assert response["error"] == "Can't force rollback a migration that did not complete successfully."

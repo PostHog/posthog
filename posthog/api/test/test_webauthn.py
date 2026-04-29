@@ -20,23 +20,23 @@ class TestWebAuthnRegistration(APIBaseTest):
     def test_registration_begin_requires_authentication(self):
         self.client.logout()
         response = self.client.post("/api/webauthn/register/begin/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_registration_begin_returns_options(self):
         response = self.client.post("/api/webauthn/register/begin/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertIn("rp", data)
-        self.assertIn("user", data)
-        self.assertIn("challenge", data)
-        self.assertIn("pubKeyCredParams", data)
-        self.assertIn("timeout", data)
-        self.assertIn("authenticatorSelection", data)
+        assert "rp" in data
+        assert "user" in data
+        assert "challenge" in data
+        assert "pubKeyCredParams" in data
+        assert "timeout" in data
+        assert "authenticatorSelection" in data
 
-        self.assertEqual(data["rp"]["name"], "PostHog")
-        self.assertEqual(data["user"]["name"], self.user.email)
-        self.assertEqual(data["authenticatorSelection"]["residentKey"], "required")
+        assert data["rp"]["name"] == "PostHog"
+        assert data["user"]["name"] == self.user.email
+        assert data["authenticatorSelection"]["residentKey"] == "required"
 
     def test_registration_begin_excludes_existing_credentials(self):
         WebauthnCredential.objects.create(
@@ -51,10 +51,10 @@ class TestWebAuthnRegistration(APIBaseTest):
         )
 
         response = self.client.post("/api/webauthn/register/begin/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertEqual(len(data["excludeCredentials"]), 1)
+        assert len(data["excludeCredentials"]) == 1
 
     def test_registration_begin_disallowed_when_sso_enforced(self):
         email_domain = self.user.email.split("@", 1)[1]
@@ -73,8 +73,8 @@ class TestWebAuthnRegistration(APIBaseTest):
         )
 
         response = self.client.post("/api/webauthn/register/begin/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("requires SSO", response.json().get("detail", ""))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "requires SSO" in response.json().get("detail", "")
 
     def test_registration_complete_disallowed_when_sso_enforced(self):
         email_domain = self.user.email.split("@", 1)[1]
@@ -97,19 +97,19 @@ class TestWebAuthnRegistration(APIBaseTest):
         session.save()
 
         response = self.client.post("/api/webauthn/register/complete/", {}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("requires SSO", response.json().get("detail", ""))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "requires SSO" in response.json().get("detail", "")
 
     def test_registration_complete_without_challenge_fails(self):
         response = self.client.post("/api/webauthn/register/complete/", {})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.json())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "error" in response.json()
 
     @patch("posthog.api.webauthn.decode_credential_public_key")
     @patch("posthog.api.webauthn.verify_passkey_registration_response")
     def test_registration_complete_stores_unverified_credential(self, mock_verify, mock_decode):
         begin_response = self.client.post("/api/webauthn/register/begin/")
-        self.assertEqual(begin_response.status_code, status.HTTP_200_OK)
+        assert begin_response.status_code == status.HTTP_200_OK
 
         mock_verify.return_value = MagicMock(
             credential_id=b"new-credential-id",
@@ -133,16 +133,16 @@ class TestWebAuthnRegistration(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(complete_response.status_code, status.HTTP_200_OK)
+        assert complete_response.status_code == status.HTTP_200_OK
 
         data = complete_response.json()
-        self.assertTrue(data["success"])
-        self.assertIn("credential_id", data)
+        assert data["success"]
+        assert "credential_id" in data
 
         credential = WebauthnCredential.objects.get(pk=data["credential_id"])
-        self.assertEqual(credential.user, self.user)
-        self.assertEqual(credential.label, "My New Passkey")
-        self.assertFalse(credential.verified)
+        assert credential.user == self.user
+        assert credential.label == "My New Passkey"
+        assert not credential.verified
 
 
 class TestWebAuthnLogin(APIBaseTest):
@@ -165,18 +165,18 @@ class TestWebAuthnLogin(APIBaseTest):
 
     def test_login_begin_returns_options(self):
         response = self.client.post("/api/webauthn/login/begin/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         data = response.json()
-        self.assertIn("challenge", data)
-        self.assertIn("timeout", data)
-        self.assertIn("rpId", data)
-        self.assertEqual(data["allowCredentials"], [])
-        self.assertEqual(data["userVerification"], "required")
+        assert "challenge" in data
+        assert "timeout" in data
+        assert "rpId" in data
+        assert data["allowCredentials"] == []
+        assert data["userVerification"] == "required"
 
     def test_login_complete_without_challenge_fails(self):
         response = self.client.post("/api/webauthn/login/complete/", {})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_login_complete_without_user_handle_fails(self):
         self.client.post("/api/webauthn/login/begin/")
@@ -195,8 +195,8 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("userHandle", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "userHandle" in response.json()["error"]
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_complete_success(self, mock_verify):
@@ -226,12 +226,12 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(response.json()["success"])
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"]
 
         me_response = self.client.get("/api/users/@me/")
-        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(me_response.json()["email"], self.user.email)
+        assert me_response.status_code == status.HTTP_200_OK
+        assert me_response.json()["email"] == self.user.email
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
@@ -266,11 +266,11 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("awaiting verification", response.json()["error"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "awaiting verification" in response.json()["error"].lower()
 
         me_response = self.client.get("/api/users/@me/")
-        self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert me_response.status_code == status.HTTP_401_UNAUTHORIZED
 
         mock_is_email_available.assert_called_once()
         mock_send_email_verification.assert_called_once_with(self.user)
@@ -303,8 +303,8 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("authentication failed", response.json()["error"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "authentication failed" in response.json()["error"].lower()
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_rejects_spoofed_user_handle(self, mock_verify):
@@ -336,12 +336,12 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("authentication failed", response.json()["error"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "authentication failed" in response.json()["error"].lower()
 
         # Verify the user is NOT logged in
         me_response = self.client.get("/api/users/@me/")
-        self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert me_response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_rejects_nonexistent_user_handle(self, mock_verify):
@@ -371,8 +371,8 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("authentication failed", response.json()["error"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "authentication failed" in response.json()["error"].lower()
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_login_enforces_sso_against_authenticated_user(self, mock_verify):
@@ -417,12 +417,12 @@ class TestWebAuthnLogin(APIBaseTest):
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("SSO", response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "SSO" in response.json()["error"]
 
         # Verify the user is NOT logged in
         me_response = self.client.get("/api/users/@me/")
-        self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert me_response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_spoofed_user_handle_cannot_bypass_sso_enforcement(self, mock_verify):
@@ -475,12 +475,12 @@ class TestWebAuthnLogin(APIBaseTest):
             format="json",
         )
         # The mismatch check should reject this before even reaching SSO checks
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("authentication failed", response.json()["error"].lower())
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "authentication failed" in response.json()["error"].lower()
 
         # Verify the user is NOT logged in
         me_response = self.client.get("/api/users/@me/")
-        self.assertEqual(me_response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert me_response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.auth.verify_passkey_authentication_response")
     def test_spoofed_user_handle_records_failure_against_verified_user(self, mock_verify):
@@ -522,7 +522,7 @@ class TestWebAuthnLogin(APIBaseTest):
             # not the spoofed user from userHandle
             call_args = mock_handle_failure.call_args
             recorded_user = call_args[0][1]
-            self.assertEqual(recorded_user.pk, self.user.pk)
+            assert recorded_user.pk == self.user.pk
 
 
 class TestWebAuthnCredentialManagement(APIBaseTest):
@@ -544,7 +544,7 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
     def test_list_credentials_requires_auth(self):
         self.client.logout()
         response = self.client.get("/api/webauthn/credentials/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_list_credentials_returns_all(self):
         WebauthnCredential.objects.create(
@@ -559,10 +559,10 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         )
 
         response = self.client.get("/api/webauthn/credentials/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         credentials = response.json()
-        self.assertEqual(len(credentials), 2)
+        assert len(credentials) == 2
 
     def test_list_credentials_only_returns_own(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password123")
@@ -578,23 +578,23 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         )
 
         response = self.client.get("/api/webauthn/credentials/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         credentials = response.json()
-        self.assertEqual(len(credentials), 1)
-        self.assertEqual(credentials[0]["label"], "My Passkey")
+        assert len(credentials) == 1
+        assert credentials[0]["label"] == "My Passkey"
 
     @patch("posthog.api.webauthn.send_passkey_removed_email")
     def test_delete_credential(self, mock_send_email):
         response = self.client.delete(f"/api/webauthn/credentials/{self.credential.pk}/")
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
         mock_send_email.delay.assert_called_once_with(self.user.id)
-        self.assertFalse(WebauthnCredential.objects.filter(pk=self.credential.pk).exists())
+        assert not WebauthnCredential.objects.filter(pk=self.credential.pk).exists()
 
     def test_delete_nonexistent_credential(self):
         response = self.client.delete(f"/api/webauthn/credentials/{uuid.uuid4()}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_delete_other_users_credential_fails(self):
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password123")
@@ -610,7 +610,7 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         )
 
         response = self.client.delete(f"/api/webauthn/credentials/{other_credential.pk}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_rename_credential(self):
         response = self.client.patch(
@@ -618,11 +618,11 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
             {"label": "Renamed Passkey"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["label"], "Renamed Passkey")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["label"] == "Renamed Passkey"
 
         self.credential.refresh_from_db()
-        self.assertEqual(self.credential.label, "Renamed Passkey")
+        assert self.credential.label == "Renamed Passkey"
 
     @patch("posthog.api.webauthn.send_passkey_added_email")
     @patch("posthog.api.webauthn.verify_passkey_authentication_response")
@@ -639,7 +639,7 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         )
 
         verify_begin_response = self.client.post(f"/api/webauthn/credentials/{unverified_credential.pk}/verify/")
-        self.assertEqual(verify_begin_response.status_code, status.HTTP_200_OK)
+        assert verify_begin_response.status_code == status.HTTP_200_OK
 
         mock_verify.return_value = MagicMock(new_sign_count=1)
 
@@ -648,8 +648,8 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
             {},
             format="json",
         )
-        self.assertEqual(verify_complete_response.status_code, status.HTTP_200_OK)
-        self.assertTrue(verify_complete_response.json()["verified"])
+        assert verify_complete_response.status_code == status.HTTP_200_OK
+        assert verify_complete_response.json()["verified"]
 
         mock_send_email.delay.assert_called_once_with(self.user.id)
 
@@ -665,5 +665,5 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
             {"label": label},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(expected_error, response.json()["error"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error in response.json()["error"]

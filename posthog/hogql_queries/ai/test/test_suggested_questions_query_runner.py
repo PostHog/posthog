@@ -21,14 +21,14 @@ class TestSuggestedQuestionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_suggested_questions_hit_openai(self, hit_openai_mock):
         results = SuggestedQuestionsQueryRunner(team=self.team, query=SuggestedQuestionsQuery()).calculate()
         hit_openai_mock.assert_called_once()
-        self.assertEqual(results.questions, ["Why?", "How?"])
+        assert results.questions == ["Why?", "How?"]
 
     def test_is_stale(self):
         date = timezone.now()
         runner = SuggestedQuestionsQueryRunner(team=self.team, query=SuggestedQuestionsQuery())
-        self.assertFalse(runner._is_stale(last_refresh=date, lazy=False))
-        self.assertFalse(runner._is_stale(last_refresh=date, lazy=True))
-        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(days=2, hours=23, minutes=59), lazy=False))
-        self.assertFalse(runner._is_stale(last_refresh=date - timedelta(days=2, hours=23, minutes=59), lazy=True))
-        self.assertTrue(runner._is_stale(last_refresh=date - timedelta(days=3), lazy=True))
-        self.assertTrue(runner._is_stale(last_refresh=date - timedelta(days=3), lazy=False))
+        assert not runner._is_stale(last_refresh=date, lazy=False)
+        assert not runner._is_stale(last_refresh=date, lazy=True)
+        assert not runner._is_stale(last_refresh=date - timedelta(days=2, hours=23, minutes=59), lazy=False)
+        assert not runner._is_stale(last_refresh=date - timedelta(days=2, hours=23, minutes=59), lazy=True)
+        assert runner._is_stale(last_refresh=date - timedelta(days=3), lazy=True)
+        assert runner._is_stale(last_refresh=date - timedelta(days=3), lazy=False)

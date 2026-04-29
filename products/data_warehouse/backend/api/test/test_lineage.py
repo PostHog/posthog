@@ -42,16 +42,16 @@ class TestLineage(APIBaseTest):
             response = self.client.get(
                 f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={final_query.id}"
             )
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
             data = response.json()
 
-        self.assertEqual(len(data["nodes"]), 4)
+        assert len(data["nodes"]) == 4
 
         nodes = {node["id"]: node for node in data["nodes"]}
-        self.assertEqual(nodes["final_query"]["type"], "view")
-        self.assertEqual(nodes["intermediate_query"]["type"], "view")
-        self.assertEqual(nodes["base_query"]["type"], "view")
-        self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
+        assert nodes["final_query"]["type"] == "view"
+        assert nodes["intermediate_query"]["type"] == "view"
+        assert nodes["base_query"]["type"] == "view"
+        assert nodes["postgres.supabase.users"]["type"] == "table"
 
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {
@@ -59,14 +59,14 @@ class TestLineage(APIBaseTest):
             ("base_query", "intermediate_query"),
             ("postgres.supabase.users", "base_query"),
         }
-        self.assertEqual(edges, expected_edges)
+        assert edges == expected_edges
 
         view_queries = [
             q
             for q in context.captured_queries
             if "datawarehousesavedquery" in q["sql"].lower() or "datawarehousetable" in q["sql"].lower()
         ]
-        self.assertLessEqual(len(view_queries), 7, f"Expected 7 queries, got {len(view_queries)}")
+        assert len(view_queries) <= 7, f"Expected 7 queries, got {len(view_queries)}"
 
     def test_get_upstream_with_datawarehouse_table(self):
         DataWarehouseTable.objects.create(
@@ -87,19 +87,19 @@ class TestLineage(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={saved_query.id}")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
 
-        self.assertEqual(len(data["nodes"]), 2)
+        assert len(data["nodes"]) == 2
 
         nodes = {node["id"]: node for node in data["nodes"]}
-        self.assertEqual(nodes["test_query"]["type"], "view")
-        self.assertEqual(nodes["my_table"]["type"], "table")
-        self.assertEqual(nodes["my_table"]["name"], "my_table")
+        assert nodes["test_query"]["type"] == "view"
+        assert nodes["my_table"]["type"] == "table"
+        assert nodes["my_table"]["name"] == "my_table"
 
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {("my_table", "test_query")}
-        self.assertEqual(edges, expected_edges)
+        assert edges == expected_edges
 
     def test_get_upstream_mixed_dependencies(self):
         DataWarehouseSavedQuery.objects.create(
@@ -123,16 +123,16 @@ class TestLineage(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={mixed_query.id}")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
 
-        self.assertEqual(len(data["nodes"]), 4)
+        assert len(data["nodes"]) == 4
 
         nodes = {node["id"]: node for node in data["nodes"]}
-        self.assertEqual(nodes["mixed_query"]["type"], "view")
-        self.assertEqual(nodes["base_query"]["type"], "view")
-        self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
-        self.assertEqual(nodes["postgres.supabase.events"]["type"], "table")
+        assert nodes["mixed_query"]["type"] == "view"
+        assert nodes["base_query"]["type"] == "view"
+        assert nodes["postgres.supabase.users"]["type"] == "table"
+        assert nodes["postgres.supabase.events"]["type"] == "table"
 
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {
@@ -140,7 +140,7 @@ class TestLineage(APIBaseTest):
             ("postgres.supabase.events", "mixed_query"),
             ("postgres.supabase.users", "base_query"),
         }
-        self.assertEqual(edges, expected_edges)
+        assert edges == expected_edges
 
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -153,22 +153,22 @@ class TestLineage(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={saved_query.id}")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
 
-        self.assertEqual(len(data["nodes"]), 3)
+        assert len(data["nodes"]) == 3
 
         nodes = {node["id"]: node for node in data["nodes"]}
-        self.assertEqual(nodes["test_query"]["type"], "view")
-        self.assertEqual(nodes["postgres.supabase.users"]["type"], "table")
-        self.assertEqual(nodes["postgres.supabase.events"]["type"], "table")
+        assert nodes["test_query"]["type"] == "view"
+        assert nodes["postgres.supabase.users"]["type"] == "table"
+        assert nodes["postgres.supabase.events"]["type"] == "table"
 
         edges = {(edge["source"], edge["target"]) for edge in data["edges"]}
         expected_edges = {
             ("postgres.supabase.users", "test_query"),
             ("postgres.supabase.events", "test_query"),
         }
-        self.assertEqual(edges, expected_edges)
+        assert edges == expected_edges
 
     def test_get_upstream_no_external_tables(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -182,20 +182,20 @@ class TestLineage(APIBaseTest):
         )
 
         response = self.client.get(f"/api/environments/{self.team.id}/lineage/get_upstream/?model_id={saved_query.id}")
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
 
-        self.assertEqual(len(data["nodes"]), 1)
-        self.assertEqual(len(data["edges"]), 0)
+        assert len(data["nodes"]) == 1
+        assert len(data["edges"]) == 0
 
         nodes = {node["id"]: node for node in data["nodes"]}
-        self.assertEqual(nodes["test_query"]["type"], "view")
+        assert nodes["test_query"]["type"] == "view"
 
     def test_topological_sort(self):
         nodes = ["A", "B", "C"]
         edges = [{"source": "A", "target": "B"}, {"source": "B", "target": "C"}]
         result = topological_sort(nodes, edges)
-        self.assertEqual(result, ["A", "B", "C"])
+        assert result == ["A", "B", "C"]
 
         # Test DAG with multiple paths and random order
         nodes = ["E", "D", "C", "B", "A"]
@@ -208,15 +208,15 @@ class TestLineage(APIBaseTest):
         ]
         result = topological_sort(nodes, edges)
         # A must come before B and C, B and C must come before D, D must come before E
-        self.assertEqual(result[0], "A")
-        self.assertEqual(result[-1], "E")
-        self.assertIn(result[1], ["B", "C"])
-        self.assertIn(result[2], ["B", "C"])
-        self.assertEqual(result[3], "D")
+        assert result[0] == "A"
+        assert result[-1] == "E"
+        assert result[1] in ["B", "C"]
+        assert result[2] in ["B", "C"]
+        assert result[3] == "D"
 
         nodes = ["A", "B", "C", "D"]
         edges = [{"source": "A", "target": "B"}, {"source": "C", "target": "D"}]
         result = topological_sort(nodes, edges)
         # A must come before B, C must come before D
-        self.assertLess(result.index("A"), result.index("B"))
-        self.assertLess(result.index("C"), result.index("D"))
+        assert result.index("A") < result.index("B")
+        assert result.index("C") < result.index("D")

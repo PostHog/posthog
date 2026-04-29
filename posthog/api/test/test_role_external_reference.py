@@ -35,16 +35,16 @@ class TestRoleExternalReferenceAPI(APILicensedTest):
 
     def test_create_list_delete(self) -> None:
         create_response = self._create_reference()
-        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        assert create_response.status_code == status.HTTP_201_CREATED
 
         list_response = self.client.get(f"{self._base_url()}/")
-        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(list_response.json()["results"]), 1)
+        assert list_response.status_code == status.HTTP_200_OK
+        assert len(list_response.json()["results"]) == 1
 
         reference_id = create_response.json()["id"]
         delete_response = self.client.delete(f"{self._base_url()}/{reference_id}/")
-        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(RoleExternalReference.objects.filter(id=reference_id).exists())
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+        assert not RoleExternalReference.objects.filter(id=reference_id).exists()
 
     @parameterized.expand(
         [
@@ -58,13 +58,13 @@ class TestRoleExternalReferenceAPI(APILicensedTest):
             f"{self._base_url()}/lookup/?provider=github&provider_organization_id=posthog&{query_string}"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.json()["reference"])
-        self.assertEqual(response.json()["reference"][expected_key], expected_value)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["reference"] is not None
+        assert response.json()["reference"][expected_key] == expected_value
 
     def test_lookup_requires_identifier(self) -> None:
         response = self.client.get(f"{self._base_url()}/lookup/?provider=github&provider_organization_id=posthog")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [
@@ -75,12 +75,12 @@ class TestRoleExternalReferenceAPI(APILicensedTest):
     def test_unique_constraint_on_role_slug(self, overrides: dict[str, str]) -> None:
         self._create_reference()
         response = self._create_reference(**overrides)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_unique_constraint_on_role_id(self) -> None:
         self._create_reference()
         response = self._create_reference(provider_role_slug="other-team")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestRoleExternalReferencePermissions(APILicensedTest):
@@ -98,7 +98,7 @@ class TestRoleExternalReferencePermissions(APILicensedTest):
         self.organization_membership.save()
 
         response = self.client.get(f"{self._base_url()}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_member_cannot_create(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -115,7 +115,7 @@ class TestRoleExternalReferencePermissions(APILicensedTest):
                 "role": str(self.role.id),
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 class TestRoleExternalReferenceCrossOrgIsolation(APILicensedTest):
@@ -157,10 +157,10 @@ class TestRoleExternalReferenceCrossOrgIsolation(APILicensedTest):
 
     def test_list_only_returns_current_org_references(self) -> None:
         response = self.client.get(f"/api/organizations/{self.org_a.id}/role_external_references/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.json()["results"]), 1)
-        self.assertEqual(response.json()["results"][0]["id"], str(self.ref_a.id))
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == str(self.ref_a.id)
 
     def test_cannot_delete_reference_from_other_org(self) -> None:
         response = self.client.delete(f"/api/organizations/{self.org_a.id}/role_external_references/{self.ref_b.id}/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND

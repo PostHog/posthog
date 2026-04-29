@@ -45,7 +45,7 @@ class TestRetentionValidationRules(BaseTest):
         with self.assertRaises(ValidationError) as context:
             DisallowCumulativeWith24HourWindows().validate(self._context(query))
 
-        self.assertIn("Cumulative retention is not supported for 24 hour windows.", str(context.exception))
+        assert "Cumulative retention is not supported for 24 hour windows." in str(context.exception)
 
     @parameterized.expand(
         [
@@ -80,8 +80,8 @@ class TestRetentionValidationRules(BaseTest):
         with self.assertRaises(ValidationError) as context:
             DisallowUnsupportedDataWarehouseSettings().validate(self._context(query))
 
-        self.assertIn(expected_error, str(context.exception))
-        self.assertEqual(context.exception.get_codes(), ["data_warehouse_series_unsupported_settings"])
+        assert expected_error in str(context.exception)
+        assert context.exception.get_codes() == ["data_warehouse_series_unsupported_settings"]
 
     def test_allows_unsupported_settings_without_data_warehouse_series(self):
         query = RetentionQuery(

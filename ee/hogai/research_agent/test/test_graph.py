@@ -10,12 +10,12 @@ class TestResearchAgentGraph(BaseTest):
     def test_graph_name_is_deep_research(self):
         graph = ResearchAgentGraph(self.team, self.user)
 
-        self.assertEqual(graph.graph_name, AssistantGraphName.DEEP_RESEARCH)
+        assert graph.graph_name == AssistantGraphName.DEEP_RESEARCH
 
     def test_mode_manager_class_returns_research_agent_mode_manager(self):
         graph = ResearchAgentGraph(self.team, self.user)
 
-        self.assertEqual(graph.mode_manager_class, ResearchAgentModeManager)
+        assert graph.mode_manager_class == ResearchAgentModeManager
 
     def test_add_title_generator_adds_node(self):
         graph = ResearchAgentGraph(self.team, self.user)
@@ -27,7 +27,7 @@ class TestResearchAgentGraph(BaseTest):
 
         mock_graph.add_node.assert_called()
         node_name_arg = mock_graph.add_node.call_args[0][0]
-        self.assertEqual(node_name_arg, AssistantNodeName.TITLE_GENERATOR)
+        assert node_name_arg == AssistantNodeName.TITLE_GENERATOR
 
     def test_add_title_generator_adds_edges(self):
         graph = ResearchAgentGraph(self.team, self.user)
@@ -39,27 +39,27 @@ class TestResearchAgentGraph(BaseTest):
 
         # Should add edges from START to TITLE_GENERATOR and from TITLE_GENERATOR to END
         add_edge_calls = mock_graph.add_edge.call_args_list
-        self.assertEqual(len(add_edge_calls), 2)
+        assert len(add_edge_calls) == 2
 
         # Check first edge: START -> TITLE_GENERATOR
         first_edge = add_edge_calls[0][0]
-        self.assertEqual(first_edge[0], AssistantNodeName.START)
-        self.assertEqual(first_edge[1], AssistantNodeName.TITLE_GENERATOR)
+        assert first_edge[0] == AssistantNodeName.START
+        assert first_edge[1] == AssistantNodeName.TITLE_GENERATOR
 
         # Check second edge: TITLE_GENERATOR -> END
         second_edge = add_edge_calls[1][0]
-        self.assertEqual(second_edge[0], AssistantNodeName.TITLE_GENERATOR)
-        self.assertEqual(second_edge[1], AssistantNodeName.END)
+        assert second_edge[0] == AssistantNodeName.TITLE_GENERATOR
+        assert second_edge[1] == AssistantNodeName.END
 
     def test_add_title_generator_sets_has_start_node(self):
         graph = ResearchAgentGraph(self.team, self.user)
         graph._graph = MagicMock()
 
-        self.assertFalse(graph._has_start_node)
+        assert not graph._has_start_node
 
         graph.add_title_generator()
 
-        self.assertTrue(graph._has_start_node)
+        assert graph._has_start_node
 
     def test_add_title_generator_with_custom_end_node(self):
         graph = ResearchAgentGraph(self.team, self.user)
@@ -73,7 +73,7 @@ class TestResearchAgentGraph(BaseTest):
 
         add_edge_calls = mock_graph.add_edge.call_args_list
         second_edge = add_edge_calls[1][0]
-        self.assertEqual(second_edge[1], custom_end_node)
+        assert second_edge[1] == custom_end_node
 
     def test_add_title_generator_returns_self(self):
         graph = ResearchAgentGraph(self.team, self.user)
@@ -81,7 +81,7 @@ class TestResearchAgentGraph(BaseTest):
 
         result = graph.add_title_generator()
 
-        self.assertIs(result, graph)
+        assert result is graph
 
     def test_compile_full_graph_calls_methods_in_order(self):
         graph = ResearchAgentGraph(self.team, self.user)

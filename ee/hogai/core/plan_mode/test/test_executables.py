@@ -41,7 +41,7 @@ class TestSupermodeReducer(BaseTest):
         result = replace_if_not_none(current_supermode, new_supermode)
 
         # None means "keep current value"
-        self.assertEqual(result, AgentMode.PLAN)
+        assert result == AgentMode.PLAN
 
     def test_replace_supermode_with_clear_sentinel(self):
         """
@@ -53,7 +53,7 @@ class TestSupermodeReducer(BaseTest):
         result = replace_supermode(current_supermode, CLEAR_SUPERMODE)
 
         # CLEAR_SUPERMODE should result in None (cleared)
-        self.assertIsNone(result)
+        assert result is None
 
     def test_replace_supermode_preserves_none_as_no_change(self):
         """
@@ -64,7 +64,7 @@ class TestSupermodeReducer(BaseTest):
         result = replace_supermode(current_supermode, None)
 
         # None means "keep current value"
-        self.assertEqual(result, AgentMode.PLAN)
+        assert result == AgentMode.PLAN
 
     def test_replace_supermode_allows_setting_new_mode(self):
         """
@@ -74,7 +74,7 @@ class TestSupermodeReducer(BaseTest):
 
         result = replace_supermode(current_supermode, AgentMode.PLAN)
 
-        self.assertEqual(result, AgentMode.PLAN)
+        assert result == AgentMode.PLAN
 
     def test_supermode_cleared_with_clear_sentinel_in_state(self):
         """
@@ -97,7 +97,7 @@ class TestSupermodeReducer(BaseTest):
         merged_supermode = replace_supermode(current_state.supermode, partial_state.supermode)
 
         # CLEAR_SUPERMODE should result in None
-        self.assertIsNone(merged_supermode)
+        assert merged_supermode is None
 
 
 class TestPlanModeToolsExecutable(BaseTest):
@@ -156,9 +156,9 @@ class TestPlanModeToolsExecutable(BaseTest):
 
             result = await executable.arun(state, config)
 
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(result.supermode, CLEAR_SUPERMODE)  # ChatAgent uses CLEAR_SUPERMODE to exit plan mode
-            self.assertEqual(result.agent_mode, AgentMode.PRODUCT_ANALYTICS)  # Default when exiting plan mode
+            assert isinstance(result, PartialAssistantState)
+            assert result.supermode == CLEAR_SUPERMODE  # ChatAgent uses CLEAR_SUPERMODE to exit plan mode
+            assert result.agent_mode == AgentMode.PRODUCT_ANALYTICS  # Default when exiting plan mode
 
     @pytest.mark.asyncio
     async def test_no_transition_when_should_transition_false(self):
@@ -214,11 +214,11 @@ class TestPlanModeToolsExecutable(BaseTest):
 
             result = await executable.arun(state, config)
 
-            self.assertIsInstance(result, PartialAssistantState)
+            assert isinstance(result, PartialAssistantState)
             # Result should be unchanged from super().arun()
             last_message = result.messages[-1]
             assert isinstance(last_message, AssistantToolCallMessage)
-            self.assertEqual(last_message.content, "Search results")
+            assert last_message.content == "Search results"
 
     @pytest.mark.asyncio
     async def test_transitions_with_non_tool_call_message(self):
@@ -268,9 +268,9 @@ class TestPlanModeToolsExecutable(BaseTest):
 
             # PlanModeToolsExecutable transitions even with non-tool-call messages
             result = await executable.arun(state, config)
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(result.supermode, CLEAR_SUPERMODE)
-            self.assertEqual(result.agent_mode, AgentMode.PRODUCT_ANALYTICS)  # Default when exiting plan mode
+            assert isinstance(result, PartialAssistantState)
+            assert result.supermode == CLEAR_SUPERMODE
+            assert result.agent_mode == AgentMode.PRODUCT_ANALYTICS  # Default when exiting plan mode
 
 
 class TestChatAgentPlanToolsExecutableProperties(BaseTest):
@@ -286,7 +286,7 @@ class TestChatAgentPlanToolsExecutableProperties(BaseTest):
             prompt_builder_class=DummyChatAgentPromptBuilder,
         )
 
-        self.assertEqual(executable.transition_supermode, CLEAR_SUPERMODE)
+        assert executable.transition_supermode == CLEAR_SUPERMODE
 
     async def test_get_transition_prompt_returns_dynamic_prompt(self):
         from ee.hogai.chat_agent.executables import ChatAgentPlanToolsExecutable
@@ -303,8 +303,8 @@ class TestChatAgentPlanToolsExecutableProperties(BaseTest):
         )
 
         prompt = await executable.get_transition_prompt()
-        self.assertIn("Planning complete", prompt)
-        self.assertIn("product_analytics", prompt)
+        assert "Planning complete" in prompt
+        assert "product_analytics" in prompt
 
     @parameterized.expand(
         [
@@ -336,4 +336,4 @@ class TestChatAgentPlanToolsExecutableProperties(BaseTest):
             agent_mode=result_agent_mode,
         )
 
-        self.assertEqual(executable._should_transition(state, result), expected)
+        assert executable._should_transition(state, result) == expected

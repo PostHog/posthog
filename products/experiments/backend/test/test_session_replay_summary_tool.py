@@ -105,27 +105,27 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
         # Assert result message
-        self.assertIn("Session Replay Summary", result)
-        self.assertIn("test-experiment", result)
-        self.assertIn("Total recordings: 125", result)
-        self.assertIn("control: 50", result)
-        self.assertIn("test: 75", result)
-        self.assertIn("40.0%", result)
-        self.assertIn("60.0%", result)
-        self.assertIn("What would you like to explore?", result)
+        assert "Session Replay Summary" in result
+        assert "test-experiment" in result
+        assert "Total recordings: 125" in result
+        assert "control: 50" in result
+        assert "test: 75" in result
+        assert "40.0%" in result
+        assert "60.0%" in result
+        assert "What would you like to explore?" in result
 
         # Assert artifact structure
         assert isinstance(artifact, dict)
-        self.assertEqual(artifact["experiment_id"], experiment.id)
-        self.assertEqual(artifact["experiment_name"], "test-experiment")
-        self.assertEqual(artifact["recording_counts"], {"control": 50, "test": 75})
-        self.assertEqual(artifact["total_recordings"], 125)
-        self.assertEqual(artifact["variants"], ["control", "test"])
-        self.assertIn("date_range", artifact)
-        self.assertIsNotNone(artifact["date_range"]["start"])
-        self.assertIsNotNone(artifact["date_range"]["end"])
+        assert artifact["experiment_id"] == experiment.id
+        assert artifact["experiment_name"] == "test-experiment"
+        assert artifact["recording_counts"] == {"control": 50, "test": 75}
+        assert artifact["total_recordings"] == 125
+        assert artifact["variants"] == ["control", "test"]
+        assert "date_range" in artifact
+        assert artifact["date_range"]["start"] is not None
+        assert artifact["date_range"]["end"] is not None
 
-        self.assertEqual(mock_list_recordings.call_count, 2)
+        assert mock_list_recordings.call_count == 2
 
     @patch("products.experiments.backend.max_tools.list_recordings_from_query")
     async def test_experiment_with_100_plus_recordings(self, mock_list_recordings):
@@ -142,9 +142,9 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         tool = await self.create_tool()
         result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
-        self.assertEqual(artifact["recording_counts"], {"control": 100, "test": 100})
-        self.assertEqual(artifact["total_recordings"], 200)
-        self.assertIn("200", result)
+        assert artifact["recording_counts"] == {"control": 100, "test": 100}
+        assert artifact["total_recordings"] == 200
+        assert "200" in result
 
     @patch("products.experiments.backend.max_tools.list_recordings_from_query")
     async def test_experiment_with_no_recordings(self, mock_list_recordings):
@@ -159,22 +159,22 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         tool = await self.create_tool()
         result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
-        self.assertIn("No session recordings found", result)
-        self.assertIn("test-experiment", result)
-        self.assertIn("session replay is enabled", result)
+        assert "No session recordings found" in result
+        assert "test-experiment" in result
+        assert "session replay is enabled" in result
 
-        self.assertEqual(artifact["error"], "no_recordings")
-        self.assertEqual(artifact["experiment_id"], experiment.id)
-        self.assertEqual(artifact["recording_counts"], {"control": 0, "test": 0})
+        assert artifact["error"] == "no_recordings"
+        assert artifact["experiment_id"] == experiment.id
+        assert artifact["recording_counts"] == {"control": 0, "test": 0}
 
     async def test_experiment_not_found(self):
         """Test error when experiment ID doesn't exist."""
         tool = await self.create_tool()
         result, artifact = await tool._arun_impl(experiment_id=99999)
 
-        self.assertIn("Experiment 99999 not found", result)
-        self.assertEqual(artifact["error"], "validation_error")
-        self.assertIn("not found", artifact["details"])
+        assert "Experiment 99999 not found" in result
+        assert artifact["error"] == "validation_error"
+        assert "not found" in artifact["details"]
 
     async def test_experiment_not_started(self):
         """Test error when experiment hasn't been started yet."""
@@ -183,10 +183,10 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         tool = await self.create_tool()
         result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
-        self.assertIn("Experiment has not started yet", result)
-        self.assertIn("No session replays available", result)
-        self.assertEqual(artifact["error"], "not_started")
-        self.assertEqual(artifact["experiment_id"], experiment.id)
+        assert "Experiment has not started yet" in result
+        assert "No session replays available" in result
+        assert artifact["error"] == "not_started"
+        assert artifact["experiment_id"] == experiment.id
 
     async def test_experiment_with_no_variants(self):
         """Test error when feature flag has no multivariate variants configured."""
@@ -203,9 +203,9 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         tool = await self.create_tool()
         result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
-        self.assertIn("No variants configured", result)
-        self.assertEqual(artifact["error"], "no_variants")
-        self.assertEqual(artifact["experiment_id"], experiment.id)
+        assert "No variants configured" in result
+        assert artifact["error"] == "no_variants"
+        assert artifact["experiment_id"] == experiment.id
 
     @patch("products.experiments.backend.max_tools.capture_exception")
     @patch("products.experiments.backend.max_tools.list_recordings_from_query")
@@ -222,12 +222,12 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         tool = await self.create_tool()
         result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
-        self.assertEqual(artifact["recording_counts"], {"control": 25, "test": 0})
-        self.assertEqual(artifact["total_recordings"], 25)
+        assert artifact["recording_counts"] == {"control": 25, "test": 0}
+        assert artifact["total_recordings"] == 25
 
-        self.assertEqual(mock_capture_exception.call_count, 1)
+        assert mock_capture_exception.call_count == 1
         captured_exception = mock_capture_exception.call_args[0][0]
-        self.assertIn("ClickHouse connection failed", str(captured_exception))
+        assert "ClickHouse connection failed" in str(captured_exception)
 
     @patch("products.experiments.backend.max_tools.list_recordings_from_query")
     async def test_experiment_with_multiple_variants(self, mock_list_recordings):
@@ -246,15 +246,15 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         tool = await self.create_tool()
         result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
-        self.assertEqual(artifact["variants"], ["control", "variant_a", "variant_b"])
-        self.assertEqual(artifact["recording_counts"]["control"], 20)
-        self.assertEqual(artifact["recording_counts"]["variant_a"], 30)
-        self.assertEqual(artifact["recording_counts"]["variant_b"], 50)
-        self.assertEqual(artifact["total_recordings"], 100)
+        assert artifact["variants"] == ["control", "variant_a", "variant_b"]
+        assert artifact["recording_counts"]["control"] == 20
+        assert artifact["recording_counts"]["variant_a"] == 30
+        assert artifact["recording_counts"]["variant_b"] == 50
+        assert artifact["total_recordings"] == 100
 
-        self.assertIn("control: 20 (20.0%)", result)
-        self.assertIn("variant_a: 30 (30.0%)", result)
-        self.assertIn("variant_b: 50 (50.0%)", result)
+        assert "control: 20 (20.0%)" in result
+        assert "variant_a: 30 (30.0%)" in result
+        assert "variant_b: 50 (50.0%)" in result
 
     async def test_build_experiment_recording_filters(self):
         """Test that recording filters are built correctly for experiment variants."""
@@ -265,27 +265,27 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         filters = tool._build_experiment_recording_filters(experiment, "control")
 
         # Verify filter structure
-        self.assertIn("date_from", filters)
-        self.assertIn("date_to", filters)
-        self.assertIn("events", filters)
-        self.assertEqual(len(filters["events"]), 1)
+        assert "date_from" in filters
+        assert "date_to" in filters
+        assert "events" in filters
+        assert len(filters["events"]) == 1
 
         # Verify event filter
         event_filter = filters["events"][0]
-        self.assertEqual(event_filter["id"], "$feature_flag_called")
-        self.assertEqual(event_filter["type"], "events")
+        assert event_filter["id"] == "$feature_flag_called"
+        assert event_filter["type"] == "events"
 
         # Verify properties
         properties = event_filter["properties"]
-        self.assertEqual(len(properties), 2)
+        assert len(properties) == 2
 
-        self.assertEqual(properties[0]["key"], "$feature_flag")
-        self.assertEqual(properties[0]["value"], ["test-flag"])
-        self.assertEqual(properties[0]["operator"], "exact")
+        assert properties[0]["key"] == "$feature_flag"
+        assert properties[0]["value"] == ["test-flag"]
+        assert properties[0]["operator"] == "exact"
 
-        self.assertEqual(properties[1]["key"], "$feature/test-flag")
-        self.assertEqual(properties[1]["value"], ["control"])
-        self.assertEqual(properties[1]["operator"], "exact")
+        assert properties[1]["key"] == "$feature/test-flag"
+        assert properties[1]["value"] == ["control"]
+        assert properties[1]["operator"] == "exact"
 
     @patch("products.experiments.backend.max_tools.list_recordings_from_query")
     async def test_date_range_in_artifact(self, mock_list_recordings):
@@ -300,10 +300,10 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         tool = await self.create_tool()
         result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
-        self.assertIn("date_range", artifact)
+        assert "date_range" in artifact
         # Django adds timezone info, so check if it starts with the expected date
-        self.assertTrue(artifact["date_range"]["start"].startswith("2025-01-05T12:00:00"))
-        self.assertTrue(artifact["date_range"]["end"].startswith("2025-01-20T12:00:00"))
+        assert artifact["date_range"]["start"].startswith("2025-01-05T12:00:00")
+        assert artifact["date_range"]["end"].startswith("2025-01-20T12:00:00")
 
     @patch("products.experiments.backend.max_tools.database_sync_to_async")
     @patch("products.experiments.backend.max_tools.capture_exception")
@@ -315,15 +315,15 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         tool = await self.create_tool()
         result, artifact = await tool._arun_impl(experiment_id=123)
 
-        self.assertIn("Failed to analyze session replays", result)
-        self.assertEqual(artifact["error"], "analysis_failed")
-        self.assertIn("Database connection lost", artifact["details"])
+        assert "Failed to analyze session replays" in result
+        assert artifact["error"] == "analysis_failed"
+        assert "Database connection lost" in artifact["details"]
 
-        self.assertEqual(mock_capture_exception.call_count, 1)
+        assert mock_capture_exception.call_count == 1
         call_kwargs = mock_capture_exception.call_args[1]
-        self.assertEqual(call_kwargs["properties"]["team_id"], self.team.id)
-        self.assertEqual(call_kwargs["properties"]["user_id"], self.user.id)
-        self.assertEqual(call_kwargs["properties"]["experiment_id"], 123)
+        assert call_kwargs["properties"]["team_id"] == self.team.id
+        assert call_kwargs["properties"]["user_id"] == self.user.id
+        assert call_kwargs["properties"]["experiment_id"] == 123
 
     async def test_format_summary_for_user_structure(self):
         """Test the structure and content of formatted user message."""
@@ -334,16 +334,16 @@ class TestSessionReplaySummaryTool(APIBaseTest):
             experiment_name="My Test Experiment", recording_counts=recording_counts, total_recordings=300
         )
 
-        self.assertIn("📹 Session Replay Summary for 'My Test Experiment'", message)
-        self.assertIn("Total recordings: 300", message)
-        self.assertIn("Recordings by variant:", message)
-        self.assertIn("control: 100 (33.3%)", message)
-        self.assertIn("test: 150 (50.0%)", message)
-        self.assertIn("variant_c: 50 (16.7%)", message)
-        self.assertIn("To analyze user behavior patterns:", message)
-        self.assertIn("filter and view specific recordings", message)
-        self.assertIn("Compare behavior differences", message)
-        self.assertIn("What would you like to explore?", message)
+        assert "📹 Session Replay Summary for 'My Test Experiment'" in message
+        assert "Total recordings: 300" in message
+        assert "Recordings by variant:" in message
+        assert "control: 100 (33.3%)" in message
+        assert "test: 150 (50.0%)" in message
+        assert "variant_c: 50 (16.7%)" in message
+        assert "To analyze user behavior patterns:" in message
+        assert "filter and view specific recordings" in message
+        assert "Compare behavior differences" in message
+        assert "What would you like to explore?" in message
 
     async def test_experiment_with_empty_multivariate_variants_list(self):
         """Test handling when multivariate.variants is an empty list."""
@@ -363,5 +363,5 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         tool = await self.create_tool()
         result, artifact = await tool._arun_impl(experiment_id=experiment.id)
 
-        self.assertIn("No variants configured", result)
-        self.assertEqual(artifact["error"], "no_variants")
+        assert "No variants configured" in result
+        assert artifact["error"] == "no_variants"

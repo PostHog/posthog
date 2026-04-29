@@ -31,7 +31,7 @@ class TestLifecycleBase(ClickhouseTestMixin, APIBaseTest):
         ]
         sorted_expected = sorted(expected, key=lambda r: r["status"])
 
-        self.assertListEqual(sorted_results, sorted_expected)
+        assert sorted_results == sorted_expected
 
 
 class TestLifecycle(TestLifecycleBase):
@@ -539,8 +539,8 @@ class TestLifecycle(TestLifecycleBase):
             },
         ).json()
 
-        self.assertEqual(len(result["results"][0]["people"]), 1)
-        self.assertEqual(result["results"][0]["people"][0]["uuid"], str(p1.uuid))
+        assert len(result["results"][0]["people"]) == 1
+        assert result["results"][0]["people"][0]["uuid"] == str(p1.uuid)
 
         dormant_result = self.client.get(
             "/api/person/lifecycle",
@@ -554,7 +554,7 @@ class TestLifecycle(TestLifecycleBase):
             },
         ).json()
 
-        self.assertEqual(len(dormant_result["results"][0]["people"]), 2)
+        assert len(dormant_result["results"][0]["people"]) == 2
 
         dormant_result = self.client.get(
             "/api/person/lifecycle",
@@ -568,7 +568,7 @@ class TestLifecycle(TestLifecycleBase):
             },
         ).json()
 
-        self.assertEqual(len(dormant_result["results"][0]["people"]), 1)
+        assert len(dormant_result["results"][0]["people"]) == 1
 
     def test_lifecycle_trend_people_paginated(self):
         with freeze_time("2020-01-15T12:00:00Z"):
@@ -593,10 +593,10 @@ class TestLifecycle(TestLifecycleBase):
                 "target_date": "2020-01-15T00:00:00Z",
             },
         ).json()
-        self.assertEqual(len(result["results"][0]["people"]), 100)
+        assert len(result["results"][0]["people"]) == 100
 
         second_result = self.client.get(result["next"]).json()
-        self.assertEqual(len(second_result["results"][0]["people"]), 50)
+        assert len(second_result["results"][0]["people"]) == 50
 
     def test_lifecycle_trend_action(self):
         self._create_events(
@@ -718,17 +718,7 @@ class TestLifecycle(TestLifecycleBase):
             self.team,
         )
 
-        self.assertEqual(
-            result[0]["days"],
-            [
-                "2020-02-03",
-                "2020-02-10",
-                "2020-02-17",
-                "2020-02-24",
-                "2020-03-02",
-                "2020-03-09",
-            ],
-        )
+        assert result[0]["days"] == ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
 
         self.assertLifecycleResults(
             result,

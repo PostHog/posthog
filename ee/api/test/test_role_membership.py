@@ -34,8 +34,8 @@ class TestRoleMembershipCrossOrgAuthorization(APILicensedTest):
             f"/api/organizations/{self.org_b.id}/roles/{self.org_b_role.id}/role_memberships",
             {"user_uuid": self.org_b_user.uuid},
         )
-        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(RoleMembership.objects.filter(role=self.org_b_role, user=self.org_b_user).exists())
+        assert res.status_code == status.HTTP_403_FORBIDDEN
+        assert not RoleMembership.objects.filter(role=self.org_b_role, user=self.org_b_user).exists()
 
 
 class TestRoleMembershipAPI(APILicensedTest):

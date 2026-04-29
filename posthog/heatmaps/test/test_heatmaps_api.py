@@ -147,7 +147,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_can_get_empty_response(self) -> None:
         response = self.client.get("/api/heatmap/?date_from=2024-05-03")
         assert response.status_code == 200
-        self.assertEqual(response.data, {"results": []})
+        assert response.data == {"results": []}
 
     @freezegun.freeze_time("2025-03-31")
     @snapshot_clickhouse_queries

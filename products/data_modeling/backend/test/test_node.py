@@ -26,7 +26,7 @@ class TestNodeNameSync(BaseTest):
             type=NodeType.VIEW,
         )
 
-        self.assertEqual(node.name, "original_name")
+        assert node.name == "original_name"
 
     def test_node_name_cannot_be_overridden_when_saved_query_exists(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -48,7 +48,7 @@ class TestNodeNameSync(BaseTest):
         node.save()
 
         node.refresh_from_db()
-        self.assertEqual(node.name, "saved_query_name")
+        assert node.name == "saved_query_name"
 
     def test_node_name_updates_when_saved_query_name_changes(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -70,7 +70,7 @@ class TestNodeNameSync(BaseTest):
         saved_query.save()
 
         node.refresh_from_db()
-        self.assertEqual(node.name, "updated_name")
+        assert node.name == "updated_name"
 
     def test_table_node_name_is_not_affected_by_sync(self):
         dag = DAG.objects.create(team=self.team, name="test")
@@ -82,13 +82,13 @@ class TestNodeNameSync(BaseTest):
             type=NodeType.TABLE,
         )
 
-        self.assertEqual(node.name, "events")
+        assert node.name == "events"
 
         node.name = "custom_table_name"
         node.save()
 
         node.refresh_from_db()
-        self.assertEqual(node.name, "custom_table_name")
+        assert node.name == "custom_table_name"
 
     def test_node_without_saved_query_requires_name(self):
         dag = DAG.objects.create(team=self.team, name="test")
@@ -101,7 +101,7 @@ class TestNodeNameSync(BaseTest):
                 type=NodeType.TABLE,
             )
 
-        self.assertEqual(str(context.exception), "Node without a saved_query must have a name")
+        assert str(context.exception) == "Node without a saved_query must have a name"
 
     def test_multiple_nodes_can_share_saved_query_across_different_dags(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -125,17 +125,17 @@ class TestNodeNameSync(BaseTest):
             type=NodeType.VIEW,
         )
 
-        self.assertEqual(node1.saved_query_id, node2.saved_query_id)
-        self.assertEqual(node1.name, "shared_view")
-        self.assertEqual(node2.name, "shared_view")
+        assert node1.saved_query_id == node2.saved_query_id
+        assert node1.name == "shared_view"
+        assert node2.name == "shared_view"
 
         saved_query.name = "renamed_view"
         saved_query.save()
 
         node1.refresh_from_db()
         node2.refresh_from_db()
-        self.assertEqual(node1.name, "renamed_view")
-        self.assertEqual(node2.name, "renamed_view")
+        assert node1.name == "renamed_view"
+        assert node2.name == "renamed_view"
 
     def test_multiple_nodes_cannot_share_saved_query_in_same_dag(self):
         saved_query = DataWarehouseSavedQuery.objects.create(

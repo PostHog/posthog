@@ -879,7 +879,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._run_query(limit_context=LimitContext.QUERY_ASYNC)
 
         mock_sync_execute.assert_called_once()
-        self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+        assert f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME}," in mock_sync_execute.call_args[0][0]
 
     @snapshot_clickhouse_queries
     def test_cumulative_stickiness(self):
@@ -1173,7 +1173,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=actors_query_1,
             team=self.team,
         )
-        self.assertEqual(len(response_1.results), 3)  # All 3 users were active for 1+ days
+        assert len(response_1.results) == 3  # All 3 users were active for 1+ days
 
         # Test actors who were active for 2 or more days
         actors_query_2 = runner.to_actors_query(interval_num=2)
@@ -1182,7 +1182,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=actors_query_2,
             team=self.team,
         )
-        self.assertEqual(len(response_2.results), 2)  # p1 and p2 were active for 2+ days
+        assert len(response_2.results) == 2  # p1 and p2 were active for 2+ days
 
         # Test actors who were active for 3 or more days
         actors_query_3 = runner.to_actors_query(interval_num=3)
@@ -1191,7 +1191,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=actors_query_3,
             team=self.team,
         )
-        self.assertEqual(len(response_3.results), 1)  # Only p1 was active for 3+ days
+        assert len(response_3.results) == 1  # Only p1 was active for 3+ days
 
     @snapshot_clickhouse_queries
     def test_actor_query_non_cumulative(self):
@@ -1253,7 +1253,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=actors_query_1,
             team=self.team,
         )
-        self.assertEqual(len(response_1.results), 1)  # Only p3 was active for exactly 1 day
+        assert len(response_1.results) == 1  # Only p3 was active for exactly 1 day
 
         # Test actors who were active for exactly 2 days
         actors_query_2 = runner.to_actors_query(interval_num=2)
@@ -1262,7 +1262,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=actors_query_2,
             team=self.team,
         )
-        self.assertEqual(len(response_2.results), 1)  # Only p2 was active for exactly 2 days
+        assert len(response_2.results) == 1  # Only p2 was active for exactly 2 days
 
         # Test actors who were active for exactly 3 days
         actors_query_3 = runner.to_actors_query(interval_num=3)
@@ -1271,7 +1271,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=actors_query_3,
             team=self.team,
         )
-        self.assertEqual(len(response_3.results), 1)  # Only p1 was active for exactly 3 days
+        assert len(response_3.results) == 1  # Only p1 was active for exactly 3 days
 
     def test_actor_query_with_operator(self):
         self._create_events(
@@ -1332,7 +1332,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=actors_query,
             team=self.team,
         )
-        self.assertEqual(len(response.results), 2)  # p1 and p2 were active for >= 2 days
+        assert len(response.results) == 2  # p1 and p2 were active for >= 2 days
 
         # Test actors who were active for <= 2 days
         actors_query = runner.to_actors_query(interval_num=2, operator="lte")
@@ -1341,4 +1341,4 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query=actors_query,
             team=self.team,
         )
-        self.assertEqual(len(response.results), 2)  # p2 and p3 were active for <= 2 days
+        assert len(response.results) == 2  # p2 and p3 were active for <= 2 days

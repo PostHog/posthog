@@ -42,7 +42,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         ]
     )
     def test_postgres_oid_to_clickhouse_type(self, _name: str, oid: int | None, expected: str):
-        self.assertEqual(postgres_oid_to_clickhouse_type(oid), expected)
+        assert postgres_oid_to_clickhouse_type(oid) == expected
 
     @parameterized.expand(
         [
@@ -54,40 +54,25 @@ class TestDirectPostgresQuery(APIBaseTest):
         ]
     )
     def test_parse_lenient_direct_postgres_date(self, _name: str, value: str, expected: date):
-        self.assertEqual(parse_lenient_direct_postgres_date(value), expected)
+        assert parse_lenient_direct_postgres_date(value) == expected
 
     def test_direct_postgres_session_setup_sql_uses_search_path_for_postgres(self):
-        self.assertEqual(
-            direct_postgres_session_setup_sql("ph3"),
-            "SET search_path TO ph3",
-        )
+        assert direct_postgres_session_setup_sql("ph3") == "SET search_path TO ph3"
 
     def test_direct_postgres_session_setup_sql_returns_none_without_postgres_schema(self):
-        self.assertIsNone(direct_postgres_session_setup_sql(None))
+        assert direct_postgres_session_setup_sql(None) is None
 
     def test_direct_postgres_session_setup_sql_uses_use_for_duckdb(self):
-        self.assertEqual(
-            direct_postgres_session_setup_sql("posthog", {"engine": "duckdb"}),
-            "USE posthog",
-        )
+        assert direct_postgres_session_setup_sql("posthog", {"engine": "duckdb"}) == "USE posthog"
 
     def test_direct_postgres_session_setup_sql_uses_database_for_duckdb_without_schema(self):
-        self.assertEqual(
-            direct_postgres_session_setup_sql(None, {"engine": "duckdb", "database": "ducklake"}),
-            "USE ducklake",
-        )
+        assert direct_postgres_session_setup_sql(None, {"engine": "duckdb", "database": "ducklake"}) == "USE ducklake"
 
     def test_direct_postgres_session_setup_sql_uses_schema_for_duckdb_with_schema(self):
-        self.assertEqual(
-            direct_postgres_session_setup_sql("system", {"engine": "duckdb", "database": "ducklake"}),
-            "USE system",
-        )
+        assert direct_postgres_session_setup_sql("system", {"engine": "duckdb", "database": "ducklake"}) == "USE system"
 
     def test_direct_postgres_session_setup_sql_treats_postwh_hosts_as_duckdb(self):
-        self.assertEqual(
-            direct_postgres_session_setup_sql("posthog", host="db.eu.postwh.com"),
-            "USE posthog",
-        )
+        assert direct_postgres_session_setup_sql("posthog", host="db.eu.postwh.com") == "USE posthog"
 
     def test_runtime_direct_postgres_connection_metadata_hydrates_missing_duckdb_catalog(self):
         connection = MagicMock()
@@ -95,10 +80,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         metadata_cursor.fetchone.return_value = ("ducklake", "DuckDB v1.3.2")
         connection.execute.return_value = metadata_cursor
 
-        self.assertEqual(
-            get_runtime_direct_postgres_connection_metadata(connection, {"engine": "duckdb"}),
-            {"engine": "duckdb", "database": "ducklake"},
-        )
+        assert get_runtime_direct_postgres_connection_metadata(connection, {"engine": "duckdb"}) == {"engine": "duckdb", "database": "ducklake"}
         connection.execute.assert_called_once_with("SELECT current_database(), version()")
 
     def test_generate_sql_for_direct_postgres_table_does_not_require_team_id_field(self):
@@ -137,9 +119,9 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn("ph3.without_team_id", sql)
-        self.assertNotIn(".team_id", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert "ph3.without_team_id" in sql
+        assert ".team_id" not in sql
+        assert executor.direct_postgres_source_id == str(source.id)
 
     def test_generate_sql_for_aliased_direct_postgres_table(self):
         source = ExternalDataSource.objects.create(
@@ -177,9 +159,9 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn("ph3.posthog_activitylog", sql)
-        self.assertIn("activitylog", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert "ph3.posthog_activitylog" in sql
+        assert "activitylog" in sql
+        assert executor.direct_postgres_source_id == str(source.id)
 
     def test_generate_sql_for_direct_postgres_table_inside_cte(self):
         source = ExternalDataSource.objects.create(
@@ -224,9 +206,9 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn("dashboard_cte", sql)
-        self.assertIn("ph3.posthog_dashboard", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert "dashboard_cte" in sql
+        assert "ph3.posthog_dashboard" in sql
+        assert executor.direct_postgres_source_id == str(source.id)
 
     def test_generate_sql_for_direct_postgres_struct_field_access(self):
         source = ExternalDataSource.objects.create(
@@ -276,9 +258,9 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn('(members.membership).type AS "membership.type"', sql)
-        self.assertIn('(members.membership).tier AS "membership.tier"', sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert '(members.membership).type AS "membership.type"' in sql
+        assert '(members.membership).tier AS "membership.tier"' in sql
+        assert executor.direct_postgres_source_id == str(source.id)
 
     def test_generate_sql_for_direct_postgres_connection_metadata_function(self):
         source = ExternalDataSource.objects.create(
@@ -317,8 +299,8 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn("date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert "date_bin((1 * INTERVAL '1 hour'), NOW(), NOW())" in sql
+        assert executor.direct_postgres_source_id == str(source.id)
 
     def test_generate_sql_for_direct_postgres_custom_connection_metadata_function(self):
         source = ExternalDataSource.objects.create(
@@ -357,8 +339,8 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn("icu_collate_nl", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert "icu_collate_nl" in sql
+        assert executor.direct_postgres_source_id == str(source.id)
 
     def test_generate_sql_for_duckdb_direct_postgres_table_uses_connection_catalog(self):
         source = ExternalDataSource.objects.create(
@@ -400,8 +382,8 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn("ducklake.system.query_log", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert "ducklake.system.query_log" in sql
+        assert executor.direct_postgres_source_id == str(source.id)
 
     def test_direct_query_requires_selected_connection(self):
         source = ExternalDataSource.objects.create(
@@ -436,7 +418,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         with self.assertRaises(QueryError) as error:
             executor.generate_clickhouse_sql()
 
-        self.assertEqual(str(error.exception), "Unknown table `postgres.ph3.without_team_id`.")
+        assert str(error.exception) == "Unknown table `postgres.ph3.without_team_id`."
 
     def test_mixed_direct_and_clickhouse_query_without_connection_rejects_clickhouse_printing(self):
         source = ExternalDataSource.objects.create(
@@ -474,7 +456,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         with self.assertRaises(QueryError) as error:
             executor.generate_clickhouse_sql()
 
-        self.assertEqual(str(error.exception), "Unknown table `postgres.ph3.posthog_dashboard`.")
+        assert str(error.exception) == "Unknown table `postgres.ph3.posthog_dashboard`."
 
     def test_selected_connection_prioritizes_matching_direct_source_for_canonical_table_name(self):
         first_source = ExternalDataSource.objects.create(
@@ -537,8 +519,8 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         sql, _context = executor.generate_clickhouse_sql()
 
-        self.assertIn("FROM\n    second_schema.posthog_team", sql)
-        self.assertEqual(executor.direct_postgres_source_id, str(second_source.id))
+        assert "FROM\n    second_schema.posthog_team" in sql
+        assert executor.direct_postgres_source_id == str(second_source.id)
 
     def test_selected_connection_rejects_clickhouse_only_tables(self):
         source = ExternalDataSource.objects.create(
@@ -568,7 +550,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         with self.assertRaises(QueryError) as error:
             executor.execute()
 
-        self.assertEqual(str(error.exception), "Unknown table `persons`.")
+        assert str(error.exception) == "Unknown table `persons`."
 
     def test_selected_connection_uses_direct_tables_named_like_posthog_tables(self):
         source = ExternalDataSource.objects.create(
@@ -620,10 +602,10 @@ class TestDirectPostgresQuery(APIBaseTest):
         events_sql, _events_context = events_executor.generate_clickhouse_sql()
         persons_sql, _persons_context = persons_executor.generate_clickhouse_sql()
 
-        self.assertIn("FROM\n    ph3.events", events_sql)
-        self.assertIn("FROM\n    ph3.persons", persons_sql)
-        self.assertEqual(events_executor.direct_postgres_source_id, str(source.id))
-        self.assertEqual(persons_executor.direct_postgres_source_id, str(source.id))
+        assert "FROM\n    ph3.events" in events_sql
+        assert "FROM\n    ph3.persons" in persons_sql
+        assert events_executor.direct_postgres_source_id == str(source.id)
+        assert persons_executor.direct_postgres_source_id == str(source.id)
 
     @patch("posthog.hogql.query.psycopg.connect")
     def test_selected_connection_allows_table_less_sql(self, mock_connect):
@@ -662,11 +644,11 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertEqual(response.results, [(1,)])
-        self.assertEqual(executor.direct_postgres_source_id, str(source.id))
+        assert response.results == [(1,)]
+        assert executor.direct_postgres_source_id == str(source.id)
         assert executor.direct_postgres_sql is not None
-        self.assertIn("1 AS value", executor.direct_postgres_sql)
-        self.assertIn("LIMIT 100", executor.direct_postgres_sql)
+        assert "1 AS value" in executor.direct_postgres_sql
+        assert "LIMIT 100" in executor.direct_postgres_sql
 
     @patch("posthog.hogql.query.psycopg.connect")
     def test_send_raw_query_registers_lenient_date_loader_for_duckdb_style_dates(self, mock_connect):
@@ -707,7 +689,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertEqual(response.results, [(date(2026, 3, 26),)])
+        assert response.results == [(date(2026, 3, 26),)]
         job_inputs = cast(dict[str, Any], source.job_inputs)
         mocked_connection.execute.assert_called_once_with(f"USE {escape_postgres_identifier(job_inputs['schema'])}")
         mocked_connection.adapters.register_loader.assert_any_call("date", LenientDirectPostgresDateLoader)
@@ -753,9 +735,9 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertEqual(response.results, [(1,)])
+        assert response.results == [(1,)]
         mocked_connection.execute.assert_any_call(f"USE {escape_postgres_identifier(source.job_inputs['schema'])}")
-        self.assertEqual(mocked_connection.execute.call_count, 1)
+        assert mocked_connection.execute.call_count == 1
         mocked_cursor.execute.assert_called_once_with("SELECT * FROM system.query_log LIMIT 100", None)
 
     @patch("posthog.hogql.query.psycopg.connect")
@@ -797,7 +779,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertEqual(response.results, [(1,)])
+        assert response.results == [(1,)]
         mocked_connection.execute.assert_called_once_with(
             f"USE {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
@@ -843,10 +825,10 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertEqual(response.results, [(1,)])
-        self.assertEqual(response.clickhouse, "SELECT 1 AS value")
-        self.assertEqual(response.columns, ["value"])
-        self.assertIsNotNone(response.hogql)
+        assert response.results == [(1,)]
+        assert response.clickhouse == "SELECT 1 AS value"
+        assert response.columns == ["value"]
+        assert response.hogql is not None
         mocked_connection.execute.assert_called_once_with(
             f"SET search_path TO {escape_postgres_identifier(source.job_inputs['schema'])}"
         )
@@ -892,10 +874,10 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertEqual(response.results, [(True,)])
-        self.assertEqual(response.clickhouse, "SELECT 1 IS TRUE AS value")
-        self.assertEqual(response.columns, ["value"])
-        self.assertIsNone(response.hogql)
+        assert response.results == [(True,)]
+        assert response.clickhouse == "SELECT 1 IS TRUE AS value"
+        assert response.columns == ["value"]
+        assert response.hogql is None
         mocked_cursor.execute.assert_called_once_with("SELECT 1 IS TRUE AS value", None)
         mock_capture_exception.assert_called_once()
 
@@ -939,7 +921,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertEqual(response.results, [(1,)])
+        assert response.results == [(1,)]
         mocked_connection.execute.assert_called_once_with("USE ducklake")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
         mock_capture_exception.assert_not_called()
@@ -982,7 +964,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertEqual(response.results, [(1,)])
+        assert response.results == [(1,)]
         mocked_connection.execute.assert_called_once_with("SELECT current_database(), version()")
         mocked_cursor.execute.assert_called_once_with("SELECT 1 AS value", None)
 
@@ -1030,7 +1012,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         with self.assertRaises(ExposedHogQLError) as error:
             executor.execute()
 
-        self.assertEqual(str(error.exception), "Unknown table `posthog_dashboard`.")
+        assert str(error.exception) == "Unknown table `posthog_dashboard`."
 
     def test_execute_direct_postgres_query_raises_user_error_for_missing_source(self):
         missing_source_id = str(uuid4())
@@ -1041,16 +1023,13 @@ class TestDirectPostgresQuery(APIBaseTest):
         with self.assertRaises(ExposedHogQLError) as error:
             executor._execute_direct_postgres_query()
 
-        self.assertEqual(str(error.exception), "Connection not found or has been deleted")
+        assert str(error.exception) == "Connection not found or has been deleted"
 
     def test_postgres_error_to_message_uses_primary_message(self):
         error = psycopg.errors.GroupingError(
             'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function'
         )
-        self.assertEqual(
-            postgres_error_to_message(error),
-            'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function',
-        )
+        assert postgres_error_to_message(error) == 'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function'
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("posthog.hogql.query.psycopg.connect")
@@ -1093,7 +1072,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         with self.assertRaises(ExposedHogQLError) as error:
             executor.execute()
 
-        self.assertEqual(str(error.exception), "Hosts with internal IP addresses are not allowed")
+        assert str(error.exception) == "Hosts with internal IP addresses are not allowed"
         mock_connect.assert_not_called()
 
     @patch("posthog.hogql.query.psycopg.connect")
@@ -1145,12 +1124,9 @@ class TestDirectPostgresQuery(APIBaseTest):
         with self.assertRaises(ExposedHogQLError) as error:
             executor.execute()
 
-        self.assertIn("must appear in the GROUP BY clause", str(error.exception))
-        self.assertEqual(mock_connect.call_args.kwargs["connect_timeout"], 15)
-        self.assertEqual(
-            mock_connect.call_args.kwargs["options"],
-            "-c default_transaction_read_only=on -c statement_timeout=60000",
-        )
+        assert "must appear in the GROUP BY clause" in str(error.exception)
+        assert mock_connect.call_args.kwargs["connect_timeout"] == 15
+        assert mock_connect.call_args.kwargs["options"] == "-c default_transaction_read_only=on -c statement_timeout=60000"
 
     @patch("posthog.hogql.query.psycopg.connect")
     def test_execute_direct_postgres_query_uses_custom_statement_timeout(self, mock_connect):
@@ -1201,10 +1177,8 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         executor.execute()
 
-        self.assertEqual(
-            mock_connect.call_args.kwargs["options"], "-c default_transaction_read_only=on -c statement_timeout=12000"
-        )
-        self.assertTrue(any(timing.k.endswith("/postgres_execute") for timing in executor.timings.to_list()))
+        assert mock_connect.call_args.kwargs["options"] == "-c default_transaction_read_only=on -c statement_timeout=12000"
+        assert any(timing.k.endswith("/postgres_execute") for timing in executor.timings.to_list())
 
     @patch("posthog.hogql.query.psycopg.connect")
     def test_execute_direct_postgres_query_records_postgres_execute_timing(self, mock_connect):
@@ -1254,7 +1228,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         response = executor.execute()
 
-        self.assertTrue(any(timing.k.endswith("/postgres_execute") for timing in response.timings or []))
+        assert any(timing.k.endswith("/postgres_execute") for timing in response.timings or [])
 
     @patch("posthog.hogql.query.psycopg.connect")
     def test_execute_direct_postgres_query_reraises_unexpected_errors(self, mock_connect):
@@ -1302,7 +1276,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         with self.assertRaises(RuntimeError) as error:
             executor.execute()
 
-        self.assertEqual(str(error.exception), "boom")
+        assert str(error.exception) == "boom"
 
     _SSH_TUNNEL_CONFIG = {
         "ssh_tunnel": {
@@ -1404,7 +1378,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         executor.execute()
 
-        self.assertEqual(mock_connect.call_args.kwargs["sslmode"], expected_sslmode)
+        assert mock_connect.call_args.kwargs["sslmode"] == expected_sslmode
 
     @override_settings(DEBUG=False, TEST=False, E2E_TESTING=True)
     @patch("posthog.hogql.query.psycopg.connect")
@@ -1457,7 +1431,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         executor.execute()
 
-        self.assertEqual(mock_connect.call_args.kwargs["sslmode"], "prefer")
+        assert mock_connect.call_args.kwargs["sslmode"] == "prefer"
 
     @override_settings(DEBUG=False, TEST=False)
     @patch("posthog.hogql.query.psycopg.connect")
@@ -1510,7 +1484,7 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         executor.execute()
 
-        self.assertEqual(mock_connect.call_args.kwargs["sslmode"], "require")
-        self.assertEqual(mock_connect.call_args.kwargs["sslcert"], "/tmp/no.txt")
-        self.assertEqual(mock_connect.call_args.kwargs["sslkey"], "/tmp/no.txt")
-        self.assertEqual(mock_connect.call_args.kwargs["sslrootcert"], "/tmp/no.txt")
+        assert mock_connect.call_args.kwargs["sslmode"] == "require"
+        assert mock_connect.call_args.kwargs["sslcert"] == "/tmp/no.txt"
+        assert mock_connect.call_args.kwargs["sslkey"] == "/tmp/no.txt"
+        assert mock_connect.call_args.kwargs["sslrootcert"] == "/tmp/no.txt"

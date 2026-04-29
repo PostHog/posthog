@@ -36,11 +36,8 @@ class TestSiteApp(BaseTest):
         response = self.client.get(
             f"/site_app/{plugin_config.id}/tokentoken/somehash/", headers={"origin": "http://127.0.0.1:8000"}
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.content.decode("utf-8"),
-            f"function inject(){{}}().inject({{config:{{}},posthog:window['__$$ph_site_app_{plugin_config.id}']}})",
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.content.decode("utf-8") == f"function inject(){{}}().inject({{config:{{}},posthog:window['__$$ph_site_app_{plugin_config.id}']}})"
 
     def test_cors_access(self):
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
@@ -72,14 +69,11 @@ class TestSiteApp(BaseTest):
             USER_AGENT="Agent 008",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.content.decode("utf-8"),
-            f"function inject(){{}}().inject({{config:{{}},posthog:window['__$$ph_site_app_{plugin_config.id}']}})",
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.content.decode("utf-8") == f"function inject(){{}}().inject({{config:{{}},posthog:window['__$$ph_site_app_{plugin_config.id}']}})"
 
     def test_get_site_config_from_schema(self):
         schema: list[dict] = [{"key": "in_site", "site": True}, {"key": "not_in_site"}]
         config = {"in_site": "123", "not_in_site": "12345"}
-        self.assertEqual(get_site_config_from_schema(schema, config), {"in_site": "123"})
-        self.assertEqual(get_site_config_from_schema(None, None), {})
+        assert get_site_config_from_schema(schema, config) == {"in_site": "123"}
+        assert get_site_config_from_schema(None, None) == {}

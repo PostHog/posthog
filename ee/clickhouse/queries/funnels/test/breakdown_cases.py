@@ -11,6 +11,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult, assert_funnel_results_equal
 from posthog.test.test_journeys import journeys_for
+from collections import Counter
 
 
 def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
@@ -164,14 +165,8 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
             )
 
             # Querying persons when aggregating by persons should be ok, despite group breakdown
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1, "finance"),
-                [people["person1"].uuid],
-            )
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2, "finance"),
-                [people["person1"].uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 1, "finance")) == Counter([people["person1"].uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 2, "finance")) == Counter([people["person1"].uuid])
 
             self._assert_funnel_breakdown_result_is_correct(
                 result[1],
@@ -188,14 +183,8 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 ],
             )
 
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 1, "technology"),
-                [people["person2"].uuid, people["person3"].uuid],
-            )
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filter, 2, "technology"),
-                [people["person2"].uuid],
-            )
+            assert Counter(self._get_actor_ids_at_step(filter, 1, "technology")) == Counter([people["person2"].uuid, people["person3"].uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 2, "technology")) == Counter([people["person2"].uuid])
 
         # TODO: Delete this test when moved to person-on-events
         @also_test_with_person_on_events_v2

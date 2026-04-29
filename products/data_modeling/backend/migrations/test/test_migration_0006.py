@@ -73,24 +73,24 @@ class BackfillNodesEdgesMigrationTest(NonAtomicTestMigrations):
 
         # case 1: new saved query without existing node → backfilled
         new_node = Node.objects.filter(saved_query_id=self.new_saved_query.id).first()
-        self.assertIsNotNone(new_node)
-        self.assertEqual(new_node.name, "new_view")
-        self.assertTrue(new_node.properties.get("backfilled"))
+        assert new_node is not None
+        assert new_node.name == "new_view"
+        assert new_node.properties.get("backfilled")
         # case 2: existing saved query with node → NOT backfilled (node exists but no backfilled property)
         existing_node = Node.objects.filter(saved_query_id=self.existing_saved_query.id).first()
-        self.assertIsNotNone(existing_node)
-        self.assertFalse(existing_node.properties.get("backfilled"))
+        assert existing_node is not None
+        assert not existing_node.properties.get("backfilled")
         # case 3: deleted saved query → NOT backfilled
         deleted_node = Node.objects.filter(saved_query_id=self.deleted_saved_query.id).first()
-        self.assertIsNone(deleted_node)
+        assert deleted_node is None
         # case 4: dependent saved query → backfilled with edge
         dependent_node = Node.objects.filter(saved_query_id=self.dependent_saved_query.id).first()
-        self.assertIsNotNone(dependent_node)
-        self.assertEqual(dependent_node.name, "dependent_view")
-        self.assertTrue(dependent_node.properties.get("backfilled"))
+        assert dependent_node is not None
+        assert dependent_node.name == "dependent_view"
+        assert dependent_node.properties.get("backfilled")
         # edge from new_view to dependent_view
         edge = Edge.objects.filter(source=new_node, target=dependent_node).first()
-        self.assertIsNotNone(edge)
-        self.assertTrue(edge.properties.get("backfilled"))
+        assert edge is not None
+        assert edge.properties.get("backfilled")
         # total: 3 nodes (new_view backfilled, existing_view pre-existing, dependent_view backfilled)
-        self.assertEqual(Node.objects.filter(team_id=self.team_id).count(), 3)
+        assert Node.objects.filter(team_id=self.team_id).count() == 3

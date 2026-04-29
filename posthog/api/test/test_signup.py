@@ -64,62 +64,48 @@ class TestSignupAPI(APIBaseTest):
                 "role_at_organization": "product",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user = cast(User, User.objects.order_by("-pk")[0])
         team = cast(Team, user.team)
         organization = cast(Organization, user.organization)
 
-        self.assertEqual(
-            response.json(),
-            {
-                "id": user.pk,
-                "uuid": str(user.uuid),
-                "distinct_id": user.distinct_id,
-                "first_name": "John",
-                "last_name": "Doe",
-                "email": "hedgehog@posthog.com",
-                "redirect_url": "/",
-                "is_email_verified": False,
-                "hedgehog_config": None,
-                "role_at_organization": "product",
-            },
-        )
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "first_name": "John", "last_name": "Doe", "email": "hedgehog@posthog.com", "redirect_url": "/", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "product"}
 
         # Assert that the user was properly created
-        self.assertEqual(user.first_name, "John")
-        self.assertEqual(user.last_name, "Doe")
-        self.assertEqual(user.email, "hedgehog@posthog.com")
-        self.assertEqual(user.role_at_organization, "product")
-        self.assertTrue(user.is_staff)  # True because this is the first user in the instance
-        self.assertFalse(user.is_email_verified)
+        assert user.first_name == "John"
+        assert user.last_name == "Doe"
+        assert user.email == "hedgehog@posthog.com"
+        assert user.role_at_organization == "product"
+        assert user.is_staff  # True because this is the first user in the instance
+        assert not user.is_email_verified
 
         # Assert that the team was properly created
-        self.assertEqual(team.name, "Default project")
+        assert team.name == "Default project"
 
         # Assert that the org was properly created
-        self.assertEqual(organization.name, "Hedgehogs United, LLC")
+        assert organization.name == "Hedgehogs United, LLC"
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
-        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
-        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
+        assert "user signed up" == mock_capture.call_args.kwargs["event"]
+        assert user.distinct_id == mock_capture.call_args.kwargs["distinct_id"]
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
-        self.assertEqual(event_props["is_first_user"], True)
-        self.assertEqual(event_props["is_organization_first_user"], True)
-        self.assertEqual(event_props["new_onboarding_enabled"], False)
-        self.assertEqual(event_props["signup_backend_processor"], "OrganizationSignupSerializer")
-        self.assertEqual(event_props["signup_social_provider"], "")
-        self.assertEqual(event_props["realm"], get_instance_realm())
+        assert event_props["is_first_user"]
+        assert event_props["is_organization_first_user"]
+        assert not event_props["new_onboarding_enabled"]
+        assert event_props["signup_backend_processor"] == "OrganizationSignupSerializer"
+        assert event_props["signup_social_provider"] == ""
+        assert event_props["realm"] == get_instance_realm()
 
         # Assert that the user is logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], "hedgehog@posthog.com")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == "hedgehog@posthog.com"
 
         # Assert that the password was correctly saved
-        self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
+        assert user.check_password(VALID_TEST_PASSWORD)
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
@@ -136,14 +122,14 @@ class TestSignupAPI(APIBaseTest):
                 "referral_source_ai_prompt": "What is the best product analytics tool?",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         mock_capture.assert_called_once()
         event_props = mock_capture.call_args.kwargs["properties"]
-        self.assertEqual(event_props["referral_source"], "ChatGPT recommended it")
-        self.assertEqual(event_props["referral_source_ai_prompt"], "What is the best product analytics tool?")
-        self.assertEqual(event_props["$set"]["referral_source"], "ChatGPT recommended it")
-        self.assertEqual(event_props["$set"]["referral_source_ai_prompt"], "What is the best product analytics tool?")
+        assert event_props["referral_source"] == "ChatGPT recommended it"
+        assert event_props["referral_source_ai_prompt"] == "What is the best product analytics tool?"
+        assert event_props["$set"]["referral_source"] == "ChatGPT recommended it"
+        assert event_props["$set"]["referral_source_ai_prompt"] == "What is the best product analytics tool?"
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
@@ -162,29 +148,15 @@ class TestSignupAPI(APIBaseTest):
                 "role_at_organization": "product",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user = cast(User, User.objects.order_by("-pk")[0])
 
-        self.assertEqual(
-            response.json(),
-            {
-                "id": user.pk,
-                "uuid": str(user.uuid),
-                "distinct_id": user.distinct_id,
-                "first_name": "John",
-                "last_name": "Doe",
-                "email": "hedgehog@posthog.com",
-                "redirect_url": f"/verify_email/{user.uuid}",
-                "is_email_verified": False,
-                "hedgehog_config": None,
-                "role_at_organization": "product",
-            },
-        )
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "first_name": "John", "last_name": "Doe", "email": "hedgehog@posthog.com", "redirect_url": f"/verify_email/{user.uuid}", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "product"}
 
         # Assert that the user is logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
         mock_is_email_available.assert_called()
         # Assert the email was sent.
@@ -213,31 +185,17 @@ class TestSignupAPI(APIBaseTest):
                 "role_at_organization": "product",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user = cast(User, User.objects.order_by("-pk")[0])
 
-        self.assertEqual(
-            response.json(),
-            {
-                "id": user.pk,
-                "uuid": str(user.uuid),
-                "distinct_id": user.distinct_id,
-                "first_name": "John",
-                "last_name": "Doe",
-                "email": "hedgehog@posthog.com",
-                "redirect_url": "/",
-                "is_email_verified": False,
-                "hedgehog_config": None,
-                "role_at_organization": "product",
-            },
-        )
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "first_name": "John", "last_name": "Doe", "email": "hedgehog@posthog.com", "redirect_url": "/", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "product"}
         mock_is_email_available.assert_called()
         mock_verification_disabled.assert_called()
         mock_email_verifier.assert_not_called()
 
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_email_collision(self):
@@ -252,16 +210,9 @@ class TestSignupAPI(APIBaseTest):
                 "password": VALID_TEST_PASSWORD,
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            self.validation_error_response(
-                "There is already an account with this email address.",
-                code="unique",
-                attr="email",
-            ),
-        )
-        self.assertEqual(User.objects.count(), 1)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == self.validation_error_response("There is already an account with this email address.", code="unique", attr="email")
+        assert User.objects.count() == 1
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_case_insensitive_email_collision(self):
@@ -288,19 +239,12 @@ class TestSignupAPI(APIBaseTest):
                         "password": VALID_TEST_PASSWORD,
                     },
                 )
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-                self.assertEqual(
-                    response.json(),
-                    self.validation_error_response(
-                        "There is already an account with this email address.",
-                        code="unique",
-                        attr="email",
-                    ),
-                )
+                assert response.status_code == status.HTTP_400_BAD_REQUEST
+                assert response.json() == self.validation_error_response("There is already an account with this email address.", code="unique", attr="email")
 
-        self.assertEqual(User.objects.count(), initial_user_count)
+        assert User.objects.count() == initial_user_count
         existing_user.refresh_from_db()
-        self.assertEqual(existing_user.first_name, "Hoggy")
+        assert existing_user.first_name == "Hoggy"
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_normalizes_email_to_lowercase(self):
@@ -323,16 +267,16 @@ class TestSignupAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(User.objects.count(), initial_user_count + 1)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert User.objects.count() == initial_user_count + 1
 
         user = User.objects.get(email=expected_email)
-        self.assertEqual(user.email, expected_email)
-        self.assertEqual(user.first_name, "Test")
-        self.assertEqual(user.last_name, "User")
+        assert user.email == expected_email
+        assert user.first_name == "Test"
+        assert user.last_name == "User"
 
         response_data = response.json()
-        self.assertEqual(response_data["email"], expected_email)
+        assert response_data["email"] == expected_email
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_self_hosted_by_default(self):
@@ -345,7 +289,7 @@ class TestSignupAPI(APIBaseTest):
                     "password": VALID_TEST_PASSWORD,
                 },
             )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            assert response.status_code == status.HTTP_201_CREATED
             # Use a different email to ensure we're testing permission denial,
             # not email uniqueness validation
             response = self.client.post(
@@ -356,17 +300,8 @@ class TestSignupAPI(APIBaseTest):
                     "password": VALID_TEST_PASSWORD,
                 },
             )
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertEqual(
-                response.json(),
-                {
-                    "attr": None,
-                    "code": "permission_denied",
-                    "detail": "New organizations cannot be created in this instance. Contact your administrator if you"
-                    " think this is a mistake.",
-                    "type": "authentication_error",
-                },
-            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert response.json() == {"attr": None, "code": "permission_denied", "detail": "New organizations cannot be created in this instance. Contact your administrator if you" " think this is a mistake.", "type": "authentication_error"}
 
     @pytest.mark.ee
     def test_signup_allowed_on_self_hosted_with_env_var(self):
@@ -394,9 +329,9 @@ class TestSignupAPI(APIBaseTest):
                             "password": VALID_TEST_PASSWORD,
                         },
                     )
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-            self.assertEqual(response.json()["email"], "hedgehog4@posthog.com")
-            self.assertEqual(Organization.objects.count(), count + 1)
+            assert response.status_code == status.HTTP_201_CREATED
+            assert response.json()["email"] == "hedgehog4@posthog.com"
+            assert Organization.objects.count() == count + 1
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
@@ -410,53 +345,39 @@ class TestSignupAPI(APIBaseTest):
                 "role_at_organization": "product",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user = cast(User, User.objects.order_by("-pk").get())
         organization = cast(Organization, user.organization)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": user.pk,
-                "uuid": str(user.uuid),
-                "distinct_id": user.distinct_id,
-                "last_name": "",
-                "first_name": "Jane",
-                "email": "hedgehog2@posthog.com",
-                "redirect_url": "/",
-                "is_email_verified": False,
-                "hedgehog_config": None,
-                "role_at_organization": "product",
-            },
-        )
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "last_name": "", "first_name": "Jane", "email": "hedgehog2@posthog.com", "redirect_url": "/", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "product"}
 
         # Assert that the user & org were properly created
-        self.assertEqual(user.first_name, "Jane")
-        self.assertEqual(user.email, "hedgehog2@posthog.com")
-        self.assertEqual(organization.name, f"{user.first_name}'s Organization")
-        self.assertEqual(user.role_at_organization, "product")
-        self.assertTrue(user.is_staff)  # True because this is the first user in the instance
+        assert user.first_name == "Jane"
+        assert user.email == "hedgehog2@posthog.com"
+        assert organization.name == f"{user.first_name}'s Organization"
+        assert user.role_at_organization == "product"
+        assert user.is_staff  # True because this is the first user in the instance
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
-        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
-        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
+        assert user.distinct_id == mock_capture.call_args.kwargs["distinct_id"]
+        assert "user signed up" == mock_capture.call_args.kwargs["event"]
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
-        self.assertEqual(event_props["is_first_user"], True)
-        self.assertEqual(event_props["is_organization_first_user"], True)
-        self.assertEqual(event_props["new_onboarding_enabled"], False)
-        self.assertEqual(event_props["signup_backend_processor"], "OrganizationSignupSerializer")
-        self.assertEqual(event_props["signup_social_provider"], "")
-        self.assertEqual(event_props["realm"], get_instance_realm())
+        assert event_props["is_first_user"]
+        assert event_props["is_organization_first_user"]
+        assert not event_props["new_onboarding_enabled"]
+        assert event_props["signup_backend_processor"] == "OrganizationSignupSerializer"
+        assert event_props["signup_social_provider"] == ""
+        assert event_props["realm"] == get_instance_realm()
 
         # Assert that the user is logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], "hedgehog2@posthog.com")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == "hedgehog2@posthog.com"
 
         # Assert that the password was correctly saved
-        self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
+        assert user.check_password(VALID_TEST_PASSWORD)
 
     def test_cant_sign_up_without_required_attributes(self):
         count: int = User.objects.count()
@@ -475,25 +396,12 @@ class TestSignupAPI(APIBaseTest):
 
             # Make sure the endpoint works with and without the trailing slash
             response = self.client.post("/api/signup", body)
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_400_BAD_REQUEST,
-                f"{attribute} is required",
-            )
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "required",
-                    "detail": "This field is required.",
-                    "attr": attribute,
-                },
-                f"{attribute} is required",
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, f"{attribute} is required"
+            assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": attribute}, f"{attribute} is required"
 
-        self.assertEqual(User.objects.count(), count)
-        self.assertEqual(Team.objects.count(), team_count)
-        self.assertEqual(Organization.objects.count(), org_count)
+        assert User.objects.count() == count
+        assert Team.objects.count() == team_count
+        assert Organization.objects.count() == org_count
 
     def test_cant_sign_up_with_required_attributes_null(self):
         count: int = User.objects.count()
@@ -511,25 +419,12 @@ class TestSignupAPI(APIBaseTest):
             body[attribute] = None
 
             response = self.client.post("/api/signup/", body)
-            self.assertEqual(
-                response.status_code,
-                status.HTTP_400_BAD_REQUEST,
-                f"{attribute} may not be null",
-            )
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "null",
-                    "detail": "This field may not be null.",
-                    "attr": attribute,
-                },
-                f"{attribute} may not be null",
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, f"{attribute} may not be null"
+            assert response.json() == {"type": "validation_error", "code": "null", "detail": "This field may not be null.", "attr": attribute}, f"{attribute} may not be null"
 
-        self.assertEqual(User.objects.count(), count)
-        self.assertEqual(Team.objects.count(), team_count)
-        self.assertEqual(Organization.objects.count(), org_count)
+        assert User.objects.count() == count
+        assert Team.objects.count() == team_count
+        assert Organization.objects.count() == org_count
 
     def test_cant_sign_up_with_short_password(self):
         count: int = User.objects.count()
@@ -539,19 +434,11 @@ class TestSignupAPI(APIBaseTest):
             "/api/signup/",
             {"first_name": "Jane", "email": "failed@posthog.com", "password": "123"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "password_too_short",
-                "detail": "This password is too short. It must contain at least 8 characters.",
-                "attr": "password",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "password_too_short", "detail": "This password is too short. It must contain at least 8 characters.", "attr": "password"}
 
-        self.assertEqual(User.objects.count(), count)
-        self.assertEqual(Team.objects.count(), team_count)
+        assert User.objects.count() == count
+        assert Team.objects.count() == team_count
 
     def test_cant_sign_up_with_too_long_password(self):
         count: int = User.objects.count()
@@ -561,19 +448,11 @@ class TestSignupAPI(APIBaseTest):
             "/api/signup/",
             {"first_name": "Jane", "email": "failed@posthog.com", "password": "a" * 73},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "max_length",
-                "detail": "Ensure this field has no more than 72 characters.",
-                "attr": "password",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "max_length", "detail": "Ensure this field has no more than 72 characters.", "attr": "password"}
 
-        self.assertEqual(User.objects.count(), count)
-        self.assertEqual(Team.objects.count(), team_count)
+        assert User.objects.count() == count
+        assert Team.objects.count() == team_count
 
     def test_cant_sign_up_with_weak_passwords(self):
         cases = [
@@ -613,31 +492,17 @@ class TestSignupAPI(APIBaseTest):
                 "role_at_organization": "product",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user: User = User.objects.order_by("-pk").get()
 
-        self.assertEqual(
-            response.json(),
-            {
-                "id": user.pk,
-                "uuid": str(user.uuid),
-                "distinct_id": user.distinct_id,
-                "last_name": "",
-                "first_name": "Jane",
-                "email": "hedgehog75@posthog.com",
-                "redirect_url": "/",
-                "is_email_verified": False,
-                "hedgehog_config": None,
-                "role_at_organization": "product",
-            },
-        )
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "last_name": "", "first_name": "Jane", "email": "hedgehog75@posthog.com", "redirect_url": "/", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "product"}
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
-        self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.tiles.count(), 6)
-        self.assertEqual(dashboard.name, "My App Dashboard")
-        self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
+        assert dashboard.team == user.team
+        assert dashboard.tiles.count() == 6
+        assert dashboard.name == "My App Dashboard"
+        assert Dashboard.objects.filter(team=user.team).count() == 1
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @pytest.mark.ee
@@ -660,7 +525,7 @@ class TestSignupAPI(APIBaseTest):
                 SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret",
             ):
                 response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
-            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            assert response.status_code == status.HTTP_302_FOUND
 
             url = reverse("social:complete", kwargs={"backend": "gitlab"})
             url += f"?code=2&state={response.client.session['gitlab_state']}"
@@ -668,7 +533,7 @@ class TestSignupAPI(APIBaseTest):
 
             with self.settings(MULTI_ORG_ENABLED=True):
                 response = self.client.get(url, follow=True)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+            assert response.status_code == status.HTTP_200_OK  # because `follow=True`
             self.assertRedirects(
                 response,
                 "/organization/confirm-creation?organization_name=&first_name=John%20Doe&email=testemail%40posthog.com",
@@ -696,14 +561,14 @@ class TestSignupAPI(APIBaseTest):
                 SOCIAL_AUTH_GITLAB_SECRET="gitlab_secret",
             ):
                 response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
-            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            assert response.status_code == status.HTTP_302_FOUND
 
             url = reverse("social:complete", kwargs={"backend": "gitlab"})
             url += f"?code=2&state={response.client.session['gitlab_state']}"
             mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
             response = self.client.get(url, follow=True)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+            assert response.status_code == status.HTTP_200_OK  # because `follow=True`
             self.assertRedirects(
                 response, "/login?error_code=no_new_organizations"
             )  # show the user an error; operation not permitted
@@ -716,7 +581,7 @@ class TestSignupAPI(APIBaseTest):
             SOCIAL_AUTH_GITHUB_SECRET="github_secret",
         ):
             response = self.client.get(reverse("social:begin", kwargs={"backend": "github"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         session = self.client.session
         session.update({"organization_name": "HogFlix"})
@@ -727,7 +592,7 @@ class TestSignupAPI(APIBaseTest):
         mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
         response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(
             response,
             "/organization/confirm-creation?organization_name=HogFlix&first_name=John%20Doe&email=testemail%40posthog.com",
@@ -740,15 +605,15 @@ class TestSignupAPI(APIBaseTest):
         mock_sso_providers.return_value = {"gitlab": True}
         Organization.objects.create(name="Test org")
         response = self.client.get(reverse("social:begin", kwargs={"backend": "gitlab"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertNotIn("/login?error_code", response.headers["Location"])
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "/login?error_code" not in response.headers["Location"]
 
         url = reverse("social:complete", kwargs={"backend": "gitlab"})
         url += f"?code=2&state={response.client.session['gitlab_state']}"
         mock_request.return_value.json.return_value = MOCK_GITLAB_SSO_RESPONSE
 
         response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(
             response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
@@ -783,7 +648,7 @@ class TestSignupAPI(APIBaseTest):
 
         user_count = User.objects.count()
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -794,33 +659,25 @@ class TestSignupAPI(APIBaseTest):
         }
 
         response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(response, "/")
 
-        self.assertEqual(User.objects.count(), user_count + 1)
+        assert User.objects.count() == user_count + 1
         user = cast(User, User.objects.last())
-        self.assertEqual(user.email, "jane@hogflix.posthog.com")
-        self.assertFalse(user.is_staff)  # Not first user in the instance
-        self.assertEqual(user.organization, new_org)
-        self.assertEqual(user.team, new_project)
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(
-            cast(OrganizationMembership, user.organization_memberships.first()).level,
-            OrganizationMembership.Level.MEMBER,
-        )
-        self.assertFalse(mock_capture.call_args.kwargs["properties"]["is_organization_first_user"])
+        assert user.email == "jane@hogflix.posthog.com"
+        assert not user.is_staff  # Not first user in the instance
+        assert user.organization == new_org
+        assert user.team == new_project
+        assert user.organization_memberships.count() == 1
+        assert cast(OrganizationMembership, user.organization_memberships.first()).level == OrganizationMembership.Level.MEMBER
+        assert not mock_capture.call_args.kwargs["properties"]["is_organization_first_user"]
 
         if use_invite and not expired_invite:
             # make sure the org invite no longer exists
-            self.assertEqual(
-                OrganizationInvite.objects.filter(
-                    organization=new_org, target_email="jane@hogflix.posthog.com"
-                ).count(),
-                0,
-            )
+            assert OrganizationInvite.objects.filter(organization=new_org, target_email="jane@hogflix.posthog.com").count() == 0
             teams = user.teams.all()
             # make sure user has access to the private project specified in the invite
-            self.assertTrue(teams.filter(pk=private_project.pk).exists())
+            assert teams.filter(pk=private_project.pk).exists()
             org_membership = OrganizationMembership.objects.get(organization=new_org, user=user)
             # Check access control instead of explicit team membership
             access_control_exists = AccessControl.objects.filter(
@@ -834,7 +691,7 @@ class TestSignupAPI(APIBaseTest):
 
         if expired_invite:
             # Check that the user was still created and added to the organization
-            self.assertEqual(user.organization, new_org)
+            assert user.organization == new_org
 
     @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -926,7 +783,7 @@ class TestSignupAPI(APIBaseTest):
             new_project = Team.objects.create(organization=new_org, name="My First Project")
             user_count = User.objects.count()
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            assert response.status_code == status.HTTP_302_FOUND
 
             url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
             url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -937,20 +794,17 @@ class TestSignupAPI(APIBaseTest):
             }
 
             response = self.client.get(url, follow=True)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+            assert response.status_code == status.HTTP_200_OK  # because `follow=True`
             self.assertRedirects(response, "/")
 
-            self.assertEqual(User.objects.count(), user_count)  # should remain the same
+            assert User.objects.count() == user_count  # should remain the same
             user = cast(User, User.objects.last())
-            self.assertEqual(user.email, "jane@hogflix.posthog.com")
-            self.assertFalse(user.is_staff)  # Not first user in the instance
-            self.assertEqual(user.organization, new_org)
-            self.assertEqual(user.team, new_project)
-            self.assertEqual(user.organization_memberships.count(), 1)
-            self.assertEqual(
-                cast(OrganizationMembership, user.organization_memberships.first()).level,
-                OrganizationMembership.Level.MEMBER,
-            )
+            assert user.email == "jane@hogflix.posthog.com"
+            assert not user.is_staff  # Not first user in the instance
+            assert user.organization == new_org
+            assert user.team == new_project
+            assert user.organization_memberships.count() == 1
+            assert cast(OrganizationMembership, user.organization_memberships.first()).level == OrganizationMembership.Level.MEMBER
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -966,7 +820,7 @@ class TestSignupAPI(APIBaseTest):
         )  # note `jit_provisioning_enabled=False`
 
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -977,7 +831,7 @@ class TestSignupAPI(APIBaseTest):
         }
 
         response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(
             response, "/login?error_code=jit_not_enabled"
         )  # show the user an error; operation not permitted
@@ -999,7 +853,7 @@ class TestSignupAPI(APIBaseTest):
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            assert response.status_code == status.HTTP_302_FOUND
 
             url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
             url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -1010,17 +864,17 @@ class TestSignupAPI(APIBaseTest):
             }
 
             response = self.client.get(url, follow=True)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             self.assertRedirects(response, "/")
 
             # JIT creates user with default MEMBER level
             # SCIM updates roles later from IdP groups
             user = User.objects.get(email="alice@posthog.net")
-            self.assertEqual(user.organization_memberships.count(), 1)
+            assert user.organization_memberships.count() == 1
             membership = user.organization_memberships.first()
             assert membership is not None
-            self.assertEqual(membership.organization, new_org)
-            self.assertEqual(membership.level, OrganizationMembership.Level.MEMBER)
+            assert membership.organization == new_org
+            assert membership.level == OrganizationMembership.Level.MEMBER
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1042,7 +896,7 @@ class TestSignupAPI(APIBaseTest):
             Team.objects.create(organization=new_org, name="Test Project")
 
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            assert response.status_code == status.HTTP_302_FOUND
 
             url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
             url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -1053,14 +907,14 @@ class TestSignupAPI(APIBaseTest):
             }
 
             response = self.client.get(url, follow=True)
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            assert response.status_code == status.HTTP_200_OK
             self.assertRedirects(response, "/")
 
             # JIT allows existing users to join (controlled by jit_provisioning_enabled)
             # To block access, admin must disable jit provisioning for SCIM-only provisioning
             existing_user.refresh_from_db()
-            self.assertEqual(existing_user.organization_memberships.count(), 1)
-            self.assertEqual(existing_user.organization, new_org)
+            assert existing_user.organization_memberships.count() == 1
+            assert existing_user.organization == new_org
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -1076,7 +930,7 @@ class TestSignupAPI(APIBaseTest):
         )  # note `verified_at=None`
 
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -1087,7 +941,7 @@ class TestSignupAPI(APIBaseTest):
         }
 
         response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(
             response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
@@ -1106,7 +960,7 @@ class TestSignupAPI(APIBaseTest):
         )
 
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        assert response.status_code == status.HTTP_302_FOUND
 
         url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
         url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -1117,7 +971,7 @@ class TestSignupAPI(APIBaseTest):
         }  # note evil.com
 
         response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(
             response, "/login?error_code=no_new_organizations"
         )  # show the user an error; operation not permitted
@@ -1132,7 +986,7 @@ class TestSignupAPI(APIBaseTest):
             user_count = User.objects.count()
             org_count = Organization.objects.count()
             response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-            self.assertEqual(response.status_code, 302)
+            assert response.status_code == 302
 
             url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
             url += f"?code=2&state={response.client.session['google-oauth2_state']}"
@@ -1143,15 +997,15 @@ class TestSignupAPI(APIBaseTest):
             }
             response = self.client.get(url, follow=True)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        assert response.status_code == status.HTTP_200_OK  # because `follow=True`
         self.assertRedirects(
             response,
             "/organization/confirm-creation?organization_name=&first_name=jane&email=jane%40hogflix.posthog.com",
         )  # page where user will create a new org
 
         # User and org are not created
-        self.assertEqual(User.objects.count(), user_count)
-        self.assertEqual(Organization.objects.count(), org_count)
+        assert User.objects.count() == user_count
+        assert Organization.objects.count() == org_count
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
@@ -1169,15 +1023,12 @@ class TestSignupAPI(APIBaseTest):
                 "next_url": "/next_path",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user = cast(User, User.objects.order_by("-pk")[0])
         response_data = response.json()
 
-        self.assertEqual(
-            response_data["redirect_url"],
-            f"/verify_email/{user.uuid}?next=%2Fnext_path",
-        )
+        assert response_data["redirect_url"] == f"/verify_email/{user.uuid}?next=%2Fnext_path"
         mock_email_verifier.assert_called_once_with(user, "/next_path")
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
@@ -1199,16 +1050,13 @@ class TestSignupAPI(APIBaseTest):
                 "next_url": oauth_url,
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user = cast(User, User.objects.order_by("-pk")[0])
         response_data = response.json()
 
         expected_encoded = "%2Foauth%2Fauthorize%3Fclient_id%3Dtest123%26redirect_uri%3Dhttp%3A%2F%2Flocalhost%3A3000%2Fcallback%26response_type%3Dcode"
-        self.assertEqual(
-            response_data["redirect_url"],
-            f"/verify_email/{user.uuid}?next={expected_encoded}",
-        )
+        assert response_data["redirect_url"] == f"/verify_email/{user.uuid}?next={expected_encoded}"
         mock_email_verifier.assert_called_once_with(user, oauth_url)
 
     @pytest.mark.skip_on_multitenancy
@@ -1233,14 +1081,12 @@ class TestSignupAPI(APIBaseTest):
             )
 
             if i < 5:
-                self.assertEqual(response.status_code, status.HTTP_201_CREATED, f"Request {i + 1} should succeed")
+                assert response.status_code == status.HTTP_201_CREATED, f"Request {i + 1} should succeed"
                 # Clean up the created org and user to allow next signup
                 Organization.objects.filter(for_internal_metrics=False).delete()
                 User.objects.filter(email=f"user{i}@example.com").delete()
             else:
-                self.assertEqual(
-                    response.status_code, status.HTTP_429_TOO_MANY_REQUESTS, "6th request should be rate limited"
-                )
+                assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, "6th request should be rate limited"
 
     @pytest.mark.skip_on_multitenancy
     def test_signup_rate_limit_different_ips(self):
@@ -1265,9 +1111,7 @@ class TestSignupAPI(APIBaseTest):
                             "organization_name": f"Org{ip_suffix}_{i}",
                         },
                     )
-                    self.assertEqual(
-                        response.status_code, status.HTTP_201_CREATED, f"Request from IP {ip} should succeed"
-                    )
+                    assert response.status_code == status.HTTP_201_CREATED, f"Request from IP {ip} should succeed"
                     # Clean up the created org and user to allow next signup
                     Organization.objects.filter(for_internal_metrics=False).delete()
                     User.objects.filter(email=f"user{ip_suffix}_{i}@example.com").delete()
@@ -1304,11 +1148,11 @@ class TestSignupChallengeAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 428)
+        assert response.status_code == 428
         data = response.json()
-        self.assertEqual(data["code"], "challenge_required")
-        self.assertEqual(data["extra"]["challenge_nonce"], "challenge:abc123:uuid")
-        self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
+        assert data["code"] == "challenge_required"
+        assert data["extra"]["challenge_nonce"] == "challenge:abc123:uuid"
+        assert data["extra"]["turnstile_site_key"] == "site_key_123"
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
@@ -1336,9 +1180,9 @@ class TestSignupChallengeAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         user = User.objects.get(email="challenge@posthog.com")
-        self.assertEqual(user.first_name, "John")
+        assert user.first_name == "John"
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.workos_radar._call_radar_api")
@@ -1363,7 +1207,7 @@ class TestSignupChallengeAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         mock_call_api.assert_not_called()
 
 
@@ -1397,11 +1241,11 @@ class TestInviteSignupChallengeAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 428)
+        assert response.status_code == 428
         data = response.json()
-        self.assertEqual(data["code"], "challenge_required")
-        self.assertEqual(data["extra"]["challenge_nonce"], "challenge:invite123:uuid")
-        self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
+        assert data["code"] == "challenge_required"
+        assert data["extra"]["challenge_nonce"] == "challenge:invite123:uuid"
+        assert data["extra"]["turnstile_site_key"] == "site_key_123"
 
 
 class TestPasskeySignupAPI(APIBaseTest):
@@ -1460,21 +1304,21 @@ class TestPasskeySignupAPI(APIBaseTest):
                 "role_at_organization": "engineering",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         # Verify the user was created with the expected UUID
         user = User.objects.get(email="passkey_user@posthog.com")
-        self.assertEqual(user.uuid, expected_uuid)
+        assert user.uuid == expected_uuid
 
         # Verify the passkey credential was created and linked to the user
         from posthog.models.webauthn_credential import WebauthnCredential
 
         credential = WebauthnCredential.objects.get(user=user)
-        self.assertEqual(credential.credential_id, b"test-credential-id-12345")
-        self.assertTrue(credential.verified)
+        assert credential.credential_id == b"test-credential-id-12345"
+        assert credential.verified
 
         # The user handle used during registration (user.uuid.bytes) matches the user's UUID
-        self.assertEqual(user.uuid.bytes, expected_uuid.bytes)
+        assert user.uuid.bytes == expected_uuid.bytes
 
     @pytest.mark.skip_on_multitenancy
     def test_passkey_signup_clears_session_data(self):
@@ -1520,13 +1364,13 @@ class TestPasskeySignupAPI(APIBaseTest):
                 "role_at_organization": "engineering",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         # Reload the session and verify data was cleared
         session = SessionStore(session_key=session_key)
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+        assert session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) is None
+        assert session.get(WEBAUTHN_SIGNUP_EMAIL_KEY) is None
+        assert session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY) is None
 
     @pytest.mark.skip_on_multitenancy
     def test_password_signup_generates_random_uuid(self):
@@ -1545,20 +1389,20 @@ class TestPasskeySignupAPI(APIBaseTest):
                 "role_at_organization": "engineering",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user = User.objects.get(email="password_user@posthog.com")
 
         # User should have a UUID (randomly generated)
-        self.assertIsNotNone(user.uuid)
+        assert user.uuid is not None
 
         # User should have a usable password
-        self.assertTrue(user.has_usable_password())
+        assert user.has_usable_password()
 
         # No passkey credential should exist
         from posthog.models.webauthn_credential import WebauthnCredential
 
-        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+        assert WebauthnCredential.objects.filter(user=user).count() == 0
 
     def test_password_required_without_passkey_credential(self):
         """
@@ -1576,17 +1420,9 @@ class TestPasskeySignupAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "required",
-                "detail": "This field is required.",
-                "attr": "password",
-            },
-        )
-        self.assertEqual(User.objects.count(), count)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "password"}
+        assert User.objects.count() == count
 
     def test_non_empty_password_required_without_passkey_credential(self):
         """
@@ -1605,17 +1441,9 @@ class TestPasskeySignupAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "required",
-                "detail": "This field is required.",
-                "attr": "password",
-            },
-        )
-        self.assertEqual(User.objects.count(), count)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "password"}
+        assert User.objects.count() == count
 
     @pytest.mark.skip_on_multitenancy
     def test_password_signup_with_passkey_in_session(self):
@@ -1662,21 +1490,21 @@ class TestPasskeySignupAPI(APIBaseTest):
                 "role_at_organization": "engineering",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user = User.objects.get(email="password_fallback@posthog.com")
-        self.assertTrue(user.has_usable_password())
+        assert user.has_usable_password()
 
         # No passkey credential should exist for this user
         from posthog.models.webauthn_credential import WebauthnCredential
 
-        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+        assert WebauthnCredential.objects.filter(user=user).count() == 0
 
         # Verify the passkey session data was cleared
         session = SessionStore(session_key=session_key)
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+        assert session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) is None
+        assert session.get(WEBAUTHN_SIGNUP_EMAIL_KEY) is None
+        assert session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY) is None
 
     @pytest.mark.skip_on_multitenancy
     def test_password_signup_with_passkey_in_session_same_email(self):
@@ -1725,21 +1553,21 @@ class TestPasskeySignupAPI(APIBaseTest):
                 "role_at_organization": "engineering",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user = User.objects.get(email=passkey_email)
-        self.assertTrue(user.has_usable_password())
+        assert user.has_usable_password()
 
         # No passkey credential should exist for this user
         from posthog.models.webauthn_credential import WebauthnCredential
 
-        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+        assert WebauthnCredential.objects.filter(user=user).count() == 0
 
         # Verify the passkey session data was cleared
         session = SessionStore(session_key=session_key)
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+        assert session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) is None
+        assert session.get(WEBAUTHN_SIGNUP_EMAIL_KEY) is None
+        assert session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY) is None
 
 
 class TestSignupSessionSaveRecovery(unittest.TestCase):
@@ -1776,16 +1604,8 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         response = self.client.get(f"/api/signup/{invite.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": str(invite.id),
-                "target_email": "test+19@posthog.com",
-                "first_name": "",
-                "organization_name": self.CONFIG_ORGANIZATION_NAME,
-            },
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"id": str(invite.id), "target_email": "test+19@posthog.com", "first_name": "", "organization_name": self.CONFIG_ORGANIZATION_NAME}
 
     def test_api_invite_sign_up_with_first_name_prevalidate(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -1795,16 +1615,8 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         response = self.client.get(f"/api/signup/{invite.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": str(invite.id),
-                "target_email": "test+58@posthog.com",
-                "first_name": "Jane",
-                "organization_name": self.CONFIG_ORGANIZATION_NAME,
-            },
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"id": str(invite.id), "target_email": "test+58@posthog.com", "first_name": "Jane", "organization_name": self.CONFIG_ORGANIZATION_NAME}
 
     def test_api_invite_sign_up_prevalidate_for_existing_user(self):
         user = self._create_user("test+29@posthog.com", VALID_TEST_PASSWORD)
@@ -1815,30 +1627,14 @@ class TestInviteSignupAPI(APIBaseTest):
 
         self.client.force_login(user)
         response = self.client.get(f"/api/signup/{invite.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": str(invite.id),
-                "target_email": "test+29@posthog.com",
-                "first_name": "",
-                "organization_name": "Test, Inc",
-            },
-        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"id": str(invite.id), "target_email": "test+29@posthog.com", "first_name": "", "organization_name": "Test, Inc"}
 
     def test_api_invite_sign_up_prevalidate_invalid_invite(self):
         for invalid_invite in [uuid.uuid4(), "abc", "1234"]:
             response = self.client.get(f"/api/signup/{invalid_invite}/")
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "invalid_input",
-                    "detail": "The provided invite ID is not valid.",
-                    "attr": None,
-                },
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "The provided invite ID is not valid.", "attr": None}
 
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
         user = self._create_user("test+39@posthog.com", VALID_TEST_PASSWORD)
@@ -1848,16 +1644,8 @@ class TestInviteSignupAPI(APIBaseTest):
 
         self.client.force_login(user)
         response = self.client.get(f"/api/signup/{invite.id}/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_recipient",
-                "detail": "This invite is intended for another email address.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "invalid_recipient", "detail": "This invite is intended for another email address.", "attr": None}
 
     def test_api_invite_sign_up_prevalidate_expired_invite(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -1867,16 +1655,8 @@ class TestInviteSignupAPI(APIBaseTest):
         invite.save()
 
         response = self.client.get(f"/api/signup/{invite.id}/")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "expired",
-                "detail": "This invite has expired. Please ask your admin for a new one.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "expired", "detail": "This invite has expired. Please ask your admin for a new one.", "attr": None}
 
     # Signup (using invite)
 
@@ -1895,67 +1675,44 @@ class TestInviteSignupAPI(APIBaseTest):
                 "role_at_organization": "Engineering",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         user = cast(User, User.objects.order_by("-pk")[0])
-        self.assertEqual(
-            response.json(),
-            {
-                "id": user.pk,
-                "uuid": str(user.uuid),
-                "distinct_id": user.distinct_id,
-                "last_name": "",
-                "first_name": "Alice",
-                "email": "test+99@posthog.com",
-                "redirect_url": "/",
-                "is_email_verified": False,
-                "hedgehog_config": None,
-                "role_at_organization": "Engineering",
-            },
-        )
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "last_name": "", "first_name": "Alice", "email": "test+99@posthog.com", "redirect_url": "/", "is_email_verified": False, "hedgehog_config": None, "role_at_organization": "Engineering"}
 
         # User is now a member of the organization
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(
-            user.organization_memberships.first().organization,  # type: ignore
-            self.organization,
-        )
+        assert user.organization_memberships.count() == 1
+        assert user.organization_memberships.first().organization == self.organization
 
         # Defaults are set correctly
-        self.assertEqual(user.organization, self.organization)
-        self.assertEqual(user.team, self.team)
+        assert user.organization == self.organization
+        assert user.team == self.team
 
         # Assert that the user was properly created
-        self.assertEqual(user.first_name, "Alice")
-        self.assertEqual(user.email, "test+99@posthog.com")
-        self.assertEqual(user.role_at_organization, "Engineering")
+        assert user.first_name == "Alice"
+        assert user.email == "test+99@posthog.com"
+        assert user.role_at_organization == "Engineering"
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once()
-        self.assertEqual(user.distinct_id, mock_capture.call_args.kwargs["distinct_id"])
-        self.assertEqual("user signed up", mock_capture.call_args.kwargs["event"])
-        self.assertEqual(
-            "Engineering",
-            mock_capture.call_args[1]["properties"]["role_at_organization"],
-        )
+        assert user.distinct_id == mock_capture.call_args.kwargs["distinct_id"]
+        assert "user signed up" == mock_capture.call_args.kwargs["event"]
+        assert "Engineering" == mock_capture.call_args[1]["properties"]["role_at_organization"]
         # Assert that key properties were set properly
         event_props = mock_capture.call_args.kwargs["properties"]
-        self.assertEqual(event_props["is_first_user"], False)
-        self.assertEqual(event_props["is_organization_first_user"], False)
-        self.assertEqual(event_props["new_onboarding_enabled"], False)
-        self.assertEqual(
-            event_props["signup_backend_processor"],
-            "OrganizationInviteSignupSerializer",
-        )
-        self.assertEqual(event_props["signup_social_provider"], "")
-        self.assertEqual(event_props["realm"], get_instance_realm())
+        assert not event_props["is_first_user"]
+        assert not event_props["is_organization_first_user"]
+        assert not event_props["new_onboarding_enabled"]
+        assert event_props["signup_backend_processor"] == "OrganizationInviteSignupSerializer"
+        assert event_props["signup_social_provider"] == ""
+        assert event_props["realm"] == get_instance_realm()
 
         # Assert that the user is logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["email"], "test+99@posthog.com")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["email"] == "test+99@posthog.com"
 
         # Assert that the password was correctly saved
-        self.assertTrue(user.check_password(VALID_TEST_PASSWORD))
+        assert user.check_password(VALID_TEST_PASSWORD)
 
     @pytest.mark.ee
     def test_api_invite_sign_up_where_there_are_no_default_non_private_projects(self):
@@ -1980,15 +1737,13 @@ class TestInviteSignupAPI(APIBaseTest):
             f"/api/signup/{invite.id}/",
             {"first_name": "Alice", "password": VALID_TEST_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         user = cast(User, User.objects.order_by("-pk")[0])
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(user.organization, self.organization)
+        assert user.organization_memberships.count() == 1
+        assert user.organization == self.organization
         # here
-        self.assertEqual(
-            user.current_team, None
-        )  # User is not assigned to a project, as there are no non-private projects
-        self.assertEqual(user.team, None)
+        assert user.current_team is None  # User is not assigned to a project, as there are no non-private projects
+        assert user.team is None
 
     def test_api_invite_sign_up_where_default_project_is_private(self):
         self.client.logout()
@@ -2018,12 +1773,12 @@ class TestInviteSignupAPI(APIBaseTest):
             f"/api/signup/{invite.id}/",
             {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         user = cast(User, User.objects.order_by("-pk")[0])
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(user.organization, organization)
-        self.assertEqual(user.current_team, team_2)
-        self.assertEqual(user.team, team_2)
+        assert user.organization_memberships.count() == 1
+        assert user.organization == organization
+        assert user.current_team == team_2
+        assert user.team == team_2
 
     def test_api_invite_signup_invite_has_private_project_access(self):
         self.client.logout()
@@ -2048,13 +1803,13 @@ class TestInviteSignupAPI(APIBaseTest):
             f"/api/signup/{invite.id}/",
             {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         user = cast(User, User.objects.order_by("-pk")[0])
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(user.organization, self.organization)
+        assert user.organization_memberships.count() == 1
+        assert user.organization == self.organization
         teams = user.teams.filter(organization=self.organization)
         # user should have access to the private project
-        self.assertTrue(teams.filter(pk=private_project.pk).exists())
+        assert teams.filter(pk=private_project.pk).exists()
         org_membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
         access_control = AccessControl.objects.get(
             team=private_project,
@@ -2063,7 +1818,7 @@ class TestInviteSignupAPI(APIBaseTest):
             organization_member=org_membership,
         )
         assert access_control.access_level == "admin"
-        self.assertEqual(teams.count(), 2)
+        assert teams.count() == 2
 
     def test_api_invite_signup_private_project_access_team_no_longer_exists(self):
         self.client.logout()
@@ -2091,12 +1846,12 @@ class TestInviteSignupAPI(APIBaseTest):
             f"/api/signup/{invite.id}/",
             {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         user = cast(User, User.objects.order_by("-pk")[0])
-        self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(user.organization, self.organization)
+        assert user.organization_memberships.count() == 1
+        assert user.organization == self.organization
         teams = user.teams.filter(organization=self.organization)
-        self.assertEqual(teams.count(), 1)
+        assert teams.count() == 1
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_for_initial_member(self):
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -2116,13 +1871,13 @@ class TestInviteSignupAPI(APIBaseTest):
                     },
                 )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         member_join_emails = [m for m in mail.outbox if "joined you on PostHog" in m.subject]
-        self.assertEqual(len(member_join_emails), 0)
+        assert len(member_join_emails) == 0
         # Verify invite signup still sends verification email to the new user.
-        self.assertEqual(len(mail.outbox), 1)
-        self.assertListEqual(mail.outbox[0].to, ['"Alice" <test+100@posthog.com>'])
+        assert len(mail.outbox) == 1
+        assert mail.outbox[0].to == ['"Alice" <test+100@posthog.com>']
 
     def test_api_invite_sign_up_member_joined_email_is_sent_for_next_members(self):
         with override_instance_config("EMAIL_HOST", "localhost"):
@@ -2141,13 +1896,13 @@ class TestInviteSignupAPI(APIBaseTest):
                     },
                 )
 
-            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            assert response.status_code == status.HTTP_201_CREATED
 
-            self.assertEqual(len(mail.outbox), 2)
+            assert len(mail.outbox) == 2
             # Someone joined email is sent to the initial user
-            self.assertListEqual(mail.outbox[0].to, [initial_user.email])
+            assert mail.outbox[0].to == [initial_user.email]
             # Verify email is sent to the new user (formatted with name)
-            self.assertListEqual(mail.outbox[1].to, ['"Alice" <test+100@posthog.com>'])
+            assert mail.outbox[1].to == ['"Alice" <test+100@posthog.com>']
 
     def test_api_invite_sign_up_member_joined_email_is_not_sent_if_disabled(self):
         initial_user = User.objects.create_and_join(self.organization, "test+420@posthog.com", None)
@@ -2173,10 +1928,10 @@ class TestInviteSignupAPI(APIBaseTest):
                     },
                 )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         member_join_emails = [m for m in mail.outbox if "joined you on PostHog" in m.subject]
-        self.assertEqual(len(member_join_emails), 0)
+        assert len(member_join_emails) == 0
 
     @patch("posthoganalytics.capture")
     @patch("posthog.tasks.sync_billing.sync_members_to_billing.delay")
@@ -2206,40 +1961,26 @@ class TestInviteSignupAPI(APIBaseTest):
         mock_sync_delay.reset_mock()
         with self.is_cloud(True), self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(f"/api/signup/{invite.id}/")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": user.pk,
-                "uuid": str(user.uuid),
-                "distinct_id": user.distinct_id,
-                "last_name": "",
-                "first_name": "",
-                "email": "test+159@posthog.com",
-                "redirect_url": "/",
-                "is_email_verified": None,
-                "hedgehog_config": None,
-                "role_at_organization": "product",
-            },
-        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json() == {"id": user.pk, "uuid": str(user.uuid), "distinct_id": user.distinct_id, "last_name": "", "first_name": "", "email": "test+159@posthog.com", "redirect_url": "/", "is_email_verified": None, "hedgehog_config": None, "role_at_organization": "product"}
 
         # No new user is created
-        self.assertEqual(User.objects.count(), count)
+        assert User.objects.count() == count
 
         # User is now a member of the organization
         user.refresh_from_db()
-        self.assertEqual(user.organization_memberships.count(), 2)
-        self.assertTrue(user.organization_memberships.filter(organization=new_org).exists())
+        assert user.organization_memberships.count() == 2
+        assert user.organization_memberships.filter(organization=new_org).exists()
 
         # User is now changed to the new organization
-        self.assertEqual(user.organization, new_org)
-        self.assertEqual(user.team, new_team)
+        assert user.organization == new_org
+        assert user.team == new_team
 
         # User is not changed
-        self.assertEqual(user.first_name, "")
-        self.assertEqual(user.email, "test+159@posthog.com")
-        self.assertFalse(user.is_staff)  # Not first user in the instance
-        self.assertEqual(user.role_at_organization, "product")
+        assert user.first_name == ""
+        assert user.email == "test+159@posthog.com"
+        assert not user.is_staff  # Not first user in the instance
+        assert user.role_at_organization == "product"
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
@@ -2258,7 +1999,7 @@ class TestInviteSignupAPI(APIBaseTest):
 
         # Assert that the user remains logged in
         response = self.client.get("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Assert that the billing sync was enqueued for the newly joined organization
         mock_sync_delay.assert_called_once_with(str(new_org.id))
@@ -2285,30 +2026,29 @@ class TestInviteSignupAPI(APIBaseTest):
             f"/api/signup/{invite.id}/",
             {"first_name": "Bob", "password": VALID_TEST_PASSWORD + "_new"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(
-            response.json(),
-            {
-                "id": user.pk,
-                "uuid": str(user.uuid),
-                "distinct_id": user.distinct_id,
-                "last_name": "",
-                "first_name": "",
-                "email": "test+189@posthog.com",
-                "redirect_url": "/",
-                "is_email_verified": None,
-                "hedgehog_config": None,
-                "role_at_organization": None,
-            },  # note the unchanged attributes
+        assert response.status_code == status.HTTP_201_CREATED
+        assert (
+            response.json() == {
+            "id": user.pk,
+            "uuid": str(user.uuid),
+            "distinct_id": user.distinct_id,
+            "last_name": "",
+            "first_name": "",
+            "email": "test+189@posthog.com",
+            "redirect_url": "/",
+            "is_email_verified": None,
+            "hedgehog_config": None,
+            "role_at_organization": None,
+            }
         )
 
         # User is subscribed to the new organization
         user.refresh_from_db()
-        self.assertTrue(user.organization_memberships.filter(organization=new_org).exists())
+        assert user.organization_memberships.filter(organization=new_org).exists()
 
         # User is not changed
-        self.assertEqual(user.first_name, "")
-        self.assertFalse(user.check_password(VALID_TEST_PASSWORD + "_new"))  # Password is not updated
+        assert user.first_name == ""
+        assert not user.check_password(VALID_TEST_PASSWORD + "_new")  # Password is not updated
 
         # Assert that the sign up event & identify calls were sent to PostHog analytics
         mock_capture.assert_called_once_with(
@@ -2341,20 +2081,12 @@ class TestInviteSignupAPI(APIBaseTest):
             body.pop(attribute)
 
             response = self.client.post(f"/api/signup/{invite.id}/", body)
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "required",
-                    "detail": "This field is required.",
-                    "attr": attribute,
-                },
-            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": attribute}
 
-        self.assertEqual(User.objects.count(), count)
-        self.assertEqual(Team.objects.count(), team_count)
-        self.assertEqual(Organization.objects.count(), org_count)
+        assert User.objects.count() == count
+        assert Team.objects.count() == team_count
+        assert Organization.objects.count() == org_count
 
     def test_cant_claim_invite_sign_up_with_short_password(self):
         count: int = User.objects.count()
@@ -2366,20 +2098,12 @@ class TestInviteSignupAPI(APIBaseTest):
         )
 
         response = self.client.post(f"/api/signup/{invite.id}/", {"first_name": "Charlie", "password": "123"})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "password_too_short",
-                "detail": "This password is too short. It must contain at least 8 characters.",
-                "attr": "password",
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "password_too_short", "detail": "This password is too short. It must contain at least 8 characters.", "attr": "password"}
 
-        self.assertEqual(User.objects.count(), count)
-        self.assertEqual(Team.objects.count(), team_count)
-        self.assertEqual(Organization.objects.count(), org_count)
+        assert User.objects.count() == count
+        assert Team.objects.count() == team_count
+        assert Organization.objects.count() == org_count
 
     def test_cant_claim_invalid_invite(self):
         count: int = User.objects.count()
@@ -2390,20 +2114,12 @@ class TestInviteSignupAPI(APIBaseTest):
             f"/api/signup/{uuid.uuid4()}/",
             {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "The provided invite ID is not valid.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "The provided invite ID is not valid.", "attr": None}
 
-        self.assertEqual(User.objects.count(), count)
-        self.assertEqual(Team.objects.count(), team_count)
-        self.assertEqual(Organization.objects.count(), org_count)
+        assert User.objects.count() == count
+        assert Team.objects.count() == team_count
+        assert Organization.objects.count() == org_count
 
     def test_cant_claim_expired_invite(self):
         count: int = User.objects.count()
@@ -2420,20 +2136,12 @@ class TestInviteSignupAPI(APIBaseTest):
             f"/api/signup/{invite.id}/",
             {"first_name": "Charlie", "password": VALID_TEST_PASSWORD},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "expired",
-                "detail": "This invite has expired. Please ask your admin for a new one.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "expired", "detail": "This invite has expired. Please ask your admin for a new one.", "attr": None}
 
-        self.assertEqual(User.objects.count(), count)
-        self.assertEqual(Team.objects.count(), team_count)
-        self.assertEqual(Organization.objects.count(), org_count)
+        assert User.objects.count() == count
+        assert Team.objects.count() == team_count
+        assert Organization.objects.count() == org_count
 
     def test_api_signup_with_sso_enforced_fails(self):
         """Test that users cannot sign up with email/password when SSO is enforced."""
@@ -2460,20 +2168,12 @@ class TestInviteSignupAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "sso_enforced",
-                "detail": "Sign up with a password is disabled because SSO login is enforced for this domain. Please log in with your SSO credentials.",
-                "attr": None,
-            },
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "sso_enforced", "detail": "Sign up with a password is disabled because SSO login is enforced for this domain. Please log in with your SSO credentials.", "attr": None}
 
         # Verify no user was created and invite was not used
-        self.assertFalse(User.objects.filter(email="test+sso@posthog.com").exists())
-        self.assertFalse(OrganizationInvite.objects.filter(target_email="test+sso@posthog.com").exists())
+        assert not User.objects.filter(email="test+sso@posthog.com").exists()
+        assert not OrganizationInvite.objects.filter(target_email="test+sso@posthog.com").exists()
 
     # Social signup (use invite)
 
@@ -2496,23 +2196,13 @@ class TestInviteSignupAPI(APIBaseTest):
                 "first_name": "Max",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
-        self.assertEqual(response.json(), {"continue_url": "/complete/google-oauth2/"})
+        assert response.json() == {"continue_url": "/complete/google-oauth2/"}
 
         # Check the organization and user were created
-        self.assertEqual(
-            User.objects.filter(
-                email="test_api_social_invite_sign_up@posthog.com",
-                first_name="Max",
-                is_email_verified=True,
-            ).count(),
-            1,
-        )
-        self.assertEqual(
-            Organization.objects.filter(name="Org test_api_social_invite_sign_up").count(),
-            1,
-        )
+        assert User.objects.filter(email="test_api_social_invite_sign_up@posthog.com", first_name="Max", is_email_verified=True).count() == 1
+        assert Organization.objects.filter(name="Org test_api_social_invite_sign_up").count() == 1
 
     @patch("posthog.api.signup.is_email_available", return_value=True)
     @patch("posthog.api.signup.EmailVerifier.create_token_and_send_email_verification")
@@ -2536,24 +2226,15 @@ class TestInviteSignupAPI(APIBaseTest):
                 "first_name": "Max",
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
-        self.assertEqual(response.json(), {"continue_url": "/complete/google-oauth2/"})
+        assert response.json() == {"continue_url": "/complete/google-oauth2/"}
 
         # Check the organization and user were created
-        self.assertEqual(
-            User.objects.filter(
-                email="test_api_social_invite_sign_up_with_verification@posthog.com",
-                first_name="Max",
-            ).count(),
-            1,
-        )
-        self.assertEqual(
-            Organization.objects.filter(name="Org test_api_social_invite_sign_up_with_verification").count(),
-            1,
-        )
+        assert User.objects.filter(email="test_api_social_invite_sign_up_with_verification@posthog.com", first_name="Max").count() == 1
+        assert Organization.objects.filter(name="Org test_api_social_invite_sign_up_with_verification").count() == 1
         me_response = self.client.get("/api/users/@me/")
-        self.assertEqual(me_response.status_code, status.HTTP_200_OK)
+        assert me_response.status_code == status.HTTP_200_OK
 
     def test_cannot_use_social_invite_sign_up_if_social_session_is_not_active(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
@@ -2562,33 +2243,17 @@ class TestInviteSignupAPI(APIBaseTest):
             "/api/social_signup",
             {"organization_name": "Tech R Us", "first_name": "Max"},
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "invalid_input",
-                "detail": "Inactive social login session. Go to /login and log in before continuing.",
-                "attr": None,
-            },
-        )
-        self.assertEqual(len(self.client.session.keys()), 0)  # Nothing is saved in the session
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "invalid_input", "detail": "Inactive social login session. Go to /login and log in before continuing.", "attr": None}
+        assert len(self.client.session.keys()) == 0  # Nothing is saved in the session
 
     def test_cannot_use_social_invite_sign_up_without_required_attributes(self):
         Organization.objects.all().delete()  # Can only create organizations in fresh instances
 
         response = self.client.post("/api/social_signup", {})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {
-                "type": "validation_error",
-                "code": "required",
-                "detail": "This field is required.",
-                "attr": "organization_name",
-            },
-        )
-        self.assertEqual(len(self.client.session.keys()), 0)  # Nothing is saved in the session
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "organization_name"}
+        assert len(self.client.session.keys()) == 0  # Nothing is saved in the session
 
     def test_invite_an_already_existing_user(self):
         # Given an existing user
@@ -2603,13 +2268,13 @@ class TestInviteSignupAPI(APIBaseTest):
         response = self.client.get(f"/api/signup/{invite.id}/")
 
         # THEN the request should fail
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         # AND then
-        self.assertEqual(response.json()["code"], "account_exists")
+        assert response.json()["code"] == "account_exists"
 
         # AND then
-        self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
+        assert response.json()["detail"] == f"/login?next=/signup/{invite.id}"
 
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
     @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)
@@ -2638,16 +2303,16 @@ class TestInviteSignupAPI(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         user = User.objects.get(email="challenge+test@posthog.com")
-        self.assertEqual(user.first_name, "Challenged")
+        assert user.first_name == "Challenged"
         mock_validate_nonce.assert_called_once()
         mock_verify_token.assert_called_once()
 
     def test_process_social_invite_signup_returns_none_for_nonexistent_invite(self):
         nonexistent_id = str(uuid.uuid4())
         result = process_social_invite_signup(mock.MagicMock(), nonexistent_id, "test@example.com", "Test User")
-        self.assertIsNone(result)
+        assert result is None
 
     @pytest.mark.skip_on_multitenancy
     def test_password_invite_signup_with_passkey_in_session(self):
@@ -2696,18 +2361,18 @@ class TestInviteSignupAPI(APIBaseTest):
                 "password": VALID_TEST_PASSWORD,
             },
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
         user = User.objects.get(email="password_invite_user@posthog.com")
-        self.assertTrue(user.has_usable_password())
+        assert user.has_usable_password()
 
         # No passkey credential should exist for this user
         from posthog.models.webauthn_credential import WebauthnCredential
 
-        self.assertEqual(WebauthnCredential.objects.filter(user=user).count(), 0)
+        assert WebauthnCredential.objects.filter(user=user).count() == 0
 
         # Verify the passkey session data was cleared
         session = SessionStore(session_key=session_key)
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY))
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_EMAIL_KEY))
-        self.assertIsNone(session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY))
+        assert session.get(WEBAUTHN_SIGNUP_CREDENTIAL_KEY) is None
+        assert session.get(WEBAUTHN_SIGNUP_EMAIL_KEY) is None
+        assert session.get(WEBAUTHN_SIGNUP_USER_UUID_KEY) is None

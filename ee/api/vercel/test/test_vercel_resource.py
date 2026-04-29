@@ -104,21 +104,21 @@ class TestVercelResourceAPI(VercelTestBase):
         return {"HTTP_AUTHORIZATION": f"Bearer {token}", "HTTP_X_VERCEL_AUTH": auth_type}
 
     def assert_success(self, response, expected_status=status.HTTP_200_OK):
-        self.assertEqual(response.status_code, expected_status)
+        assert response.status_code == expected_status
 
     def assert_permission_denied(self, response):
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_msg = response.json()["error"]["message"]
-        self.assertIn("Resource does not belong to this installation", error_msg)
+        assert "Resource does not belong to this installation" in error_msg
 
     def assert_not_found(self, response):
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def assert_bad_request(self, response, error_substring=None):
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         if error_substring:
             error_msg = response.json()["error"]["message"]
-            self.assertIn(error_substring, error_msg)
+            assert error_substring in error_msg
 
     @patch("ee.vercel.integration.VercelIntegration.create_resource")
     def test_create_resource(self, mock_create):
@@ -244,13 +244,13 @@ class TestVercelResourceAPI(VercelTestBase):
         url = "/api/vercel/v1/installations//resources/123/"
         headers = self.auth_headers(self.installation_id, "system")
         response = self.client.get(url, **headers)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_missing_resource_id(self):
         url = f"{self.primary_resource['base_url']}//"
         headers = self.auth_headers(self.installation_id, "system")
         response = self.client.get(url, **headers)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @patch("ee.vercel.integration.VercelIntegration.create_resource")
     def test_integration_errors_bubble_up(self, mock_create):
@@ -282,16 +282,16 @@ class TestVercelResourceAPI(VercelTestBase):
 
         self.assert_success(response)
         data = response.json()
-        self.assertIn("secrets", data)
+        assert "secrets" in data
         secrets = data["secrets"]
-        self.assertEqual(len(secrets), 2)
+        assert len(secrets) == 2
 
         secret_names = [s["name"] for s in secrets]
-        self.assertIn("NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", secret_names)
-        self.assertIn("NEXT_PUBLIC_POSTHOG_HOST", secret_names)
+        assert "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN" in secret_names
+        assert "NEXT_PUBLIC_POSTHOG_HOST" in secret_names
 
         api_key_secret = next(s for s in secrets if s["name"] == "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN")
-        self.assertEqual(api_key_secret["value"], self.team.api_token)
+        assert api_key_secret["value"] == self.team.api_token
 
     def test_rotate_secrets_requires_system_auth(self):
         url = f"{self.primary_resource['resource_url']}secrets/rotate/"
@@ -299,7 +299,7 @@ class TestVercelResourceAPI(VercelTestBase):
 
         response = self.client.post(url, **headers)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_rotate_secrets_validates_installation(self):
         other_installation = self.create_installation()

@@ -63,6 +63,7 @@ from products.data_warehouse.backend.models.revenue_analytics_config import Exte
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import IncrementalFieldType
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
+from collections import Counter
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -129,12 +130,9 @@ class TestExternalDataSource(APIBaseTest):
         )
         payload = response.json()
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
         # number of schemas should match default schemas for Stripe
-        self.assertEqual(
-            ExternalDataSchema.objects.filter(source_id=payload["id"]).count(),
-            len(STRIPE_ENDPOINTS),
-        )
+        assert ExternalDataSchema.objects.filter(source_id=payload["id"]).count() == len(STRIPE_ENDPOINTS)
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -284,7 +282,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Try to create same type without prefix again
 
@@ -316,8 +314,8 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"message": "Source type already exists. Prefix is required"})
+        assert response.status_code == 400
+        assert response.json() == {"message": "Source type already exists. Prefix is required"}
 
         # Create with prefix
         response = self.client.post(
@@ -349,7 +347,7 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
         # Try to create same type with same prefix again
         response = self.client.post(
@@ -381,8 +379,8 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json(), {"message": "Prefix already exists"})
+        assert response.status_code == 400
+        assert response.json() == {"message": "Prefix already exists"}
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -449,7 +447,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(response.status_code, 201)
+        assert response.status_code == 201
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -653,8 +651,8 @@ class TestExternalDataSource(APIBaseTest):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(payload["results"]), 2)
+        assert response.status_code == 200
+        assert len(payload["results"]) == 2
 
     def test_connections_returns_lightweight_direct_connection_options(self):
         source = ExternalDataSource.objects.create(
@@ -672,17 +670,8 @@ class TestExternalDataSource(APIBaseTest):
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            response.json(),
-            [
-                {
-                    "id": str(source.pk),
-                    "prefix": "Primary database",
-                    "engine": "duckdb",
-                }
-            ],
-        )
+        assert response.status_code == 200
+        assert response.json() == [{"id": str(source.pk), "prefix": "Primary database", "engine": "duckdb"}]
 
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()
@@ -901,53 +890,29 @@ class TestExternalDataSource(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
         payload = response.json()
 
-        self.assertEqual(response.status_code, 200)
-        self.assertListEqual(
-            list(payload.keys()),
-            [
-                "id",
-                "created_at",
-                "created_by",
-                "status",
-                "source_type",
-                "latest_error",
-                "prefix",
-                "description",
-                "access_method",
-                "engine",
-                "last_run_at",
-                "schemas",
-                "job_inputs",
-                "revenue_analytics_config",
-                "user_access_level",
-                "supports_webhooks",
-            ],
+        assert response.status_code == 200
+        assert (
+            list(payload.keys()) == [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "source_type",
+            "latest_error",
+            "prefix",
+            "description",
+            "access_method",
+            "engine",
+            "last_run_at",
+            "schemas",
+            "job_inputs",
+            "revenue_analytics_config",
+            "user_access_level",
+            "supports_webhooks",
+            ]
         )
-        self.assertIsNone(payload["engine"])
-        self.assertEqual(
-            payload["schemas"],
-            [
-                {
-                    "id": str(schema.pk),
-                    "incremental": False,
-                    "incremental_field": None,
-                    "incremental_field_type": None,
-                    "last_synced_at": schema.last_synced_at,
-                    "name": schema.name,
-                    "label": schema.label,
-                    "latest_error": schema.latest_error,
-                    "should_sync": schema.should_sync,
-                    "status": schema.status,
-                    "sync_type": schema.sync_type,
-                    "table": schema.table,
-                    "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
-                    "sync_time_of_day": schema.sync_time_of_day,
-                    "description": schema.description,
-                    "primary_key_columns": None,
-                    "cdc_table_mode": "consolidated",
-                }
-            ],
-        )
+        assert payload["engine"] is None
+        assert payload["schemas"] == [{"id": str(schema.pk), "incremental": False, "incremental_field": None, "incremental_field_type": None, "last_synced_at": schema.last_synced_at, "name": schema.name, "label": schema.label, "latest_error": schema.latest_error, "should_sync": schema.should_sync, "status": schema.status, "sync_type": schema.sync_type, "table": schema.table, "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval), "sync_time_of_day": schema.sync_time_of_day, "description": schema.description, "primary_key_columns": None, "cdc_table_mode": "consolidated"}]
 
     def test_delete_external_data_source(self):
         source = self._create_external_data_source()
@@ -997,9 +962,9 @@ class TestExternalDataSource(APIBaseTest):
 
         source.refresh_from_db()
 
-        self.assertEqual(mock_trigger.call_count, 1)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(source.status, "Running")
+        assert mock_trigger.call_count == 1
+        assert response.status_code == 200
+        assert source.status == "Running"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_source):
@@ -1023,19 +988,17 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["added"], 2)
-        self.assertEqual(data["deleted"], 0)
-        self.assertEqual(
-            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
-        )
+        assert data["added"] == 2
+        assert data["deleted"] == 0
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count() == 2
         names = list(
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).values_list(
                 "name", flat=True
             )
         )
-        self.assertCountEqual(names, ["table_a", "table_b"])
+        assert Counter(names) == Counter(["table_a", "table_b"])
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_creates_new_schemas_and_deletes_missing_schemas(self, mock_get_source):
@@ -1050,22 +1013,18 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["added"], 1)
-        self.assertEqual(data["deleted"], 1)
-        self.assertEqual(
-            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 1
-        )
-        self.assertEqual(
-            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=True).count(), 1
-        )
+        assert data["added"] == 1
+        assert data["deleted"] == 1
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count() == 1
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=True).count() == 1
         names = list(
             ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).values_list(
                 "name", flat=True
             )
         )
-        self.assertCountEqual(names, ["new_table"])
+        assert Counter(names) == Counter(["new_table"])
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_adds_only_new_schemas(self, mock_get_source):
@@ -1081,18 +1040,12 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["added"], 1)
-        self.assertEqual(data["deleted"], 0)
-        self.assertEqual(
-            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 2
-        )
-        self.assertTrue(
-            ExternalDataSchema.objects.filter(
-                team_id=self.team.pk, source_id=source.pk, name="new_table", deleted=False
-            ).exists()
-        )
+        assert data["added"] == 1
+        assert data["deleted"] == 0
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count() == 2
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="new_table", deleted=False).exists()
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_idempotent_no_duplicates(self, mock_get_source):
@@ -1107,14 +1060,9 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response2.status_code, 200)
-        self.assertEqual(response2.json()["added"], 0)
-        self.assertEqual(
-            ExternalDataSchema.objects.filter(
-                team_id=self.team.pk, source_id=source.pk, name="only_one", deleted=False
-            ).count(),
-            1,
-        )
+        assert response2.status_code == 200
+        assert response2.json()["added"] == 0
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="only_one", deleted=False).count() == 1
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_restores_deleted_schema_instead_of_creating_duplicate(self, mock_get_source):
@@ -1143,25 +1091,17 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["added"], 1)
-        self.assertEqual(response.json()["deleted"], 0)
-        self.assertEqual(
-            ExternalDataSchema.objects.filter(
-                team_id=self.team.pk, source_id=source.pk, name="restored_table", deleted=False
-            ).count(),
-            1,
-        )
-        self.assertEqual(
-            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="restored_table").count(),
-            1,
-        )
+        assert response.status_code == 200
+        assert response.json()["added"] == 1
+        assert response.json()["deleted"] == 0
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="restored_table", deleted=False).count() == 1
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="restored_table").count() == 1
 
         restored_schema = ExternalDataSchema.objects.get(pk=deleted_schema.pk)
-        self.assertFalse(restored_schema.deleted)
+        assert not restored_schema.deleted
         # Restored schemas come back disabled — the user must opt in again
-        self.assertFalse(restored_schema.should_sync)
-        self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
+        assert not restored_schema.should_sync
+        assert restored_schema.sync_type_config.get("legacy_key") == "keep"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_updates_labels_on_existing_schemas(self, mock_get_source):
@@ -1178,9 +1118,9 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         schema.refresh_from_db()
-        self.assertEqual(schema.label, "general")
+        assert schema.label == "general"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_updates_changed_label(self, mock_get_source):
@@ -1197,9 +1137,9 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         schema.refresh_from_db()
-        self.assertEqual(schema.label, "renamed-channel")
+        assert schema.label == "renamed-channel"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_sets_label_on_new_schema(self, mock_get_source):
@@ -1213,9 +1153,9 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="c456")
-        self.assertEqual(schema.label, "random")
+        assert schema.label == "random"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_sets_label_on_restored_deleted_schema(self, mock_get_source):
@@ -1232,10 +1172,10 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         deleted_schema.refresh_from_db()
-        self.assertFalse(deleted_schema.deleted)
-        self.assertEqual(deleted_schema.label, "announcements")
+        assert not deleted_schema.deleted
+        assert deleted_schema.label == "announcements"
 
     def test_refresh_schemas_returns_400_when_no_job_inputs(self):
         source = self._create_external_data_source()
@@ -1246,8 +1186,8 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("configuration", response.json().get("message", ""))
+        assert response.status_code == 400
+        assert "configuration" in response.json().get("message", "")
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_returns_400_when_get_schemas_raises(self, mock_get_source):
@@ -1259,8 +1199,8 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
+        assert response.status_code == 400
+        assert "Could not fetch schemas from source" in response.json().get("message", "")
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     @patch("products.data_warehouse.backend.api.external_data_source.trigger_external_data_source_workflow")
@@ -1289,27 +1229,14 @@ class TestExternalDataSource(APIBaseTest):
 
         response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/reload/")
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(mock_trigger.call_count, 0)
-        self.assertEqual(
-            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count(), 1
-        )
-        self.assertEqual(
-            DataWarehouseTable.objects.filter(
-                team_id=self.team.pk,
-                external_data_source=source,
-                deleted=False,
-                name="table_a",
-            ).count(),
-            0,
-        )
+        assert response.status_code == 200
+        assert mock_trigger.call_count == 0
+        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count() == 1
+        assert DataWarehouseTable.objects.filter(team_id=self.team.pk, external_data_source=source, deleted=False, name="table_a").count() == 0
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="table_a")
-        self.assertFalse(schema.should_sync)
-        self.assertIsNone(schema.table)
-        self.assertEqual(
-            schema.sync_type_config.get("schema_metadata", {}).get("foreign_keys"),
-            [{"column": "user_id", "target_table": "posthog_user", "target_column": "id"}],
-        )
+        assert not schema.should_sync
+        assert schema.table is None
+        assert schema.sync_type_config.get("schema_metadata", {}).get("foreign_keys") == [{"column": "user_id", "target_table": "posthog_user", "target_column": "id"}]
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_soft_deletes_live_tables_for_deleted_schemas(self, mock_get_source):
@@ -1347,9 +1274,9 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(DataWarehouseTable.raw_objects.filter(pk=table.pk, deleted=True).exists())
-        self.assertTrue(ExternalDataSchema.objects.filter(pk=stale_schema.pk, deleted=True).exists())
+        assert response.status_code == status.HTTP_200_OK
+        assert DataWarehouseTable.raw_objects.filter(pk=table.pk, deleted=True).exists()
+        assert ExternalDataSchema.objects.filter(pk=stale_schema.pk, deleted=True).exists()
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_keeps_disabled_schema_table_deleted(self, mock_get_source):
@@ -1396,11 +1323,11 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         schema.refresh_from_db()
-        self.assertFalse(schema.should_sync)
-        self.assertTrue(DataWarehouseTable.raw_objects.get(pk=table.pk).deleted)
-        self.assertEqual(schema.sync_type_config["schema_metadata"]["columns"][0]["name"], "id")
+        assert not schema.should_sync
+        assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted
+        assert schema.sync_type_config["schema_metadata"]["columns"][0]["name"] == "id"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_new_schema_is_opt_in(self, mock_get_source):
@@ -1430,10 +1357,10 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="Accounts")
-        self.assertFalse(schema.should_sync)
-        self.assertIsNone(schema.table)
+        assert not schema.should_sync
+        assert schema.table is None
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_preserves_disabled_schema_when_it_reappears(self, mock_get_source):
@@ -1462,9 +1389,9 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        assert first_response.status_code == status.HTTP_200_OK
         schema.refresh_from_db()
-        self.assertTrue(schema.deleted)
+        assert schema.deleted
 
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
@@ -1479,11 +1406,11 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        assert second_response.status_code == status.HTTP_200_OK
         schema.refresh_from_db()
-        self.assertFalse(schema.deleted)
-        self.assertFalse(schema.should_sync)
-        self.assertIsNone(schema.table)
+        assert not schema.deleted
+        assert not schema.should_sync
+        assert schema.table is None
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_preserves_enabled_schema_when_it_reappears(self, mock_get_source):
@@ -1522,13 +1449,13 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         schema.refresh_from_db()
-        self.assertFalse(schema.deleted)
-        self.assertTrue(schema.should_sync)
+        assert not schema.deleted
+        assert schema.should_sync
         table = schema.table
         assert table is not None
-        self.assertEqual(table.name, "Accounts")
+        assert table.name == "Accounts"
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_updates_connection_metadata(self, mock_get_source):
@@ -1567,12 +1494,12 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
         source.refresh_from_db()
         connection_metadata = source.connection_metadata
         assert connection_metadata is not None
-        self.assertEqual(connection_metadata["database"], "ducklake")
-        self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+        assert connection_metadata["database"] == "ducklake"
+        assert connection_metadata["available_functions"] == ["duckdb_functions", "date_bin"]
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_preserves_numeric_as_decimal(self, mock_get_source):
@@ -1624,20 +1551,20 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source__id=response.json()["id"], name="accounts")
         table = schema.table
         assert table is not None
         assert schema.sync_type_config is not None
         assert table.columns is not None
-        self.assertEqual(schema.sync_type_config["schema_metadata"]["columns"][0]["data_type"], "numeric")
-        self.assertEqual(table.columns["amount"]["clickhouse"], "Decimal")
-        self.assertEqual(table.columns["amount"]["hogql"], "numeric")
+        assert schema.sync_type_config["schema_metadata"]["columns"][0]["data_type"] == "numeric"
+        assert table.columns["amount"]["clickhouse"] == "Decimal"
+        assert table.columns["amount"]["hogql"] == "numeric"
         source = ExternalDataSource.objects.get(pk=response.json()["id"])
         connection_metadata = source.connection_metadata
         assert connection_metadata is not None
-        self.assertEqual(connection_metadata["database"], "app")
-        self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
+        assert connection_metadata["database"] == "app"
+        assert connection_metadata["available_functions"] == ["duckdb_functions", "date_bin"]
 
     def test_create_direct_postgres_requires_name(self):
         response = self.client.post(
@@ -1650,8 +1577,8 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json(), {"message": "Name is required for direct query sources"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": "Name is required for direct query sources"}
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_does_not_require_prefix_namespace(self, mock_get_source):
@@ -1706,7 +1633,7 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_creates_only_selected_tables(self, mock_get_source):
@@ -1761,28 +1688,20 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         source = ExternalDataSource.objects.get(id=response.json()["id"])
 
-        self.assertEqual(source.prefix, "Primary database")
+        assert source.prefix == "Primary database"
 
         accounts_schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="accounts")
         payments_schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="payments")
 
-        self.assertTrue(accounts_schema.should_sync)
-        self.assertFalse(payments_schema.should_sync)
-        self.assertIsNotNone(accounts_schema.table)
-        self.assertIsNone(payments_schema.table)
+        assert accounts_schema.should_sync
+        assert not payments_schema.should_sync
+        assert accounts_schema.table is not None
+        assert payments_schema.table is None
 
-        self.assertEqual(
-            DataWarehouseTable.objects.filter(
-                team_id=self.team.pk,
-                external_data_source=source,
-                deleted=False,
-                name="accounts",
-            ).count(),
-            1,
-        )
+        assert DataWarehouseTable.objects.filter(team_id=self.team.pk, external_data_source=source, deleted=False, name="accounts").count() == 1
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_blank_schema_prefixes_table_names_and_preserves_physical_schema(
@@ -1843,7 +1762,7 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        assert response.status_code == status.HTTP_201_CREATED
         source = ExternalDataSource.objects.get(id=response.json()["id"])
 
         public_schema = ExternalDataSchema.objects.get(
@@ -1855,14 +1774,14 @@ class TestExternalDataSource(APIBaseTest):
         assert public_schema.table is not None
         assert analytics_schema.table is not None
 
-        self.assertEqual(public_schema.table.name, "public.accounts")
-        self.assertEqual(public_schema.table.options["direct_postgres_schema"], "public")
-        self.assertEqual(public_schema.table.options["direct_postgres_table"], "accounts")
-        self.assertEqual(analytics_schema.table.name, "analytics.accounts")
-        self.assertEqual(analytics_schema.table.options["direct_postgres_schema"], "analytics")
-        self.assertEqual(analytics_schema.table.options["direct_postgres_table"], "accounts")
-        self.assertEqual(public_schema.sync_type_config["schema_metadata"]["source_schema"], "public")
-        self.assertEqual(analytics_schema.sync_type_config["schema_metadata"]["source_schema"], "analytics")
+        assert public_schema.table.name == "public.accounts"
+        assert public_schema.table.options["direct_postgres_schema"] == "public"
+        assert public_schema.table.options["direct_postgres_table"] == "accounts"
+        assert analytics_schema.table.name == "analytics.accounts"
+        assert analytics_schema.table.options["direct_postgres_schema"] == "analytics"
+        assert analytics_schema.table.options["direct_postgres_table"] == "accounts"
+        assert public_schema.sync_type_config["schema_metadata"]["source_schema"] == "public"
+        assert analytics_schema.sync_type_config["schema_metadata"]["source_schema"] == "analytics"
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch(
@@ -2054,11 +1973,8 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres sources."},
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": "Direct query mode is currently supported only for Postgres sources."}
 
     def test_source_prefix_rejects_direct_non_postgres(self):
         response = self.client.post(
@@ -2070,11 +1986,8 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres sources."},
-        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": "Direct query mode is currently supported only for Postgres sources."}
 
     def test_create_postgres_warehouse_source_requires_schema(self):
         response = self.client.post(
@@ -2093,8 +2006,8 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json(), {"message": "Schema is required for warehouse imports."})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {"message": "Schema is required for warehouse imports."}
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_database_schema_postgres_direct_allows_blank_schema(self, mock_get_source):
@@ -2131,10 +2044,10 @@ class TestExternalDataSource(APIBaseTest):
                 },
             )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()[0]["table"], "public.accounts")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[0]["table"] == "public.accounts"
         validate.assert_called_once()
-        self.assertEqual(validate.call_args.args[2], "direct")
+        assert validate.call_args.args[2] == "direct"
 
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
@@ -2171,10 +2084,10 @@ class TestExternalDataSource(APIBaseTest):
         )
         results = response.json()
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
 
         table_names = [table["table"] for table in results]
-        self.assertTrue("posthog_test" in table_names)
+        assert "posthog_test" in table_names
 
         with postgres_connection.cursor() as cursor:
             cursor.execute(
@@ -2291,7 +2204,7 @@ class TestExternalDataSource(APIBaseTest):
             )
             results = response.json()
 
-            self.assertEqual(response.status_code, 200)
+            assert response.status_code == 200
 
             table_names = [table["table"] for table in results]
             for table in STRIPE_ENDPOINTS:
@@ -2316,7 +2229,7 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        self.assertEqual(response.status_code, 200)
+        assert response.status_code == 200
         mock_source.get_schemas.assert_called_once_with(parsed_config, self.team.pk)
 
     @patch(
@@ -2406,8 +2319,8 @@ class TestExternalDataSource(APIBaseTest):
                     "schema": "public",
                 },
             )
-            self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+            assert response.status_code == 400
+            assert response.json() == {"message": "Hosts with internal IP addresses are not allowed"}
 
         with override_settings(CLOUD_DEPLOYMENT="EU"):
             team_1 = Team.objects.create(id=1, organization=self.team.organization)
@@ -2464,8 +2377,8 @@ class TestExternalDataSource(APIBaseTest):
                     "schema": "public",
                 },
             )
-            self.assertEqual(response.status_code, 400)
-            self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+            assert response.status_code == 400
+            assert response.json() == {"message": "Hosts with internal IP addresses are not allowed"}
 
         patch_get_postgres_row_count.assert_not_called()
 
@@ -2516,12 +2429,10 @@ class TestExternalDataSource(APIBaseTest):
         with override_settings(CLOUD_DEPLOYMENT="US"):
             for url, data in [(database_schema_url, database_schema_data), (create_url, create_data)]:
                 response = self.client.post(url, data=data)
-                self.assertEqual(response.status_code, 400, f"Expected 400 for {host} on {url}")
-                self.assertEqual(response.json(), {"message": "Hosts with internal IP addresses are not allowed"})
+                assert response.status_code == 400, f"Expected 400 for {host} on {url}"
+                assert response.json() == {"message": "Hosts with internal IP addresses are not allowed"}
 
-            self.assertFalse(
-                ExternalDataSource.objects.filter(team=self.team, source_type="Postgres").exists(),
-            )
+            assert not ExternalDataSource.objects.filter(team=self.team, source_type="Postgres").exists()
 
     def test_source_jobs(self):
         source = self._create_external_data_source()
@@ -4148,17 +4059,10 @@ class TestExternalDataSource(APIBaseTest):
                         },
                     },
                 )
-                self.assertEqual(
-                    response.status_code,
-                    400,
-                    f"Expected rejection for prefix '{prefix}' ({reason})",
-                )
+                assert response.status_code == 400, f"Expected rejection for prefix '{prefix}' ({reason})"
                 response_text = str(response.json()).lower()
                 # Different invalid prefixes return different error messages
-                self.assertTrue(
-                    "prefix" in response_text and ("letters" in response_text or "underscores" in response_text),
-                    f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}",
-                )
+                assert "prefix" in response_text and ("letters" in response_text or "underscores" in response_text), f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}"
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -4194,11 +4098,7 @@ class TestExternalDataSource(APIBaseTest):
                         },
                     },
                 )
-                self.assertIn(
-                    response.status_code,
-                    [200, 201],
-                    f"Expected acceptance for valid prefix '{prefix}'",
-                )
+                assert response.status_code in [200, 201], f"Expected acceptance for valid prefix '{prefix}'"
 
 
 class TestCreateWebhook(APIBaseTest):

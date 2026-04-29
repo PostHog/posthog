@@ -10,8 +10,8 @@ class TestFilter(BaseTest):
     def test_fill_date_from_and_date_to(self):
         with freeze_time("2020-10-01T12:00:00Z"):
             filter = RetentionFilter(data={}, team=self.team)
-            self.assertEqual(filter.date_from.isoformat(), "2020-09-21T00:00:00+00:00")
-            self.assertEqual(filter.date_to.isoformat(), "2020-10-02T00:00:00+00:00")
+            assert filter.date_from.isoformat() == "2020-09-21T00:00:00+00:00"
+            assert filter.date_to.isoformat() == "2020-10-02T00:00:00+00:00"
         #  Make sure these dates aren't present in final filter to ensure rolling retention
         assert filter.to_dict() == {
             "display": "ActionsTable",
@@ -61,8 +61,8 @@ class TestFilter(BaseTest):
 
         with freeze_time("2020-10-01T12:00:00Z"):
             filter = RetentionFilter(data={"date_to": "2020-08-01"}, team=self.team)
-        self.assertEqual(filter.date_from.isoformat(), "2020-07-22T00:00:00+00:00")
-        self.assertEqual(filter.date_to.isoformat(), "2020-08-02T00:00:00+00:00")
+        assert filter.date_from.isoformat() == "2020-07-22T00:00:00+00:00"
+        assert filter.date_to.isoformat() == "2020-08-02T00:00:00+00:00"
         #  Make sure these dates aren't present in final filter to ensure rolling retention
 
         # The date_to below is the base value that's provided when the object was created (_date_to).
@@ -121,5 +121,5 @@ class TestFilter(BaseTest):
                 "returning_entity": '{"id": "signup", "type": "events"}',
             }
         ).to_dict()
-        self.assertEqual(filter["target_entity"]["id"], "$autocapture")
-        self.assertEqual(filter["returning_entity"]["id"], "signup")
+        assert filter["target_entity"]["id"] == "$autocapture"
+        assert filter["returning_entity"]["id"] == "signup"

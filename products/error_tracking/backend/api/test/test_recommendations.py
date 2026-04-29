@@ -38,16 +38,16 @@ class TestRecommendationsAPI(APIBaseTest):
         return_value=MOCK_META,
     )
     def test_first_list_creates_recommendations(self, mock_compute, mock_alerts_compute):
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 0)
+        assert ErrorTrackingRecommendation.objects.filter(team=self.team).count() == 0
 
         response = self._list()
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(ErrorTrackingRecommendation.objects.filter(team=self.team).count(), 2)
+        assert response.status_code == status.HTTP_200_OK
+        assert ErrorTrackingRecommendation.objects.filter(team=self.team).count() == 2
         results = response.json()["results"]
         by_type = {r["type"]: r for r in results}
-        self.assertEqual(by_type["cross_sell"]["meta"], MOCK_META)
-        self.assertEqual(by_type["alerts"]["meta"], MOCK_ALERTS_META)
+        assert by_type["cross_sell"]["meta"] == MOCK_META
+        assert by_type["alerts"]["meta"] == MOCK_ALERTS_META
         mock_compute.assert_called_once()
         mock_alerts_compute.assert_called_once()
 
@@ -75,9 +75,9 @@ class TestRecommendationsAPI(APIBaseTest):
         )
         meta = AlertsRecommendation().compute(self.team)
         by_key = {a["key"]: a["enabled"] for a in meta["alerts"]}
-        self.assertTrue(by_key["error-tracking-issue-created"])
-        self.assertFalse(by_key["error-tracking-issue-reopened"])
-        self.assertFalse(by_key["error-tracking-issue-spiking"])
+        assert by_key["error-tracking-issue-created"]
+        assert not by_key["error-tracking-issue-reopened"]
+        assert not by_key["error-tracking-issue-spiking"]
 
     def test_alerts_recommendation_ignores_deleted_alerts(self):
         HogFunction.objects.create(
@@ -89,7 +89,7 @@ class TestRecommendationsAPI(APIBaseTest):
         )
         meta = AlertsRecommendation().compute(self.team)
         by_key = {a["key"]: a["enabled"] for a in meta["alerts"]}
-        self.assertFalse(by_key["error-tracking-issue-created"])
+        assert not by_key["error-tracking-issue-created"]
 
     @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
     @patch(
@@ -110,8 +110,8 @@ class TestRecommendationsAPI(APIBaseTest):
         mock_compute.return_value = MOCK_META_UPDATED
         response = self._refresh(rec_id)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["meta"], MOCK_META)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["meta"] == MOCK_META
         mock_compute.assert_not_called()
 
     @freeze_time("2026-01-01T00:00:00Z", as_kwarg="frozen_time")
@@ -133,6 +133,6 @@ class TestRecommendationsAPI(APIBaseTest):
         mock_compute.return_value = MOCK_META_UPDATED
         response = self._refresh(rec_id)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["meta"], MOCK_META_UPDATED)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["meta"] == MOCK_META_UPDATED
         mock_compute.assert_called_once()

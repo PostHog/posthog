@@ -20,17 +20,17 @@ class TestScheduledChange(BaseTest):
     def test_formatted_failure_reason_with_null(self):
         """Test that null failure_reason returns 'Unknown error'"""
         self.scheduled_change.failure_reason = None
-        self.assertEqual(self.scheduled_change.formatted_failure_reason, "Unknown error")
+        assert self.scheduled_change.formatted_failure_reason == "Unknown error"
 
     def test_formatted_failure_reason_with_empty_string(self):
         """Test that empty failure_reason returns 'Unknown error'"""
         self.scheduled_change.failure_reason = ""
-        self.assertEqual(self.scheduled_change.formatted_failure_reason, "Unknown error")
+        assert self.scheduled_change.formatted_failure_reason == "Unknown error"
 
     def test_formatted_failure_reason_legacy_string(self):
         """Test that legacy string failure reasons are returned as-is"""
         self.scheduled_change.failure_reason = "Database connection failed"
-        self.assertEqual(self.scheduled_change.formatted_failure_reason, "Database connection failed")
+        assert self.scheduled_change.formatted_failure_reason == "Database connection failed"
 
     def test_formatted_failure_reason_json_unrecoverable(self):
         """Test JSON format for unrecoverable errors"""
@@ -48,7 +48,7 @@ class TestScheduledChange(BaseTest):
         self.scheduled_change.failure_reason = json.dumps(failure_context)
 
         expected = "Invalid payload structure (permanent error)"
-        self.assertEqual(self.scheduled_change.formatted_failure_reason, expected)
+        assert self.scheduled_change.formatted_failure_reason == expected
 
     def test_formatted_failure_reason_json_retry_exhausted(self):
         """Test JSON format for retry exhausted"""
@@ -66,7 +66,7 @@ class TestScheduledChange(BaseTest):
         self.scheduled_change.failure_reason = json.dumps(failure_context)
 
         expected = "Database connection lost (failed after 5 out of 5 attempts)"
-        self.assertEqual(self.scheduled_change.formatted_failure_reason, expected)
+        assert self.scheduled_change.formatted_failure_reason == expected
 
     def test_formatted_failure_reason_json_will_retry(self):
         """Test JSON format for retryable errors"""
@@ -82,7 +82,7 @@ class TestScheduledChange(BaseTest):
         self.scheduled_change.failure_reason = json.dumps(failure_context)
 
         expected = "Temporary service unavailable (will retry automatically, 3 attempts remaining)"
-        self.assertEqual(self.scheduled_change.formatted_failure_reason, expected)
+        assert self.scheduled_change.formatted_failure_reason == expected
 
     def test_formatted_failure_reason_json_will_retry_one_attempt(self):
         """Test JSON format for retryable errors with only one attempt remaining"""
@@ -98,7 +98,7 @@ class TestScheduledChange(BaseTest):
         self.scheduled_change.failure_reason = json.dumps(failure_context)
 
         expected = "API rate limit exceeded (will retry automatically, 1 attempt remaining)"
-        self.assertEqual(self.scheduled_change.formatted_failure_reason, expected)
+        assert self.scheduled_change.formatted_failure_reason == expected
 
     def test_formatted_failure_reason_json_no_error_field(self):
         """Test JSON without error field falls back to string representation"""
@@ -109,7 +109,7 @@ class TestScheduledChange(BaseTest):
         self.scheduled_change.failure_reason = json.dumps(invalid_context)
 
         # Should return the JSON string as-is since no 'error' field
-        self.assertEqual(self.scheduled_change.formatted_failure_reason, json.dumps(invalid_context))
+        assert self.scheduled_change.formatted_failure_reason == json.dumps(invalid_context)
 
     def test_formatted_failure_reason_malformed_json(self):
         """Test malformed JSON falls back to string representation"""
@@ -117,7 +117,7 @@ class TestScheduledChange(BaseTest):
         self.scheduled_change.failure_reason = malformed_json
 
         # Should return the malformed JSON as-is
-        self.assertEqual(self.scheduled_change.formatted_failure_reason, malformed_json)
+        assert self.scheduled_change.formatted_failure_reason == malformed_json
 
     def test_formatted_failure_reason_basic_error_only(self):
         """Test JSON with just error field and no retry status"""
@@ -130,7 +130,7 @@ class TestScheduledChange(BaseTest):
         self.scheduled_change.failure_reason = json.dumps(failure_context)
 
         # Should just return the error message without any retry status
-        self.assertEqual(self.scheduled_change.formatted_failure_reason, "Some generic error")
+        assert self.scheduled_change.formatted_failure_reason == "Some generic error"
 
     def test_sensitive_data_not_exposed(self):
         """Test that sensitive data from failure context is not exposed"""
@@ -152,11 +152,11 @@ class TestScheduledChange(BaseTest):
         formatted = self.scheduled_change.formatted_failure_reason
 
         # Should only contain the error message and retry info
-        self.assertEqual(formatted, "Database connection failed (failed after 3 attempts)")
+        assert formatted == "Database connection failed (failed after 3 attempts)"
 
         # Should not contain any sensitive information
-        self.assertNotIn("internal-worker-node-123", formatted)
-        self.assertNotIn("celery-task-abc-def-123", formatted)
-        self.assertNotIn("worker.internal.company.com", formatted)
-        self.assertNotIn("sk-1234567890abcdef", formatted)
-        self.assertNotIn("postgresql://", formatted)
+        assert "internal-worker-node-123" not in formatted
+        assert "celery-task-abc-def-123" not in formatted
+        assert "worker.internal.company.com" not in formatted
+        assert "sk-1234567890abcdef" not in formatted
+        assert "postgresql://" not in formatted

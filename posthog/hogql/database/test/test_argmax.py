@@ -40,7 +40,7 @@ class TestArgmax(BaseTest):
             select_from=ast.JoinExpr(table=ast.Field(chain=["raw_persons"])),
             group_by=[ast.Field(chain=["raw_persons", "id"])],
         )
-        self.assertEqual(response, expected)
+        assert response == expected
 
     def test_argmax_select_deleted(self):
         response = argmax_select(
@@ -97,4 +97,4 @@ class TestArgmax(BaseTest):
                 right=ast.Constant(value=0),
             ),
         )
-        self.assertEqual(response, expected)
+        assert response == expected

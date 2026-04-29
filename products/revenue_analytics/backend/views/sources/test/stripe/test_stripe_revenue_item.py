@@ -116,12 +116,12 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
         query_sql = query.query.to_hogql()
 
         # Check for specific fields in the query based on the revenue item schema
-        self.assertIn("id", query_sql)
-        self.assertIn("source_label", query_sql)
+        assert "id" in query_sql
+        assert "source_label" in query_sql
 
         # Check that source_label contains the expected prefix
         expected_prefix = f"stripe.{self.external_data_source.prefix}"
-        self.assertIn(f"'{expected_prefix}'", query_sql)
+        assert f"'{expected_prefix}'" in query_sql
 
     def test_revenue_item_query_with_currency_conversion(self):
         """Test revenue item query includes currency conversion logic."""
@@ -136,7 +136,7 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
 
         # Check for currency-related fields/functions
         # The specific implementation may vary
-        self.assertIn("currency", query_sql.lower())
+        assert "currency" in query_sql.lower()
 
         # Print and snapshot for currency conversion case
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)

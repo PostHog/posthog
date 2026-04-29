@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.llm_analytics.backend.api.metrics import LLMA_REQUEST_LATENCY_BUCKETS, llma_track_latency
+import pytest
 
 
 class TestLLMAnalyticsMetrics(SimpleTestCase):
@@ -28,7 +29,7 @@ class TestLLMAnalyticsMetrics(SimpleTestCase):
         assert operation() == "ok"
         mock_histogram.labels.assert_called_once_with(endpoint="llma_test_endpoint")
         observer.observe.assert_called_once()
-        self.assertAlmostEqual(observer.observe.call_args.args[0], 0.2)
+        assert observer.observe.call_args.args[0] == pytest.approx(0.2, abs=10**(-7) * 0.5)
 
     @patch("products.llm_analytics.backend.api.metrics.LLMA_REQUEST_LATENCY")
     @patch("products.llm_analytics.backend.api.metrics.time.perf_counter")
@@ -45,4 +46,4 @@ class TestLLMAnalyticsMetrics(SimpleTestCase):
             failing_operation()
 
         observer.observe.assert_called_once()
-        self.assertAlmostEqual(observer.observe.call_args.args[0], 0.5)
+        assert observer.observe.call_args.args[0] == pytest.approx(0.5, abs=10**(-7) * 0.5)

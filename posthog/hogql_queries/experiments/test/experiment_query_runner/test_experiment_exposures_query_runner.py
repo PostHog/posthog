@@ -18,6 +18,7 @@ from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import
 from posthog.models.action.action import Action
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
+import pytest
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -168,7 +169,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         response = query_runner.calculate()
 
-        self.assertEqual(len(response.timeseries), 2)  # Two variants with data
+        assert len(response.timeseries) == 2  # Two variants with data
 
         control_series = next(series for series in response.timeseries if series.variant == "control")
         test_series = next(series for series in response.timeseries if series.variant == "test")
@@ -178,19 +179,19 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # Day 1 (Jan 2): 2 new users exposed
         # Day 2 (Jan 3): 2 more users exposed, total 4
         # Days 3-6: No new exposures, remains at 4
-        self.assertEqual(control_series.exposure_counts, [0, 2, 4, 4, 4, 4, 4])
-        self.assertEqual(len(control_series.days), 7)
+        assert control_series.exposure_counts == [0, 2, 4, 4, 4, 4, 4]
+        assert len(control_series.days) == 7
 
         # Daily cumulative exposures for test variant:
         # Day 0 (Jan 1): 0 exposures
         # Day 1 (Jan 2): 3 new users exposed
         # Day 2 (Jan 3): 2 more users exposed, total 5
         # Days 3-6: No new exposures, remains at 5
-        self.assertEqual(test_series.exposure_counts, [0, 3, 5, 5, 5, 5, 5])
-        self.assertEqual(len(test_series.days), 7)
+        assert test_series.exposure_counts == [0, 3, 5, 5, 5, 5, 5]
+        assert len(test_series.days) == 7
 
-        self.assertEqual(response.total_exposures["control"], 4)
-        self.assertEqual(response.total_exposures["test"], 5)
+        assert response.total_exposures["control"] == 4
+        assert response.total_exposures["test"] == 5
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -299,17 +300,17 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # Day 0 (Jan 1): 0 exposures
         # Day 1 (Jan 2): 1 new user exposed
         # Days 2-6: No new exposures (second exposure of user_control_1 not counted)
-        self.assertEqual(control_series.exposure_counts, [0, 1, 1, 1, 1, 1, 1])
+        assert control_series.exposure_counts == [0, 1, 1, 1, 1, 1, 1]
 
         # Daily cumulative exposures for test variant:
         # Day 0 (Jan 1): 0 exposures
         # Day 1 (Jan 2): 1 new user exposed
         # Day 2 (Jan 3): 1 more user exposed (user_test_2), total 2
         # Days 3-6: No new exposures (additional exposures of user_test_1 not counted)
-        self.assertEqual(test_series.exposure_counts, [0, 1, 2, 2, 2, 2, 2])
+        assert test_series.exposure_counts == [0, 1, 2, 2, 2, 2, 2]
 
-        self.assertEqual(response.total_exposures["control"], 1)
-        self.assertEqual(response.total_exposures["test"], 2)
+        assert response.total_exposures["control"] == 1
+        assert response.total_exposures["test"] == 2
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -478,10 +479,10 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         response = query_runner.calculate()
 
-        self.assertEqual(len(response.timeseries), 2)
+        assert len(response.timeseries) == 2
 
-        self.assertEqual(response.total_exposures["control"], 4)
-        self.assertEqual(response.total_exposures["test"], 5)
+        assert response.total_exposures["control"] == 4
+        assert response.total_exposures["test"] == 5
 
         # Run again with filterTestAccounts set to False
         self.experiment.exposure_criteria = {"filterTestAccounts": False}
@@ -506,9 +507,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         response = query_runner.calculate()
 
-        self.assertEqual(len(response.timeseries), 2)
-        self.assertEqual(response.total_exposures["control"], 4)
-        self.assertEqual(response.total_exposures["test"], 6)
+        assert len(response.timeseries) == 2
+        assert response.total_exposures["control"] == 4
+        assert response.total_exposures["test"] == 6
 
     @parameterized.expand(
         [
@@ -636,10 +637,10 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         response = query_runner.calculate()
 
-        self.assertEqual(len(response.timeseries), 2)
+        assert len(response.timeseries) == 2
 
-        self.assertEqual(response.total_exposures["control"], 4)
-        self.assertEqual(response.total_exposures["test"], 5)
+        assert response.total_exposures["control"] == 4
+        assert response.total_exposures["test"] == 5
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -774,10 +775,10 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         response = query_runner.calculate()
 
-        self.assertEqual(len(response.timeseries), 2)
+        assert len(response.timeseries) == 2
 
-        self.assertEqual(response.total_exposures["control"], 4)
-        self.assertEqual(response.total_exposures["test"], 5)
+        assert response.total_exposures["control"] == 4
+        assert response.total_exposures["test"] == 5
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -866,11 +867,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         response = query_runner.calculate()
 
-        self.assertEqual(len(response.timeseries), 3)
+        assert len(response.timeseries) == 3
 
-        self.assertEqual(response.total_exposures["control"], 2)
-        self.assertEqual(response.total_exposures["test"], 1)
-        self.assertEqual(response.total_exposures[MULTIPLE_VARIANT_KEY], 1)
+        assert response.total_exposures["control"] == 2
+        assert response.total_exposures["test"] == 1
+        assert response.total_exposures[MULTIPLE_VARIANT_KEY] == 1
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -907,8 +908,8 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         response = query_runner.calculate()
 
-        self.assertEqual(response.total_exposures["control"], 2)
-        self.assertEqual(response.total_exposures["test"], 3)
+        assert response.total_exposures["control"] == 2
+        assert response.total_exposures["test"] == 3
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -1016,11 +1017,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # - user_test_only: counted in test
         # - user_multiple_control_first: counted in control (first seen variant)
         # - user_multiple_test_first: counted in test (first seen variant)
-        self.assertEqual(response.total_exposures["control"], 2)  # user_control_only + user_multiple_control_first
-        self.assertEqual(response.total_exposures["test"], 2)  # user_test_only + user_multiple_test_first
+        assert response.total_exposures["control"] == 2  # user_control_only + user_multiple_control_first
+        assert response.total_exposures["test"] == 2  # user_test_only + user_multiple_test_first
 
         # Verify no MULTIPLE_VARIANT_KEY appears in total_exposures for first_seen handling
-        self.assertNotIn(MULTIPLE_VARIANT_KEY, response.total_exposures)
+        assert MULTIPLE_VARIANT_KEY not in response.total_exposures
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -1120,8 +1121,8 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # Only premium purchases should be counted as exposures
         # Control: user_control_1 and user_control_2 (user_control_3 has basic plan)
         # Test: user_test_1, user_test_2, user_test_3 (user_test_4 has basic plan)
-        self.assertEqual(response.total_exposures["control"], 2)
-        self.assertEqual(response.total_exposures["test"], 3)
+        assert response.total_exposures["control"] == 2
+        assert response.total_exposures["test"] == 3
 
         # Verify timeseries data
         control_series = next((s for s in response.timeseries if s.variant == "control"), None)
@@ -1131,9 +1132,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert test_series is not None
 
         # All control exposures on 2024-01-02
-        self.assertEqual(control_series.exposure_counts[-1], 2)
+        assert control_series.exposure_counts[-1] == 2
         # All test exposures on 2024-01-02
-        self.assertEqual(test_series.exposure_counts[-1], 3)
+        assert test_series.exposure_counts[-1] == 3
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -1190,14 +1191,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         response = query_runner.calculate()
 
-        self.assertIsNotNone(response.sample_ratio_mismatch)
+        assert response.sample_ratio_mismatch is not None
 
         # With perfectly balanced distribution, p-value should be 1.0
-        self.assertEqual(response.sample_ratio_mismatch.p_value, 1.0)
+        assert response.sample_ratio_mismatch.p_value == 1.0
 
         # Expected counts should match observed for 50/50 split
-        self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
-        self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
+        assert response.sample_ratio_mismatch.expected["control"] == 50.0
+        assert response.sample_ratio_mismatch.expected["test"] == 50.0
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -1257,15 +1258,15 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         response = query_runner.calculate()
 
-        self.assertIsNotNone(response.sample_ratio_mismatch)
+        assert response.sample_ratio_mismatch is not None
 
         # With 90/10 split on a 50/50 expected, p-value should be very low
         # (well below the 0.001 threshold for SRM detection)
-        self.assertLess(response.sample_ratio_mismatch.p_value, 0.001)
+        assert response.sample_ratio_mismatch.p_value < 0.001
 
         # Expected counts should be 50/50 of total (100)
-        self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
-        self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
+        assert response.sample_ratio_mismatch.expected["control"] == 50.0
+        assert response.sample_ratio_mismatch.expected["test"] == 50.0
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @freeze_time("2024-01-07T12:00:00Z")
@@ -1316,9 +1317,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
         # 80 total exposures < 100 minimum
-        self.assertEqual(response.total_exposures["control"], 40)
-        self.assertEqual(response.total_exposures["test"], 40)
-        self.assertIsNone(response.sample_ratio_mismatch)
+        assert response.total_exposures["control"] == 40
+        assert response.total_exposures["test"] == 40
+        assert response.sample_ratio_mismatch is None
 
     def test_srm_calculation_adjusts_for_holdout(self):
         """SRM calculation should adjust expected percentages when holdout is present"""
@@ -1353,11 +1354,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         assert result is not None
         # With 20% holdout, expected is: holdout=20, control=40, test=40 of 100
-        self.assertEqual(result.expected[holdout_key], 20.0)
-        self.assertEqual(result.expected["control"], 40.0)
-        self.assertEqual(result.expected["test"], 40.0)
+        assert result.expected[holdout_key] == 20.0
+        assert result.expected["control"] == 40.0
+        assert result.expected["test"] == 40.0
         # Perfectly balanced should have p-value = 1.0
-        self.assertEqual(result.p_value, 1.0)
+        assert result.p_value == 1.0
 
     def test_srm_excludes_variant_with_zero_rollout_percentage(self):
         """SRM should exclude variants with 0% rollout from calculation"""
@@ -1397,11 +1398,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         assert result is not None
         # Only control and test should be in expected
-        self.assertEqual(len(result.expected), 2)
-        self.assertIn("control", result.expected)
-        self.assertIn("test", result.expected)
+        assert len(result.expected) == 2
+        assert "control" in result.expected
+        assert "test" in result.expected
         # Balanced 50/50 should have p-value = 1.0
-        self.assertEqual(result.p_value, 1.0)
+        assert result.p_value == 1.0
 
     def test_srm_with_zero_observed_samples(self):
         """SRM should handle variant with 0 observed samples but >0 expected"""
@@ -1423,7 +1424,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         assert result is not None
         # Should detect severe mismatch (100/0 vs expected 50/50)
-        self.assertLess(result.p_value, 0.001)
+        assert result.p_value < 0.001
 
     def test_srm_handles_zero_rollout_variant_with_observed_samples(self):
         """
@@ -1486,23 +1487,23 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         result = runner._calculate_srm(total_exposures)
 
         # Should successfully calculate SRM for control and test only
-        self.assertIsNotNone(result)
+        assert result is not None
         assert result is not None  # for mypy
-        self.assertIsNotNone(result.p_value)
+        assert result.p_value is not None
 
         # Expected counts should only include control and test
-        self.assertEqual(len(result.expected), 2)
-        self.assertIn("control", result.expected)
-        self.assertIn("test", result.expected)
-        self.assertNotIn("disabled", result.expected)
+        assert len(result.expected) == 2
+        assert "control" in result.expected
+        assert "test" in result.expected
+        assert "disabled" not in result.expected
 
         # Expected should be calculated from 100 total (excluding disabled)
         # Not 101 total (including disabled)
-        self.assertAlmostEqual(result.expected["control"], 50.0, places=1)
-        self.assertAlmostEqual(result.expected["test"], 50.0, places=1)
+        assert result.expected["control"] == pytest.approx(50.0, abs=10**(-1) * 0.5)
+        assert result.expected["test"] == pytest.approx(50.0, abs=10**(-1) * 0.5)
 
         # P-value should be 1.0 (perfect match after excluding disabled)
-        self.assertAlmostEqual(result.p_value, 1.0, places=2)
+        assert result.p_value == pytest.approx(1.0, abs=10**(-2) * 0.5)
 
     def test_srm_handles_variant_with_zero_exposures_missing_from_total(self):
         """
@@ -1560,19 +1561,19 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         result = runner._calculate_srm(total_exposures)
 
-        self.assertIsNotNone(result)
+        assert result is not None
         assert result is not None  # for mypy
 
         # All 3 variants should be in expected (including variant_c with 0 observed)
-        self.assertEqual(len(result.expected), 3)
-        self.assertIn("control", result.expected)
-        self.assertIn("test", result.expected)
-        self.assertIn("variant_c", result.expected)
+        assert len(result.expected) == 3
+        assert "control" in result.expected
+        assert "test" in result.expected
+        assert "variant_c" in result.expected
 
         # Expected should be based on 150 total (80+70+0) distributed by rollout %
-        self.assertAlmostEqual(result.expected["control"], 150 * 0.45, places=1)  # 67.5
-        self.assertAlmostEqual(result.expected["test"], 150 * 0.45, places=1)  # 67.5
-        self.assertAlmostEqual(result.expected["variant_c"], 150 * 0.10, places=1)  # 15.0
+        assert result.expected["control"] == pytest.approx(150 * 0.45, abs=10**(-1) * 0.5)  # 67.5
+        assert result.expected["test"] == pytest.approx(150 * 0.45, abs=10**(-1) * 0.5)  # 67.5
+        assert result.expected["variant_c"] == pytest.approx(150 * 0.10, abs=10**(-1) * 0.5)  # 15.0
 
         # Should detect mismatch since variant_c has 0 observed but 15 expected
-        self.assertLess(result.p_value, 0.01)
+        assert result.p_value < 0.01

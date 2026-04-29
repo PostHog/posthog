@@ -90,8 +90,8 @@ class TestPagingBreakdowns(APIBaseTest):
     def test_without_breakdown(self):
         response = self._run({})
 
-        self.assertEqual(len(response), 1)
-        self.assertEqual(response[0]["label"], "$pageview")
+        assert len(response) == 1
+        assert response[0]["label"] == "$pageview"
 
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 0.0, 0.0])
-        self.assertEqual(response[0]["count"], 50.0)
+        assert response[0]["data"] == [0.0, 0.0, 0.0, 0.0, 0.0, 50.0, 0.0, 0.0]
+        assert response[0]["count"] == 50.0

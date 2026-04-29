@@ -13,16 +13,13 @@ class TestProject(BaseTest):
             name="Test project",
         )
 
-        self.assertEqual(project.id, team.id)
-        self.assertEqual(project.name, "Test project")
-        self.assertEqual(project.organization, self.organization)
+        assert project.id == team.id
+        assert project.name == "Test project"
+        assert project.organization == self.organization
 
-        self.assertEqual(
-            team.name,
-            "Test project",  # TODO: When Environments are rolled out, ensure this says "Default environment"
-        )
-        self.assertEqual(team.organization, self.organization)
-        self.assertEqual(team.project, project)
+        assert team.name == "Test project"
+        assert team.organization == self.organization
+        assert team.project == project
 
     def test_create_project_with_team_uses_team_id_sequence(self):
         expected_common_id = Team.objects.increment_id_sequence() + 1
@@ -34,14 +31,14 @@ class TestProject(BaseTest):
             team_fields={"name": "Test team"},
         )
 
-        self.assertEqual(project.id, expected_common_id)
-        self.assertEqual(project.name, "Test project")
-        self.assertEqual(project.organization, self.organization)
+        assert project.id == expected_common_id
+        assert project.name == "Test project"
+        assert project.organization == self.organization
 
-        self.assertEqual(team.id, expected_common_id)
-        self.assertEqual(team.name, "Test team")
-        self.assertEqual(team.organization, self.organization)
-        self.assertEqual(team.project, project)
+        assert team.id == expected_common_id
+        assert team.name == "Test team"
+        assert team.organization == self.organization
+        assert team.project == project
 
     @mock.patch("posthog.models.team.team.Team.objects.create", side_effect=Exception)
     def test_create_project_with_team_does_not_create_if_team_fails(self, mock_create):
@@ -56,5 +53,5 @@ class TestProject(BaseTest):
                 team_fields={"name": "Test team"},
             )
 
-        self.assertEqual(Team.objects.count(), initial_team_count)
-        self.assertEqual(Project.objects.count(), initial_project_count)
+        assert Team.objects.count() == initial_team_count
+        assert Project.objects.count() == initial_project_count

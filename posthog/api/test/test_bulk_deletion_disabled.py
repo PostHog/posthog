@@ -22,10 +22,10 @@ class TestBulkDeletionDisabled(APIBaseTest):
 
         response = self.client.delete(f"/api/environments/{self.additional_team.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("temporarily disabled", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "temporarily disabled" in response.json()["detail"]
 
-        self.assertTrue(Team.objects.filter(id=self.additional_team.id).exists())
+        assert Team.objects.filter(id=self.additional_team.id).exists()
 
     @patch("posthog.api.team.settings.DISABLE_BULK_DELETES", False)
     def test_team_deletion_enabled(self):
@@ -35,9 +35,9 @@ class TestBulkDeletionDisabled(APIBaseTest):
 
         response = self.client.delete(f"/api/environments/{self.additional_team.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        assert response.status_code == status.HTTP_204_NO_CONTENT
 
-        self.assertFalse(Team.objects.filter(id=self.additional_team.id).exists())
+        assert not Team.objects.filter(id=self.additional_team.id).exists()
 
     @patch("posthog.api.project.settings.DISABLE_BULK_DELETES", True)
     def test_project_deletion_disabled(self):
@@ -57,10 +57,10 @@ class TestBulkDeletionDisabled(APIBaseTest):
 
         response = self.client.delete(f"/api/projects/{test_project.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("temporarily disabled", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "temporarily disabled" in response.json()["detail"]
 
-        self.assertTrue(Project.objects.filter(id=test_project.id).exists())
+        assert Project.objects.filter(id=test_project.id).exists()
 
     @patch("posthog.api.organization.settings.DISABLE_BULK_DELETES", True)
     def test_organization_deletion_disabled(self):
@@ -69,7 +69,7 @@ class TestBulkDeletionDisabled(APIBaseTest):
 
         response = self.client.delete(f"/api/organizations/{test_org.id}/")
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("temporarily disabled", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "temporarily disabled" in response.json()["detail"]
 
-        self.assertTrue(Organization.objects.filter(id=test_org.id).exists())
+        assert Organization.objects.filter(id=test_org.id).exists()

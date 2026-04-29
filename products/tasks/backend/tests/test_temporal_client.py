@@ -38,9 +38,9 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
 
     def _assert_run_failed(self, run: TaskRun, expected_error: str) -> None:
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.FAILED)
-        self.assertEqual(run.error_message, expected_error)
-        self.assertIsNotNone(run.completed_at)
+        assert run.status == TaskRun.Status.FAILED
+        assert run.error_message == expected_error
+        assert run.completed_at is not None
 
     def _execute_workflow(self, executor: str, run: TaskRun, user_id: int | None) -> None:
         kwargs = {
@@ -121,7 +121,7 @@ class TestExecuteTaskProcessingWorkflow(TransactionTestCase):
             self._execute_workflow(executor, run, self.user.id)
 
         run.refresh_from_db()
-        self.assertEqual(run.status, TaskRun.Status.IN_PROGRESS)
-        self.assertIsNone(run.error_message)
-        self.assertIsNone(run.completed_at)
+        assert run.status == TaskRun.Status.IN_PROGRESS
+        assert run.error_message is None
+        assert run.completed_at is None
         mock_feature_enabled.assert_called_once()

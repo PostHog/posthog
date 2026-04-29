@@ -20,20 +20,20 @@ class TestInstanceSettings(ClickhouseTestMixin, APILicensedTest):
     @snapshot_clickhouse_alter_queries
     def test_update_recordings_performance_events_ttl_setting(self):
         response = self.client.get(f"/api/instance_settings/RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["value"], 3)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["value"] == 3
 
         response = self.client.patch(
             f"/api/instance_settings/RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
             {"value": 5},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["value"], 5)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["value"] == 5
 
-        self.assertEqual(get_instance_setting("RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS"), 5)
+        assert get_instance_setting("RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS") == 5
 
         table_engine = sync_execute(
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(table)s",
             {"database": CLICKHOUSE_DATABASE, "table": PERFORMANCE_EVENT_DATA_TABLE()},
         )
-        self.assertIn("TTL toDate(timestamp) + toIntervalWeek(5)", table_engine[0][0])
+        assert "TTL toDate(timestamp) + toIntervalWeek(5)" in table_engine[0][0]

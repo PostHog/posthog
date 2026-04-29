@@ -1105,13 +1105,13 @@ class TestCacheStats(BaseTest):
         with patch("posthog.models.team.team.Team.objects.count", return_value=5):
             stats = get_cache_stats()
 
-        self.assertEqual(stats["total_cached"], 2)
-        self.assertEqual(stats["total_teams"], 5)
-        self.assertEqual(stats["expiry_tracked"], 2)
-        self.assertEqual(stats["ttl_distribution"]["expires_1h"], 1)
-        self.assertEqual(stats["ttl_distribution"]["expires_24h"], 1)
-        self.assertEqual(stats["size_statistics"]["sample_count"], 2)
-        self.assertEqual(stats["size_statistics"]["avg_size_bytes"], 1536)  # (1024 + 2048) / 2
+        assert stats["total_cached"] == 2
+        assert stats["total_teams"] == 5
+        assert stats["expiry_tracked"] == 2
+        assert stats["ttl_distribution"]["expires_1h"] == 1
+        assert stats["ttl_distribution"]["expires_24h"] == 1
+        assert stats["size_statistics"]["sample_count"] == 2
+        assert stats["size_statistics"]["avg_size_bytes"] == 1536  # (1024 + 2048) / 2
 
 
 class TestGetTeamsWithExpiringCaches(BaseTest):
@@ -1146,9 +1146,9 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         result = get_teams_with_expiring_flags_caches(ttl_threshold_hours=24)
 
         # Both teams have expiring caches
-        self.assertEqual(len(result), 2)
-        self.assertIn(team1, result)
-        self.assertIn(team2, result)
+        assert len(result) == 2
+        assert team1 in result
+        assert team2 in result
 
         # Verify sorted set query was called correctly
         mock_redis.zrangebyscore.assert_called_once_with(
@@ -1174,7 +1174,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
         result = get_teams_with_expiring_flags_caches(ttl_threshold_hours=24)
 
         # No teams returned
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_returns_empty_when_no_expiring_caches(self, mock_get_client):
@@ -1188,7 +1188,7 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
 
         result = get_teams_with_expiring_flags_caches(ttl_threshold_hours=24)
 
-        self.assertEqual(len(result), 0)
+        assert len(result) == 0
 
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_uses_correct_redis_url(self, mock_get_client):
@@ -1230,8 +1230,8 @@ class TestBatchOperations(BaseTest):
         successful, failed = refresh_expiring_flags_caches(ttl_threshold_hours=24)
 
         # Should return result from generic function
-        self.assertEqual(successful, 2)
-        self.assertEqual(failed, 0)
+        assert successful == 2
+        assert failed == 0
 
         # Should call generic refresh_expiring_caches with correct config
         mock_refresh.assert_called_once_with(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, 24, settings.FLAGS_CACHE_REFRESH_LIMIT)
@@ -1263,7 +1263,7 @@ class TestBatchOperations(BaseTest):
         removed = cleanup_stale_expiry_tracking()
 
         # Should remove 1 stale entry
-        self.assertEqual(removed, 1)
+        assert removed == 1
 
         # Should call zrem with the stale team ID
         mock_redis.zrem.assert_called_once_with(FLAGS_CACHE_EXPIRY_SORTED_SET, str(team2_id))
@@ -1303,13 +1303,13 @@ class TestBatchOperations(BaseTest):
         call_args = mock_redis.zadd.call_args
 
         # Verify it was added to the correct sorted set
-        self.assertEqual(call_args[0][0], FLAGS_CACHE_EXPIRY_SORTED_SET)
+        assert call_args[0][0] == FLAGS_CACHE_EXPIRY_SORTED_SET
 
         # Verify the TTL is the default (since stagger_ttl=False)
         team_id_str = str(self.team.id)
         expiry_timestamp = call_args[0][1][team_id_str]
         expected_expiry = 1000000 + settings.FLAGS_CACHE_TTL
-        self.assertEqual(expiry_timestamp, expected_expiry)
+        assert expiry_timestamp == expected_expiry
 
 
 @override_settings(
@@ -1373,8 +1373,8 @@ class TestManagementCommands(BaseTest):
 
         output = out.getvalue()
         # Should show verification results
-        self.assertIn("Verification Results", output)
-        self.assertIn("Total teams verified: 1", output)
+        assert "Verification Results" in output
+        assert "Total teams verified: 1" in output
 
     def test_warm_command_specific_teams(self):
         """Test warm_flags_cache command with specific teams."""
@@ -1396,9 +1396,9 @@ class TestManagementCommands(BaseTest):
 
         output = out.getvalue()
         # Should show warming results
-        self.assertIn("Flags cache warm completed", output)
-        self.assertIn("Total teams: 1", output)
-        self.assertIn("Successful: 1", output)
+        assert "Flags cache warm completed" in output
+        assert "Total teams: 1" in output
+        assert "Successful: 1" in output
 
     def test_analyze_command_validates_sample_size_too_small(self):
         """Test analyze command rejects sample_size < 1."""
@@ -1410,7 +1410,7 @@ class TestManagementCommands(BaseTest):
         call_command("analyze_flags_cache_sizes", "--sample-size=0", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("must be at least 1", output)
+        assert "must be at least 1" in output
 
     def test_analyze_command_validates_sample_size_too_large(self):
         """Test analyze command rejects sample_size > 10000."""
@@ -1422,7 +1422,7 @@ class TestManagementCommands(BaseTest):
         call_command("analyze_flags_cache_sizes", "--sample-size=10001", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("cannot exceed 10000", output)
+        assert "cannot exceed 10000" in output
 
     def test_verify_command_validates_sample_too_small(self):
         """Test verify command rejects sample < 1."""
@@ -1434,7 +1434,7 @@ class TestManagementCommands(BaseTest):
         call_command("verify_flags_cache", "--sample=0", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("must be at least 1", output)
+        assert "must be at least 1" in output
 
     def test_verify_command_validates_sample_too_large(self):
         """Test verify command rejects sample > 10000."""
@@ -1446,7 +1446,7 @@ class TestManagementCommands(BaseTest):
         call_command("verify_flags_cache", "--sample=10001", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("cannot exceed 10000", output)
+        assert "cannot exceed 10000" in output
 
     @patch("posthog.storage.hypercache_manager.warm_caches")
     def test_warm_command_validates_batch_size_too_small(self, mock_warm):
@@ -1459,7 +1459,7 @@ class TestManagementCommands(BaseTest):
         call_command("warm_flags_cache", "--batch-size=0", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("must be at least 1", output)
+        assert "must be at least 1" in output
         mock_warm.assert_not_called()
 
     @patch("posthog.storage.hypercache_manager.warm_caches")
@@ -1473,7 +1473,7 @@ class TestManagementCommands(BaseTest):
         call_command("warm_flags_cache", "--batch-size=5001", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("cannot be greater than 5000", output)
+        assert "cannot be greater than 5000" in output
         mock_warm.assert_not_called()
 
     @patch("posthog.storage.hypercache_manager.warm_caches")
@@ -1487,7 +1487,7 @@ class TestManagementCommands(BaseTest):
         call_command("warm_flags_cache", "--min-ttl-days=0", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("must be at least 1", output)
+        assert "must be at least 1" in output
         mock_warm.assert_not_called()
 
     @patch("posthog.storage.hypercache_manager.warm_caches")
@@ -1501,7 +1501,7 @@ class TestManagementCommands(BaseTest):
         call_command("warm_flags_cache", "--max-ttl-days=31", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("cannot be greater than 30 days", output)
+        assert "cannot be greater than 30 days" in output
         mock_warm.assert_not_called()
 
     @patch("posthog.storage.hypercache_manager.warm_caches")
@@ -1515,7 +1515,7 @@ class TestManagementCommands(BaseTest):
         call_command("warm_flags_cache", "--min-ttl-days=10", "--max-ttl-days=5", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("cannot be greater than", output)
+        assert "cannot be greater than" in output
         mock_warm.assert_not_called()
 
     # Comprehensive tests for analyze_flags_cache_sizes
@@ -1557,10 +1557,10 @@ class TestManagementCommands(BaseTest):
 
         output = out.getvalue()
         # Should show P95 and P99 values
-        self.assertIn("P95:", output)
-        self.assertIn("P99:", output)
+        assert "P95:" in output
+        assert "P99:" in output
         # Should show flag counts
-        self.assertIn("Flag counts per team:", output)
+        assert "Flag counts per team:" in output
 
     def test_analyze_no_teams_in_database(self):
         """Test analyze command handles empty database gracefully."""
@@ -1575,7 +1575,7 @@ class TestManagementCommands(BaseTest):
         call_command("analyze_flags_cache_sizes", "--sample-size=100", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("No teams found", output)
+        assert "No teams found" in output
 
     @patch("posthog.management.commands.analyze_flags_cache_sizes._get_feature_flags_for_teams_batch")
     def test_analyze_detailed_field_analysis(self, mock_batch_get_flags):
@@ -1616,8 +1616,8 @@ class TestManagementCommands(BaseTest):
 
         output = out.getvalue()
         # Should show field-level breakdown
-        self.assertIn("FLAG FIELD SIZE ANALYSIS", output)
-        self.assertIn("Largest flag fields", output)
+        assert "FLAG FIELD SIZE ANALYSIS" in output
+        assert "Largest flag fields" in output
 
     @patch("posthog.models.feature_flag.flags_cache._get_feature_flags_for_teams_batch")
     def test_analyze_compression_ratio(self, mock_batch_get_flags):
@@ -1647,8 +1647,8 @@ class TestManagementCommands(BaseTest):
 
         output = out.getvalue()
         # Should show compression ratios
-        self.assertIn("Compression ratios:", output)
-        self.assertIn(":1", output)  # Ratio format like "3.5:1"
+        assert "Compression ratios:" in output
+        assert ":1" in output  # Ratio format like "3.5:1"
 
     # Comprehensive tests for warm_flags_cache
 
@@ -1670,8 +1670,8 @@ class TestManagementCommands(BaseTest):
         call_command("warm_flags_cache", "--batch-size=50", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("successful", output.lower())
-        self.assertIn("Batch size: 50", output)
+        assert "successful" in output.lower()
+        assert "Batch size: 50" in output
 
     def test_warm_batch_processing_with_failures(self):
         """Test warm command reports partial failures correctly."""
@@ -1707,8 +1707,8 @@ class TestManagementCommands(BaseTest):
 
             output = out.getvalue()
             # Should show failed count
-            self.assertIn("Failed:", output)
-            self.assertIn("1", output)  # 1 team failed
+            assert "Failed:" in output
+            assert "1" in output  # 1 team failed
 
     def test_warm_staggered_ttl_range(self):
         """Test that TTL staggering parameters are passed correctly."""
@@ -1729,7 +1729,7 @@ class TestManagementCommands(BaseTest):
 
         output = out.getvalue()
         # Should show TTL range in output
-        self.assertIn("TTL range: 3-10 days", output)
+        assert "TTL range: 3-10 days" in output
 
     @patch("posthog.models.feature_flag.flags_cache.update_flags_cache")
     def test_warm_missing_team_ids_warning(self, mock_update):
@@ -1744,9 +1744,9 @@ class TestManagementCommands(BaseTest):
         call_command("warm_flags_cache", "--team-ids", str(self.team.id), "99999", "88888", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("Warning", output)
-        self.assertIn("99999", output)
-        self.assertIn("88888", output)
+        assert "Warning" in output
+        assert "99999" in output
+        assert "88888" in output
 
     # Comprehensive tests for verify_flags_cache
 
@@ -1776,9 +1776,9 @@ class TestManagementCommands(BaseTest):
         output = out.getvalue()
         # The cache starts empty, so this is a CACHE_MISS (no cache entry exists)
         # This is correct regardless of whether the team has 0 or N flags in DB
-        self.assertIn("CACHE_MISS", output)
-        self.assertIn("FIXED", output)
-        self.assertIn("Cache fixes applied:  1", output)
+        assert "CACHE_MISS" in output
+        assert "FIXED" in output
+        assert "Cache fixes applied:  1" in output
 
     @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_cache_mismatch_detection_and_fix(self):
@@ -1808,8 +1808,8 @@ class TestManagementCommands(BaseTest):
         call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--fix", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("DATA_MISMATCH", output)
-        self.assertIn("FIXED", output)
+        assert "DATA_MISMATCH" in output
+        assert "FIXED" in output
 
     def test_verify_cache_detects_evaluation_context_rename(self):
         """Test that verification detects when an evaluation context is renamed."""
@@ -1834,19 +1834,19 @@ class TestManagementCommands(BaseTest):
         # Verify should detect the mismatch
         result = verify_team_flags(self.team, verbose=True)
 
-        self.assertEqual(result["status"], "mismatch")
-        self.assertEqual(len(result["diffs"]), 1)
-        self.assertEqual(result["diffs"][0]["type"], "FIELD_MISMATCH")
-        self.assertIn("evaluation_contexts", result["diffs"][0]["diff_fields"])
+        assert result["status"] == "mismatch"
+        assert len(result["diffs"]) == 1
+        assert result["diffs"][0]["type"] == "FIELD_MISMATCH"
+        assert "evaluation_contexts" in result["diffs"][0]["diff_fields"]
 
         field_diffs = result["diffs"][0]["field_diffs"]
         eval_tag_diff = next(d for d in field_diffs if d["field"] == "evaluation_contexts")
-        self.assertEqual(eval_tag_diff["cached_value"], ["original-context-name"])
-        self.assertEqual(eval_tag_diff["db_value"], ["renamed-context-name"])
+        assert eval_tag_diff["cached_value"] == ["original-context-name"]
+        assert eval_tag_diff["db_value"] == ["renamed-context-name"]
 
         # Mismatch result should include db_data for cache fix optimization
-        self.assertIn("db_data", result)
-        self.assertIsInstance(result["db_data"], dict)
+        assert "db_data" in result
+        assert isinstance(result["db_data"], dict)
 
     def test_verify_miss_includes_db_data(self):
         """Test that cache miss result includes db_data for direct cache write."""
@@ -1863,10 +1863,10 @@ class TestManagementCommands(BaseTest):
 
         result = verify_team_flags(self.team)
 
-        self.assertEqual(result["status"], "miss")
-        self.assertIn("db_data", result)
-        self.assertIsInstance(result["db_data"], dict)
-        self.assertIn("flags", result["db_data"])
+        assert result["status"] == "miss"
+        assert "db_data" in result
+        assert isinstance(result["db_data"], dict)
+        assert "flags" in result["db_data"]
 
     def test_verify_detects_missing_evaluation_metadata(self):
         from posthog.models.feature_flag.flags_cache import update_flags_cache, verify_team_flags
@@ -1889,10 +1889,10 @@ class TestManagementCommands(BaseTest):
 
         result = verify_team_flags(self.team)
 
-        self.assertEqual(result["status"], "mismatch")
-        self.assertEqual(result["issue"], "MISSING_EVALUATION_METADATA")
-        self.assertIn("db_data", result)
-        self.assertIn("evaluation_metadata", result["db_data"])
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "MISSING_EVALUATION_METADATA"
+        assert "db_data" in result
+        assert "evaluation_metadata" in result["db_data"]
 
     @override_settings(FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=0)
     def test_verify_fix_failures_reported(self):
@@ -1917,8 +1917,8 @@ class TestManagementCommands(BaseTest):
             call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--fix", stdout=out)
 
             output = out.getvalue()
-            self.assertIn("Failed to fix", output)
-            self.assertIn("Cache fixes failed:   1", output)
+            assert "Failed to fix" in output
+            assert "Cache fixes failed:   1" in output
 
     @patch("posthog.models.feature_flag.flags_cache.get_flags_from_cache")
     @patch("posthog.models.feature_flag.flags_cache._get_feature_flags_for_teams_batch")
@@ -1946,7 +1946,7 @@ class TestManagementCommands(BaseTest):
 
         output = out.getvalue()
         # Should verify exactly 3 teams (randomly sampled)
-        self.assertIn("3", output)
+        assert "3" in output
 
     def test_verify_all_caches_match(self):
         """Test verify command when all caches are correct."""
@@ -1972,8 +1972,8 @@ class TestManagementCommands(BaseTest):
 
         output = out.getvalue()
         # When cache matches, there are no issues
-        self.assertIn("Cache matches:", output)
-        self.assertIn("1 (100.0%)", output)  # 100% match rate
+        assert "Cache matches:" in output
+        assert "1 (100.0%)" in output  # 100% match rate
 
     def test_verify_detects_missing_cache_for_team_with_zero_flags(self):
         """Test that teams with 0 flags but no cache entry are detected as CACHE_MISS."""
@@ -1998,8 +1998,8 @@ class TestManagementCommands(BaseTest):
 
         output = out.getvalue()
         # Should detect cache miss for team with 0 flags
-        self.assertIn("CACHE_MISS", output)
-        self.assertIn("Cache misses:", output)
+        assert "CACHE_MISS" in output
+        assert "Cache misses:" in output
 
     @patch("posthog.models.feature_flag.flags_cache._get_feature_flags_for_teams_batch")
     def test_analyze_batch_load_fallback(self, mock_batch_get_flags):
@@ -2024,10 +2024,10 @@ class TestManagementCommands(BaseTest):
 
         output = out.getvalue()
         # Should show warning about fallback
-        self.assertIn("Batch load failed", output)
-        self.assertIn("falling back", output)
+        assert "Batch load failed" in output
+        assert "falling back" in output
         # But should still complete successfully using individual loads
-        self.assertIn("ANALYSIS RESULTS", output)
+        assert "ANALYSIS RESULTS" in output
 
     def test_verify_batch_load_fallback(self):
         """Test verify command falls back gracefully when batch load fails."""
@@ -2059,10 +2059,10 @@ class TestManagementCommands(BaseTest):
 
             output = out.getvalue()
             # Should show warning about fallback
-            self.assertIn("Batch load failed", output)
-            self.assertIn("falling back", output)
+            assert "Batch load failed" in output
+            assert "falling back" in output
             # Should still complete verification (using individual loads)
-            self.assertIn("Verification Results", output)
+            assert "Verification Results" in output
         finally:
             # Restore original batch function
             FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.hypercache.batch_load_fn = original_batch_fn
@@ -2091,8 +2091,8 @@ class TestManagementCommandsWithoutDedicatedCache(BaseTest):
 
         output = out.getvalue()
         # Should error and explain FLAGS_REDIS_URL requirement
-        self.assertIn("FLAGS_REDIS_URL", output)
-        self.assertIn("NOT configured", output)
+        assert "FLAGS_REDIS_URL" in output
+        assert "NOT configured" in output
 
     def test_verify_command_errors_without_flags_redis_url(self):
         """Test verify command errors when FLAGS_REDIS_URL not set."""
@@ -2105,8 +2105,8 @@ class TestManagementCommandsWithoutDedicatedCache(BaseTest):
 
         output = out.getvalue()
         # Should error and explain FLAGS_REDIS_URL requirement
-        self.assertIn("FLAGS_REDIS_URL", output)
-        self.assertIn("NOT configured", output)
+        assert "FLAGS_REDIS_URL" in output
+        assert "NOT configured" in output
 
     def test_warm_command_errors_without_flags_redis_url(self):
         """Test warm command errors when FLAGS_REDIS_URL not set."""
@@ -2119,8 +2119,8 @@ class TestManagementCommandsWithoutDedicatedCache(BaseTest):
 
         output = out.getvalue()
         # Should error and explain FLAGS_REDIS_URL requirement
-        self.assertIn("FLAGS_REDIS_URL", output)
-        self.assertIn("NOT configured", output)
+        assert "FLAGS_REDIS_URL" in output
+        assert "NOT configured" in output
 
 
 @override_settings(
@@ -2166,8 +2166,8 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("new-uncached-flag", output)
-        self.assertIn("exists in DB but missing from cache", output)
+        assert "new-uncached-flag" in output
+        assert "exists in DB but missing from cache" in output
 
     def test_verbose_stale_in_cache(self):
         """Test verbose output for STALE_IN_CACHE diff type."""
@@ -2191,8 +2191,8 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("stale-flag", output)
-        self.assertIn("exists in cache but deleted from DB", output)
+        assert "stale-flag" in output
+        assert "exists in cache but deleted from DB" in output
 
     def test_verbose_field_mismatch(self):
         """Test verbose output for FIELD_MISMATCH diff type with field details."""
@@ -2217,11 +2217,11 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         call_command("verify_flags_cache", f"--team-ids={self.team.id}", "--verbose", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("mismatch-flag", output)
-        self.assertIn("field values differ", output)
-        self.assertIn("Field:", output)
-        self.assertIn("DB:", output)
-        self.assertIn("Cache:", output)
+        assert "mismatch-flag" in output
+        assert "field values differ" in output
+        assert "Field:" in output
+        assert "DB:" in output
+        assert "Cache:" in output
 
     def test_verbose_unknown_diff_type_fallback(self):
         """Test verbose output falls back gracefully for unknown diff types."""
@@ -2241,8 +2241,8 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         command.format_verbose_diff(unknown_diff)
 
         output = out.getvalue()
-        self.assertIn("Flag 'test-flag'", output)
-        self.assertIn("UNKNOWN_TYPE", output)
+        assert "Flag 'test-flag'" in output
+        assert "UNKNOWN_TYPE" in output
 
     def test_verbose_missing_flag_key_uses_flag_id(self):
         """Test verbose output uses flag_id when flag_key is missing."""
@@ -2263,7 +2263,7 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         command.format_verbose_diff(diff_without_key)
 
         output = out.getvalue()
-        self.assertIn("Flag '12345'", output)
+        assert "Flag '12345'" in output
 
     def test_verbose_empty_field_diffs(self):
         """Test verbose output handles empty field_diffs gracefully."""
@@ -2284,8 +2284,8 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         command.format_verbose_diff(diff_with_empty_field_diffs)
 
         output = out.getvalue()
-        self.assertIn("Flag 'test-flag'", output)
-        self.assertIn("field values differ", output)
+        assert "Flag 'test-flag'" in output
+        assert "field values differ" in output
         # Should not crash despite empty field_diffs
 
     def test_verbose_missing_field_in_field_diff(self):
@@ -2313,10 +2313,10 @@ class TestVerifyFlagsCacheVerboseOutput(BaseTest):
         command.format_verbose_diff(diff_with_malformed_field_diffs)
 
         output = out.getvalue()
-        self.assertIn("Flag 'test-flag'", output)
-        self.assertIn("unknown_field", output)  # Falls back to default
-        self.assertIn("db_val", output)
-        self.assertIn("cached_val", output)
+        assert "Flag 'test-flag'" in output
+        assert "unknown_field" in output  # Falls back to default
+        assert "db_val" in output
+        assert "cached_val" in output
 
 
 @override_settings(FLAGS_REDIS_URL=None)

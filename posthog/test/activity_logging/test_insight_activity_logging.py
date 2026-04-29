@@ -10,6 +10,7 @@ from posthog.models.activity_logging.activity_log import Change, changes_between
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from collections import Counter
 
 
 class TestChangesBetweenInsights(BaseTest):
@@ -53,7 +54,7 @@ class TestChangesBetweenInsights(BaseTest):
             ),
         ]
 
-        self.assertCountEqual(actual, expected)
+        assert Counter(actual) == Counter(expected)
 
     def test_insight_change_of_tags_can_be_logged(self) -> None:
         actual = changes_between(
@@ -71,7 +72,7 @@ class TestChangesBetweenInsights(BaseTest):
             ),
         ]
 
-        self.assertCountEqual(actual, expected)
+        assert Counter(actual) == Counter(expected)
 
     def test_insight_change_of_derived_name_can_be_logged(self) -> None:
         actual = changes_between(
@@ -89,7 +90,7 @@ class TestChangesBetweenInsights(BaseTest):
             ),
         ]
 
-        self.assertCountEqual(actual, expected)
+        assert Counter(actual) == Counter(expected)
 
     def test_insight_change_of_description_can_be_logged(self) -> None:
         actual = changes_between(
@@ -107,7 +108,7 @@ class TestChangesBetweenInsights(BaseTest):
             ),
         ]
 
-        self.assertCountEqual(actual, expected)
+        assert Counter(actual) == Counter(expected)
 
     def _an_insight_with(self, tagged_items=None, **kwargs) -> Insight:
         if tagged_items is None:

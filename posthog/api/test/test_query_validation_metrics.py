@@ -27,4 +27,4 @@ class TestQueryValidationMetrics(TestCase):
         ]
     )
     def test_extracts_validation_code(self, _name: str, error: ValidationError, expected_code: str) -> None:
-        self.assertEqual(_extract_validation_code(error), expected_code)
+        assert _extract_validation_code(error) == expected_code

@@ -75,10 +75,10 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "'LinkedIn-Version': '202409'" in self.linkedin_function1.hog
 
         output = out.getvalue()
-        self.assertIn("DRY RUN - No changes will be made", output)
-        self.assertIn("Found 2 destinations to process", output)
-        self.assertIn("Updated: 1", output)
-        self.assertIn("Update completed", output)
+        assert "DRY RUN - No changes will be made" in output
+        assert "Found 2 destinations to process" in output
+        assert "Updated: 1" in output
+        assert "Update completed" in output
 
     @patch("posthog.management.commands.update_hog_function_code.compile_hog")
     def test_update_linkedin_api_version_actual_update(self, mock_compile_hog):
@@ -101,9 +101,9 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "'LinkedIn-Version': '202508'" in self.linkedin_function2.hog
 
         output = out.getvalue()
-        self.assertIn("Found 2 destinations to process", output)
-        self.assertIn("Updated: 1", output)
-        self.assertIn("Update completed", output)
+        assert "Found 2 destinations to process" in output
+        assert "Updated: 1" in output
+        assert "Update completed" in output
 
     @patch("posthog.cdp.validation.compile_hog")
     def test_invalid_replace_key(self, mock_compile_hog):
@@ -115,7 +115,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert mock_compile_hog.call_count == 0
 
         output = out.getvalue()
-        self.assertIn("Invalid replace key provided: invalid-key", output)
+        assert "Invalid replace key provided: invalid-key" in output
 
     def test_missing_replace_key(self):
         """Test handling of missing replace key."""
@@ -123,7 +123,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         call_command("update_hog_function_code", stdout=out)
 
         output = out.getvalue()
-        self.assertIn("Invalid replace key provided: None", output)
+        assert "Invalid replace key provided: None" in output
 
     @patch("posthog.cdp.validation.compile_hog")
     def test_no_matching_functions(self, mock_compile_hog):
@@ -138,5 +138,5 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert mock_compile_hog.call_count == 0
 
         output = out.getvalue()
-        self.assertIn("Found 0 destinations to process", output)
-        self.assertIn("Updated: 0", output)
+        assert "Found 0 destinations to process" in output
+        assert "Updated: 0" in output

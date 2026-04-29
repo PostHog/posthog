@@ -119,7 +119,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM EVENTS AS e
             WHERE and(and(greaterOrEquals(e.timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
-        self.assertEqual(select, expected)
+        assert select == expected
 
     @freeze_time("2025-11-12")
     def test_single_dwh_table(self):
@@ -144,7 +144,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM payments AS e
             WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
-        self.assertEqual(select, expected)
+        assert select == expected
 
     @freeze_time("2025-11-12")
     def test_single_dwh_table_string_timestamp(self):
@@ -169,7 +169,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM payments_string_timestamp AS e
             WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
-        self.assertEqual(select, expected)
+        assert select == expected
 
     @freeze_time("2025-11-12")
     def test_multiple_tables(self):
@@ -226,7 +226,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM
               (...) AS e
         """).strip()
-        self.assertEqual(select, expected)
+        assert select == expected
 
         select_1 = format_query(funnel_event_query.select_from.table.initial_select_query)  # type: ignore
         expected_1 = dedent("""
@@ -239,7 +239,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM EVENTS AS e
             WHERE and(and(and(greaterOrEquals(e.timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2025-11-12 23:59:59.999999'))), IN(event, tuple('$pageview'))), equals(step_0, 1))
         """).strip()
-        self.assertEqual(select_1, expected_1)
+        assert select_1 == expected_1
 
         select_2 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[0].select_query)  # type: ignore
         expected_2 = dedent("""
@@ -252,7 +252,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM table_one AS e
             WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_1, 1), equals(step_3, 1)))
         """).strip()
-        self.assertEqual(select_2, expected_2)
+        assert select_2 == expected_2
 
         select_3 = format_query(funnel_event_query.select_from.table.subsequent_select_queries[1].select_query)  # type: ignore
         expected_3 = dedent("""
@@ -265,7 +265,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM table_two AS e
             WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), equals(step_2, 1))
         """).strip()
-        self.assertEqual(select_3, expected_3)
+        assert select_3 == expected_3
 
     @freeze_time("2025-11-12")
     def test_group_node_two_events(self):
@@ -287,7 +287,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM EVENTS AS e
             WHERE and(and(and(greaterOrEquals(e.timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2025-11-12 23:59:59.999999'))), IN(event, tuple('$checkout', '$pageleave', '$pageview'))), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
-        self.assertEqual(select, expected)
+        assert select == expected
 
     @freeze_time("2025-11-12")
     def test_group_node_between_event_and_action(self):
@@ -321,7 +321,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM EVENTS AS e
             WHERE and(and(and(greaterOrEquals(e.timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2025-11-12 23:59:59.999999'))), IN(event, tuple('$pageleave', '$pageview', 'checkout', 'purchase', 'sign up'))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1)))
         """).strip()
-        self.assertEqual(select, expected)
+        assert select == expected
 
     @freeze_time("2025-11-12")
     def test_group_node_with_property_filters(self):
@@ -352,7 +352,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM EVENTS AS e
             WHERE and(and(and(greaterOrEquals(e.timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2025-11-12 23:59:59.999999'))), IN(event, tuple('$checkout', '$pageleave', '$pageview'))), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
-        self.assertEqual(select, expected)
+        assert select == expected
 
     @freeze_time("2025-11-12")
     def test_group_node_event_or_action(self):
@@ -379,7 +379,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             FROM EVENTS AS e
             WHERE and(and(and(greaterOrEquals(e.timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.timestamp, toDateTime('2025-11-12 23:59:59.999999'))), IN(event, tuple('$checkout', '$pageview', 'onboarding completed', 'sign up'))), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
-        self.assertEqual(select, expected)
+        assert select == expected
 
     @freeze_time("2025-11-12")
     def test_group_node_entity_prefilter(self):
@@ -393,4 +393,4 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         funnel_event_query = FunnelEventQuery(context=context).to_query()
 
         select = format_query(funnel_event_query)
-        self.assertIn("IN(event, tuple('$pageleave', '$pageview'))", select)
+        assert "IN(event, tuple('$pageleave', '$pageview'))" in select

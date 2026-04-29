@@ -61,9 +61,9 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Cannot disable this feature flag because other flags depend on it", response.json()["detail"])
-        self.assertIn(f"{dependent_flag.key} (ID: {dependent_flag.id})", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot disable this feature flag because other flags depend on it" in response.json()["detail"]
+        assert f"{dependent_flag.key} (ID: {dependent_flag.id})" in response.json()["detail"]
 
     def test_can_disable_flag_with_no_dependents(self):
         """Test that a flag can be disabled if no other flags depend on it."""
@@ -77,11 +77,11 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify flag is disabled
         flag.refresh_from_db()
-        self.assertFalse(flag.active)
+        assert not flag.active
 
     def test_can_disable_flag_with_inactive_dependents(self):
         """Test that a flag can be disabled if dependent flags are inactive."""
@@ -98,7 +98,7 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_can_disable_flag_with_deleted_dependents(self):
         """Test that a flag can be disabled if dependent flags are already deleted."""
@@ -117,7 +117,7 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_cannot_disable_flag_with_multiple_dependents(self):
         """Test error message when multiple flags depend on the flag being disabled."""
@@ -136,15 +136,15 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_detail = response.json()["detail"]
 
         # Should show first 5 flags
         for i in range(5):
-            self.assertIn(f"{dependent_flags[i].key} (ID: {dependent_flags[i].id})", error_detail)
+            assert f"{dependent_flags[i].key} (ID: {dependent_flags[i].id})" in error_detail
 
         # Should indicate there are more
-        self.assertIn("and 3 more", error_detail)
+        assert "and 3 more" in error_detail
 
     def test_cannot_disable_flag_in_dependency_chain(self):
         """Test that middle flags in a dependency chain cannot be disabled."""
@@ -160,8 +160,8 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{flag_c.key} (ID: {flag_c.id})", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f"{flag_c.key} (ID: {flag_c.id})" in response.json()["detail"]
 
         # Try to disable flag A (start of chain)
         response = self.client.patch(
@@ -170,8 +170,8 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{flag_b.key} (ID: {flag_b.id})", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f"{flag_b.key} (ID: {flag_b.id})" in response.json()["detail"]
 
         # Should be able to disable flag C (end of chain)
         response = self.client.patch(
@@ -180,7 +180,7 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_flag_with_mixed_properties_prevents_disabling(self):
         """Test that flags with both flag dependencies and other properties prevent disabling."""
@@ -217,8 +217,8 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(f"{dependent_flag.key} (ID: {dependent_flag.id})", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f"{dependent_flag.key} (ID: {dependent_flag.id})" in response.json()["detail"]
 
     def test_dependency_check_only_within_same_team(self):
         """Test that dependency checks are scoped to the same team."""
@@ -257,7 +257,7 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_can_enable_flag_that_was_previously_disabled(self):
         """Test that a flag can be re-enabled after being disabled."""
@@ -274,11 +274,11 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify flag is enabled
         base_flag.refresh_from_db()
-        self.assertTrue(base_flag.active)
+        assert base_flag.active
 
     def test_disabling_already_disabled_flag_no_error(self):
         """Test that disabling an already disabled flag doesn't trigger dependency check."""
@@ -295,7 +295,7 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
     def test_cannot_enable_dependent_flag_when_dependency_disabled(self):
         """Test that dependent flags cannot be enabled when their dependencies are disabled."""
@@ -311,11 +311,11 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             {"active": False},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        assert response.status_code == status.HTTP_200_OK
 
         # Verify base flag is disabled
         base_flag.refresh_from_db()
-        self.assertFalse(base_flag.active)
+        assert not base_flag.active
 
         # Should NOT be able to enable dependent flag when its dependency is disabled
         response = self.client.patch(
@@ -324,13 +324,13 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Cannot enable this feature flag because it depends on disabled flags", response.json()["detail"])
-        self.assertIn(f"{base_flag.key} (ID: {base_flag.id})", response.json()["detail"])
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Cannot enable this feature flag because it depends on disabled flags" in response.json()["detail"]
+        assert f"{base_flag.key} (ID: {base_flag.id})" in response.json()["detail"]
 
         # Verify dependent flag is still disabled
         dependent_flag.refresh_from_db()
-        self.assertFalse(dependent_flag.active)
+        assert not dependent_flag.active
 
     def test_cannot_enable_flag_with_multiple_disabled_dependencies(self):
         """Test error message when trying to enable flag with multiple disabled dependencies."""
@@ -381,14 +381,14 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_detail = response.json()["detail"]
 
         # Should mention both disabled flags
-        self.assertIn(f"{flag_a.key} (ID: {flag_a.id})", error_detail)
-        self.assertIn(f"{flag_b.key} (ID: {flag_b.id})", error_detail)
+        assert f"{flag_a.key} (ID: {flag_a.id})" in error_detail
+        assert f"{flag_b.key} (ID: {flag_b.id})" in error_detail
         # Should NOT mention the active flag
-        self.assertNotIn(f"{flag_c.key} (ID: {flag_c.id})", error_detail)
+        assert f"{flag_c.key} (ID: {flag_c.id})" not in error_detail
 
     def test_cannot_create_dependency_on_disabled_flag(self):
         """Test that creating a dependency on a disabled flag is prevented."""
@@ -420,10 +420,10 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_detail = response.json()["detail"]
-        self.assertIn(f"Cannot create dependency on disabled flag '{disabled_flag.key}'", error_detail)
-        self.assertIn(f"ID: {disabled_flag.id}", error_detail)
+        assert f"Cannot create dependency on disabled flag '{disabled_flag.key}'" in error_detail
+        assert f"ID: {disabled_flag.id}" in error_detail
 
     def test_cannot_update_flag_to_add_dependency_on_disabled_flag(self):
         """Test that updating a flag to add a dependency on a disabled flag is prevented."""
@@ -454,7 +454,7 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_detail = response.json()["detail"]
-        self.assertIn(f"Cannot create dependency on disabled flag '{disabled_flag.key}'", error_detail)
-        self.assertIn(f"ID: {disabled_flag.id}", error_detail)
+        assert f"Cannot create dependency on disabled flag '{disabled_flag.key}'" in error_detail
+        assert f"ID: {disabled_flag.id}" in error_detail

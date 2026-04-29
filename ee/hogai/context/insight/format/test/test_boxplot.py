@@ -94,4 +94,4 @@ class TestBoxPlotResultsFormatter(TestCase):
         ]
     )
     def test_boxplot_format(self, _name: str, data: list, expected: str):
-        self.assertEqual(BoxPlotResultsFormatter(data).format(), expected)
+        assert BoxPlotResultsFormatter(data).format() == expected
