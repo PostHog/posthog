@@ -490,7 +490,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative flex flex-col gap-3 md:h-[calc(100vh-140px)]">
+                <div className="relative flex flex-col gap-3 md:h-[calc(100vh-var(--breadcrumbs-height-full)-var(--scene-padding)-var(--scene-padding-bottom))]">
                     <div className="flex flex-col gap-4">
                         <SceneTitleSection
                             name={trace.id}
