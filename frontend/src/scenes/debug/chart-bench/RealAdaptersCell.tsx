@@ -5,7 +5,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
-import { TrendsLineChart } from 'scenes/trends/viz/TrendsLineChart'
+import { TrendsLineChart } from 'scenes/trends/viz/trends-line-chart/TrendsLineChart'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'

@@ -5,9 +5,11 @@ import { buildTheme } from 'lib/charts/utils/theme'
 
 import type { ChartKind, SweepResult } from './sweepTypes'
 
+type SweepMetric = 'meanReadyMs' | 'meanHoverMs' | 'meanHoverSyncMs' | 'meanHoverFrameMs'
+
 interface SweepResultsChartProps {
     results: SweepResult[]
-    metric: 'meanReadyMs' | 'meanHoverMs'
+    metric: SweepMetric
     title: string
     logY: boolean
 }
@@ -15,7 +17,7 @@ interface SweepResultsChartProps {
 /** Group sweep results into one dataset per (chart, series) combination. */
 function buildDatasets(
     results: SweepResult[],
-    metric: 'meanReadyMs' | 'meanHoverMs',
+    metric: SweepMetric,
     colors: string[]
 ): { datasets: ChartDataset<'line'>[]; allPoints: number[] } {
     const groups = new Map<string, { chart: ChartKind; series: number; data: { x: number; y: number }[] }>()
@@ -24,7 +26,11 @@ function buildDatasets(
         if (!groups.has(key)) {
             groups.set(key, { chart: r.chart, series: r.series, data: [] })
         }
-        groups.get(key)!.data.push({ x: r.points, y: r[metric] })
+        const y = r[metric]
+        if (!Number.isFinite(y)) {
+            continue
+        }
+        groups.get(key)!.data.push({ x: r.points, y })
     }
     const allPointsSet = new Set<number>()
     for (const r of results) {

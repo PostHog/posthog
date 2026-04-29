@@ -15,7 +15,6 @@ interface HogChartsLineChartProps {
 const CONFIG: LineChartConfig = {
     showGrid: true,
     showCrosshair: true,
-    showTooltip: true,
 }
 
 export function HogChartsLineChart({ data, fillArea, showGrid }: HogChartsLineChartProps): JSX.Element {

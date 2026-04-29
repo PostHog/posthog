@@ -55,6 +55,8 @@ interface BenchResult {
     hoverMs: number[]
     meanReadyMs: number
     meanHoverMs: number
+    meanHoverSyncMs: number
+    meanHoverFrameMs: number
 }
 
 declare global {
@@ -86,10 +88,11 @@ function readInt(params: URLSearchParams, key: string, fallback: number): number
 }
 
 function mean(values: number[]): number {
-    if (values.length === 0) {
-        return 0
+    const valid = values.filter((v) => Number.isFinite(v))
+    if (valid.length === 0) {
+        return NaN
     }
-    return values.reduce((a, b) => a + b, 0) / values.length
+    return valid.reduce((a, b) => a + b, 0) / valid.length
 }
 
 function round(n: number): number {
@@ -195,40 +198,55 @@ export function ChartBenchScene(): JSX.Element {
         return containerRef.current.querySelector('canvas')
     }, [])
 
-    /** Dispatch mousemove events across the chart's plot area and sum the
-     * per-step frame time. This approximates real hover cost — both the chart
-     * engine's hit-test and its redraw/tooltip work. */
-    const sweepHover = useCallback(async (): Promise<number> => {
+    /** Dispatch hover events across the chart's plot area, capturing both the
+     * synchronous dispatch time (React handler + setState + sync effects) and
+     * the frame-wait time after dispatch returns. Splitting them out makes it
+     * possible to tell whether a slow cell is bottlenecked in JS or in paint.
+     * Both `pointermove` and `mousemove` are dispatched — chart.js listens on
+     * pointer events, hog-charts on mouse events. Sync/frame are NaN if the
+     * canvas wasn't actually sized when the run started. */
+    const sweepHover = useCallback(async (): Promise<{ total: number; sync: number; frame: number }> => {
         const canvas = findCanvas()
         if (!canvas) {
-            return 0
+            return { total: NaN, sync: NaN, frame: NaN }
         }
         const rect = canvas.getBoundingClientRect()
+        if (rect.width < 10 || rect.height < 10) {
+            return { total: NaN, sync: NaN, frame: NaN }
+        }
         const steps = 30
-        let total = 0
+        let totalSync = 0
+        let totalFrame = 0
         for (let i = 0; i < steps; i++) {
             const x = rect.left + (rect.width * (i + 0.5)) / steps
             const y = rect.top + rect.height / 2
-            canvas.dispatchEvent(
-                new MouseEvent('mousemove', {
-                    bubbles: true,
-                    cancelable: true,
-                    clientX: x,
-                    clientY: y,
-                    view: window,
-                })
-            )
-            total += await nextFrame()
+            const init: PointerEventInit = {
+                bubbles: true,
+                cancelable: true,
+                clientX: x,
+                clientY: y,
+                view: window,
+                pointerType: 'mouse',
+            }
+            const dispatchStart = performance.now()
+            canvas.dispatchEvent(new PointerEvent('pointermove', init))
+            canvas.dispatchEvent(new MouseEvent('mousemove', init))
+            totalSync += performance.now() - dispatchStart
+            totalFrame += await nextFrame()
         }
-        // Reset with a mouseleave so the next run starts clean.
+        canvas.dispatchEvent(
+            new PointerEvent('pointerleave', { bubbles: true, cancelable: true, pointerType: 'mouse' })
+        )
         canvas.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, cancelable: true }))
-        return total
+        return { total: totalSync + totalFrame, sync: totalSync, frame: totalFrame }
     }, [findCanvas])
 
     const runBenchmark = useCallback(async () => {
         setBusy(true)
         const readySamples: number[] = []
         const hoverSamples: number[] = []
+        const hoverSyncSamples: number[] = []
+        const hoverFrameSamples: number[] = []
 
         for (let i = 0; i < runs; i++) {
             const t0 = performance.now()
@@ -241,7 +259,10 @@ export function ChartBenchScene(): JSX.Element {
             await nextFrame()
             readySamples.push(performance.now() - t0)
 
-            hoverSamples.push(await sweepHover())
+            const hover = await sweepHover()
+            hoverSamples.push(hover.total)
+            hoverSyncSamples.push(hover.sync)
+            hoverFrameSamples.push(hover.frame)
             // Small breather between runs so any async work settles.
             await new Promise((r) => setTimeout(r, 16))
         }
@@ -256,6 +277,8 @@ export function ChartBenchScene(): JSX.Element {
             hoverMs: hoverSamples,
             meanReadyMs: round(mean(readySamples)),
             meanHoverMs: round(mean(hoverSamples)),
+            meanHoverSyncMs: round(mean(hoverSyncSamples)),
+            meanHoverFrameMs: round(mean(hoverFrameSamples)),
         }
         window.__chartBench = finalResult
         setResult(finalResult)
@@ -310,6 +333,8 @@ export function ChartBenchScene(): JSX.Element {
 
             const readySamples: number[] = []
             const hoverSamples: number[] = []
+            const hoverSyncSamples: number[] = []
+            const hoverFrameSamples: number[] = []
             for (let i = 0; i < sweepRuns; i++) {
                 if (sweepAbortRef.current) {
                     break
@@ -318,7 +343,10 @@ export function ChartBenchScene(): JSX.Element {
                 flushSync(() => setRunKey((k) => k + 1))
                 await nextFrame()
                 readySamples.push(performance.now() - t0)
-                hoverSamples.push(await sweepHover())
+                const hover = await sweepHover()
+                hoverSamples.push(hover.total)
+                hoverSyncSamples.push(hover.sync)
+                hoverFrameSamples.push(hover.frame)
                 await new Promise((r) => setTimeout(r, 16))
             }
 
@@ -329,6 +357,8 @@ export function ChartBenchScene(): JSX.Element {
                 runs: readySamples.length,
                 meanReadyMs: round(mean(readySamples)),
                 meanHoverMs: round(mean(hoverSamples)),
+                meanHoverSyncMs: round(mean(hoverSyncSamples)),
+                meanHoverFrameMs: round(mean(hoverFrameSamples)),
                 readyMs: readySamples,
                 hoverMs: hoverSamples,
             }
@@ -464,7 +494,10 @@ export function ChartBenchScene(): JSX.Element {
                         {result.runs}
                     </div>
                     <div>mean ready (mount → post-paint): {result.meanReadyMs} ms</div>
-                    <div>mean hover sweep (30 moves): {result.meanHoverMs} ms</div>
+                    <div>
+                        mean hover sweep (30 moves): {result.meanHoverMs} ms (sync {result.meanHoverSyncMs} ms · frame{' '}
+                        {result.meanHoverFrameMs} ms)
+                    </div>
                 </div>
             ) : null}
 
@@ -570,22 +603,32 @@ export function ChartBenchScene(): JSX.Element {
                     ) : null}
                 </div>
 
-                {sweepResults.length > 0 ? (
-                    <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <SweepResultsChart
-                            results={sweepResults}
-                            metric="meanReadyMs"
-                            title="Mount → post-paint (ms)"
-                            logY={sweepLogY}
-                        />
-                        <SweepResultsChart
-                            results={sweepResults}
-                            metric="meanHoverMs"
-                            title="Hover sweep, 30 moves (ms)"
-                            logY={sweepLogY}
-                        />
-                    </div>
-                ) : null}
+                {sweepResults.length > 0
+                    ? Array.from(new Set(sweepResults.map((r) => r.series)))
+                          .sort((a, b) => a - b)
+                          .map((seriesCount) => {
+                              const filtered = sweepResults.filter((r) => r.series === seriesCount)
+                              return (
+                                  <div key={seriesCount} className="mt-6">
+                                      <h4 className="text-sm font-semibold mb-2">{seriesCount} series</h4>
+                                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                          <SweepResultsChart
+                                              results={filtered}
+                                              metric="meanReadyMs"
+                                              title="Mount → post-paint (ms)"
+                                              logY={sweepLogY}
+                                          />
+                                          <SweepResultsChart
+                                              results={filtered}
+                                              metric="meanHoverMs"
+                                              title="Hover sweep, 30 moves (ms)"
+                                              logY={sweepLogY}
+                                          />
+                                      </div>
+                                  </div>
+                              )
+                          })
+                    : null}
 
                 {sweepResults.length > 0 ? (
                     <details className="mt-4">
@@ -606,8 +649,12 @@ export function ChartBenchScene(): JSX.Element {
                                         <td className="pr-4">{r.chart}</td>
                                         <td className="text-right pr-4">{r.series}</td>
                                         <td className="text-right pr-4">{r.points}</td>
-                                        <td className="text-right pr-4">{r.meanReadyMs}</td>
-                                        <td className="text-right pr-4">{r.meanHoverMs}</td>
+                                        <td className="text-right pr-4">
+                                            {Number.isFinite(r.meanReadyMs) ? r.meanReadyMs : '—'}
+                                        </td>
+                                        <td className="text-right pr-4">
+                                            {Number.isFinite(r.meanHoverMs) ? r.meanHoverMs : '—'}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
