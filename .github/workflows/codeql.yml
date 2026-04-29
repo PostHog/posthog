@@ -14,8 +14,66 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+    select-languages:
+        name: Select CodeQL languages
+        runs-on: 'ubuntu-latest'
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        outputs:
+            matrix: ${{ steps.matrix.outputs.matrix }}
+        steps:
+            - name: Checkout pull request
+              if: github.event_name == 'pull_request'
+              uses: actions/checkout@v6
+              with:
+                  fetch-depth: 2
+
+            - name: Select languages
+              id: matrix
+              shell: bash
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+              run: |
+                  full_matrix='{"include":[{"language":"actions","build-mode":"none"},{"language":"c-cpp","build-mode":"none"},{"language":"go","build-mode":"autobuild"},{"language":"javascript-typescript","build-mode":"none"},{"language":"python","build-mode":"none"}]}'
+
+                  if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+                      echo "matrix=$full_matrix" >> "$GITHUB_OUTPUT"
+                      echo "Selected CodeQL matrix: $full_matrix"
+                      exit 0
+                  fi
+
+                  changed_files="$(mktemp)"
+                  if git rev-parse --verify HEAD^2 >/dev/null 2>&1; then
+                      git diff --name-only HEAD^1 HEAD^2 > "$changed_files"
+                  else
+                      git fetch --no-tags --depth=1 origin "$BASE_SHA"
+                      git diff --name-only "$BASE_SHA" HEAD > "$changed_files"
+                  fi
+
+                  # Keep a CodeQL PR check present while only adding low-volume extractors
+                  # when the PR touches their inputs. Pushes and schedules still run all languages.
+                  matrix='{"include":[{"language":"javascript-typescript","build-mode":"none"},{"language":"python","build-mode":"none"}'
+
+                  if grep -Eq '^\.github/(workflows|actions)/' "$changed_files"; then
+                      matrix="${matrix}"',{"language":"actions","build-mode":"none"}'
+                  fi
+
+                  if grep -Eq '(\.go$|(^|/)go\.(mod|sum)$)' "$changed_files"; then
+                      matrix="${matrix}"',{"language":"go","build-mode":"autobuild"}'
+                  fi
+
+                  if grep -Eq '\.(c|cc|cpp|cxx|h|hpp|hh|hxx)$' "$changed_files"; then
+                      matrix="${matrix}"',{"language":"c-cpp","build-mode":"none"}'
+                  fi
+
+                  matrix="${matrix}"']}'
+                  echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+                  echo "Selected CodeQL matrix: $matrix"
+
     analyze:
         name: Analyze (${{ matrix.language }})
+        needs: select-languages
         # Runner size impacts CodeQL analysis time. To learn more, please see:
         #   - https://gh.io/recommended-hardware-resources-for-running-codeql
         #   - https://gh.io/supported-runners-and-hardware-resources
@@ -36,26 +94,15 @@ jobs:
         strategy:
             fail-fast: false
             max-parallel: 2
-            matrix:
-                include:
-                    - language: actions
-                      build-mode: none
-                    - language: c-cpp
-                      build-mode: none
-                    - language: go
-                      build-mode: autobuild
-                    - language: javascript-typescript
-                      build-mode: none
-                    - language: python
-                      build-mode: none
-                # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
-                # Use `c-cpp` to analyze code written in C, C++ or both
-                # Use 'java-kotlin' to analyze code written in Java, Kotlin or both
-                # Use 'javascript-typescript' to analyze code written in JavaScript, TypeScript or both
-                # To learn more about changing the languages that are analyzed or customizing the build mode for your analysis,
-                # see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-your-advanced-setup-for-code-scanning.
-                # If you are analyzing a compiled language, you can modify the 'build-mode' for that language to customize how
-                # your codebase is analyzed, see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
+            # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
+            # Use `c-cpp` to analyze code written in C, C++ or both
+            # Use 'java-kotlin' to analyze code written in Java, Kotlin or both
+            # Use 'javascript-typescript' to analyze code written in JavaScript, TypeScript or both
+            # To learn more about changing the languages that are analyzed or customizing the build mode for your analysis,
+            # see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-your-advanced-setup-for-code-scanning.
+            # If you are analyzing a compiled language, you can modify the 'build-mode' for that language to customize how
+            # your codebase is analyzed, see https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
+            matrix: ${{ fromJSON(needs.select-languages.outputs.matrix) }}
         steps:
             - name: Checkout repository
               uses: actions/checkout@v6
