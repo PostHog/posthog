@@ -38,29 +38,29 @@ operations = (
         # document_embeddings
         run_sql_with_exceptions(
             KAFKA_DOCUMENT_EMBEDDINGS_WS_TABLE_SQL(),
-            node_roles=[NodeRole.INGESTION_MEDIUM],
+            node_roles=[NodeRole.INGESTION_SMALL],
         ),
         run_sql_with_exceptions(
             DOCUMENT_EMBEDDINGS_WS_MV_SQL(),
-            node_roles=[NodeRole.INGESTION_MEDIUM],
+            node_roles=[NodeRole.INGESTION_SMALL],
         ),
         # error_tracking_issue_fingerprint_overrides
         run_sql_with_exceptions(
             KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_TABLE_SQL(),
-            node_roles=[NodeRole.INGESTION_MEDIUM],
+            node_roles=[NodeRole.INGESTION_SMALL],
         ),
         run_sql_with_exceptions(
             ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_WS_MV_SQL(),
-            node_roles=[NodeRole.INGESTION_MEDIUM],
+            node_roles=[NodeRole.INGESTION_SMALL],
         ),
         # error_tracking_fingerprint_issue_state
         run_sql_with_exceptions(
             KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_TABLE_SQL(),
-            node_roles=[NodeRole.INGESTION_MEDIUM],
+            node_roles=[NodeRole.INGESTION_SMALL],
         ),
         run_sql_with_exceptions(
             ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_WS_MV_SQL(),
-            node_roles=[NodeRole.INGESTION_MEDIUM],
+            node_roles=[NodeRole.INGESTION_SMALL],
         ),
     ]
 )
