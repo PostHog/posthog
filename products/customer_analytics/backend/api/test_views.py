@@ -283,7 +283,9 @@ class TestCustomerJourneyViewSet(APIBaseTest):
         response = self.client.delete(f"{self.endpoint_base}{journey.id}/")
 
         assert status.HTTP_204_NO_CONTENT == response.status_code
-        assert not CustomerJourney.objects.filter(id=journey_id).exists()
+        assert not CustomerJourney.objects.filter(  # nosemgrep: semgrep.rules.idor-lookup-without-team
+            id=journey_id
+        ).exists()
 
     @parameterized.expand(
         [
