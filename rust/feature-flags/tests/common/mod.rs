@@ -369,6 +369,10 @@ impl ServerHandle {
                 ),
             );
 
+            let flag_definitions_cache = Arc::new(
+                feature_flags::flags::flag_definitions_cache::FlagDefinitionsCache::disabled(),
+            );
+
             let app = feature_flags::router::router(
                 redis_writer_client.clone(), // Use writer client for both reads and writes in tests
                 None,                        // No dedicated flags Redis in tests
@@ -382,6 +386,7 @@ impl ServerHandle {
                 session_replay_billing_limiter,
                 cookieless_manager,
                 flags_hypercache_reader,
+                flag_definitions_cache,
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
                 config_hypercache_reader,

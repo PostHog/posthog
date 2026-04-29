@@ -36,6 +36,7 @@ from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Action, Cohort, FeatureFlag, Insight, Team, User
 from posthog.models.activity_logging.utils import (
@@ -688,6 +689,47 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
     return min(idle_expiry_time, total_expiry_time)
 
 
+class AdminImpersonationMiddleware:
+    """
+    During impersonation, allow the original (staff) user to keep using the admin panel.
+
+    Without this, an impersonated session swaps `request.user` to the customer being
+    impersonated — who is not staff — locking the admin out of the admin panel and
+    every staff-only command. This middleware swaps `request.user` back to the
+    original staff user for `/admin/` routes so admin views, model permissions, and
+    `staff_member_required` decorators all see the real operator. The impersonation
+    session itself is left intact (the loginas session flag stays set), so
+    `is_impersonated_session` keeps returning True and `get_impersonated_user` still
+    returns the customer (looked up from the session).
+    """
+
+    # Endpoints that need to see the impersonated user as `request.user`.
+    EXEMPT_PATHS: tuple[str, ...] = (
+        # impersonated_session_logout reads request.user.pk to redirect back to the
+        # impersonated user's admin change page after restoring the original login.
+        "/admin/logout/",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if self._should_swap_user(request):
+            original_user = get_original_user_from_session(request)
+            if original_user and original_user.is_active and original_user.is_staff:
+                request.user = original_user
+                # Keep the lazy auth-middleware cache in sync with the swapped user.
+                request._cached_user = original_user  # type: ignore[attr-defined]
+        return self.get_response(request)
+
+    def _should_swap_user(self, request: HttpRequest) -> bool:
+        if not request.path.startswith("/admin/"):
+            return False
+        if request.path in self.EXEMPT_PATHS:
+            return False
+        return is_impersonated_session(request)
+
+
 class AutoLogoutImpersonateMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1042,6 +1084,11 @@ class ImpersonationReadOnlyMiddleware:
 
     def __call__(self, request: HttpRequest):
         if not is_read_only_impersonation(request):
+            return self.get_response(request)
+
+        # Admin paths run as the original staff user (see AdminImpersonationMiddleware),
+        # so impersonation read-only restrictions don't apply there.
+        if request.path.startswith("/admin/"):
             return self.get_response(request)
 
         if request.method in IMPERSONATION_SAFE_METHODS:
