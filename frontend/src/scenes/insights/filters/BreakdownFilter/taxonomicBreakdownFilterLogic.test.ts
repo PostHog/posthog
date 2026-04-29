@@ -311,11 +311,8 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
-        it.each([
-            [
-                'legacy single data warehouse breakdown',
-                { breakdown_type: 'data_warehouse', breakdown: 'prop' } as const,
-            ],
+        it.each<[string, breakdownLogic.TaxonomicBreakdownFilterLogicProps['breakdownFilter']]>([
+            ['legacy single data warehouse breakdown', { breakdown_type: 'data_warehouse', breakdown: 'prop' }],
             [
                 'multi data warehouse breakdowns',
                 {
@@ -323,7 +320,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                         { type: 'data_warehouse', property: 'prop1' },
                         { type: 'data_warehouse', property: 'prop2' },
                     ],
-                } as const,
+                },
             ],
         ])('multiple data warehouse breakdowns are allowed: %s', async (_label, breakdownFilter) => {
             logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter }))
