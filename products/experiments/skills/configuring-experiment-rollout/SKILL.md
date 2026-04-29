@@ -23,17 +23,20 @@ Always default to an equal split unless the user explicitly requests otherwise.
 
 Uneven splits combined with the default "Exclude multivariate users" handling can introduce bias.
 If the experiment observes multi-variant users (users exposed to more than one variant) then those are
-dropped asymmetrically - the smaller variant loses a larger fraction of its assignments. If those users
+dropped asymmetrically — the smaller variant loses a larger fraction of its assignments. If those users
 behave differently from the rest, the smaller variant's metrics will be skewed.
 
-Suggest the following in this order:
+The right mitigation depends on experiment state:
 
-1. **Use an equal split and reduce the overall rollout instead.** Achieves the same test-variant
-   exposure without the bias and preserves statistical power — see the disambiguation question below.
-2. **If the uneven split must stay, switch multivariate handling to "First seen variant".** Keeps all
-   users in the analysis and avoids asymmetric exclusion. See `configuring-experiment-analytics` for
-   how to set this. Note however that "first seen" handling can introduce other biases and is not
-   recommended unless necessary.
+1. **Pre-launch, or live but with few exposures so far — use an equal split and reduce the overall
+   rollout.** Achieves the same test-variant exposure without the bias and preserves statistical
+   power. See the disambiguation question below.
+2. **Live experiment with significant exposures — switch multivariate handling to "First seen
+   variant".** Changing the split mid-run reassigns users across variants (anti-pattern; see
+   "Changing rollout on a running experiment" below). Switching handling instead keeps everyone in
+   their original variant and avoids the asymmetric exclusion. See `configuring-experiment-analytics`
+   for how to set this. Note that "first seen" handling can introduce other biases, but it's
+   preferable to mid-run reassignment.
 
 ## The two rollout controls
 
@@ -166,11 +169,9 @@ Present the warning covering both perspectives:
 **Exception**: Increasing rollout (without changing the split) is generally safe — no users switch variants, more users are added cleanly.
 
 **Mid-experiment fix for uneven-split bias**: switching multivariate handling from "Exclude" to "First
-seen variant" is a low-disruption way to mitigate already-observed bias on a running experiment with
-an uneven split — no users switch variants and all already-collected data stays in the analysis.
-The alternative (changing the split to be even) is an anti-pattern mid-run and typically requires
-resetting or ending the experiment. If the experiment has not been exposed to many users yet, applying
-an even split however is preferred. See `configuring-experiment-analytics` for how to change the
-handling.
+seen variant" is the recommended mitigation for already-launched experiments — no users switch variants
+and all collected data stays in the analysis. Changing the split to be even is an anti-pattern mid-run
+(typically requires resetting or ending the experiment) and is only preferred if the experiment hasn't
+been exposed to many users yet. See `configuring-experiment-analytics` for how to change the handling.
 
 See `references/changing-distribution-after-launch.md` for detailed warnings, what to tell the user, and when to recommend alternatives.

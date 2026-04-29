@@ -28,9 +28,18 @@ When a user is exposed to multiple variants (e.g., due to flag changes or race c
 
 **Bias risk on uneven splits.** "Exclude multivariate users" combined with an uneven variant split can
 introduce bias — multi-variant users are dropped asymmetrically and the smaller variant loses a larger
-fraction of its assignments. If the experiment's variant split is uneven, the recommended fix is to
-switch to an equal split (see `configuring-experiment-rollout` especially if changed mid-experiment); switching this setting to "First seen
-variant" is the alternative when the uneven split must stay.
+fraction of its assignments. If those users behave differently from the rest, the smaller variant's
+metrics will be skewed.
+
+The right mitigation depends on experiment state:
+
+- **Not yet launched, or only exposed to a few users so far** — switch to an even variant split and
+  use the overall rollout percentage to limit test-variant exposure. This removes the bias and
+  preserves statistical power. See `configuring-experiment-rollout`.
+- **Live experiment with significant exposures** — changing the split mid-run reassigns users across
+  variants, which is bad for user experience and data quality. Switch this setting to "First seen
+  variant" instead — it keeps already-assigned users in their original variant (no reassignment) and
+  removes the asymmetric exclusion.
 
 ### Filter test accounts
 
