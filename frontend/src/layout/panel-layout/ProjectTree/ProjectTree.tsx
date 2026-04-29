@@ -202,7 +202,6 @@ export function ProjectTree({
 
     const isStarredReorderEnabled = useFeatureFlag('STARRED_REORDER')
 
-
     let treeData: TreeDataItem[] = [...fullFileSystemFiltered]
 
     // Apply checked items override for external control (e.g. product selection)
