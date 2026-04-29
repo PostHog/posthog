@@ -19,6 +19,7 @@ from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
+    SLACK_INTEGRATION_KINDS,
     EmailIntegration,
     GitHubIntegration,
     Integration,
@@ -933,7 +934,7 @@ class TestIntegrationAPIKeyAccess:
         expected_detail_substring: str | None,
         client: HttpClient,
     ):
-        if kind in ("slack", "slack-posthog-code"):
+        if kind in SLACK_INTEGRATION_KINDS:
             target_integration = Integration.objects.create(
                 team=self.team,
                 kind=kind,

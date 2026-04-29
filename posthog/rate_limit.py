@@ -923,21 +923,6 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
         return super().get_cache_key(request, view)
 
 
-class SlackChannelsRetrieveThrottle(PersonalApiKeyOrUserRateThrottle):
-    # Rate limit Slack channel listings. The endpoint is cached for 1h in Redis,
-    # but cache misses fan out to up to 100 sequential Slack API calls per
-    # integration. We key per team so a misbehaving agent loop can't drive
-    # cold-cache traffic across many teams in parallel.
-    scope = "slack_channels_retrieve"
-    rate = "30/minute"
-
-    def get_cache_key(self, request, view):
-        team_id = self.safely_get_team_id_from_view(view)
-        if team_id:
-            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
-        return super().get_cache_key(request, view)
-
-
 class ToolbarOAuthRefreshThrottle(IPThrottle):
     """Rate limit the unauthenticated toolbar OAuth refresh endpoint by IP."""
 

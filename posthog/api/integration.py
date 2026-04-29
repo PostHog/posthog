@@ -11,7 +11,6 @@ from django.shortcuts import redirect
 from django.utils import timezone
 
 import stripe
-import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
@@ -59,10 +58,8 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
-from posthog.rate_limit import GitHubRepositoryRefreshThrottle, SlackChannelsRetrieveThrottle
+from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-
-logger = structlog.get_logger(__name__)
 
 
 def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, install_signature: str) -> bool:
@@ -491,8 +488,6 @@ class IntegrationViewSet(
     def get_throttles(self):
         if self.action == "refresh_github_repos":
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
-        if self.action == "channels":
-            return [SlackChannelsRetrieveThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def perform_destroy(self, instance) -> None:
@@ -557,9 +552,8 @@ class IntegrationViewSet(
             raise ValidationError("channels endpoint is only supported for Slack integrations")
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
-        # force_refresh defeats the 1h cache; restrict to cookie-session callers (allowlist,
-        # not denylist — a future auth class added to safely_get_queryset must opt in here
-        # too, otherwise it inherits the safer "ignore force_refresh" default).
+        # force_refresh is only honored for cookie-session callers — MCP / API-key / OAuth
+        # callers always read through the 1h cache so an agent loop can't bypass it.
         is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
         force_refresh: bool = is_session_auth and request.query_params.get("force_refresh", "false").lower() == "true"
         authed_user = cast(str | None, instance.config.get("authed_user", {}).get("id")) if instance.config else None
@@ -587,80 +581,29 @@ class IntegrationViewSet(
             else:
                 return Response({"channels": []})
 
-        # Key on the DB PK (not integration_id, which is the Slack workspace id) so two
-        # PostHog teams that install the same Slack workspace don't share a cache entry.
-        key = f"slack/{instance.id}/{should_include_private_channels}/channels"
+        key = f"slack/{instance.integration_id}/{should_include_private_channels}/channels"
         data = cache.get(key)
 
         if data is not None and not force_refresh:
             return Response(data)
 
-        # Single-flight: only one concurrent miss per cache key fans out to Slack. Other
-        # concurrent misses serve stale data if available, or empty otherwise. The 1200s
-        # lock TTL covers the worst-case Slack fan-out (up to 100 paginated calls × 10s
-        # WebClient timeout); the per-team throttle is the real bound on retry storms.
-        lock_key = f"{key}:lock"
-        if not cache.add(lock_key, 1, 1200):
-            logger.info(
-                "slack_channels_retrieve_lock_contended",
-                integration_id=instance.id,
-                team_id=instance.team_id,
-                served_stale=data is not None,
-            )
-            return Response(data or {"channels": []})
+        response = {
+            "channels": [
+                {
+                    "id": channel["id"],
+                    "name": channel["name"],
+                    "is_private": channel["is_private"],
+                    "is_member": channel.get("is_member", True),
+                    "is_ext_shared": channel["is_ext_shared"],
+                    "is_private_without_access": channel.get("is_private_without_access", False),
+                }
+                for channel in slack.list_channels(should_include_private_channels, authed_user)
+            ],
+            "lastRefreshedAt": timezone.now().isoformat(),
+        }
 
-        try:
-            # Re-check cache after acquiring the lock — closes the TOCTOU window between
-            # the initial cache.get and cache.add: another caller may have populated the
-            # cache between those two calls, so don't redundantly fan out to Slack.
-            data = cache.get(key)
-            if data is not None and not force_refresh:
-                return Response(data)
-
-            # Cache miss: fan out to Slack. Log so operators can correlate latency / 5xx
-            # against cache miss volume, and capture exceptions distinctly so a Slack outage
-            # is recognizable from "our bug".
-            cache_miss_started_at = timezone.now()
-            logger.info(
-                "slack_channels_retrieve_cache_miss",
-                integration_id=instance.id,
-                team_id=instance.team_id,
-                include_private=should_include_private_channels,
-                force_refresh=force_refresh,
-            )
-            try:
-                channels = list(slack.list_channels(should_include_private_channels, authed_user))
-            except Exception as exc:
-                capture_exception(exc, additional_properties={"integration_id": instance.id, "kind": instance.kind})
-                raise
-
-            response = {
-                "channels": [
-                    {
-                        "id": channel["id"],
-                        "name": channel["name"],
-                        "is_private": channel["is_private"],
-                        "is_member": channel.get("is_member", True),
-                        "is_ext_shared": channel["is_ext_shared"],
-                        "is_private_without_access": channel.get("is_private_without_access", False),
-                    }
-                    for channel in channels
-                ],
-                "lastRefreshedAt": timezone.now().isoformat(),
-            }
-            elapsed_ms = int((timezone.now() - cache_miss_started_at).total_seconds() * 1000)
-            logger.info(
-                "slack_channels_retrieve_cache_miss_completed",
-                integration_id=instance.id,
-                team_id=instance.team_id,
-                channel_count=len(response["channels"]),
-                elapsed_ms=elapsed_ms,
-            )
-
-            cache.set(key, response, 60 * 60)  # one hour
-            return Response(response)
-        finally:
-            cache.delete(lock_key)
+        cache.set(key, response, 60 * 60)  # one hour
+        return Response(response)
 
     @action(methods=["GET"], detail=True, url_path="twilio_phone_numbers")
     def twilio_phone_numbers(self, request: Request, *args: Any, **kwargs: Any) -> Response:

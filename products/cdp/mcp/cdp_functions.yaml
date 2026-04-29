@@ -29,10 +29,9 @@ tools:
             Recipe — deliver an insight alert to Slack or a webhook (canonical reference; alert-create / alert-update
             point here):
 
-            1. Pick the integration. For Slack, call integrations-list (filter for kind in [slack, slack-posthog-code]
-               — both variants are real Slack integrations) to find the integration id, then call
-               integrations-channels-retrieve with that id to list channels. For a webhook, the user provides the
-               destination URL directly.
+            1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration
+               id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user
+               provides the destination URL directly.
 
             2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the
                response now includes filters. Look for an existing function whose filters.properties has an entry
@@ -45,19 +44,27 @@ tools:
                    "properties": [{"key": "alert_id", "value": "<alert.id>", "operator": "exact", "type": "event"}]
                  }
                  # Slack. Channel id is preferred (e.g. C0123ABC); "#general" is also accepted.
-                 # Always override text + blocks. The template's defaults are person-event shaped
-                 # ("*{person.name}* triggered event…") and render empty for $insight_alert_firing,
-                 # which is a system event with no person attached.
+                 # Override text + blocks with the same shape the alert-wizard UI uses, so
+                 # agent-created and UI-created alerts produce identical Slack messages.
+                 # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for
+                 # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.
                  inputs = {
                    "slack_workspace": {"value": <slack_integration_id_int>},
                    "channel": {"value": "<channel_id>"},
-                   "text": {"value": "*{event.properties.alert_name}* fired — {event.properties.insight_name}: {event.properties.breaches}"},
+                   "text": {"value": "Alert triggered: {event.properties.insight_name}"},
                    "blocks": {"value": [
-                     {"type": "section", "text": {"type": "mrkdwn",
-                       "text": "*{event.properties.alert_name}* fired\n*Insight:* {event.properties.insight_name}\n{event.properties.breaches}"}},
-                     {"type": "actions", "elements": [{"type": "button",
-                       "text": {"type": "plain_text", "text": "View insight"},
-                       "url": "{project.url}/insights/{event.properties.insight_id}"}]}
+                     {"type": "header", "text": {"type": "plain_text",
+                       "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'"}},
+                     {"type": "section", "text": {"type": "plain_text", "text": "{event.properties.breaches}"}},
+                     {"type": "context", "elements": [{"type": "mrkdwn",
+                       "text": "Project: <{project.url}|{project.name}>"}]},
+                     {"type": "divider"},
+                     {"type": "actions", "elements": [
+                       {"type": "button", "text": {"type": "plain_text", "text": "View Insight"},
+                        "url": "{project.url}/insights/{event.properties.insight_id}"},
+                       {"type": "button", "text": {"type": "plain_text", "text": "View Alert"},
+                        "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"}
+                     ]}
                    ]}
                  }
                  # Webhook — must be an https:// URL.
