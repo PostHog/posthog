@@ -31,6 +31,7 @@ import {
     BotBreakdownItem,
     BrowserBreakdownItem,
     ChartDataPoint,
+    CITY_KEY_SEPARATOR,
     CityBreakdownItem,
     CountryBreakdownItem,
     DeviceBreakdownItem,
@@ -828,7 +829,7 @@ const loadQueryData = async (
                         toStartOfMinute(timestamp) AS minute_bucket,
                         concat(
                             properties.$geoip_city_name,
-                            '|',
+                            {citySeparator},
                             ifNull(properties.$geoip_country_code, '')
                         ) AS city_key,
                         arrayDistinct(groupArray(distinct_id)) AS distinct_ids
@@ -848,6 +849,7 @@ const loadQueryData = async (
               values: {
                   dateFrom: dateFrom.toISOString(),
                   dateTo: dateTo.toISOString(),
+                  citySeparator: CITY_KEY_SEPARATOR,
                   ...hostValues,
               },
           }
