@@ -289,7 +289,13 @@ class TestSandboxedTraceCaptureParser(BaseTest):
 
         assert len(parsed.generations) == 2
         assert parsed.generations[0].token_usage == {}
-        assert parsed.generations[1].token_usage == {"inputTokens": 5, "outputTokens": 100, "cachedReadTokens": 200, "cachedWriteTokens": 50, "totalTokens": 355}
+        assert parsed.generations[1].token_usage == {
+            "inputTokens": 5,
+            "outputTokens": 100,
+            "cachedReadTokens": 200,
+            "cachedWriteTokens": 50,
+            "totalTokens": 355,
+        }
         assert parsed.total_token_usage["totalTokens"] == 355
 
     def test_error_span_captured(self):

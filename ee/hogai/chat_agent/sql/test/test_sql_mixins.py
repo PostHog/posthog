@@ -46,7 +46,9 @@ class TestSQLMixins(NonAtomicBaseTest):
         result = mixin._parse_output(test_output)
 
         assert isinstance(result, SQLSchemaGeneratorOutput)
-        assert result == SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query="SELECT count() FROM events"), name="", description="")
+        assert result == SQLSchemaGeneratorOutput(
+            query=AssistantHogQLQuery(query="SELECT count() FROM events"), name="", description=""
+        )
 
     def test_parse_output_with_empty_query(self):
         """Test parsing with empty query string."""

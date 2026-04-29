@@ -1,4 +1,5 @@
 import ast
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +44,6 @@ from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from collections import Counter
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.breakdown_cases"
 
@@ -383,7 +383,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, "Safari")) == Counter([people["person2"].uuid, people["person3"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, "Safari")) == Counter(
+                [people["person2"].uuid, people["person3"].uuid]
+            )
             assert Counter(self._get_actor_ids_at_step(query, 2, "Safari")) == Counter([people["person2"].uuid])
 
         @also_test_with_materialized_columns(["$browser"])
@@ -496,7 +498,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, "Safari")) == Counter([people["person2"].uuid, people["person3"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, "Safari")) == Counter(
+                [people["person2"].uuid, people["person3"].uuid]
+            )
             assert Counter(self._get_actor_ids_at_step(query, 2, "Safari")) == Counter([people["person2"].uuid])
 
         @also_test_with_materialized_columns(["$browser"])
@@ -610,7 +614,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, "Safari")) == Counter([people["person2"].uuid, people["person3"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, "Safari")) == Counter(
+                [people["person2"].uuid, people["person3"].uuid]
+            )
             assert Counter(self._get_actor_ids_at_step(query, 2, "Safari")) == Counter([people["person2"].uuid])
 
             self._assert_funnel_breakdown_result_is_correct(
@@ -632,12 +638,12 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(query, 1, "Other")) == Counter([
-                people["person1"].uuid,
-                people["person4"].uuid,
-                people["person5"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(query, 1, "Other")) == Counter(
+                [
+                    people["person1"].uuid,
+                    people["person4"].uuid,
+                    people["person5"].uuid,
+                ]
             )
             assert Counter(self._get_actor_ids_at_step(query, 2, "Other")) == Counter([people["person1"].uuid])
             assert 2 == cast(ast.Constant, query_runner.to_query().limit).value
@@ -753,7 +759,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, "Safari")) == Counter([people["person2"].uuid, people["person3"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, "Safari")) == Counter(
+                [people["person2"].uuid, people["person3"].uuid]
+            )
             assert Counter(self._get_actor_ids_at_step(query, 2, "Safari")) == Counter([people["person2"].uuid])
 
         @also_test_with_materialized_columns(person_properties=["$browser"])
@@ -1296,7 +1304,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
             assert Counter(self._get_actor_ids_at_step(query, 1, cohort.pk)) == Counter([people["person1"].uuid])
             assert Counter(self._get_actor_ids_at_step(query, 2, cohort.pk)) == Counter([])
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, ALL_USERS_COHORT_ID)) == Counter([people["person1"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, ALL_USERS_COHORT_ID)) == Counter(
+                [people["person1"].uuid]
+            )
             assert Counter(self._get_actor_ids_at_step(query, 2, ALL_USERS_COHORT_ID)) == Counter([])
 
             # non array
@@ -2416,7 +2426,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, "")) == Counter([people["person1"].uuid, people["person3"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, "")) == Counter(
+                [people["person1"].uuid, people["person3"].uuid]
+            )
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[1],
@@ -2575,7 +2587,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, ["Chrome", "xyz"])) == Counter([people["person1"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, ["Chrome", "xyz"])) == Counter(
+                [people["person1"].uuid]
+            )
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[3],
@@ -2607,7 +2621,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, ["Safari", "xyz"])) == Counter([people["person2"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, ["Safari", "xyz"])) == Counter(
+                [people["person2"].uuid]
+            )
 
         def test_funnel_step_multiple_breakdown_with_first_touch_attribution_incomplete_funnel(self):
             query = FunnelsQuery(
@@ -2720,7 +2736,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, ["Chrome", "xyz"])) == Counter([people["person1"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, ["Chrome", "xyz"])) == Counter(
+                [people["person1"].uuid]
+            )
 
             self._assert_funnel_breakdown_result_is_correct(
                 results[3],
@@ -2747,7 +2765,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, ["Safari", "xyz"])) == Counter([people["person2"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, ["Safari", "xyz"])) == Counter(
+                [people["person2"].uuid]
+            )
 
         def test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel(self):
             query = FunnelsQuery(
@@ -3356,8 +3376,12 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     ],
                 )
 
-                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "Chrome")) == Counter([people["person1"].uuid])
-                assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "Chrome")) == Counter([people["person1"].uuid])
+                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "Chrome")) == Counter(
+                    [people["person1"].uuid]
+                )
+                assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "Chrome")) == Counter(
+                    [people["person1"].uuid]
+                )
 
                 # unordered funnels include a '' breakdown value, as the data warehouse series can be the first event too
                 if funnel_order_type == FunnelOrderType.UNORDERED:
@@ -3379,13 +3403,13 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                         ],
                     )
 
-                    assert (
-                        Counter(self._get_actor_ids_at_step(funnels_query, 1, "")) == Counter([
-                        UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
-                        UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
-                        UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
-                        UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
-                        ])
+                    assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "")) == Counter(
+                        [
+                            UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
+                            UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
+                            UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
+                            UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                        ]
                     )
                     assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "")) == Counter([])
 
@@ -3405,7 +3429,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     ],
                 )
 
-                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "Firefox")) == Counter([people["person2"].uuid])
+                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "Firefox")) == Counter(
+                    [people["person2"].uuid]
+                )
                 assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "Firefox")) == Counter([])
 
         def test_funnels_mixed_person_breakdown(self):
@@ -3483,8 +3509,12 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     ],
                 )
 
-                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "val1")) == Counter([people["person1"].uuid])
-                assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "val1")) == Counter([people["person1"].uuid])
+                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "val1")) == Counter(
+                    [people["person1"].uuid]
+                )
+                assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "val1")) == Counter(
+                    [people["person1"].uuid]
+                )
 
                 # unordered funnels include a '' breakdown value, as the data warehouse series can be the first event too
                 if funnel_order_type == FunnelOrderType.UNORDERED:
@@ -3506,13 +3536,13 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                         ],
                     )
 
-                    assert (
-                        Counter(self._get_actor_ids_at_step(funnels_query, 1, "")) == Counter([
-                        UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
-                        UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
-                        UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
-                        UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
-                        ])
+                    assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "")) == Counter(
+                        [
+                            UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
+                            UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
+                            UUID("8cadb28f-1825-f158-73fa-3f228865b540"),
+                            UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                        ]
                     )
                     assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "")) == Counter([])
 
@@ -3532,7 +3562,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     ],
                 )
 
-                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "val2")) == Counter([people["person2"].uuid])
+                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "val2")) == Counter(
+                    [people["person2"].uuid]
+                )
                 assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "val2")) == Counter([])
 
         def test_funnels_mixed_data_warehouse_breakdown(self):
@@ -3600,8 +3632,12 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                         ),
                     ],
                 )
-                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "payment_succeeded")) == Counter([people["person1"].uuid])
-                assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "payment_succeeded")) == Counter([people["person1"].uuid])
+                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "payment_succeeded")) == Counter(
+                    [people["person1"].uuid]
+                )
+                assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "payment_succeeded")) == Counter(
+                    [people["person1"].uuid]
+                )
 
                 # '' breakdown
                 self._assert_funnel_breakdown_result_is_correct(
@@ -3621,12 +3657,12 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                         ),
                     ],
                 )
-                assert (
-                    Counter(self._get_actor_ids_at_step(funnels_query, 1, "")) == Counter([
-                    UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
-                    UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
-                    UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
-                    ])
+                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "")) == Counter(
+                    [
+                        UUID("d1f7bc7b-8378-3015-4347-e60e2d2f6348"),
+                        UUID("4bee5d74-a588-a205-45ef-69db7f5e8bc2"),
+                        UUID("cf6a408b-b00d-2458-7b24-9321c13033ec"),
+                    ]
                 )
                 assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "")) == Counter([])
 
@@ -3645,7 +3681,9 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     ],
                 )
 
-                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "payment_failed")) == Counter([UUID("8cadb28f-1825-f158-73fa-3f228865b540")])
+                assert Counter(self._get_actor_ids_at_step(funnels_query, 1, "payment_failed")) == Counter(
+                    [UUID("8cadb28f-1825-f158-73fa-3f228865b540")]
+                )
                 assert Counter(self._get_actor_ids_at_step(funnels_query, 2, "payment_failed")) == Counter([])
 
     return TestFunnelBreakdown
@@ -3841,7 +3879,9 @@ def funnel_breakdown_group_test_factory(funnel_order_type: FunnelOrderType):
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(query, 1, "technology")) == Counter([people["person2"].uuid, people["person3"].uuid])
+            assert Counter(self._get_actor_ids_at_step(query, 1, "technology")) == Counter(
+                [people["person2"].uuid, people["person3"].uuid]
+            )
             assert Counter(self._get_actor_ids_at_step(query, 2, "technology")) == Counter([people["person2"].uuid])
 
         # TODO: Delete this test when moved to person-on-events

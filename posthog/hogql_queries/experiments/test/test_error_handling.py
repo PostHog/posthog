@@ -22,7 +22,10 @@ class TestExperimentErrorHandling(BaseTest):
         message = get_user_friendly_message(error)
 
         assert message is not None
-        assert message == "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help."
+        assert (
+            message
+            == "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help."
+        )
 
     def test_get_user_friendly_message_for_unmapped_error(self):
         """Test that unmapped errors return None."""
@@ -56,7 +59,10 @@ class TestExperimentErrorHandling(BaseTest):
         # Cast to list for type checker
         detail_list = cast(list[ErrorDetail], context.exception.detail)
 
-        assert str(detail_list[0]) == "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help."
+        assert (
+            str(detail_list[0])
+            == "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help."
+        )
         # Verify error code is set correctly
         # In DRF, the code is stored in the ErrorDetail object, not directly on the exception
         assert isinstance(detail_list[0], ErrorDetail)

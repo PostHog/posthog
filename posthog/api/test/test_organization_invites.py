@@ -71,14 +71,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         response = self.client.post("/api/organizations/@current/invites/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        assert (
-            response_data == {
+        assert response_data == {
             "type": "validation_error",
             "code": "required",
             "detail": "This field is required.",
             "attr": "target_email",
-            }
-        )
+        }
 
         mock_capture.assert_not_called()
 
@@ -99,28 +97,26 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite_id = response_data.pop("id")
         response_data.pop("created_at")
         response_data.pop("updated_at")
-        assert (
-            response_data == {
+        assert response_data == {
             "target_email": email,
             "first_name": "",
             "created_by": {
-            "id": self.user.id,
-            "uuid": str(self.user.uuid),
-            "distinct_id": self.user.distinct_id,
-            "email": self.user.email,
-            "first_name": self.user.first_name,
-            "last_name": self.user.last_name,
-            "is_email_verified": self.user.is_email_verified,
-            "hedgehog_config": None,
-            "role_at_organization": None,
+                "id": self.user.id,
+                "uuid": str(self.user.uuid),
+                "distinct_id": self.user.distinct_id,
+                "email": self.user.email,
+                "first_name": self.user.first_name,
+                "last_name": self.user.last_name,
+                "is_email_verified": self.user.is_email_verified,
+                "hedgehog_config": None,
+                "role_at_organization": None,
             },
             "is_expired": False,
             "level": 1,
             "emailing_attempt_made": True,
             "message": None,
             "private_project_access": [],
-            }
-        )
+        }
 
         capture_props = {
             "name_provided": False,
@@ -304,14 +300,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        assert (
-            {
+        assert {
             "type": "validation_error",
             "code": "invalid_input",
             "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
             "attr": "private_project_access",
-            } == response_data
-        )
+        } == response_data
         assert OrganizationInvite.objects.count() == count
 
     def test_invite_fails_if_inviter_does_not_have_access_to_team(self):
@@ -336,14 +330,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        assert (
-            {
+        assert {
             "type": "validation_error",
             "code": "invalid_input",
             "detail": "Project does not exist on this organization, or it is private and you do not have access to it.",
             "attr": "private_project_access",
-            } == response_data
-        )
+        } == response_data
         assert OrganizationInvite.objects.count() == count
 
     def test_invite_fails_if_inviter_level_is_lower_than_requested_level(self):
@@ -379,14 +371,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        assert (
-            {
+        assert {
             "type": "validation_error",
             "code": "invalid_input",
             "detail": "You cannot invite to a restricted project with a higher level than your own.",
             "attr": "private_project_access",
-            } == response_data
-        )
+        } == response_data
         assert OrganizationInvite.objects.count() == count
 
     def test_invite_fails_if_inviter_level_is_lower_than_requested_level_on_member_restricted_project(self):
@@ -418,14 +408,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         response_data = response.json()
-        assert (
-            {
+        assert {
             "type": "validation_error",
             "code": "invalid_input",
             "detail": "You cannot invite to a restricted project with a higher level than your own.",
             "attr": "private_project_access",
-            } == response_data
-        )
+        } == response_data
         assert OrganizationInvite.objects.count() == count
 
     def test_cannot_create_invite_for_another_org(self):
@@ -519,7 +507,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             response = self.client.post("/api/organizations/@current/invites/bulk/", payload, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"type": "validation_error", "code": "max_length", "detail": "A maximum of 20 invites can be sent in a single request.", "attr": None}
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "max_length",
+            "detail": "A maximum of 20 invites can be sent in a single request.",
+            "attr": None,
+        }
 
         # No invites created
         assert OrganizationInvite.objects.count() == count
@@ -885,7 +878,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         assert response.json()["detail"] == "You cannot invite a user with a higher permission level than your own."
 
         # Verify no invites were created
-        assert OrganizationInvite.objects.filter(target_email__in=["new_member@posthog.com", "new_admin@posthog.com", "another_member@posthog.com"]).count() == 0
+        assert (
+            OrganizationInvite.objects.filter(
+                target_email__in=["new_member@posthog.com", "new_admin@posthog.com", "another_member@posthog.com"]
+            ).count()
+            == 0
+        )
 
     def test_bulk_invite_with_same_permission_level(self):
         # Create a member user
@@ -912,7 +910,12 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
 
         # Verify invites were created
-        assert OrganizationInvite.objects.filter(target_email__in=["new_member1@posthog.com", "new_member2@posthog.com"]).count() == 2
+        assert (
+            OrganizationInvite.objects.filter(
+                target_email__in=["new_member1@posthog.com", "new_member2@posthog.com"]
+            ).count()
+            == 2
+        )
 
     def test_member_cannot_invite_when_members_can_invite_false_and_feature_available(self):
         """Test that members cannot invite when members_can_invite is False and ORGANIZATION_INVITE_SETTINGS is available."""
@@ -1164,7 +1167,10 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Should fail because the team is private and the user doesn't have access
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Project does not exist on this organization, or it is private and you do not have access to it" in response.json()["detail"]
+        assert (
+            "Project does not exist on this organization, or it is private and you do not have access to it"
+            in response.json()["detail"]
+        )
 
     def test_can_invite_with_new_access_control_as_team_admin(self):
         """

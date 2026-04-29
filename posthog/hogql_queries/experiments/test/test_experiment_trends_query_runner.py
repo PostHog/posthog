@@ -1069,12 +1069,44 @@ class TestExperimentTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         test_insight = next(variant for variant in trend_result.insight if variant["breakdown_value"] == "test")
 
         assert control_result.count == 100
-        assert test_result.count == pytest.approx(205, abs=10**(-7) * 0.5)
+        assert test_result.count == pytest.approx(205, abs=10 ** (-7) * 0.5)
         assert control_result.absolute_exposure == 1
         assert test_result.absolute_exposure == 3
 
-        assert control_insight["data"] == [0.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
-        assert test_insight["data"] == [0.0, 50.0, 125.0, 125.0, 125.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0, 205.0]
+        assert control_insight["data"] == [
+            0.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+            100.0,
+        ]
+        assert test_insight["data"] == [
+            0.0,
+            50.0,
+            125.0,
+            125.0,
+            125.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+            205.0,
+        ]
 
     @pytest.mark.flaky(reruns=9)
     @freeze_time("2020-01-01T12:00:00Z")

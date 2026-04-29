@@ -33,7 +33,9 @@ class TestPythonGenerator(APIBaseTest):
     )
     def test_to_method_name(self, name, event_name, expected_output):
         result = self.generator._to_method_name(event_name)
-        assert expected_output == result, f"{name} failed: Expected '{event_name}' to convert to '{expected_output}', got '{result}'"
+        assert expected_output == result, (
+            f"{name} failed: Expected '{event_name}' to convert to '{expected_output}', got '{result}'"
+        )
 
     @parameterized.expand(
         [
@@ -56,7 +58,9 @@ class TestPythonGenerator(APIBaseTest):
     )
     def test_to_python_identifier(self, name, input_name, expected_output):
         result = self.generator._to_python_identifier(input_name)
-        assert expected_output == result, f"{name} failed: Expected '{input_name}' to convert to '{expected_output}', got '{result}'"
+        assert expected_output == result, (
+            f"{name} failed: Expected '{input_name}' to convert to '{expected_output}', got '{result}'"
+        )
 
     def test_get_unique_name_collision_handling(self):
         used_names: set[str] = set()
@@ -75,7 +79,10 @@ class TestPythonGenerator(APIBaseTest):
     def test_generate_capture_method_without_properties(self):
         method = self.generator._generate_capture_method("simple_event", [], set())
 
-        assert method.strip() == '''def capture_simple_event(\n        self,\n        *,\n        extra_properties: Optional[Dict[str, Any]] = None,\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `simple_event` event."""\n        return self.capture("simple_event", properties=extra_properties, **kwargs)'''
+        assert (
+            method.strip()
+            == '''def capture_simple_event(\n        self,\n        *,\n        extra_properties: Optional[Dict[str, Any]] = None,\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `simple_event` event."""\n        return self.capture("simple_event", properties=extra_properties, **kwargs)'''
+        )
 
     def test_generate_capture_method_with_only_optional(self):
         method = self.generator._generate_capture_method(
@@ -87,7 +94,10 @@ class TestPythonGenerator(APIBaseTest):
             set(),
         )
 
-        assert method.strip() == '''def capture_file_downloaded(\n        self,\n        *,\n        # Optional event properties\n        label: Optional[str] = None,\n        value: Optional[float] = None,\n        # Additional untyped properties\n        extra_properties: Optional[Dict[str, Any]] = None,\n        # SDK kwargs (distinct_id, timestamp, etc.)\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `file_downloaded` event with type-safe properties."""\n        properties: Dict[str, Any] = {}\n        if label is not None:\n            properties["label"] = label\n        if value is not None:\n            properties["value"] = value\n        if extra_properties is not None:\n            properties.update(extra_properties)\n        return self.capture("file_downloaded", properties=properties, **kwargs)'''
+        assert (
+            method.strip()
+            == '''def capture_file_downloaded(\n        self,\n        *,\n        # Optional event properties\n        label: Optional[str] = None,\n        value: Optional[float] = None,\n        # Additional untyped properties\n        extra_properties: Optional[Dict[str, Any]] = None,\n        # SDK kwargs (distinct_id, timestamp, etc.)\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `file_downloaded` event with type-safe properties."""\n        properties: Dict[str, Any] = {}\n        if label is not None:\n            properties["label"] = label\n        if value is not None:\n            properties["value"] = value\n        if extra_properties is not None:\n            properties.update(extra_properties)\n        return self.capture("file_downloaded", properties=properties, **kwargs)'''
+        )
 
     def test_generate_capture_method_with_method_name_clash(self):
         used_method_names: set[str] = set()
@@ -98,8 +108,14 @@ class TestPythonGenerator(APIBaseTest):
         )
         method_two = self.generator._generate_capture_method("file-downloaded", [], used_method_names)
 
-        assert method_one.strip() == '''def capture_file_downloaded(\n        self,\n        *,\n        extra_properties: Optional[Dict[str, Any]] = None,\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `file_downloaded` event."""\n        return self.capture("file_downloaded", properties=extra_properties, **kwargs)'''
-        assert method_two.strip() == '''def capture_file_downloaded_2(\n        self,\n        *,\n        extra_properties: Optional[Dict[str, Any]] = None,\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `file-downloaded` event."""\n        return self.capture("file-downloaded", properties=extra_properties, **kwargs)'''
+        assert (
+            method_one.strip()
+            == '''def capture_file_downloaded(\n        self,\n        *,\n        extra_properties: Optional[Dict[str, Any]] = None,\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `file_downloaded` event."""\n        return self.capture("file_downloaded", properties=extra_properties, **kwargs)'''
+        )
+        assert (
+            method_two.strip()
+            == '''def capture_file_downloaded_2(\n        self,\n        *,\n        extra_properties: Optional[Dict[str, Any]] = None,\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `file-downloaded` event."""\n        return self.capture("file-downloaded", properties=extra_properties, **kwargs)'''
+        )
 
     def test_generate_capture_method_with_mixed_properties(self):
         method = self.generator._generate_capture_method(
@@ -117,14 +133,20 @@ class TestPythonGenerator(APIBaseTest):
             set(),
         )
 
-        assert method.strip() == '''def capture_file_downloaded(\n        self,\n        *,\n        # Required event properties\n        file_size: List[Any],\n        file_name: str,\n        file_size_2: float,\n        foo_bar: str,\n        # Optional event properties\n        class_: Optional[str] = None,\n        file_extension: Optional[str] = None,\n        label: Optional[str] = None,\n        value: Optional[float] = None,\n        # Additional untyped properties\n        extra_properties: Optional[Dict[str, Any]] = None,\n        # SDK kwargs (distinct_id, timestamp, etc.)\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `file_downloaded` event with type-safe properties."""\n        properties: Dict[str, Any] = {"file-size": file_size, "file_name": file_name, "file_size": file_size_2, "foo\\"bar": foo_bar}\n        if class_ is not None:\n            properties["class"] = class_\n        if file_extension is not None:\n            properties["file_extension"] = file_extension\n        if label is not None:\n            properties["label"] = label\n        if value is not None:\n            properties["value"] = value\n        if extra_properties is not None:\n            properties.update(extra_properties)\n        return self.capture("file_downloaded", properties=properties, **kwargs)'''
+        assert (
+            method.strip()
+            == '''def capture_file_downloaded(\n        self,\n        *,\n        # Required event properties\n        file_size: List[Any],\n        file_name: str,\n        file_size_2: float,\n        foo_bar: str,\n        # Optional event properties\n        class_: Optional[str] = None,\n        file_extension: Optional[str] = None,\n        label: Optional[str] = None,\n        value: Optional[float] = None,\n        # Additional untyped properties\n        extra_properties: Optional[Dict[str, Any]] = None,\n        # SDK kwargs (distinct_id, timestamp, etc.)\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `file_downloaded` event with type-safe properties."""\n        properties: Dict[str, Any] = {"file-size": file_size, "file_name": file_name, "file_size": file_size_2, "foo\\"bar": foo_bar}\n        if class_ is not None:\n            properties["class"] = class_\n        if file_extension is not None:\n            properties["file_extension"] = file_extension\n        if label is not None:\n            properties["label"] = label\n        if value is not None:\n            properties["value"] = value\n        if extra_properties is not None:\n            properties.update(extra_properties)\n        return self.capture("file_downloaded", properties=properties, **kwargs)'''
+        )
 
     def test_full_generation_empty_output(self):
         code = self.generator.generate([], {})  # type: ignore[arg-type]
 
         assert "GENERATED FILE - DO NOT EDIT" in code
         assert "from datetime import datetime" not in code
-        assert '''class PosthogTyped(Posthog):\n    """\n    A type-safe PostHog client with per-event capture methods.\n\n    Drop-in replacement for Posthog that provides IDE autocomplete\n    and type checking via capture_<event_name>() methods.\n    """\n\n    pass''' in code
+        assert (
+            '''class PosthogTyped(Posthog):\n    """\n    A type-safe PostHog client with per-event capture methods.\n\n    Drop-in replacement for Posthog that provides IDE autocomplete\n    and type checking via capture_<event_name>() methods.\n    """\n\n    pass'''
+            in code
+        )
 
     def test_full_generation_output(self):
         event = MagicMock()
@@ -147,7 +169,10 @@ class TestPythonGenerator(APIBaseTest):
         assert "from datetime import datetime" in code
         assert "class PosthogTyped(Posthog):" in code
 
-        assert '''def capture_simple_event(\n        self,\n        *,\n        # Required event properties\n        file_name: str,\n        file_name_2: Dict[str, Any],\n        user_id: str,\n        # Optional event properties\n        c_ount: Optional[float] = None,\n        created_at: Optional[datetime] = None,\n        optional_items: Optional[List[Any]] = None,\n        # Additional untyped properties\n        extra_properties: Optional[Dict[str, Any]] = None,\n        # SDK kwargs (distinct_id, timestamp, etc.)\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `simple_\\"event` event with type-safe properties."""\n        properties: Dict[str, Any] = {"file-name": file_name, "file_name": file_name_2, "user_id": user_id}\n        if c_ount is not None:\n            properties["c\'ount"] = c_ount\n        if created_at is not None:\n            properties["created_at"] = created_at\n        if optional_items is not None:\n            properties["optional_items"] = optional_items\n        if extra_properties is not None:\n            properties.update(extra_properties)\n        return self.capture("simple_\\"event", properties=properties, **kwargs)''' in code
+        assert (
+            '''def capture_simple_event(\n        self,\n        *,\n        # Required event properties\n        file_name: str,\n        file_name_2: Dict[str, Any],\n        user_id: str,\n        # Optional event properties\n        c_ount: Optional[float] = None,\n        created_at: Optional[datetime] = None,\n        optional_items: Optional[List[Any]] = None,\n        # Additional untyped properties\n        extra_properties: Optional[Dict[str, Any]] = None,\n        # SDK kwargs (distinct_id, timestamp, etc.)\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `simple_\\"event` event with type-safe properties."""\n        properties: Dict[str, Any] = {"file-name": file_name, "file_name": file_name_2, "user_id": user_id}\n        if c_ount is not None:\n            properties["c\'ount"] = c_ount\n        if created_at is not None:\n            properties["created_at"] = created_at\n        if optional_items is not None:\n            properties["optional_items"] = optional_items\n        if extra_properties is not None:\n            properties.update(extra_properties)\n        return self.capture("simple_\\"event", properties=properties, **kwargs)'''
+            in code
+        )
 
     def test_generate_capture_method_with_optional_in_types(self):
         method = self.generator._generate_capture_method(
@@ -160,7 +185,10 @@ class TestPythonGenerator(APIBaseTest):
             set(),
         )
 
-        assert method.strip() == '''def capture_file_downloaded(\n        self,\n        *,\n        # Required event properties\n        file_name: str,\n        # Optional event properties\n        file_size: Optional[float] = None,\n        label: Optional[str] = None,\n        # Additional untyped properties\n        extra_properties: Optional[Dict[str, Any]] = None,\n        # SDK kwargs (distinct_id, timestamp, etc.)\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `file_downloaded` event with type-safe properties."""\n        properties: Dict[str, Any] = {"file_name": file_name}\n        if file_size is not None:\n            properties["file_size"] = file_size\n        if label is not None:\n            properties["label"] = label\n        if extra_properties is not None:\n            properties.update(extra_properties)\n        return self.capture("file_downloaded", properties=properties, **kwargs)'''
+        assert (
+            method.strip()
+            == '''def capture_file_downloaded(\n        self,\n        *,\n        # Required event properties\n        file_name: str,\n        # Optional event properties\n        file_size: Optional[float] = None,\n        label: Optional[str] = None,\n        # Additional untyped properties\n        extra_properties: Optional[Dict[str, Any]] = None,\n        # SDK kwargs (distinct_id, timestamp, etc.)\n        **kwargs: Unpack[OptionalCaptureArgs],\n    ) -> Optional[str]:\n        """Capture a `file_downloaded` event with type-safe properties."""\n        properties: Dict[str, Any] = {"file_name": file_name}\n        if file_size is not None:\n            properties["file_size"] = file_size\n        if label is not None:\n            properties["label"] = label\n        if extra_properties is not None:\n            properties.update(extra_properties)\n        return self.capture("file_downloaded", properties=properties, **kwargs)'''
+        )
 
     def _create_mock_property(
         self, name: str, property_type: str, required: bool = False, is_optional_in_types: bool = False

@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any, Optional, cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
@@ -20,7 +21,6 @@ from products.event_definitions.backend.models.event_definition import EventDefi
 
 from ee.models.event_definition import EnterpriseEventDefinition
 from ee.models.license import License, LicenseManager
-import pytest
 
 
 @freeze_time("2020-01-02")
@@ -66,7 +66,12 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
 
-        assert [(r["name"], r["verified"]) for r in response.json()["results"]] == [("$pageview", False), ("entered_free_trial", False), ("purchase", False), ("watched_movie", False)]
+        assert [(r["name"], r["verified"]) for r in response.json()["results"]] == [
+            ("$pageview", False),
+            ("entered_free_trial", False),
+            ("purchase", False),
+            ("watched_movie", False),
+        ]
 
         for event_definition in self.EXPECTED_EVENT_DEFINITIONS:
             definition = EnterpriseEventDefinition.objects.filter(
@@ -101,7 +106,9 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert response_data["tags"] == ["deprecated"]
         assert response_data["owner"]["id"] == self.user.id
 
-        assert (timezone.now() - dateutil.parser.isoparse(response_data["created_at"])).total_seconds() == pytest.approx(0, abs=1)
+        assert (
+            timezone.now() - dateutil.parser.isoparse(response_data["created_at"])
+        ).total_seconds() == pytest.approx(0, abs=1)
         assert "last_seen_at" in response_data
 
     def test_retrieve_create_event_definition(self):
@@ -150,7 +157,11 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=e ev")
         assert response.status_code == status.HTTP_200_OK
         response_data = response.json()
-        assert sorted([r["name"] for r in response_data["results"]]) == ["$pageview", "enterprise event", "regular event"]
+        assert sorted([r["name"] for r in response_data["results"]]) == [
+            "$pageview",
+            "enterprise event",
+            "regular event",
+        ]
 
         response = self.client.get(f"/api/projects/@current/event_definitions/?search=bust")
         assert response.status_code == status.HTTP_200_OK

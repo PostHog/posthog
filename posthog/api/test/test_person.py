@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from typing import Optional, cast
 from uuid import uuid4
 
@@ -30,7 +31,6 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import create_person, create_person_distinct_id
-from collections import Counter
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -323,7 +323,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get("/api/person/?distinct_id=distinct_id")
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["results"]) == 1
-        assert response.json()["results"][0]["id"] == str(person.uuid)  # note that even with shared distinct IDs, only the person from the same team is returned
+        assert response.json()["results"][0]["id"] == str(
+            person.uuid
+        )  # note that even with shared distinct IDs, only the person from the same team is returned
 
         response = self.client.get("/api/person/?distinct_id=x_another_one")
         assert response.status_code == status.HTTP_200_OK
@@ -1171,12 +1173,14 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response["results"][0]["name"] == "distinct_id2"
         assert response["results"][1]["name"] == "distinct_id1"
 
-        assert Counter(response["results"][0]["distinct_ids"]) == Counter(["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"])
-        assert (
-            Counter(response["results"][1]["distinct_ids"]) == Counter([
-            "distinct_id1",
-            "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c",
-            ])
+        assert Counter(response["results"][0]["distinct_ids"]) == Counter(
+            ["17787c327b-0e8f623ea9-336473-1aeaa0-17787c30995b7c", "distinct_id2"]
+        )
+        assert Counter(response["results"][1]["distinct_ids"]) == Counter(
+            [
+                "distinct_id1",
+                "17787c3099427b-0e8f6c86323ea9-33647309-1aeaa0-17787c30995b7c",
+            ]
         )
 
     def test_person_display_name(self) -> None:
@@ -1824,7 +1828,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             """,
             {"team_id": self.team.pk},
         )
-        assert ch_person_distinct_ids == [(person_not_changed_1.uuid, self.team.pk, "distinct_id-1", 0, False), (person_deleted_1.uuid, self.team.pk, "distinct_id-del-1", 116, True)]
+        assert ch_person_distinct_ids == [
+            (person_not_changed_1.uuid, self.team.pk, "distinct_id-1", 0, False),
+            (person_deleted_1.uuid, self.team.pk, "distinct_id-del-1", 116, True),
+        ]
         mocked_ch_call.assert_not_called()
 
     def test_batch_by_distinct_ids_happy_path(self) -> None:

@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -38,7 +39,6 @@ from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebO
 from posthog.models import Action, Cohort, Element
 from posthog.models.utils import uuid7
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-import pytest
 
 
 @snapshot_clickhouse_queries
@@ -306,7 +306,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert None is duration_s.changeFromPreviousPct
 
         bounce = results[4]
-        assert 100 * 2 / 3 == pytest.approx(bounce.value, abs=10**(-7) * 0.5)
+        assert 100 * 2 / 3 == pytest.approx(bounce.value, abs=10 ** (-7) * 0.5)
         assert None is bounce.previous
         assert None is bounce.changeFromPreviousPct
 
@@ -352,7 +352,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert -100 == duration_s.changeFromPreviousPct
 
         bounce = results[4]
-        assert 100 == pytest.approx(bounce.value, abs=10**(-7) * 0.5)
+        assert 100 == pytest.approx(bounce.value, abs=10 ** (-7) * 0.5)
         assert 0 == bounce.previous
         assert None is bounce.changeFromPreviousPct
 
@@ -652,7 +652,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert unique_conversions.value == 2
 
         conversion_rate = results[3]
-        assert conversion_rate.value == pytest.approx(100 * 2 / 3, abs=10**(-7) * 0.5)
+        assert conversion_rate.value == pytest.approx(100 * 2 / 3, abs=10 ** (-7) * 0.5)
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
@@ -717,7 +717,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert unique_conversions.changeFromPreviousPct is None
 
         conversion_rate = results[3]
-        assert conversion_rate.value == pytest.approx(100 * 2 / 3, abs=10**(-7) * 0.5)
+        assert conversion_rate.value == pytest.approx(100 * 2 / 3, abs=10 ** (-7) * 0.5)
         assert conversion_rate.previous is None
         assert conversion_rate.changeFromPreviousPct is None
 
@@ -740,7 +740,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
-        assert pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables when date range includes current date (using UNION ALL with hourly tables)"
+        assert pre_agg_builder.can_use_preaggregated_tables(), (
+            "Should use pre-aggregated tables when date range includes current date (using UNION ALL with hourly tables)"
+        )
 
     @freeze_time("2023-12-15T12:00:00Z")
     def test_cannot_use_preaggregated_tables_with_unsupported_properties(self):
@@ -750,7 +752,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
-        assert not pre_agg_builder.can_use_preaggregated_tables(), "Should not use pre-aggregated tables with unsupported properties"
+        assert not pre_agg_builder.can_use_preaggregated_tables(), (
+            "Should not use pre-aggregated tables with unsupported properties"
+        )
 
     @freeze_time("2023-12-15T12:00:00Z")
     def test_can_use_preaggregated_tables_with_conversion_goal(self):
@@ -771,7 +775,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
         pre_agg_builder = WebOverviewPreAggregatedQueryBuilder(runner)
-        assert pre_agg_builder.can_use_preaggregated_tables(), "Should use pre-aggregated tables with supported properties"
+        assert pre_agg_builder.can_use_preaggregated_tables(), (
+            "Should use pre-aggregated tables with supported properties"
+        )
 
     @freeze_time("2023-12-15T12:00:00Z")
     def test_can_use_preaggregated_tables_with_channel_type_filter(self):

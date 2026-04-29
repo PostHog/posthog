@@ -308,7 +308,12 @@ class TestCustomerIOWebhook(APIBaseTest):
         response = self._post_webhook(body)
         assert response.status_code == 200
         # No recipient created since no known topics matched
-        assert not MessageRecipientPreference.objects.filter(team=self.team, identifier="test@example.com").exclude(preferences={}).filter(preferences__has_key=ALL_MESSAGE_PREFERENCE_CATEGORY_ID).exists()
+        assert (
+            not MessageRecipientPreference.objects.filter(team=self.team, identifier="test@example.com")
+            .exclude(preferences={})
+            .filter(preferences__has_key=ALL_MESSAGE_PREFERENCE_CATEGORY_ID)
+            .exists()
+        )
 
     def test_preferences_changed_invalid_content_json_returns_400(self):
         body = {

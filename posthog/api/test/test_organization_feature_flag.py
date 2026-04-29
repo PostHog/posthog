@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import timedelta
 from typing import Any
 
@@ -27,7 +28,6 @@ from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.surveys.backend.models import Survey
-from collections import Counter
 
 
 class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
@@ -459,7 +459,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         # target_project_2 should have failed
         assert len(response.json()["failed"]) == 1
         assert response.json()["failed"][0]["project_id"] == target_project_2.id
-        assert response.json()["failed"][0]["error_message"] == "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]"
+        assert (
+            response.json()["failed"][0]["error_message"]
+            == "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]"
+        )
 
     @parameterized.expand(
         [

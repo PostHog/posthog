@@ -62,7 +62,11 @@ class TestSingleSessionSummary(BaseTest):
         assert "session_outcome" in summary.summary
         assert summary.exception_event_ids == self.exception_event_ids
         assert summary.extra_summary_context == {"focus_area": "authentication"}
-        assert summary.run_metadata == {"model_used": "gpt-4", "visual_confirmation": False, "visual_confirmation_results": None}
+        assert summary.run_metadata == {
+            "model_used": "gpt-4",
+            "visual_confirmation": False,
+            "visual_confirmation_results": None,
+        }
         assert summary.created_by == self.user
         assert summary.team_id == self.team.id
 
@@ -407,14 +411,12 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_ids=[self.session_ids[0], self.session_ids[1], self.session_ids[8], "non-existent"],
             extra_summary_context=None,
         )
-        assert (
-            result == {
+        assert result == {
             self.session_ids[0]: True,
             self.session_ids[1]: True,
             self.session_ids[8]: False,  # Has no summary
             "non-existent": False,
-            }
-        )
+        }
 
     def test_summaries_exist_with_context(self) -> None:
         # Use existing test data - sessions 3-6 have summaries with auth context
@@ -423,14 +425,12 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_ids=[self.session_ids[3], self.session_ids[5], self.session_ids[0], self.session_ids[9]],
             extra_summary_context=self.extra_context,
         )
-        assert (
-            result == {
+        assert result == {
             self.session_ids[3]: True,  # Has auth context
             self.session_ids[5]: True,  # Has auth context
             self.session_ids[0]: False,  # Has no context
             self.session_ids[9]: False,  # Has no summary
-            }
-        )
+        }
 
     def test_summaries_exist_context_mismatch(self) -> None:
         different_context: ExtraSummaryContext = ExtraSummaryContext(focus_area="checkout")
@@ -493,12 +493,10 @@ class TestSingleSessionSummaryBulk(BaseTest):
             session_ids=[self.session_ids[3], self.session_ids[4]],
             extra_summary_context=None,
         )
-        assert (
-            result == {
+        assert result == {
             self.session_ids[3]: True,  # Has old summaries without context
             self.session_ids[4]: True,  # Has old summaries without context
-            }
-        )
+        }
 
 
 class TestSessionGroupSummary(BaseTest):

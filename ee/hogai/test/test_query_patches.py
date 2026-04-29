@@ -64,7 +64,9 @@ class TestQueryPatches(BaseTest):
             team=self.team,
             query=EventTaxonomyQuery(event="$pageview"),
         ).calculate()
-        assert query_runner.results == [EventTaxonomyItem(property="$browser", sample_values=["Safari"], sample_count=1)]
+        assert query_runner.results == [
+            EventTaxonomyItem(property="$browser", sample_values=["Safari"], sample_count=1)
+        ]
 
     def test_patched_event_taxonomy_query_runner_handles_no_results(self):
         EVENT_TAXONOMY_QUERY_DATA_SOURCE.clear()
@@ -82,7 +84,9 @@ class TestQueryPatches(BaseTest):
             team=self.team,
             query=EventTaxonomyQuery(actionId=123),
         ).calculate()
-        assert query_runner.results == [EventTaxonomyItem(property="$browser", sample_values=["Safari"], sample_count=1)]
+        assert query_runner.results == [
+            EventTaxonomyItem(property="$browser", sample_values=["Safari"], sample_count=1)
+        ]
 
     def test_patched_actors_property_taxonomy_query_runner_returns_result(self):
         query_runner = PatchedActorsPropertyTaxonomyQueryRunner(
@@ -95,14 +99,20 @@ class TestQueryPatches(BaseTest):
             team=self.team,
             query=ActorsPropertyTaxonomyQuery(properties=["$location", "$browser"]),
         ).calculate()
-        assert query_runner.results == [ActorsPropertyTaxonomyResponse(sample_values=["US"], sample_count=1), ActorsPropertyTaxonomyResponse(sample_values=["Safari"], sample_count=10)]
+        assert query_runner.results == [
+            ActorsPropertyTaxonomyResponse(sample_values=["US"], sample_count=1),
+            ActorsPropertyTaxonomyResponse(sample_values=["Safari"], sample_count=10),
+        ]
 
     def test_patched_actors_property_taxonomy_query_runner_handles_mixed_results(self):
         query_runner = PatchedActorsPropertyTaxonomyQueryRunner(
             team=self.team,
             query=ActorsPropertyTaxonomyQuery(properties=["$location", "$latitude"]),
         ).calculate()
-        assert query_runner.results == [ActorsPropertyTaxonomyResponse(sample_values=["US"], sample_count=1), ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0)]
+        assert query_runner.results == [
+            ActorsPropertyTaxonomyResponse(sample_values=["US"], sample_count=1),
+            ActorsPropertyTaxonomyResponse(sample_values=[], sample_count=0),
+        ]
 
     def test_patched_actors_property_taxonomy_query_runner_handles_no_results(self):
         ACTORS_PROPERTY_TAXONOMY_QUERY_DATA_SOURCE.clear()

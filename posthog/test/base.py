@@ -791,7 +791,7 @@ class MemoryLeakTestMixin:
     """How many times to run every test method to check for memory leaks"""
 
     def _callTestMethod(self, method):
-        test_case = cast(unittest.TestCase, self)
+        cast(unittest.TestCase, self)
         mem_original_b = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         for _ in range(self.MEMORY_PRIMING_RUNS_N):  # Priming runs
             method()
@@ -804,8 +804,12 @@ class MemoryLeakTestMixin:
         avg_memory_increase_factor = (
             avg_memory_test_increase_b / avg_memory_priming_increase_b if avg_memory_priming_increase_b else 0
         )
-        assert avg_memory_test_increase_b <= self.MEMORY_INCREASE_PER_PARSE_LIMIT_B, f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse"
-        assert avg_memory_increase_factor <= self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT, f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse"
+        assert avg_memory_test_increase_b <= self.MEMORY_INCREASE_PER_PARSE_LIMIT_B, (
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_PER_PARSE_LIMIT_B}-byte limit of incremental memory per parse"
+        )
+        assert avg_memory_increase_factor <= self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT, (
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse"
+        )
 
 
 class BaseTest(PostHogTestCase, ErrorResponsesMixin, TestCase):

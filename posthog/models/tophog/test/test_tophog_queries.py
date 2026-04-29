@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -7,7 +8,6 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.models.tophog.queries import query_tophog_filter_options, query_tophog_metrics
 from posthog.models.tophog.sql import DATA_TABLE_NAME, TRUNCATE_TOPHOG_TABLE_SQL
-import pytest
 
 TS = datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC)
 DATE_FROM = datetime(2024, 1, 15, 0, 0, 0, tzinfo=UTC)
@@ -56,7 +56,7 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
 
         results = query_tophog_metrics(DATE_FROM, DATE_TO)
         assert len(results) == 1
-        assert results[0]["total"] == pytest.approx(expected_total, abs=10**(-5) * 0.5)
+        assert results[0]["total"] == pytest.approx(expected_total, abs=10 ** (-5) * 0.5)
         assert results[0]["obs"] == len(values)
 
     def test_avg_aggregation_weighted(self):
@@ -70,7 +70,7 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
         results = query_tophog_metrics(DATE_FROM, DATE_TO)
         assert len(results) == 1
         # weighted avg: (10*100 + 20*300) / (100+300) = 7000/400 = 17.5
-        assert results[0]["total"] == pytest.approx(17.5, abs=10**(-5) * 0.5)
+        assert results[0]["total"] == pytest.approx(17.5, abs=10 ** (-5) * 0.5)
         assert results[0]["obs"] == 400
 
     def test_top_10_ranking(self):
@@ -131,7 +131,7 @@ class TestTopHogQueries(ClickhouseTestMixin, BaseTest):
 
         results = query_tophog_metrics(DATE_FROM, DATE_TO)
         assert len(results) == 1
-        assert results[0]["total"] == pytest.approx(30.0, abs=10**(-5) * 0.5)
+        assert results[0]["total"] == pytest.approx(30.0, abs=10 ** (-5) * 0.5)
         assert results[0]["pipelines"] == ["events", "recordings"]
         assert results[0]["lanes"] == ["fast", "slow"]
 

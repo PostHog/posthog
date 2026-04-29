@@ -358,7 +358,9 @@ class TestSchemaGeneratorNode(BaseTest):
             DummyGeneratorNode,
             "_model",
             return_value=RunnableLambda(
-                lambda _: """\n\n{\"query\":{\"kind\":\"RetentionQuery\",\"dateRange\":{\"date_from\":\"2024-01-01\",\"date_to\":\"2024-12-31\"},\"retentionFilter\":{\"period\":\"Week\",\"totalIntervals\":11,\"targetEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"},\"returningEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"}},\"filterTestAccounts\":false}\t \t\t \t\t \t \t"""
+                lambda _: (
+                    """\n\n{\"query\":{\"kind\":\"RetentionQuery\",\"dateRange\":{\"date_from\":\"2024-01-01\",\"date_to\":\"2024-12-31\"},\"retentionFilter\":{\"period\":\"Week\",\"totalIntervals\":11,\"targetEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"},\"returningEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"}},\"filterTestAccounts\":false}\t \t\t \t\t \t \t"""
+                )
             ),
         ):
             new_state = await node(AssistantState(messages=[HumanMessage(content="Text")]), {})
@@ -372,6 +374,6 @@ class TestSchemaGeneratorToolsNode(BaseTest):
         action = AgentAction(tool="fix", tool_input="validationerror", log="pydanticexception")
         state = await node(AssistantState(messages=[], intermediate_steps=[(action, None)]), {})
         state = cast(PartialAssistantState, state)
-        assert "validationerror" is not None, cast(list[IntermediateStep], state.intermediate_steps)[0][1]
+        assert "validationerror" != None, cast(list[IntermediateStep], state.intermediate_steps)[0][1]
         assert "validationerror" in cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])
         assert "pydanticexception" in cast(Iterable[Any], cast(list[IntermediateStep], state.intermediate_steps)[0][1])

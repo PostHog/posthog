@@ -66,11 +66,12 @@ class TestLiveDebuggerBreakpointAPI(APIBaseTest):
 
         assert (
             LiveDebuggerBreakpoint.objects.filter(
-            team=self.team,
-            repository=data["repository"],
-            filename=data["filename"],
-            line_number=data["line_number"],  # type: ignore
-            ).count() == 1
+                team=self.team,
+                repository=data["repository"],
+                filename=data["filename"],
+                line_number=data["line_number"],  # type: ignore
+            ).count()
+            == 1
         )
 
     def test_create_breakpoint_same_file_different_repo_succeeds(self):

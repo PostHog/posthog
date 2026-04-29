@@ -1,5 +1,6 @@
 import re
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -38,7 +39,6 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
-from collections import Counter
 
 
 def get_person_ids_by_cohort_id(

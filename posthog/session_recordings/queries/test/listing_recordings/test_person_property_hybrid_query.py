@@ -228,7 +228,9 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
         subquery = ReplayFiltersEventsSubQuery(team=self.team, query=query_with_is_not)
         person_props = subquery.person_properties
         assert person_props is not None
-        assert not subquery._should_use_hybrid_query(person_props), "Hybrid query should NOT be used with IS_NOT operator"
+        assert not subquery._should_use_hybrid_query(person_props), (
+            "Hybrid query should NOT be used with IS_NOT operator"
+        )
 
         # Test with NOT_ICONTAINS operator
         query_with_not_icontains = RecordingsQuery(
@@ -244,7 +246,9 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
         subquery = ReplayFiltersEventsSubQuery(team=self.team, query=query_with_not_icontains)
         person_props = subquery.person_properties
         assert person_props is not None
-        assert not subquery._should_use_hybrid_query(person_props), "Hybrid query should NOT be used with NOT_ICONTAINS operator"
+        assert not subquery._should_use_hybrid_query(person_props), (
+            "Hybrid query should NOT be used with NOT_ICONTAINS operator"
+        )
 
         # Test with NOT_REGEX operator
         query_with_not_regex = RecordingsQuery(
@@ -260,7 +264,9 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
         subquery = ReplayFiltersEventsSubQuery(team=self.team, query=query_with_not_regex)
         person_props = subquery.person_properties
         assert person_props is not None
-        assert not subquery._should_use_hybrid_query(person_props), "Hybrid query should NOT be used with NOT_REGEX operator"
+        assert not subquery._should_use_hybrid_query(person_props), (
+            "Hybrid query should NOT be used with NOT_REGEX operator"
+        )
 
         # Test with IS_NOT_SET operator
         query_with_is_not_set = RecordingsQuery(
@@ -275,7 +281,9 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
         subquery = ReplayFiltersEventsSubQuery(team=self.team, query=query_with_is_not_set)
         person_props = subquery.person_properties
         assert person_props is not None
-        assert not subquery._should_use_hybrid_query(person_props), "Hybrid query should NOT be used with IS_NOT_SET operator"
+        assert not subquery._should_use_hybrid_query(person_props), (
+            "Hybrid query should NOT be used with IS_NOT_SET operator"
+        )
 
         # Test that positive operators still work
         query_with_exact = RecordingsQuery(

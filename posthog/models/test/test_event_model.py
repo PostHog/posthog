@@ -1,8 +1,9 @@
+from collections import Counter
+
 from posthog.test.base import BaseTest
 
 from posthog.models import Action, Element, Organization
 from posthog.models.event import Selector
-from collections import Counter
 
 
 def _create_action(team, steps):

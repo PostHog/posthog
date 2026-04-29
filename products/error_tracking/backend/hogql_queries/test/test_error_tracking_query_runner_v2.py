@@ -24,13 +24,54 @@ class TestErrorTrackingQueryRunnerV2(
     @snapshot_clickhouse_queries
     def test_column_names(self):
         columns = self._calculate()["columns"]
-        assert columns == ["id", "status", "name", "description", "last_seen", "first_seen", "assignee_user_id", "assignee_role_id", "function", "source", "library"]
+        assert columns == [
+            "id",
+            "status",
+            "name",
+            "description",
+            "last_seen",
+            "first_seen",
+            "assignee_user_id",
+            "assignee_role_id",
+            "function",
+            "source",
+            "library",
+        ]
 
         columns = self._calculate(withAggregations=True)["columns"]
-        assert columns == ["id", "status", "name", "description", "last_seen", "first_seen", "assignee_user_id", "assignee_role_id", "function", "source", "occurrences", "sessions", "users", "volumeRange", "library"]
+        assert columns == [
+            "id",
+            "status",
+            "name",
+            "description",
+            "last_seen",
+            "first_seen",
+            "assignee_user_id",
+            "assignee_role_id",
+            "function",
+            "source",
+            "occurrences",
+            "sessions",
+            "users",
+            "volumeRange",
+            "library",
+        ]
 
         columns = self._calculate(withFirstEvent=True)["columns"]
-        assert columns == ["id", "status", "name", "description", "last_seen", "first_seen", "assignee_user_id", "assignee_role_id", "function", "source", "first_event", "library"]
+        assert columns == [
+            "id",
+            "status",
+            "name",
+            "description",
+            "last_seen",
+            "first_seen",
+            "assignee_user_id",
+            "assignee_role_id",
+            "function",
+            "source",
+            "first_event",
+            "library",
+        ]
 
     @freeze_time("2022-01-10T12:11:00")
     def test_user_assignee(self):

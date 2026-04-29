@@ -1,3 +1,4 @@
+import pytest
 from unittest import TestCase
 
 from parameterized import parameterized
@@ -5,7 +6,6 @@ from parameterized import parameterized
 from posthog.schema import BiasRisk, MultipleVariantHandling
 
 from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
-import pytest
 
 UNEVEN_2WAY = [{"rollout_percentage": 80}, {"rollout_percentage": 20}]
 EVEN_2WAY = [{"rollout_percentage": 50}, {"rollout_percentage": 50}]
@@ -21,7 +21,7 @@ class TestEvaluateBiasRisk(TestCase):
         )
         assert isinstance(result, BiasRisk)
         assert result is not None
-        assert result.multiple_variant_percentage == pytest.approx(20 / 1020 * 100, abs=10**(-5) * 0.5)
+        assert result.multiple_variant_percentage == pytest.approx(20 / 1020 * 100, abs=10 ** (-5) * 0.5)
 
     def test_auto_even_3way_is_treated_as_even(self):
         # 34/33/33 is what the auto-distribution produces — must NOT be flagged as uneven.

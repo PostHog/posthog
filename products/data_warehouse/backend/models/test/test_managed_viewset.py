@@ -266,7 +266,7 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
     def assertQueryIsNotEmpty(self, saved_query: DataWarehouseSavedQuery, msg: str | None = None) -> None:
         assert saved_query.query is not None
         query_str = saved_query.query.get("query", "")
-        assert not "where false" in query_str.lower(), msg
+        assert "where false" not in query_str.lower(), msg
 
     @patch(SCHEDULE_MATERIALIZATION)
     def test_sync_views_produces_empty_queries_when_no_tables_exist(self, _):
@@ -364,7 +364,12 @@ class TestManagedViewSetSyncWithStripeSource(BaseTest):
 
         assert len(counts_observed_during_schedule) == expected_view_count
         for count in counts_observed_during_schedule:
-            assert count == expected_view_count, f"Expected all {expected_view_count} saved queries to be persisted when " f"schedule_materialization runs (phase 2 after commit), but saw count={count}. " f"This regression indicates schedule_materialization is being called from inside " f"the sync_views transaction."
+            assert count == expected_view_count, (
+                f"Expected all {expected_view_count} saved queries to be persisted when "
+                f"schedule_materialization runs (phase 2 after commit), but saw count={count}. "
+                f"This regression indicates schedule_materialization is being called from inside "
+                f"the sync_views transaction."
+            )
 
     def test_sync_views_persists_db_changes_when_schedule_materialization_fails(self):
         """Phase 2 failures (schedule_materialization raising) must not roll back the

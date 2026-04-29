@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -18,7 +19,6 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from posthog.test.test_journeys import journeys_for
 
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-from collections import Counter
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -180,7 +180,9 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        assert Counter([str(val["id"]) for val in serialized_actors]) == Counter([*success_target_persons, str(person_fail.uuid)])
+        assert Counter([str(val["id"]) for val in serialized_actors]) == Counter(
+            [*success_target_persons, str(person_fail.uuid)]
+        )
 
         # test all negatively_related
         filter = filter.shallow_clone(
@@ -194,7 +196,9 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         )
         _, serialized_actors, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
-        assert Counter([str(val["id"]) for val in serialized_actors]) == Counter([*failure_target_persons, str(person_succ.uuid)])
+        assert Counter([str(val["id"]) for val in serialized_actors]) == Counter(
+            [*failure_target_persons, str(person_succ.uuid)]
+        )
 
     def test_people_arent_returned_multiple_times(self):
         people = journeys_for(
@@ -297,7 +301,18 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         assert results[0]["id"] == p1.uuid
-        assert results[0]["matched_recordings"] == [{"events": [{"timestamp": timezone.now() + timedelta(minutes=3), "uuid": UUID("21111111-1111-1111-1111-111111111111"), "window_id": "w2"}], "session_id": "s2"}]
+        assert results[0]["matched_recordings"] == [
+            {
+                "events": [
+                    {
+                        "timestamp": timezone.now() + timedelta(minutes=3),
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "window_id": "w2",
+                    }
+                ],
+                "session_id": "s2",
+            }
+        ]
 
         # Drop off filter
         filter = Filter(
@@ -322,7 +337,18 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         assert results[0]["id"] == p1.uuid
-        assert results[0]["matched_recordings"] == [{"events": [{"timestamp": timezone.now() + timedelta(minutes=3), "uuid": UUID("21111111-1111-1111-1111-111111111111"), "window_id": "w2"}], "session_id": "s2"}]
+        assert results[0]["matched_recordings"] == [
+            {
+                "events": [
+                    {
+                        "timestamp": timezone.now() + timedelta(minutes=3),
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "window_id": "w2",
+                    }
+                ],
+                "session_id": "s2",
+            }
+        ]
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -380,7 +406,18 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         assert results[0]["id"] == p1.uuid
-        assert results[0]["matched_recordings"] == [{"events": [{"timestamp": timezone.now() + timedelta(minutes=3), "uuid": UUID("21111111-1111-1111-1111-111111111111"), "window_id": "w2"}], "session_id": "s2"}]
+        assert results[0]["matched_recordings"] == [
+            {
+                "events": [
+                    {
+                        "timestamp": timezone.now() + timedelta(minutes=3),
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "window_id": "w2",
+                    }
+                ],
+                "session_id": "s2",
+            }
+        ]
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-02 00:00:00.000Z")
@@ -483,7 +520,18 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
 
         assert len(results) == 1
         assert results[0]["id"] == p1.uuid
-        assert results[0]["matched_recordings"] == [{"events": [{"timestamp": timezone.now() + timedelta(minutes=3), "uuid": UUID("31111111-1111-1111-1111-111111111111"), "window_id": "w2"}], "session_id": "s2"}]
+        assert results[0]["matched_recordings"] == [
+            {
+                "events": [
+                    {
+                        "timestamp": timezone.now() + timedelta(minutes=3),
+                        "uuid": UUID("31111111-1111-1111-1111-111111111111"),
+                        "window_id": "w2",
+                    }
+                ],
+                "session_id": "s2",
+            }
+        ]
 
         # Drop off filter
         filter = Filter(
@@ -512,4 +560,15 @@ class TestClickhouseFunnelCorrelationsActors(ClickhouseTestMixin, APIBaseTest):
         _, results, _ = FunnelCorrelationActors(filter, self.team).get_actors()
 
         assert results[0]["id"] == p2.uuid
-        assert results[0]["matched_recordings"] == [{"events": [{"timestamp": timezone.now(), "uuid": UUID("51111111-1111-1111-1111-111111111111"), "window_id": "w1"}], "session_id": "s3"}]
+        assert results[0]["matched_recordings"] == [
+            {
+                "events": [
+                    {
+                        "timestamp": timezone.now(),
+                        "uuid": UUID("51111111-1111-1111-1111-111111111111"),
+                        "window_id": "w1",
+                    }
+                ],
+                "session_id": "s3",
+            }
+        ]

@@ -300,19 +300,19 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert test_variant.success_count == 3
         assert test_variant.failure_count == 1
 
-        assert result.probability["control"] == pytest.approx(0.407, abs=10**(-2) * 0.5)
-        assert result.probability["test"] == pytest.approx(0.593, abs=10**(-2) * 0.5)
+        assert result.probability["control"] == pytest.approx(0.407, abs=10 ** (-2) * 0.5)
+        assert result.probability["test"] == pytest.approx(0.593, abs=10 ** (-2) * 0.5)
 
-        assert result.credible_intervals["control"][0] == pytest.approx(0.1941, abs=10**(-3) * 0.5)
-        assert result.credible_intervals["control"][1] == pytest.approx(0.9324, abs=10**(-3) * 0.5)
-        assert result.credible_intervals["test"][0] == pytest.approx(0.2836, abs=10**(-3) * 0.5)
-        assert result.credible_intervals["test"][1] == pytest.approx(0.9473, abs=10**(-3) * 0.5)
+        assert result.credible_intervals["control"][0] == pytest.approx(0.1941, abs=10 ** (-3) * 0.5)
+        assert result.credible_intervals["control"][1] == pytest.approx(0.9324, abs=10 ** (-3) * 0.5)
+        assert result.credible_intervals["test"][0] == pytest.approx(0.2836, abs=10 ** (-3) * 0.5)
+        assert result.credible_intervals["test"][1] == pytest.approx(0.9473, abs=10 ** (-3) * 0.5)
 
         assert result.significance_code == ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE
 
         assert not result.significant
         assert len(result.variants) == 2
-        assert result.expected_loss == pytest.approx(1.0, abs=10**(-1) * 0.5)
+        assert result.expected_loss == pytest.approx(1.0, abs=10 ** (-1) * 0.5)
 
     @parameterized.expand(
         [
@@ -695,7 +695,12 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             control_variant = next(v for v in result.variants if v.key == "control")
             test_variant = next(v for v in result.variants if v.key == "test")
 
-            assert {"control_success": int(control_variant.success_count), "control_failure": int(control_variant.failure_count), "test_success": int(test_variant.success_count), "test_failure": int(test_variant.failure_count)} == expected_results
+            assert {
+                "control_success": int(control_variant.success_count),
+                "control_failure": int(control_variant.failure_count),
+                "test_success": int(test_variant.success_count),
+                "test_failure": int(test_variant.failure_count),
+            } == expected_results
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner_with_holdout(self):

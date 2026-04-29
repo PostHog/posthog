@@ -1,5 +1,6 @@
 import uuid
 import typing as t
+from collections import Counter
 from typing import cast
 
 from freezegun import freeze_time
@@ -63,7 +64,6 @@ from products.data_warehouse.backend.models.revenue_analytics_config import Exte
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import IncrementalFieldType
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
-from collections import Counter
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -891,8 +891,7 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
 
         assert response.status_code == 200
-        assert (
-            list(payload.keys()) == [
+        assert list(payload.keys()) == [
             "id",
             "created_at",
             "created_by",
@@ -909,10 +908,29 @@ class TestExternalDataSource(APIBaseTest):
             "revenue_analytics_config",
             "user_access_level",
             "supports_webhooks",
-            ]
-        )
+        ]
         assert payload["engine"] is None
-        assert payload["schemas"] == [{"id": str(schema.pk), "incremental": False, "incremental_field": None, "incremental_field_type": None, "last_synced_at": schema.last_synced_at, "name": schema.name, "label": schema.label, "latest_error": schema.latest_error, "should_sync": schema.should_sync, "status": schema.status, "sync_type": schema.sync_type, "table": schema.table, "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval), "sync_time_of_day": schema.sync_time_of_day, "description": schema.description, "primary_key_columns": None, "cdc_table_mode": "consolidated"}]
+        assert payload["schemas"] == [
+            {
+                "id": str(schema.pk),
+                "incremental": False,
+                "incremental_field": None,
+                "incremental_field_type": None,
+                "last_synced_at": schema.last_synced_at,
+                "name": schema.name,
+                "label": schema.label,
+                "latest_error": schema.latest_error,
+                "should_sync": schema.should_sync,
+                "status": schema.status,
+                "sync_type": schema.sync_type,
+                "table": schema.table,
+                "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
+                "sync_time_of_day": schema.sync_time_of_day,
+                "description": schema.description,
+                "primary_key_columns": None,
+                "cdc_table_mode": "consolidated",
+            }
+        ]
 
     def test_delete_external_data_source(self):
         source = self._create_external_data_source()
@@ -1045,7 +1063,9 @@ class TestExternalDataSource(APIBaseTest):
         assert data["added"] == 1
         assert data["deleted"] == 0
         assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count() == 2
-        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="new_table", deleted=False).exists()
+        assert ExternalDataSchema.objects.filter(
+            team_id=self.team.pk, source_id=source.pk, name="new_table", deleted=False
+        ).exists()
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_idempotent_no_duplicates(self, mock_get_source):
@@ -1062,7 +1082,12 @@ class TestExternalDataSource(APIBaseTest):
 
         assert response2.status_code == 200
         assert response2.json()["added"] == 0
-        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="only_one", deleted=False).count() == 1
+        assert (
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="only_one", deleted=False
+            ).count()
+            == 1
+        )
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_restores_deleted_schema_instead_of_creating_duplicate(self, mock_get_source):
@@ -1094,8 +1119,16 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["added"] == 1
         assert response.json()["deleted"] == 0
-        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="restored_table", deleted=False).count() == 1
-        assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="restored_table").count() == 1
+        assert (
+            ExternalDataSchema.objects.filter(
+                team_id=self.team.pk, source_id=source.pk, name="restored_table", deleted=False
+            ).count()
+            == 1
+        )
+        assert (
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, name="restored_table").count()
+            == 1
+        )
 
         restored_schema = ExternalDataSchema.objects.get(pk=deleted_schema.pk)
         assert not restored_schema.deleted
@@ -1232,11 +1265,18 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert mock_trigger.call_count == 0
         assert ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=source.pk, deleted=False).count() == 1
-        assert DataWarehouseTable.objects.filter(team_id=self.team.pk, external_data_source=source, deleted=False, name="table_a").count() == 0
+        assert (
+            DataWarehouseTable.objects.filter(
+                team_id=self.team.pk, external_data_source=source, deleted=False, name="table_a"
+            ).count()
+            == 0
+        )
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="table_a")
         assert not schema.should_sync
         assert schema.table is None
-        assert schema.sync_type_config.get("schema_metadata", {}).get("foreign_keys") == [{"column": "user_id", "target_table": "posthog_user", "target_column": "id"}]
+        assert schema.sync_type_config.get("schema_metadata", {}).get("foreign_keys") == [
+            {"column": "user_id", "target_table": "posthog_user", "target_column": "id"}
+        ]
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_refresh_schemas_direct_postgres_soft_deletes_live_tables_for_deleted_schemas(self, mock_get_source):
@@ -1701,7 +1741,12 @@ class TestExternalDataSource(APIBaseTest):
         assert accounts_schema.table is not None
         assert payments_schema.table is None
 
-        assert DataWarehouseTable.objects.filter(team_id=self.team.pk, external_data_source=source, deleted=False, name="accounts").count() == 1
+        assert (
+            DataWarehouseTable.objects.filter(
+                team_id=self.team.pk, external_data_source=source, deleted=False, name="accounts"
+            ).count()
+            == 1
+        )
 
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_direct_postgres_blank_schema_prefixes_table_names_and_preserves_physical_schema(
@@ -4062,7 +4107,9 @@ class TestExternalDataSource(APIBaseTest):
                 assert response.status_code == 400, f"Expected rejection for prefix '{prefix}' ({reason})"
                 response_text = str(response.json()).lower()
                 # Different invalid prefixes return different error messages
-                assert "prefix" in response_text and ("letters" in response_text or "underscores" in response_text), f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}"
+                assert "prefix" in response_text and ("letters" in response_text or "underscores" in response_text), (
+                    f"Expected error message about prefix validation for '{prefix}' ({reason}), got: {response.json()}"
+                )
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",

@@ -60,7 +60,9 @@ class TestReviewQueuesApi(APIBaseTest):
         response = self.client.post(self._queues_endpoint(), {"name": "Escalations"}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data == self.validation_error_response(message="A queue with this name already exists.", attr="name")
+        assert response.data == self.validation_error_response(
+            message="A queue with this name already exists.", attr="name"
+        )
 
     def test_can_list_queues_filtered_by_search(self):
         self._create_queue(name="Support queue")
@@ -106,7 +108,9 @@ class TestReviewQueuesApi(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data == self.validation_error_response(message="This trace is already reviewed and cannot be added to a queue.", attr="trace_id")
+        assert response.data == self.validation_error_response(
+            message="This trace is already reviewed and cannot be added to a queue.", attr="trace_id"
+        )
 
     def test_save_rechecks_trace_review_created_after_validation(self):
         queue = self._create_queue()
@@ -136,7 +140,9 @@ class TestReviewQueuesApi(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data == self.validation_error_response(message="This trace is already pending in another queue.", attr="trace_id")
+        assert response.data == self.validation_error_response(
+            message="This trace is already pending in another queue.", attr="trace_id"
+        )
 
     def test_cannot_add_pending_trace_to_same_queue_twice(self):
         queue = self._create_queue()
@@ -149,7 +155,9 @@ class TestReviewQueuesApi(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data == self.validation_error_response(message="This trace is already pending in this queue.", attr="trace_id")
+        assert response.data == self.validation_error_response(
+            message="This trace is already pending in this queue.", attr="trace_id"
+        )
 
     def test_can_move_pending_trace_to_another_queue(self):
         first_queue = self._create_queue(name="First queue")
@@ -177,7 +185,9 @@ class TestReviewQueuesApi(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data == self.validation_error_response(message="This field is required.", code="required", attr="queue_id")
+        assert response.data == self.validation_error_response(
+            message="This field is required.", code="required", attr="queue_id"
+        )
 
     def test_can_list_queue_items_filtered_by_queue_id_and_trace_ids(self):
         queue = self._create_queue(name="Support queue")

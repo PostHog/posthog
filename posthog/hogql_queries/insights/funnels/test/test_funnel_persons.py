@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
@@ -35,7 +36,6 @@ from posthog.models.person.util import bulk_create_persons
 from posthog.models.team.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
-from collections import Counter
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
@@ -376,39 +376,35 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(query, self.team, funnel_step=2, include_recordings=True)
         # self.assertEqual(results[0]["id"], p1.uuid)
         assert results[0][0] == p1.uuid
-        assert (
-            list(results[0][2]) == [
+        assert list(results[0][2]) == [
             {
-            "session_id": "s2",
-            "events": [
-            {
-            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-            "timestamp": timezone.now() + timedelta(days=1),
-            "window_id": "w2",
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
             }
-            ],
-            }
-            ]
-        )
+        ]
 
         # Third event dropoff, with recording
         results = get_actors(query, self.team, funnel_step=-3, include_recordings=True)
         # self.assertEqual(results[0]["id"], p1.uuid)
         assert results[0][0] == p1.uuid
-        assert (
-            list(results[0][2]) == [
+        assert list(results[0][2]) == [
             {
-            "session_id": "s2",
-            "events": [
-            {
-            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-            "timestamp": timezone.now() + timedelta(days=1),
-            "window_id": "w2",
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
             }
-            ],
-            }
-            ]
-        )
+        ]
 
     def test_parses_step_breakdown_correctly(self):
         person1 = _create_person(

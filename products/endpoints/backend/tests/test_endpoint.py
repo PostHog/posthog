@@ -828,8 +828,12 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         assert "test_query_1" in query_timestamps, f"test_query_1 not found in results: {results}"
         assert "test_query_2" in query_timestamps, f"test_query_2 not found in results: {results}"
-        assert datetime.fromisoformat(query_timestamps["test_query_1"]) is not None, f"Invalid timestamp format for test_query_1: {query_timestamps['test_query_1']}"
-        assert datetime.fromisoformat(query_timestamps["test_query_2"]) is not None, f"Invalid timestamp format for test_query_2: {query_timestamps['test_query_2']}"
+        assert datetime.fromisoformat(query_timestamps["test_query_1"]) is not None, (
+            f"Invalid timestamp format for test_query_1: {query_timestamps['test_query_1']}"
+        )
+        assert datetime.fromisoformat(query_timestamps["test_query_2"]) is not None, (
+            f"Invalid timestamp format for test_query_2: {query_timestamps['test_query_2']}"
+        )
 
     def test_get_last_execution_times_with_nonexistent_query(self):
         """Test getting last execution times with a nonexistent query."""
@@ -957,7 +961,9 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
             assert response.status_code == status.HTTP_200_OK
             response_data = response.json()
-            assert response_data.get("is_cached", False), f"Should still use cache at {time_within_freshness_min} minutes"
+            assert response_data.get("is_cached", False), (
+                f"Should still use cache at {time_within_freshness_min} minutes"
+            )
 
         # Move time forward (past freshness window) - should recalculate
         hours_past = time_past_freshness_min // 60
@@ -966,7 +972,9 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/")
             assert response.status_code == status.HTTP_200_OK
             response_data = response.json()
-            assert not response_data.get("is_cached", True), f"Should recalculate after {time_past_freshness_min} minutes"
+            assert not response_data.get("is_cached", True), (
+                f"Should recalculate after {time_past_freshness_min} minutes"
+            )
 
     @freeze_time("2025-01-01 12:00:00")
     def test_default_data_freshness(self):

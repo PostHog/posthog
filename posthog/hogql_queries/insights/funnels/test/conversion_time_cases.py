@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime
 from typing import Optional
 
@@ -9,7 +10,6 @@ from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.test.test_journeys import journeys_for
-from collections import Counter
 
 
 def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
@@ -205,19 +205,19 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
             assert results[1]["count"] == 2
             assert results[1]["average_conversion_time"] == 600
 
-            assert (
-                Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-                people["stopped_after_signup1"].uuid,
-                people["stopped_after_signup2"].uuid,
-                people["stopped_after_signup3"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup2"].uuid,
+                    people["stopped_after_signup3"].uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(query, 2)) == Counter([
-                people["stopped_after_signup1"].uuid,
-                people["stopped_after_signup3"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup3"].uuid,
+                ]
             )
 
             query = FunnelsQuery(
@@ -249,12 +249,12 @@ def funnel_conversion_time_test_factory(funnel_order_type: FunnelOrderType):
             assert result4[1]["count"] == 1
             assert result4[1]["average_conversion_time"] == 300
 
-            assert (
-                Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-                people["stopped_after_signup1"].uuid,
-                people["stopped_after_signup2"].uuid,
-                people["stopped_after_signup3"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup2"].uuid,
+                    people["stopped_after_signup3"].uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([people["stopped_after_signup1"].uuid])

@@ -194,8 +194,7 @@ class TestExports(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
         data = response.json()
-        assert (
-            data == {
+        assert data == {
             "id": data["id"],
             "created_at": data["created_at"],
             "insight": self.insight.id,
@@ -210,8 +209,7 @@ class TestExports(APIBaseTest):
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .isoformat()
             .replace("+00:00", "Z"),
-            }
-        )
+        }
 
         self._assert_logs_the_activity(
             insight_id=self.insight.id,
@@ -266,12 +264,22 @@ class TestExports(APIBaseTest):
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"attr": None, "code": "invalid_input", "detail": "Either dashboard, insight or export_context is required for an export.", "type": "validation_error"}
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Either dashboard, insight or export_context is required for an export.",
+            "type": "validation_error",
+        }
 
     def test_errors_if_bad_format(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "not/allowed"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"attr": "export_format", "code": "invalid_choice", "detail": '"not/allowed" is not a valid choice.', "type": "validation_error"}
+        assert response.json() == {
+            "attr": "export_format",
+            "code": "invalid_choice",
+            "detail": '"not/allowed" is not a valid choice.',
+            "type": "validation_error",
+        }
 
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_will_error_if_export_unsupported(self, mock_exporter_task) -> None:
@@ -280,7 +288,12 @@ class TestExports(APIBaseTest):
             {"export_format": "image/jpeg", "insight": self.insight.id},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"attr": "export_format", "code": "invalid_choice", "detail": '"image/jpeg" is not a valid choice.', "type": "validation_error"}
+        assert response.json() == {
+            "attr": "export_format",
+            "code": "invalid_choice",
+            "detail": '"image/jpeg" is not a valid choice.',
+            "type": "validation_error",
+        }
 
     def test_will_error_if_dashboard_missing(self) -> None:
         response = self.client.post(
@@ -288,7 +301,12 @@ class TestExports(APIBaseTest):
             {"export_format": "application/pdf", "dashboard": 54321},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"attr": "dashboard", "code": "does_not_exist", "detail": 'Invalid pk "54321" - object does not exist.', "type": "validation_error"}
+        assert response.json() == {
+            "attr": "dashboard",
+            "code": "does_not_exist",
+            "detail": 'Invalid pk "54321" - object does not exist.',
+            "type": "validation_error",
+        }
 
     def test_will_error_if_export_contains_other_team_dashboard(self) -> None:
         other_team = Team.objects.create(
@@ -312,7 +330,12 @@ class TestExports(APIBaseTest):
             {"export_format": "application/pdf", "dashboard": other_dashboard.id},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"attr": "dashboard", "code": "invalid_input", "detail": "This dashboard does not belong to your team.", "type": "validation_error"}
+        assert response.json() == {
+            "attr": "dashboard",
+            "code": "invalid_input",
+            "detail": "This dashboard does not belong to your team.",
+            "type": "validation_error",
+        }
 
     def test_will_error_if_export_contains_other_team_insight(self) -> None:
         other_team = Team.objects.create(
@@ -338,7 +361,12 @@ class TestExports(APIBaseTest):
             {"export_format": "application/pdf", "insight": other_insight.id},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"attr": "insight", "code": "invalid_input", "detail": "This insight does not belong to your team.", "type": "validation_error"}
+        assert response.json() == {
+            "attr": "insight",
+            "code": "invalid_input",
+            "detail": "This insight does not belong to your team.",
+            "type": "validation_error",
+        }
 
     @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
     @patch("posthog.tasks.exports.csv_exporter.requests.request")

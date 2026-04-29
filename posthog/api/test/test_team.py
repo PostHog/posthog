@@ -94,7 +94,9 @@ def team_api_test_factory():
             assert response_data["timezone"] == "UTC"
             assert not response_data["is_demo"]
             assert not response_data["has_group_types"]
-            assert response_data["person_on_events_querying_enabled"] == (get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED"))
+            assert response_data["person_on_events_querying_enabled"] == (
+                get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("PERSON_ON_EVENTS_V2_ENABLED")
+            )
 
             # TODO: These assertions will no longer make sense when we fully remove these attributes from the model
             assert "event_names" not in response_data
@@ -132,7 +134,35 @@ def team_api_test_factory():
 
             assert response.status_code == status.HTTP_200_OK, response_data
             assert response_data["has_group_types"]
-            assert response_data["group_types"] == [{"group_type": "person", "group_type_index": 0, "name_singular": None, "name_plural": None, "default_columns": None, "detail_dashboard": None, "created_at": None}, {"group_type": "place", "group_type_index": 1, "name_singular": None, "name_plural": None, "default_columns": None, "detail_dashboard": None, "created_at": None}, {"group_type": "thing", "group_type_index": 2, "name_singular": None, "name_plural": None, "default_columns": None, "detail_dashboard": None, "created_at": None}]
+            assert response_data["group_types"] == [
+                {
+                    "group_type": "person",
+                    "group_type_index": 0,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "default_columns": None,
+                    "detail_dashboard": None,
+                    "created_at": None,
+                },
+                {
+                    "group_type": "place",
+                    "group_type_index": 1,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "default_columns": None,
+                    "detail_dashboard": None,
+                    "created_at": None,
+                },
+                {
+                    "group_type": "thing",
+                    "group_type_index": 2,
+                    "name_singular": None,
+                    "name_plural": None,
+                    "default_columns": None,
+                    "detail_dashboard": None,
+                    "created_at": None,
+                },
+            ]
 
         def test_group_types_graceful_degradation_on_db_failure(self):
             """When the persons DB is unreachable and no stale data exists, the
@@ -276,7 +306,12 @@ def team_api_test_factory():
 
             response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
             assert response.status_code == status.HTTP_403_FORBIDDEN
-            assert response.json() == {"type": "authentication_error", "code": "permission_denied", "detail": "Only organization owners and admins can modify the receive_org_level_activity_logs setting.", "attr": None}
+            assert response.json() == {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "Only organization owners and admins can modify the receive_org_level_activity_logs setting.",
+                "attr": None,
+            }
 
             self.team.refresh_from_db()
             assert not self.team.receive_org_level_activity_logs
@@ -302,7 +337,12 @@ def team_api_test_factory():
         def test_cannot_set_invalid_timezone_for_team(self):
             response = self.client.patch("/api/environments/@current/", {"timezone": "America/I_Dont_Exist"})
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {"type": "validation_error", "code": "invalid_choice", "detail": '"America/I_Dont_Exist" is not a valid choice.', "attr": "timezone"}
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "invalid_choice",
+                "detail": '"America/I_Dont_Exist" is not a valid choice.',
+                "attr": "timezone",
+            }
 
             self.team.refresh_from_db()
             assert self.team.timezone != "America/I_Dont_Exist"
@@ -1006,7 +1046,9 @@ def team_api_test_factory():
 
             response = self.client.patch("/api/environments/@current/", {"primary_dashboard": d.id})
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == self.validation_error_response("Dashboard does not belong to this team.", attr="primary_dashboard")
+            assert response.json() == self.validation_error_response(
+                "Dashboard does not belong to this team.", attr="primary_dashboard"
+            )
 
         def test_is_generating_demo_data(self):
             cache_key = f"is_generating_demo_data_{self.team.pk}"
@@ -2215,7 +2257,12 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
             assert response.status_code == status.HTTP_200_OK
 
-            assert SignalSourceConfig.objects.filter(team=self.team, source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY, source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER, enabled=True).exists()
+            assert SignalSourceConfig.objects.filter(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                enabled=True,
+            ).exists()
 
         @override_settings(DEBUG=True)
         def test_update_proactive_tasks_enabled_false_deletes_signal_source_config(self):
@@ -2232,7 +2279,11 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": False})
             assert response.status_code == status.HTTP_200_OK
 
-            assert not SignalSourceConfig.objects.filter(team=self.team, source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY, source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER).exists()
+            assert not SignalSourceConfig.objects.filter(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+            ).exists()
 
         @override_settings(DEBUG=True)
         def test_update_proactive_tasks_enabled_true_is_idempotent(self):
@@ -2249,7 +2300,14 @@ def team_api_test_factory():
             response = self.client.patch("/api/environments/@current/", {"proactive_tasks_enabled": True})
             assert response.status_code == status.HTTP_200_OK
 
-            assert SignalSourceConfig.objects.filter(team=self.team, source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY, source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER).count() == 1
+            assert (
+                SignalSourceConfig.objects.filter(
+                    team=self.team,
+                    source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
+                    source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
+                ).count()
+                == 1
+            )
 
         def test_can_set_session_recording_trigger_groups(self):
             """Test that we can create and update session_recording_trigger_groups field"""
@@ -2789,7 +2847,9 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         assert response.status_code == status.HTTP_200_OK
-        assert {team["id"] for team in response.json()["results"]} == {team_in_other_org.id}, "Only the team belonging to the scoped organization should be listed, the other one should be excluded"
+        assert {team["id"] for team in response.json()["results"]} == {team_in_other_org.id}, (
+            "Only the team belonging to the scoped organization should be listed, the other one should be excluded"
+        )
 
     @override_settings(
         OAUTH2_PROVIDER={
@@ -2858,7 +2918,9 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.get("/api/environments/", headers={"authorization": f"Bearer {access_token.token}"})
 
         assert response.status_code == status.HTTP_200_OK
-        assert {team["id"] for team in response.json()["results"]} == {team_in_other_org.id}, "Only the team belonging to the scoped organization should be listed, the other one should be excluded"
+        assert {team["id"] for team in response.json()["results"]} == {team_in_other_org.id}, (
+            "Only the team belonging to the scoped organization should be listed, the other one should be excluded"
+        )
 
     @override_settings(SITE_URL="https://eu.posthog.com", CLOUD_DEPLOYMENT="EU")
     def test_new_eu_organization_defaults_to_anonymize_ips_true(self):

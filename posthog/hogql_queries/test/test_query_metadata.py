@@ -1,3 +1,5 @@
+from collections import Counter
+
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
@@ -34,7 +36,6 @@ from posthog.schema import (
 
 from posthog.hogql_queries.query_metadata import QueryEventsExtractor
 from posthog.models import Action
-from collections import Counter
 
 
 class TestQueryEventsExtractor(TestCase):

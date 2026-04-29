@@ -40,7 +40,11 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ign
         assert Team.objects.count() == 2
         assert Project.objects.count() == 2
         response_data = response.json()
-        assert {"name": "Test", "access_control": False, "effective_membership_level": OrganizationMembership.Level.ADMIN}.items() <= response_data.items()
+        assert {
+            "name": "Test",
+            "access_control": False,
+            "effective_membership_level": OrganizationMembership.Level.ADMIN,
+        }.items() <= response_data.items()
         assert self.organization.teams.count() == 2
 
     def test_user_create_project_for_org_via_url(self):
@@ -103,7 +107,12 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ign
 
         response = self.client.post("/api/projects/", {"name": "Test"})
         assert response.status_code == 404, response.content
-        assert response.json() == {"type": "invalid_request", "code": "not_found", "detail": "You need to belong to an organization.", "attr": None}
+        assert response.json() == {
+            "type": "invalid_request",
+            "code": "not_found",
+            "detail": "You need to belong to an organization.",
+            "attr": None,
+        }
 
     def test_rename_project_as_org_member_allowed(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -139,9 +148,38 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ign
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         assert projects_response.status_code == 200
-        assert projects_response.json().get("results") == [{"id": self.team.id, "uuid": str(self.team.uuid), "organization": str(self.organization.id), "api_token": self.team.api_token, "name": self.team.name, "completed_snippet_onboarding": False, "has_completed_onboarding_for": {"product_analytics": True}, "ingested_event": False, "is_demo": False, "timezone": "UTC", "access_control": False}]
+        assert projects_response.json().get("results") == [
+            {
+                "id": self.team.id,
+                "uuid": str(self.team.uuid),
+                "organization": str(self.organization.id),
+                "api_token": self.team.api_token,
+                "name": self.team.name,
+                "completed_snippet_onboarding": False,
+                "has_completed_onboarding_for": {"product_analytics": True},
+                "ingested_event": False,
+                "is_demo": False,
+                "timezone": "UTC",
+                "access_control": False,
+            }
+        ]
         assert current_org_response.status_code == 200
-        assert current_org_response.json().get("teams") == [{"id": self.team.id, "uuid": str(self.team.uuid), "organization": str(self.organization.id), "project_id": self.team.project.id, "api_token": self.team.api_token, "name": self.team.name, "completed_snippet_onboarding": False, "has_completed_onboarding_for": {"product_analytics": True}, "ingested_event": False, "is_demo": False, "timezone": "UTC", "access_control": False}]
+        assert current_org_response.json().get("teams") == [
+            {
+                "id": self.team.id,
+                "uuid": str(self.team.uuid),
+                "organization": str(self.organization.id),
+                "project_id": self.team.project.id,
+                "api_token": self.team.api_token,
+                "name": self.team.name,
+                "completed_snippet_onboarding": False,
+                "has_completed_onboarding_for": {"product_analytics": True},
+                "ingested_event": False,
+                "is_demo": False,
+                "timezone": "UTC",
+                "access_control": False,
+            }
+        ]
 
     def test_cannot_create_project_in_org_without_access(self):
         self.organization_membership.delete()

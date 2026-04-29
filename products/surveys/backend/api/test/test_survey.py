@@ -873,7 +873,10 @@ class TestSurvey(APIBaseTest):
 
             assert result["count"] == 2
 
-            assert [(res["key"], sorted([survey["id"] for survey in res["surveys"]])) for res in result["results"]] == [("flag_0", []), (ff_key, sorted([created_survey1, created_survey2]))]
+            assert [(res["key"], sorted([survey["id"] for survey in res["surveys"]])) for res in result["results"]] == [
+                ("flag_0", []),
+                (ff_key, sorted([created_survey1, created_survey2])),
+            ]
 
     def test_updating_survey_with_invalid_iteration_count_is_rejected(self):
         survey_with_targeting = self.client.post(
@@ -4933,7 +4936,10 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         error_data = response.json()
-        assert "Feature flag variant 'some_variant' specified but the linked feature flag has no variants" in error_data["detail"]
+        assert (
+            "Feature flag variant 'some_variant' specified but the linked feature flag has no variants"
+            in error_data["detail"]
+        )
 
     def test_create_survey_with_linked_flag_variant_without_flag_id(self):
         """Test creating a survey with linkedFlagVariant but no linked_flag_id"""

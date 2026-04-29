@@ -575,7 +575,10 @@ class TestOAuthAPI(APIBaseTest):
 
         assert not serializer.is_valid()
         assert "scoped_organizations" in serializer.errors
-        assert serializer.errors["scoped_organizations"][0] == "scoped_organizations is not allowed when access_level is all"
+        assert (
+            serializer.errors["scoped_organizations"][0]
+            == "scoped_organizations is not allowed when access_level is all"
+        )
 
     def test_invalid_scoped_teams_with_organization_access_level(self):
         data = {
@@ -598,7 +601,10 @@ class TestOAuthAPI(APIBaseTest):
         serializer = OAuthAuthorizationSerializer(data=data, context={"user": self.user})
         assert not serializer.is_valid()
         assert "scoped_organizations" in serializer.errors
-        assert serializer.errors["scoped_organizations"][0] == "scoped_organizations is required when access_level is organization"
+        assert (
+            serializer.errors["scoped_organizations"][0]
+            == "scoped_organizations is required when access_level is organization"
+        )
 
     def test_missing_scoped_teams_with_team_access_level(self):
         data = {
@@ -981,7 +987,9 @@ class TestOAuthAPI(APIBaseTest):
 
         assert not serializer.is_valid()
         assert "scoped_organizations" in serializer.errors
-        assert "Invalid organization specified or you do not have access" in str(serializer.errors["scoped_organizations"][0])
+        assert "Invalid organization specified or you do not have access" in str(
+            serializer.errors["scoped_organizations"][0]
+        )
 
     def test_cannot_scope_to_unauthorized_team(self):
         from posthog.models import Organization
@@ -2904,7 +2912,9 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
 
         for field in endpoint_fields:
             assert field in metadata
-            assert metadata[field].startswith("http://") or metadata[field].startswith("https://"), f"{field} should be a valid URL, got: {metadata[field]}"
+            assert metadata[field].startswith("http://") or metadata[field].startswith("https://"), (
+                f"{field} should be a valid URL, got: {metadata[field]}"
+            )
 
     def test_metadata_includes_supported_features(self):
         response = self.client.get("/.well-known/oauth-authorization-server")

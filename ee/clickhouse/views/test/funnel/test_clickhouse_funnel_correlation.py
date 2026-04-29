@@ -466,38 +466,36 @@ class FunnelCorrelationTest(BaseTest):
         expected_odds_ratios = [121, 1 / 121]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": {
-            "event": "$browser::Positive",
-            "elements": [],
-            "properties": {},
-            },
-            "success_count": 10,
-            "failure_count": 0,
-            "success_people_url": ANY,
-            "failure_people_url": ANY,
-            # "odds_ratio": 121.0,
-            "correlation_type": "success",
+                "event": {
+                    "event": "$browser::Positive",
+                    "elements": [],
+                    "properties": {},
+                },
+                "success_count": 10,
+                "failure_count": 0,
+                "success_people_url": ANY,
+                "failure_people_url": ANY,
+                # "odds_ratio": 121.0,
+                "correlation_type": "success",
             },
             {
-            "event": {
-            "event": "$browser::Negative",
-            "elements": [],
-            "properties": {},
+                "event": {
+                    "event": "$browser::Negative",
+                    "elements": [],
+                    "properties": {},
+                },
+                "success_count": 0,
+                "failure_count": 10,
+                "success_people_url": ANY,
+                "failure_people_url": ANY,
+                # "odds_ratio": 1 / 121,
+                "correlation_type": "failure",
             },
-            "success_count": 0,
-            "failure_count": 10,
-            "success_people_url": ANY,
-            "failure_people_url": ANY,
-            # "odds_ratio": 1 / 121,
-            "correlation_type": "failure",
-            },
-            ]
-        )
+        ]
 
     def test_properties_correlation_endpoint_provides_people_drill_down_urls(self):
         """

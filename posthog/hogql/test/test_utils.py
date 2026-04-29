@@ -156,12 +156,17 @@ class TestIlikeMatches(BaseTest):
         clickhouse_result = result.results[0][0] == 1
 
         # Verify our expectation matches ClickHouse
-        assert clickhouse_result == expected, f"ClickHouse ilike({text!r}, {pattern!r}) returned {clickhouse_result}, expected {expected}"
+        assert clickhouse_result == expected, (
+            f"ClickHouse ilike({text!r}, {pattern!r}) returned {clickhouse_result}, expected {expected}"
+        )
 
         # Verify our Python implementation matches ClickHouse
         python_result = ilike_matches(pattern, text)
 
-        assert python_result == clickhouse_result, f"Python ilike_matches({pattern!r}, {text!r}) returned {python_result}, " f"but ClickHouse returned {clickhouse_result}"
+        assert python_result == clickhouse_result, (
+            f"Python ilike_matches({pattern!r}, {text!r}) returned {python_result}, "
+            f"but ClickHouse returned {clickhouse_result}"
+        )
 
 
 class TestLikeMatches(BaseTest):
@@ -318,11 +323,16 @@ class TestLikeMatches(BaseTest):
         )
         clickhouse_result = result.results[0][0] == 1
 
-        assert clickhouse_result == expected, f"ClickHouse like({text!r}, {pattern!r}) returned {clickhouse_result}, expected {expected}"
+        assert clickhouse_result == expected, (
+            f"ClickHouse like({text!r}, {pattern!r}) returned {clickhouse_result}, expected {expected}"
+        )
 
         python_result = like_matches(pattern, text)
 
-        assert python_result == clickhouse_result, f"Python like_matches({pattern!r}, {text!r}) returned {python_result}, " f"but ClickHouse returned {clickhouse_result}"
+        assert python_result == clickhouse_result, (
+            f"Python like_matches({pattern!r}, {text!r}) returned {python_result}, "
+            f"but ClickHouse returned {clickhouse_result}"
+        )
 
 
 class TestUtils(BaseTest):

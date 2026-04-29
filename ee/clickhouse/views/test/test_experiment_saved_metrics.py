@@ -1,3 +1,5 @@
+from collections import Counter
+
 from unittest.mock import patch
 
 from rest_framework import status
@@ -6,7 +8,6 @@ from products.experiments.backend.experiment_saved_metric_service import Experim
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
 
 from ee.api.test.base import APILicensedTest
-from collections import Counter
 
 
 class TestExperimentSavedMetricsCRUD(APILicensedTest):
@@ -162,7 +163,12 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         assert response.json()["description"] == "Test description"
         saved_metric_uuid = response.json()["query"]["uuid"]
         assert saved_metric_uuid
-        assert response.json()["query"] == {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}, "uuid": saved_metric_uuid}
+        assert response.json()["query"] == {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+            "uuid": saved_metric_uuid,
+        }
         assert response.json()["created_by"]["id"] == self.user.pk
         assert response.json()["tags"] == ["tag1"]
         # Generate experiment to have saved metric
@@ -201,7 +207,12 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
         assert saved_metric is not None
         assert saved_metric.id == saved_metric_id
-        assert saved_metric.query == {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageview"}, "uuid": saved_metric_uuid}
+        assert saved_metric.query == {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+            "uuid": saved_metric_uuid,
+        }
 
         # Now try updating saved metric
         response = self.client.patch(
@@ -219,14 +230,24 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Test Experiment saved metric 2"
-        assert response.json()["query"] == {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageleave"}, "uuid": saved_metric_uuid}
+        assert response.json()["query"] == {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageleave"},
+            "uuid": saved_metric_uuid,
+        }
 
         # make sure experiment in question was updated as well
         assert Experiment.objects.get(pk=exp_id).saved_metrics.count() == 1
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
         assert saved_metric is not None
         assert saved_metric.id == saved_metric_id
-        assert saved_metric.query == {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "$pageleave"}, "uuid": saved_metric_uuid}
+        assert saved_metric.query == {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageleave"},
+            "uuid": saved_metric_uuid,
+        }
         assert saved_metric.name == "Test Experiment saved metric 2"
         assert saved_metric.description == "Test description 2"
 
@@ -345,7 +366,10 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'" in response.json()["detail"]
+        assert (
+            "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
+            in response.json()["detail"]
+        )
 
     def test_create_saved_metric_with_experiment_metric_ratio(self):
         response = self.client.post(
@@ -504,7 +528,10 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         assert Experiment.objects.get(pk=exp_id).saved_metrics.count() == 1
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
         assert experiment_to_saved_metric is not None
-        assert experiment_to_saved_metric.metadata == {"type": "primary", "breakdowns": [{"property": "$browser", "type": "event"}, {"property": "$os", "type": "event"}]}
+        assert experiment_to_saved_metric.metadata == {
+            "type": "primary",
+            "breakdowns": [{"property": "$browser", "type": "event"}, {"property": "$os", "type": "event"}],
+        }
 
     def test_update_experiment_saved_metric_breakdowns(self):
         response = self.client.post(
@@ -554,7 +581,10 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
         assert experiment_to_saved_metric is not None
-        assert experiment_to_saved_metric.metadata == {"type": "primary", "breakdowns": [{"property": "$browser", "type": "event"}]}
+        assert experiment_to_saved_metric.metadata == {
+            "type": "primary",
+            "breakdowns": [{"property": "$browser", "type": "event"}],
+        }
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{exp_id}",
@@ -577,7 +607,10 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
         assert experiment_to_saved_metric is not None
-        assert experiment_to_saved_metric.metadata == {"type": "primary", "breakdowns": [{"property": "$browser", "type": "event"}, {"property": "$device_type", "type": "event"}]}
+        assert experiment_to_saved_metric.metadata == {
+            "type": "primary",
+            "breakdowns": [{"property": "$browser", "type": "event"}, {"property": "$device_type", "type": "event"}],
+        }
 
     def test_multiple_experiments_with_different_breakdowns_for_same_metric(self):
         response = self.client.post(
@@ -651,8 +684,14 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         assert exp1_to_saved_metric is not None
         assert exp2_to_saved_metric is not None
 
-        assert exp1_to_saved_metric.metadata == {"type": "primary", "breakdowns": [{"property": "$browser", "type": "event"}]}
-        assert exp2_to_saved_metric.metadata == {"type": "primary", "breakdowns": [{"property": "$os", "type": "event"}, {"property": "$device_type", "type": "event"}]}
+        assert exp1_to_saved_metric.metadata == {
+            "type": "primary",
+            "breakdowns": [{"property": "$browser", "type": "event"}],
+        }
+        assert exp2_to_saved_metric.metadata == {
+            "type": "primary",
+            "breakdowns": [{"property": "$os", "type": "event"}, {"property": "$device_type", "type": "event"}],
+        }
 
     def test_api_response_includes_breakdowns_in_metadata(self):
         response = self.client.post(
@@ -703,7 +742,10 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         saved_metrics = response.json()["saved_metrics"]
         assert len(saved_metrics) == 1
         assert saved_metrics[0]["name"] == "Test Metric"
-        assert saved_metrics[0]["metadata"] == {"type": "primary", "breakdowns": [{"property": "$browser", "type": "event"}]}
+        assert saved_metrics[0]["metadata"] == {
+            "type": "primary",
+            "breakdowns": [{"property": "$browser", "type": "event"}],
+        }
         assert "query" in saved_metrics[0]
         assert saved_metrics[0]["query"]["kind"] == "ExperimentMetric"
 

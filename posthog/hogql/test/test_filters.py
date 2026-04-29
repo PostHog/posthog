@@ -78,21 +78,31 @@ class TestFilters(BaseTest):
             HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
             self.team,
         )
-        assert self._print_ast(select) == f"SELECT event FROM events WHERE greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select)
+            == f"SELECT event FROM events WHERE greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
             HogQLFilters(dateRange=DateRange(date_to="2020-02-02")),
             self.team,
         )
-        assert self._print_ast(select) == f"SELECT event FROM events WHERE less(timestamp, toDateTime('2020-02-02 00:00:00.000000')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select)
+            == f"SELECT event FROM events WHERE less(timestamp, toDateTime('2020-02-02 00:00:00.000000')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
             HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
             self.team,
         )
-        assert self._print_ast(select) == "SELECT event FROM events WHERE " "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), " f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select) == "SELECT event FROM events WHERE "
+            "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
         # now with different team timezone
         self.team.timezone = "America/New_York"
@@ -103,7 +113,11 @@ class TestFilters(BaseTest):
             HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
             self.team,
         )
-        assert self._print_ast(select) == "SELECT event FROM events WHERE " "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), " f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select) == "SELECT event FROM events WHERE "
+            "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
     def test_replace_filters_date_range_with_timezone(self):
         # now with different team timezone
@@ -115,7 +129,11 @@ class TestFilters(BaseTest):
             HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59Z")),
             self.team,
         )
-        assert self._print_ast(select) == "SELECT event FROM events WHERE " "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), " f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select) == "SELECT event FROM events WHERE "
+            "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
+            f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
     def test_replace_filters_event_property(self):
         select = replace_filters(
@@ -125,7 +143,10 @@ class TestFilters(BaseTest):
             ),
             self.team,
         )
-        assert self._print_ast(select) == f"SELECT event FROM events WHERE equals(properties.random_uuid, '123') LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select)
+            == f"SELECT event FROM events WHERE equals(properties.random_uuid, '123') LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
     def test_replace_filters_person_property(self):
         select = replace_filters(
@@ -135,7 +156,10 @@ class TestFilters(BaseTest):
             ),
             self.team,
         )
-        assert self._print_ast(select) == f"SELECT event FROM events WHERE equals(person.properties.random_uuid, '123') LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select)
+            == f"SELECT event FROM events WHERE equals(person.properties.random_uuid, '123') LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
         select = replace_filters(
             self._parse_select("SELECT event FROM events where {filters}"),
@@ -147,7 +171,10 @@ class TestFilters(BaseTest):
             ),
             self.team,
         )
-        assert self._print_ast(select) == f"SELECT event FROM events WHERE and(equals(properties.random_uuid, '123'), equals(person.properties.random_uuid, '123')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select)
+            == f"SELECT event FROM events WHERE and(equals(properties.random_uuid, '123'), equals(person.properties.random_uuid, '123')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
     def test_replace_filters_test_accounts(self):
         self.team.test_account_filters = [
@@ -165,7 +192,10 @@ class TestFilters(BaseTest):
             HogQLFilters(filterTestAccounts=True),
             self.team,
         )
-        assert self._print_ast(select) == f"SELECT event FROM events WHERE notILike(toString(person.properties.email), '%posthog.com%') LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select)
+            == f"SELECT event FROM events WHERE notILike(toString(person.properties.email), '%posthog.com%') LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
     def test_replace_filters_groups_empty(self):
         select = replace_filters(self._parse_select("SELECT group_key FROM groups"), HogQLFilters(), self.team)
@@ -191,21 +221,31 @@ class TestFilters(BaseTest):
             HogQLFilters(dateRange=DateRange(date_from="2020-02-02")),
             self.team,
         )
-        assert self._print_ast(select) == f"SELECT group_key FROM groups WHERE greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select)
+            == f"SELECT group_key FROM groups WHERE greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
         select = replace_filters(
             self._parse_select("SELECT group_key FROM groups where {filters}"),
             HogQLFilters(dateRange=DateRange(date_to="2020-02-02")),
             self.team,
         )
-        assert self._print_ast(select) == f"SELECT group_key FROM groups WHERE less(created_at, toDateTime('2020-02-02 00:00:00.000000')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select)
+            == f"SELECT group_key FROM groups WHERE less(created_at, toDateTime('2020-02-02 00:00:00.000000')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
         select = replace_filters(
             self._parse_select("SELECT group_key FROM groups where {filters}"),
             HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03 23:59:59")),
             self.team,
         )
-        assert self._print_ast(select) == "SELECT group_key FROM groups WHERE " "and(less(created_at, toDateTime('2020-02-03 23:59:59.000000')), " f"greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select) == "SELECT group_key FROM groups WHERE "
+            "and(less(created_at, toDateTime('2020-02-03 23:59:59.000000')), "
+            f"greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
     def test_replace_filters_groups_property(self):
         select = replace_filters(
@@ -219,7 +259,10 @@ class TestFilters(BaseTest):
             ),
             self.team,
         )
-        assert self._print_ast(select) == f"SELECT group_key FROM groups WHERE equals(properties.company_name, 'PostHog') LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select)
+            == f"SELECT group_key FROM groups WHERE equals(properties.company_name, 'PostHog') LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
     def test_replace_filters_groups_multiple_properties(self):
         select = replace_filters(
@@ -236,7 +279,10 @@ class TestFilters(BaseTest):
             ),
             self.team,
         )
-        assert self._print_ast(select) == f"SELECT group_key FROM groups WHERE and(equals(properties.company_name, 'PostHog'), equals(properties.industry, 'Software')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select)
+            == f"SELECT group_key FROM groups WHERE and(equals(properties.company_name, 'PostHog'), equals(properties.industry, 'Software')) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
     def test_replace_filters_groups_date_and_properties(self):
         select = replace_filters(
@@ -251,7 +297,11 @@ class TestFilters(BaseTest):
             ),
             self.team,
         )
-        assert self._print_ast(select) == "SELECT group_key FROM groups WHERE " "and(equals(properties.company_name, 'PostHog'), " f"greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        assert (
+            self._print_ast(select) == "SELECT group_key FROM groups WHERE "
+            "and(equals(properties.company_name, 'PostHog'), "
+            f"greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}"
+        )
 
     def test_raises_when_filters_and_not_supported_table_includes_groups(self):
         select = self._parse_select("SELECT person FROM persons where {filters}")

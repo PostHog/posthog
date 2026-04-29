@@ -67,7 +67,17 @@ class TestEvalReportMetrics(SimpleTestCase):
             previous_total_runs=90,
             previous_pass_rate=75.0,
         )
-        assert m.to_dict() == {"total_runs": 100, "pass_count": 80, "fail_count": 18, "na_count": 2, "pass_rate": 81.63, "period_start": "2026-04-08T14:00:00+00:00", "period_end": "2026-04-08T15:00:00+00:00", "previous_total_runs": 90, "previous_pass_rate": 75.0}
+        assert m.to_dict() == {
+            "total_runs": 100,
+            "pass_count": 80,
+            "fail_count": 18,
+            "na_count": 2,
+            "pass_rate": 81.63,
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+            "previous_total_runs": 90,
+            "previous_pass_rate": 75.0,
+        }
 
     def test_from_dict_defaults(self):
         m = EvalReportMetrics.from_dict({})

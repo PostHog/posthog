@@ -364,7 +364,9 @@ class TestTraceReviewsApi(APIBaseTest):
         response = self.client.post(self._endpoint(), {"trace_id": "trace_123"}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data == self.validation_error_response(message="An active review already exists for this trace.", attr="trace_id")
+        assert response.data == self.validation_error_response(
+            message="An active review already exists for this trace.", attr="trace_id"
+        )
 
     def test_can_list_reviews_filtered_by_trace_id_in(self):
         self._create_review(trace_id="trace_a")

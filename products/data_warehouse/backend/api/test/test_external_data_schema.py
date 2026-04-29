@@ -1431,9 +1431,13 @@ class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):
             self.fail(f"Unknown action: {action}")
 
         if should_have_access:
-            assert response.status_code != status.HTTP_403_FORBIDDEN, f"Expected access but got 403 for {scope} on {method} {action}"
+            assert response.status_code != status.HTTP_403_FORBIDDEN, (
+                f"Expected access but got 403 for {scope} on {method} {action}"
+            )
         else:
-            assert response.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403 but got {response.status_code} for {scope} on {method} {action}"
+            assert response.status_code == status.HTTP_403_FORBIDDEN, (
+                f"Expected 403 but got {response.status_code} for {scope} on {method} {action}"
+            )
 
 
 class TestExternalDataSchemaSerializerValidation(APIBaseTest):

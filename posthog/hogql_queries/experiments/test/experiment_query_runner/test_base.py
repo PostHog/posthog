@@ -1671,10 +1671,16 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         assert test_variant is not None
 
         # Verify the expected behavior based on multiple_variant_handling setting
-        assert control_variant.sum == expected_results["control_count"], f"Control count mismatch for {handling_name} handling"
+        assert control_variant.sum == expected_results["control_count"], (
+            f"Control count mismatch for {handling_name} handling"
+        )
         assert test_variant.sum == expected_results["test_count"], f"Test count mismatch for {handling_name} handling"
-        assert control_variant.number_of_samples == expected_results["control_exposure"], f"Control exposure mismatch for {handling_name} handling"
-        assert test_variant.number_of_samples == expected_results["test_exposure"], f"Test exposure mismatch for {handling_name} handling"
+        assert control_variant.number_of_samples == expected_results["control_exposure"], (
+            f"Control exposure mismatch for {handling_name} handling"
+        )
+        assert test_variant.number_of_samples == expected_results["test_exposure"], (
+            f"Test exposure mismatch for {handling_name} handling"
+        )
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries

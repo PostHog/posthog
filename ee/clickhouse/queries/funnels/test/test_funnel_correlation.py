@@ -1,3 +1,4 @@
+import pytest
 import unittest
 from posthog.test.base import (
     APIBaseTest,
@@ -23,7 +24,6 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from ee.clickhouse.queries.funnels.funnel_correlation import EventContingencyTable, EventStats, FunnelCorrelation
 from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
-import pytest
 
 
 class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
@@ -121,26 +121,24 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [11, 1 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "positively_related",
-            "success_count": 5,
-            "failure_count": 0,
-            # "odds_ratio": 11.0,
-            "correlation_type": "success",
+                "event": "positively_related",
+                "success_count": 5,
+                "failure_count": 0,
+                # "odds_ratio": 11.0,
+                "correlation_type": "success",
             },
             {
-            "event": "negatively_related",
-            "success_count": 0,
-            "failure_count": 5,
-            # "odds_ratio": 1 / 11,
-            "correlation_type": "failure",
+                "event": "negatively_related",
+                "success_count": 0,
+                "failure_count": 5,
+                # "odds_ratio": 1 / 11,
+                "correlation_type": "failure",
             },
-            ]
-        )
+        ]
 
         assert len(self._get_actors_for_event(filter, "positively_related")) == 5
         assert len(self._get_actors_for_event(filter, "positively_related", success=False)) == 0
@@ -156,19 +154,17 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         odds_ratio = result[0].pop("odds_ratio")  # type: ignore
         expected_odds_ratio = 1 / 11
 
-        assert odds_ratio == pytest.approx(expected_odds_ratio, abs=10**(-7) * 0.5)
+        assert odds_ratio == pytest.approx(expected_odds_ratio, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "negatively_related",
-            "success_count": 0,
-            "failure_count": 5,
-            # "odds_ratio": 1 / 11,
-            "correlation_type": "failure",
+                "event": "negatively_related",
+                "success_count": 0,
+                "failure_count": 5,
+                # "odds_ratio": 1 / 11,
+                "correlation_type": "failure",
             }
-            ]
-        )
+        ]
         # Getting specific people isn't affected by exclude_events
         assert len(self._get_actors_for_event(filter, "positively_related")) == 5
         assert len(self._get_actors_for_event(filter, "positively_related", success=False)) == 0
@@ -241,7 +237,15 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         result = correlation._run()[0]
 
         #  missing user signed up and paid from result set, as expected
-        assert result == [{"event": "positively_related", "success_count": 2, "failure_count": 0, "odds_ratio": 3, "correlation_type": "success"}]
+        assert result == [
+            {
+                "event": "positively_related",
+                "success_count": 2,
+                "failure_count": 0,
+                "odds_ratio": 3,
+                "correlation_type": "success",
+            }
+        ]
 
     @also_test_with_person_on_events_v2
     @snapshot_clickhouse_queries
@@ -360,26 +364,24 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [12 / 7, 1 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "positively_related",
-            "success_count": 5,
-            "failure_count": 0,
-            # "odds_ratio": 12/7,
-            "correlation_type": "success",
+                "event": "positively_related",
+                "success_count": 5,
+                "failure_count": 0,
+                # "odds_ratio": 12/7,
+                "correlation_type": "success",
             },
             {
-            "event": "negatively_related",
-            "success_count": 1,
-            "failure_count": 1,
-            # "odds_ratio": 1 / 11,
-            "correlation_type": "failure",
+                "event": "negatively_related",
+                "success_count": 1,
+                "failure_count": 1,
+                # "odds_ratio": 1 / 11,
+                "correlation_type": "failure",
             },
-            ]
-        )
+        ]
 
         assert len(self._get_actors_for_event(filter, "positively_related")) == 5
         assert len(self._get_actors_for_event(filter, "positively_related", success=False)) == 0
@@ -405,19 +407,17 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratio = 1
         # success total and failure totals remove other groups too
 
-        assert odds_ratio == pytest.approx(expected_odds_ratio, abs=10**(-7) * 0.5)
+        assert odds_ratio == pytest.approx(expected_odds_ratio, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "negatively_related",
-            "success_count": 1,
-            "failure_count": 1,
-            # "odds_ratio": 1,
-            "correlation_type": "failure",
+                "event": "negatively_related",
+                "success_count": 1,
+                "failure_count": 1,
+                # "odds_ratio": 1,
+                "correlation_type": "failure",
             }
-            ]
-        )
+        ]
 
         assert len(self._get_actors_for_event(filter, "negatively_related")) == 1
         assert len(self._get_actors_for_event(filter, "negatively_related", success=False)) == 1
@@ -532,26 +532,24 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         ]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "$browser::Positive",
-            "success_count": 10,
-            "failure_count": 1,
-            # "odds_ratio": 121/4,
-            "correlation_type": "success",
+                "event": "$browser::Positive",
+                "success_count": 10,
+                "failure_count": 1,
+                # "odds_ratio": 121/4,
+                "correlation_type": "success",
             },
             {
-            "event": "$browser::Negative",
-            "success_count": 1,
-            "failure_count": 10,
-            # "odds_ratio": 4/121,
-            "correlation_type": "failure",
+                "event": "$browser::Negative",
+                "success_count": 1,
+                "failure_count": 10,
+                # "odds_ratio": 4/121,
+                "correlation_type": "failure",
             },
-            ]
-        )
+        ]
 
         assert len(self._get_actors_for_property(filter, [("$browser", "Positive", "person", None)])) == 10
         assert len(self._get_actors_for_property(filter, [("$browser", "Positive", "person", None)], False)) == 1
@@ -706,26 +704,24 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         ]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "industry::positive",
-            "success_count": 10,
-            "failure_count": 1,
-            # "odds_ratio": 121/4,
-            "correlation_type": "success",
+                "event": "industry::positive",
+                "success_count": 10,
+                "failure_count": 1,
+                # "odds_ratio": 121/4,
+                "correlation_type": "success",
             },
             {
-            "event": "industry::negative",
-            "success_count": 1,
-            "failure_count": 10,
-            # "odds_ratio": 4/121,
-            "correlation_type": "failure",
+                "event": "industry::negative",
+                "success_count": 1,
+                "failure_count": 10,
+                # "odds_ratio": 4/121,
+                "correlation_type": "failure",
             },
-            ]
-        )
+        ]
 
         assert len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)])) == 10
         assert len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)], False)) == 1
@@ -742,7 +738,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
         assert new_result == result
 
@@ -897,26 +893,24 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ]
 
             for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-                assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+                assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-            assert (
-                result == [
+            assert result == [
                 {
-                "event": "industry::positive",
-                "success_count": 10,
-                "failure_count": 1,
-                # "odds_ratio": 121/4,
-                "correlation_type": "success",
+                    "event": "industry::positive",
+                    "success_count": 10,
+                    "failure_count": 1,
+                    # "odds_ratio": 121/4,
+                    "correlation_type": "success",
                 },
                 {
-                "event": "industry::negative",
-                "success_count": 1,
-                "failure_count": 10,
-                # "odds_ratio": 4/121,
-                "correlation_type": "failure",
+                    "event": "industry::negative",
+                    "success_count": 1,
+                    "failure_count": 10,
+                    # "odds_ratio": 4/121,
+                    "correlation_type": "failure",
                 },
-                ]
-            )
+            ]
 
             assert len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)])) == 10
             assert len(self._get_actors_for_property(filter, [("industry", "positive", "group", 0)], False)) == 1
@@ -933,7 +927,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
 
             for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-                assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+                assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
             assert new_result == result
 
@@ -1007,26 +1001,24 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [9, 1 / 3]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "positive",
-            "success_count": 2,
-            "failure_count": 0,
-            # "odds_ratio": 9.0,
-            "correlation_type": "success",
+                "event": "positive",
+                "success_count": 2,
+                "failure_count": 0,
+                # "odds_ratio": 9.0,
+                "correlation_type": "success",
             },
             {
-            "event": "negatively_related",
-            "success_count": 0,
-            "failure_count": 1,
-            # "odds_ratio": 1 / 3,
-            "correlation_type": "failure",
+                "event": "negatively_related",
+                "success_count": 0,
+                "failure_count": 1,
+                # "odds_ratio": 1 / 3,
+                "correlation_type": "failure",
             },
-            ]
-        )
+        ]
 
     def test_correlation_with_properties_raises_validation_error(self):
         filters = {
@@ -1200,7 +1192,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # (success + 1) / (failure + 1)
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
         expected_result = [
             {
@@ -1264,7 +1256,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # We discard $nice:: because it's an empty result set
 
         for odds, expected_odds in zip(odds_ratios, new_expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
         assert new_result == new_expected_result
 
@@ -1279,7 +1271,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         new_expected_result = expected_result[1:4]
 
         for odds, expected_odds in zip(odds_ratios, new_expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
         assert new_result == new_expected_result
 
@@ -1421,19 +1413,17 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [4]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "positively_related",
-            "success_count": 1,
-            "failure_count": 0,
-            # "odds_ratio": 4.0,
-            "correlation_type": "success",
+                "event": "positively_related",
+                "success_count": 1,
+                "failure_count": 0,
+                # "odds_ratio": 4.0,
+                "correlation_type": "success",
             }
-            ]
-        )
+        ]
 
     @also_test_with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
     def test_funnel_correlation_with_event_properties(self):
@@ -1506,33 +1496,31 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [11, 5.5, 2 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "positively_related::blah::value_bleh",
-            "success_count": 5,
-            "failure_count": 0,
-            # "odds_ratio": 11.0,
-            "correlation_type": "success",
+                "event": "positively_related::blah::value_bleh",
+                "success_count": 5,
+                "failure_count": 0,
+                # "odds_ratio": 11.0,
+                "correlation_type": "success",
             },
             {
-            "event": "positively_related::signup_source::facebook",
-            "success_count": 3,
-            "failure_count": 0,
-            # "odds_ratio": 5.5,
-            "correlation_type": "success",
+                "event": "positively_related::signup_source::facebook",
+                "success_count": 3,
+                "failure_count": 0,
+                # "odds_ratio": 5.5,
+                "correlation_type": "success",
             },
             {
-            "event": "negatively_related::signup_source::email",
-            "success_count": 0,
-            "failure_count": 3,
-            # "odds_ratio": 0.18181818181818182,
-            "correlation_type": "failure",
+                "event": "negatively_related::signup_source::email",
+                "success_count": 0,
+                "failure_count": 3,
+                # "odds_ratio": 0.18181818181818182,
+                "correlation_type": "failure",
             },
-            ]
-        )
+        ]
 
         assert len(self._get_actors_for_event(filter, "positively_related", {"blah": "value_bleh"})) == 5
         assert len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"})) == 3
@@ -1635,33 +1623,31 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         expected_odds_ratios = [11, 5.5, 2 / 11]
 
         for odds, expected_odds in zip(odds_ratios, expected_odds_ratios):
-            assert odds == pytest.approx(expected_odds, abs=10**(-7) * 0.5)
+            assert odds == pytest.approx(expected_odds, abs=10 ** (-7) * 0.5)
 
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "positively_related::blah::value_bleh",
-            "success_count": 5,
-            "failure_count": 0,
-            # "odds_ratio": 11.0,
-            "correlation_type": "success",
+                "event": "positively_related::blah::value_bleh",
+                "success_count": 5,
+                "failure_count": 0,
+                # "odds_ratio": 11.0,
+                "correlation_type": "success",
             },
             {
-            "event": "positively_related::signup_source::facebook",
-            "success_count": 3,
-            "failure_count": 0,
-            # "odds_ratio": 5.5,
-            "correlation_type": "success",
+                "event": "positively_related::signup_source::facebook",
+                "success_count": 3,
+                "failure_count": 0,
+                # "odds_ratio": 5.5,
+                "correlation_type": "success",
             },
             {
-            "event": "negatively_related::signup_source::email",
-            "success_count": 0,
-            "failure_count": 3,
-            # "odds_ratio": 0.18181818181818182,
-            "correlation_type": "failure",
+                "event": "negatively_related::signup_source::email",
+                "success_count": 0,
+                "failure_count": 3,
+                # "odds_ratio": 0.18181818181818182,
+                "correlation_type": "failure",
             },
-            ]
-        )
+        ]
 
     def test_funnel_correlation_with_event_properties_exclusions(self):
         filters = {
@@ -1713,18 +1699,16 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
         result = correlation._run()[0]
-        assert (
-            result == [
+        assert result == [
             {
-            "event": "positively_related::blah::value_bleh",
-            "success_count": 3,
-            "failure_count": 0,
-            "odds_ratio": 8,
-            "correlation_type": "success",
+                "event": "positively_related::blah::value_bleh",
+                "success_count": 3,
+                "failure_count": 0,
+                "odds_ratio": 8,
+                "correlation_type": "success",
             },
             #  missing signup_source, as expected
-            ]
-        )
+        ]
 
         assert len(self._get_actors_for_event(filter, "positively_related", {"blah": "value_bleh"})) == 3
 
@@ -1802,12 +1786,51 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         result = correlation._run()[0]
 
         # $autocapture results only return elements chain
-        assert result == [{"event": '$autocapture::elements_chain::click__~~__a:href="/movie"nth-child="0"nth-of-type="1"', "success_count": 6, "failure_count": 0, "odds_ratio": 14.0, "correlation_type": "success"}, {"event": '$autocapture::elements_chain::submit__~~__button:nth-child="0"nth-of-type="1"text="Pay $10"', "success_count": 3, "failure_count": 0, "odds_ratio": 2.0, "correlation_type": "success"}]
+        assert result == [
+            {
+                "event": '$autocapture::elements_chain::click__~~__a:href="/movie"nth-child="0"nth-of-type="1"',
+                "success_count": 6,
+                "failure_count": 0,
+                "odds_ratio": 14.0,
+                "correlation_type": "success",
+            },
+            {
+                "event": '$autocapture::elements_chain::submit__~~__button:nth-child="0"nth-of-type="1"text="Pay $10"',
+                "success_count": 3,
+                "failure_count": 0,
+                "odds_ratio": 2.0,
+                "correlation_type": "success",
+            },
+        ]
 
         assert len(self._get_actors_for_event(filter, "$autocapture", {"signup_source": "facebook"})) == 3
         assert len(self._get_actors_for_event(filter, "$autocapture", {"$event_type": "click"})) == 6
-        assert len(self._get_actors_for_event(filter, "$autocapture", [{"key": "tag_name", "operator": "exact", "type": "element", "value": "button"}, {"key": "text", "operator": "exact", "type": "element", "value": "Pay $10"}])) == 3
-        assert len(self._get_actors_for_event(filter, "$autocapture", [{"key": "tag_name", "operator": "exact", "type": "element", "value": "a"}, {"key": "href", "operator": "exact", "type": "element", "value": "/movie"}])) == 6
+        assert (
+            len(
+                self._get_actors_for_event(
+                    filter,
+                    "$autocapture",
+                    [
+                        {"key": "tag_name", "operator": "exact", "type": "element", "value": "button"},
+                        {"key": "text", "operator": "exact", "type": "element", "value": "Pay $10"},
+                    ],
+                )
+            )
+            == 3
+        )
+        assert (
+            len(
+                self._get_actors_for_event(
+                    filter,
+                    "$autocapture",
+                    [
+                        {"key": "tag_name", "operator": "exact", "type": "element", "value": "a"},
+                        {"key": "href", "operator": "exact", "type": "element", "value": "/movie"},
+                    ],
+                )
+            )
+            == 6
+        )
 
 
 class TestCorrelationFunctions(unittest.TestCase):

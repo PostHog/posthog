@@ -59,7 +59,12 @@ class TestOrganizationAPI(APIBaseTest):
         with self.is_cloud(False):
             response = self.client.post("/api/organizations/", {"name": "Test"})
             assert response.status_code == status.HTTP_403_FORBIDDEN
-            assert response.json() == {"attr": None, "code": "permission_denied", "detail": "You must upgrade your PostHog plan to be able to create and manage multiple organizations.", "type": "authentication_error"}
+            assert response.json() == {
+                "attr": None,
+                "code": "permission_denied",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple organizations.",
+                "type": "authentication_error",
+            }
             assert Organization.objects.count() == 1
             response = self.client.post("/api/organizations/", {"name": "Test"})
             assert Organization.objects.count() == 1
@@ -304,7 +309,9 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.get("/api/organizations/", headers={"authorization": f"Bearer {personal_api_key}"})
 
         assert response.status_code == status.HTTP_200_OK
-        assert {org["id"] for org in response.json()["results"]} == {str(other_org.id)}, "Only the scoped organization should be listed, the other one should be excluded"
+        assert {org["id"] for org in response.json()["results"]} == {str(other_org.id)}, (
+            "Only the scoped organization should be listed, the other one should be excluded"
+        )
 
     @override_settings(
         OAUTH2_PROVIDER={

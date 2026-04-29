@@ -398,7 +398,9 @@ class TestInsightSearchNode(BaseTest):
                         assert isinstance(result, PartialAssistantState)
                         assert result.search_insights_query is None, "search_insights_query should be cleared"
                         # root_tool_insight_plan should be set to search_query to trigger creation
-                        assert result.root_tool_insight_plan == search_query, "root_tool_insight_plan should be set to search_query"
+                        assert result.root_tool_insight_plan == search_query, (
+                            "root_tool_insight_plan should be set to search_query"
+                        )
 
                         # Verify that _evaluate_insights_with_tools was called with the search_query
                         mock_evaluate.assert_called_once_with(selected_insights, search_query, max_selections=1)

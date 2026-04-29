@@ -47,7 +47,10 @@ class TestTitleGenerator(BaseTest):
             assert new_state is None
             # Refresh from DB to ensure we get latest value
             self.conversation.refresh_from_db()
-            assert self.conversation.title == "Long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long"
+            assert (
+                self.conversation.title
+                == "Long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long"
+            )
 
     def test_title_already_set_should_stay_the_same(self):
         """Test that existing conversation titles are not overwritten."""

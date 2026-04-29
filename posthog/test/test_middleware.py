@@ -1226,7 +1226,10 @@ class TestSessionAgeMiddleware(APIBaseTest):
         response = self.client.get("/")
         # Should redirect to login
         assert response.status_code == 302
-        assert response.headers["Location"] == "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        assert (
+            response.headers["Location"]
+            == "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        )
 
     @freeze_time("2024-01-01 12:00:00")
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
@@ -1244,7 +1247,10 @@ class TestSessionAgeMiddleware(APIBaseTest):
         response = self.client.get("/")
         # Should redirect to login
         assert response.status_code == 302
-        assert response.headers["Location"] == "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        assert (
+            response.headers["Location"]
+            == "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        )
 
     @freeze_time("2024-01-01 12:00:00")
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
@@ -1278,7 +1284,10 @@ class TestSessionAgeMiddleware(APIBaseTest):
         mock_time.return_value = 1704110431.0  # 2024-01-01 12:00:31
         response = self.client.get("/")
         assert response.status_code == 302
-        assert response.headers["Location"] == "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        assert (
+            response.headers["Location"]
+            == "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
+        )
 
 
 class TestActiveOrganizationMiddleware(APIBaseTest):

@@ -1,3 +1,4 @@
+from collections import Counter
 from typing import Optional, Union
 
 import pytest
@@ -43,7 +44,6 @@ from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
-from collections import Counter
 
 
 def get_actors(

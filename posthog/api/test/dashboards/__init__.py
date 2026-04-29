@@ -26,7 +26,9 @@ class DashboardAPI:
             {"deleted": True, **extra_data},
         )
         assert api_response.status_code == status.HTTP_200_OK
-        assert self.client.get(f"/api/projects/{self.team.id}/{model_type}/{model_id}").status_code == expected_get_status
+        assert (
+            self.client.get(f"/api/projects/{self.team.id}/{model_type}/{model_id}").status_code == expected_get_status
+        )
 
     def create_dashboard(
         self,

@@ -156,7 +156,9 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             assert response_data["name"] == "insight new name"
             assert sorted(response_data["tags"]) == sorted(["add", "these", "tags"])
             assert response_data["created_by"]["distinct_id"] == self.user.distinct_id
-            assert response_data["effective_restriction_level"] == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            assert (
+                response_data["effective_restriction_level"] == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            )
             assert response_data["effective_privilege_level"] == Dashboard.PrivilegeLevel.CAN_EDIT
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
@@ -289,7 +291,9 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         dashboard.refresh_from_db()
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response_data == self.permission_denied_response("This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins.")
+        assert response_data == self.permission_denied_response(
+            "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
+        )
         assert dashboard.name == original_name
 
     def test_event_definition_no_duplicate_tags(self):
@@ -533,7 +537,13 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 query_counts.append(query_count_for_create_and_read)
 
             # adding more insights doesn't change the query count
-            assert [FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12), FuzzyInt(11, 12)] == query_counts, f"received query counts\n\n{query_counts}"
+            assert [
+                FuzzyInt(11, 12),
+                FuzzyInt(11, 12),
+                FuzzyInt(11, 12),
+                FuzzyInt(11, 12),
+                FuzzyInt(11, 12),
+            ] == query_counts, f"received query counts\n\n{query_counts}"
 
     def test_non_admin_user_cannot_remove_an_insight_from_a_restricted_dashboard(
         self,

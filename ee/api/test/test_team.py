@@ -124,7 +124,11 @@ def team_enterprise_api_test_factory():
             response_data = response.json()
 
             assert response.status_code == HTTP_200_OK
-            assert {"name": "Default project", "access_control": False, "effective_membership_level": OrganizationMembership.Level.ADMIN}.items() <= response_data.items()
+            assert {
+                "name": "Default project",
+                "access_control": False,
+                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+            }.items() <= response_data.items()
 
         def test_fetch_team_as_org_member_works(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -140,7 +144,11 @@ def team_enterprise_api_test_factory():
             )
 
             assert response.status_code == HTTP_200_OK
-            assert {"name": "Default project", "access_control": False, "effective_membership_level": expected_effective_level}.items() <= response_data.items()
+            assert {
+                "name": "Default project",
+                "access_control": False,
+                "effective_membership_level": expected_effective_level,
+            }.items() <= response_data.items()
 
         def test_fetch_team_as_org_outsider(self):
             self.organization_membership.delete()
@@ -245,7 +253,9 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore
         assert response.status_code == 400
         assert Team.objects.count() == 1
         assert Project.objects.count() == 1
-        assert response.json() == self.validation_error_response("Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead.")
+        assert response.json() == self.validation_error_response(
+            "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
+        )
 
     def test_rename_team_as_org_member_allowed(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -281,6 +291,36 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         assert projects_response.status_code == HTTP_200_OK
-        assert projects_response.json().get("results") == [{"id": self.team.id, "uuid": str(self.team.uuid), "organization": str(self.organization.id), "project_id": self.team.project.id, "api_token": self.team.api_token, "name": self.team.name, "completed_snippet_onboarding": False, "has_completed_onboarding_for": {"product_analytics": True}, "ingested_event": False, "is_demo": False, "timezone": "UTC", "access_control": False}]
+        assert projects_response.json().get("results") == [
+            {
+                "id": self.team.id,
+                "uuid": str(self.team.uuid),
+                "organization": str(self.organization.id),
+                "project_id": self.team.project.id,
+                "api_token": self.team.api_token,
+                "name": self.team.name,
+                "completed_snippet_onboarding": False,
+                "has_completed_onboarding_for": {"product_analytics": True},
+                "ingested_event": False,
+                "is_demo": False,
+                "timezone": "UTC",
+                "access_control": False,
+            }
+        ]
         assert current_org_response.status_code == HTTP_200_OK
-        assert current_org_response.json().get("teams") == [{"id": self.team.id, "uuid": str(self.team.uuid), "organization": str(self.organization.id), "project_id": self.team.project.id, "api_token": self.team.api_token, "name": self.team.name, "completed_snippet_onboarding": False, "has_completed_onboarding_for": {"product_analytics": True}, "ingested_event": False, "is_demo": False, "timezone": "UTC", "access_control": False}]
+        assert current_org_response.json().get("teams") == [
+            {
+                "id": self.team.id,
+                "uuid": str(self.team.uuid),
+                "organization": str(self.organization.id),
+                "project_id": self.team.project.id,
+                "api_token": self.team.api_token,
+                "name": self.team.name,
+                "completed_snippet_onboarding": False,
+                "has_completed_onboarding_for": {"product_analytics": True},
+                "ingested_event": False,
+                "is_demo": False,
+                "timezone": "UTC",
+                "access_control": False,
+            }
+        ]

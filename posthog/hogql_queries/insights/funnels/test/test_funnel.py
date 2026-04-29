@@ -1,4 +1,5 @@
 import uuid
+from collections import Counter
 from datetime import datetime
 
 from freezegun import freeze_time
@@ -64,7 +65,6 @@ from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from collections import Counter
 
 
 class TestFunnelBreakdownUDF(
@@ -988,11 +988,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[1]["count"] == 1
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_two_signups.uuid,
-            person2_stopped_after_signup.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_two_signups.uuid,
+                person2_stopped_after_signup.uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -1047,11 +1047,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[1]["count"] == 1
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_two_signups.uuid,
-            person2_stopped_after_signup.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_two_signups.uuid,
+                person2_stopped_after_signup.uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -1088,11 +1088,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
 
         assert results[1]["count"] == 1
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            people["stopped_after_signup1"].uuid,
-            people["stopped_after_signup2"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                people["stopped_after_signup1"].uuid,
+                people["stopped_after_signup2"].uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([people["stopped_after_signup1"].uuid])
@@ -1213,38 +1213,38 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[4]["count"] == 1
 
         # check ordering of people in every step
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            people["stopped_after_signup1"].uuid,
-            people["stopped_after_pageview1"].uuid,
-            people["stopped_after_pageview2"].uuid,
-            people["stopped_after_pageview3"].uuid,
-            people["stopped_after_pageview4"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                people["stopped_after_signup1"].uuid,
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 2)) == Counter([
-            people["stopped_after_pageview1"].uuid,
-            people["stopped_after_pageview2"].uuid,
-            people["stopped_after_pageview3"].uuid,
-            people["stopped_after_pageview4"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+            [
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 3)) == Counter([
-            people["stopped_after_pageview2"].uuid,
-            people["stopped_after_pageview3"].uuid,
-            people["stopped_after_pageview4"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter(
+            [
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 4)) == Counter([
-            people["stopped_after_pageview3"].uuid,
-            people["stopped_after_pageview4"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 4)) == Counter(
+            [
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 5)) == Counter([people["stopped_after_pageview4"].uuid])
@@ -1379,23 +1379,23 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[4]["count"] == 1
 
         # check ordering of people in every step
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_signup.uuid,
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_two_pageview.uuid,
-            person4_stopped_after_three_pageview.uuid,
-            person5_stopped_after_many_pageview.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_signup.uuid,
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_two_pageview.uuid,
+                person4_stopped_after_three_pageview.uuid,
+                person5_stopped_after_many_pageview.uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 2)) == Counter([
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_two_pageview.uuid,
-            person4_stopped_after_three_pageview.uuid,
-            person5_stopped_after_many_pageview.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+            [
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_two_pageview.uuid,
+                person4_stopped_after_three_pageview.uuid,
+                person5_stopped_after_many_pageview.uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter([person5_stopped_after_many_pageview.uuid])
@@ -1461,11 +1461,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["count"] == 1
 
         # check ordering of people in first step
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_two_signups.uuid,
-            person2_stopped_after_signup.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_two_signups.uuid,
+                person2_stopped_after_signup.uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -1534,11 +1534,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             assert results[1]["count"] == 1
 
             # check ordering of people in first step
-            assert (
-                Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-                person1_stopped_after_two_signups.uuid,
-                person2_stopped_after_signup.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -1607,11 +1607,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["count"] == 1
 
         # check ordering of people in first step
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_two_signups.uuid,
-            person2_stopped_after_signup.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_two_signups.uuid,
+                person2_stopped_after_signup.uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -1699,11 +1699,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["count"] == 1
 
         # check ordering of people in first step
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_two_signups.uuid,
-            person2_stopped_after_signup.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_two_signups.uuid,
+                person2_stopped_after_signup.uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -1830,38 +1830,38 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[3]["count"] == 2
         assert results[4]["count"] == 0
         # check ordering of people in every step
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            people["stopped_after_signup1"].uuid,
-            people["stopped_after_pageview1"].uuid,
-            people["stopped_after_pageview2"].uuid,
-            people["stopped_after_pageview3"].uuid,
-            people["stopped_after_pageview4"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                people["stopped_after_signup1"].uuid,
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 2)) == Counter([
-            people["stopped_after_pageview1"].uuid,
-            people["stopped_after_pageview2"].uuid,
-            people["stopped_after_pageview3"].uuid,
-            people["stopped_after_pageview4"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+            [
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 3)) == Counter([
-            people["stopped_after_pageview2"].uuid,
-            people["stopped_after_pageview3"].uuid,
-            people["stopped_after_pageview4"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter(
+            [
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 4)) == Counter([
-            people["stopped_after_pageview3"].uuid,
-            people["stopped_after_pageview4"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 4)) == Counter(
+            [
+                people["stopped_after_pageview3"].uuid,
+                people["stopped_after_pageview4"].uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 5)) == Counter([])
@@ -3549,19 +3549,19 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert results[1]["count"] == 2
         assert results[2]["count"] == 1
         # check ordering of people in every step
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            people["stopped_after_pageview1"].uuid,
-            people["stopped_after_pageview2"].uuid,
-            people["stopped_after_pageview3"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                people["stopped_after_pageview1"].uuid,
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 2)) == Counter([
-            people["stopped_after_pageview2"].uuid,
-            people["stopped_after_pageview3"].uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+            [
+                people["stopped_after_pageview2"].uuid,
+                people["stopped_after_pageview3"].uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter([people["stopped_after_pageview3"].uuid])

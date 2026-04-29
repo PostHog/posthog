@@ -171,7 +171,10 @@ class TestPropertyFilterCollectionDescriber(BaseTest):
         description, taxonomy = collection_describer.describe()
 
         # Check description contains both filters
-        assert description == "event property `$current_url` contains `example.com` AND event property `$current_url` doesn't contain `login`"
+        assert (
+            description
+            == "event property `$current_url` contains `example.com` AND event property `$current_url` doesn't contain `login`"
+        )
 
         # Check taxonomy only has one entry for $current_url despite having two filters with that key
         assert len(taxonomy) == 1

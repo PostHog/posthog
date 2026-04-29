@@ -1,5 +1,6 @@
 import datetime as dt
 
+import pytest
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -8,7 +9,6 @@ from posthog.temporal.llm_analytics.eval_reports.activities import _period_for_s
 
 from products.llm_analytics.backend.models.evaluation_reports import EvaluationReport
 from products.llm_analytics.backend.models.evaluations import Evaluation
-import pytest
 
 
 def _prepare_sync(report_id: str, manual: bool = False):

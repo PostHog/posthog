@@ -1,4 +1,5 @@
 import dataclasses
+from collections import Counter
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
@@ -16,7 +17,6 @@ from common.hogvm.python.operation import (
     HOGQL_BYTECODE_VERSION,
     Operation as op,
 )
-from collections import Counter
 
 
 @dataclasses.dataclass
@@ -282,8 +282,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         assert len(events) == 1
 
         assert action1.bytecode == create_bytecode(action_to_expr(action1)).bytecode
-        assert (
-            action1.bytecode == [
+        assert action1.bytecode == [
             _H,
             HOGQL_BYTECODE_VERSION,
             # event = 'insight viewed'
@@ -310,5 +309,4 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             # and
             op.AND,
             2,
-            ]
-        )
+        ]

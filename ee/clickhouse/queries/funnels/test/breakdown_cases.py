@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime
 from typing import Any
 
@@ -11,7 +12,6 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
 from posthog.queries.funnels.test.breakdown_cases import FunnelStepResult, assert_funnel_results_equal
 from posthog.test.test_journeys import journeys_for
-from collections import Counter
 
 
 def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
@@ -183,7 +183,9 @@ def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _cr
                 ],
             )
 
-            assert Counter(self._get_actor_ids_at_step(filter, 1, "technology")) == Counter([people["person2"].uuid, people["person3"].uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 1, "technology")) == Counter(
+                [people["person2"].uuid, people["person3"].uuid]
+            )
             assert Counter(self._get_actor_ids_at_step(filter, 2, "technology")) == Counter([people["person2"].uuid])
 
         # TODO: Delete this test when moved to person-on-events

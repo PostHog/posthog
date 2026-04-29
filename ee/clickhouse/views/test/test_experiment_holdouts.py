@@ -31,7 +31,9 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
         holdout_id = response.json()["id"]
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["name"] == "Test Experiment holdout"
-        assert response.json()["filters"] == [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}]
+        assert response.json()["filters"] == [
+            {"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}
+        ]
 
         # Generate experiment to be part of holdout
         ff_key = "a-b-tests"
@@ -85,7 +87,9 @@ class TestExperimentHoldoutCRUD(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["name"] == "Test Experiment holdout 2"
-        assert response.json()["filters"] == [{"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}]
+        assert response.json()["filters"] == [
+            {"properties": [], "rollout_percentage": 30, "variant": f"holdout-{holdout_id}"}
+        ]
 
         # make sure flag for experiment in question was updated as well
         created_ff = FeatureFlag.objects.get(key=ff_key)

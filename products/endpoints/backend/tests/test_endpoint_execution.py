@@ -1314,7 +1314,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         result = response_data["results"][0] if response_data.get("results") else {}
         if "filter" in result:
             filter_props = result["filter"].get("properties", [])
-            assert any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props), "Breakdown property filter should be applied"
+            assert any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props), (
+                "Breakdown property filter should be applied"
+            )
 
     def test_non_materialized_insight_endpoint_accepts_breakdown_and_date_variables(self):
         from posthog.schema import Breakdown, BreakdownFilter, BreakdownType
@@ -1356,7 +1358,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         result = response_data["results"][0] if response_data.get("results") else {}
         if "filter" in result:
             filter_props = result["filter"].get("properties", [])
-            assert any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props), "Breakdown property filter should be applied"
+            assert any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props), (
+                "Breakdown property filter should be applied"
+            )
 
     def test_non_materialized_insight_endpoint_accepts_multiple_breakdown_variables(self):
         from posthog.schema import Breakdown, BreakdownFilter, BreakdownType
@@ -1389,8 +1393,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         result = response_data["results"][0] if response_data.get("results") else {}
         if "filter" in result:
             filter_props = result["filter"].get("properties", [])
-            assert any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props), "Browser breakdown property filter should be applied"
-            assert any(p.get("key") == "$os" and p.get("value") == "Mac" for p in filter_props), "OS breakdown property filter should be applied"
+            assert any(p.get("key") == "$browser" and p.get("value") == "Chrome" for p in filter_props), (
+                "Browser breakdown property filter should be applied"
+            )
+            assert any(p.get("key") == "$os" and p.get("value") == "Mac" for p in filter_props), (
+                "OS breakdown property filter should be applied"
+            )
 
     @parameterized.expand(
         [

@@ -232,7 +232,10 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
             assert cast(HumanMessage, output[0][1]).content == "Hello"
             assert output[1][0] == "message"
             assert isinstance(output[1][1], AssistantMessage)
-            assert cast(AssistantMessage, output[1][1]).content == "I've reached the maximum number of steps. Would you like me to continue?"
+            assert (
+                cast(AssistantMessage, output[1][1]).content
+                == "I've reached the maximum number of steps. Would you like me to continue?"
+            )
 
             # Verify state is marked as interrupted
             config = assistant._get_config()
@@ -756,7 +759,10 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
 
         # Verify the memory was saved
         core_memory = await CoreMemory.objects.aget(team=self.team)
-        assert core_memory.initial_text == "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:"
+        assert (
+            core_memory.initial_text
+            == "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:"
+        )
 
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingFinalizeNode._model")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerContextMixin._aretrieve_context")
@@ -937,7 +943,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         # Verify the last message doesn't contain any tool calls and has our expected content
         last_message = cast(AssistantMessage, output[-1][1])
         assert "tool_calls" not in last_message, "The final message should not contain any tool calls"
-        assert last_message.content == "No more tool calls after 4th attempt", "Final message should indicate no more tool calls"
+        assert last_message.content == "No more tool calls after 4th attempt", (
+            "Final message should indicate no more tool calls"
+        )
 
     async def test_conversation_is_locked_when_generating(self):
         graph = (
@@ -1091,7 +1099,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         # Count messages with our test ID
         messages_with_id = [msg for msg in messages if msg.id == message_ids[1]]
         assert len(messages_with_id) == 1, "There should be exactly one message with the test ID"
-        assert messages_with_id[0].content == updated_content, "The merged message should have the content of the last message"
+        assert messages_with_id[0].content == updated_content, (
+            "The merged message should have the content of the last message"
+        )
 
     async def test_assistant_filters_messages_correctly(self):
         """Test that the Assistant class correctly filters messages based on should_output_assistant_message."""
@@ -1363,7 +1373,9 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         assert len(assistant_messages) > 0, "Expected at least one assistant message"
         # The root node should have generated the continuation message we mocked
         final_message = assistant_messages[-1]
-        assert final_message.content == "Based on the previous analysis, I can provide insights.", "Expected the root node to generate continuation message"
+        assert final_message.content == "Based on the previous analysis, I can provide insights.", (
+            "Expected the root node to generate continuation message"
+        )
 
     # Tests for ainvoke method
     async def test_ainvoke_basic_functionality(self):

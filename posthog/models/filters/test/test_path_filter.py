@@ -19,9 +19,7 @@ class TestPathFilter(BaseTest):
             }
         )
 
-        assert (
-            filter.to_dict() == filter.to_dict()
-            | {
+        assert filter.to_dict() == filter.to_dict() | {
             "date_from": "-14d",
             "include_event_types": ["$pageview", "$screen", "custom_event"],
             "insight": "PATHS",
@@ -33,8 +31,7 @@ class TestPathFilter(BaseTest):
             "breakdown_normalize_url": False,
             "interval": "day",
             "sampling_factor": 0.1,
-            }
-        )
+        }
 
     def test_to_dict_hogql(self):
         filter = PathFilter(
@@ -51,9 +48,7 @@ class TestPathFilter(BaseTest):
             }
         )
 
-        assert (
-            filter.to_dict() == filter.to_dict()
-            | {
+        assert filter.to_dict() == filter.to_dict() | {
             "date_from": "-14d",
             "include_event_types": ["$pageview", "hogql"],
             "insight": "PATHS",
@@ -66,5 +61,4 @@ class TestPathFilter(BaseTest):
             "interval": "day",
             "sampling_factor": 0.1,
             "paths_hogql_expression": "event",
-            }
-        )
+        }

@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 from typing import Any, Optional
 
 from freezegun import freeze_time
@@ -31,7 +32,6 @@ from posthog.hogql_queries.insights.insight_actors_query_runner import InsightAc
 from posthog.models.group.util import create_group
 from posthog.models.team import WeekStartDay
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from collections import Counter
 
 
 class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):

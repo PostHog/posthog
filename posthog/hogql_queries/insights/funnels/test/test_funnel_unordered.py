@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime, timedelta
 
 from posthog.test.base import (
@@ -43,7 +44,6 @@ from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_
 from posthog.test.test_journeys import journeys_for
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from collections import Counter
 
 
 def unordered_funnels_query(
@@ -350,8 +350,12 @@ class TestFunnelUnorderedStepsBreakdown(
             ],
         )
 
-        assert Counter(self._get_actor_ids_at_step(query, 1, "")) == Counter([people["person1"].uuid, people["person2"].uuid, people["person3"].uuid])
-        assert Counter(self._get_actor_ids_at_step(query, 2, "")) == Counter([people["person1"].uuid, people["person3"].uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 1, "")) == Counter(
+            [people["person1"].uuid, people["person2"].uuid, people["person3"].uuid]
+        )
+        assert Counter(self._get_actor_ids_at_step(query, 2, "")) == Counter(
+            [people["person1"].uuid, people["person3"].uuid]
+        )
 
         self._assert_funnel_breakdown_result_is_correct(
             results[1],
@@ -688,46 +692,48 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         assert results[2]["name"] == "Completed 3 steps"
         assert results[2]["count"] == 3
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_signup.uuid,
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_insight_view.uuid,
-            person4_stopped_after_insight_view_reverse_order.uuid,
-            person5_stopped_after_insight_view_random.uuid,
-            person6_did_only_insight_view.uuid,
-            person7_did_only_pageview.uuid,
-            person8_didnot_signup.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_signup.uuid,
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+                person4_stopped_after_insight_view_reverse_order.uuid,
+                person5_stopped_after_insight_view_random.uuid,
+                person6_did_only_insight_view.uuid,
+                person7_did_only_pageview.uuid,
+                person8_didnot_signup.uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 2)) == Counter([
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_insight_view.uuid,
-            person4_stopped_after_insight_view_reverse_order.uuid,
-            person5_stopped_after_insight_view_random.uuid,
-            person8_didnot_signup.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+            [
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+                person4_stopped_after_insight_view_reverse_order.uuid,
+                person5_stopped_after_insight_view_random.uuid,
+                person8_didnot_signup.uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, -2)) == Counter([
-            person1_stopped_after_signup.uuid,
-            person6_did_only_insight_view.uuid,
-            person7_did_only_pageview.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, -2)) == Counter(
+            [
+                person1_stopped_after_signup.uuid,
+                person6_did_only_insight_view.uuid,
+                person7_did_only_pageview.uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 3)) == Counter([
-            person3_stopped_after_insight_view.uuid,
-            person4_stopped_after_insight_view_reverse_order.uuid,
-            person5_stopped_after_insight_view_random.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter(
+            [
+                person3_stopped_after_insight_view.uuid,
+                person4_stopped_after_insight_view_reverse_order.uuid,
+                person5_stopped_after_insight_view_random.uuid,
+            ]
         )
 
-        assert Counter(self._get_actor_ids_at_step(query, -3)) == Counter([person2_stopped_after_one_pageview.uuid, person8_didnot_signup.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, -3)) == Counter(
+            [person2_stopped_after_one_pageview.uuid, person8_didnot_signup.uuid]
+        )
 
     def test_big_multi_step_unordered_funnel(self):
         query = unordered_funnels_query(
@@ -828,38 +834,40 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         assert results[3]["name"] == "Completed 4 steps"
         assert results[3]["count"] == 1
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_signup.uuid,
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_insight_view.uuid,
-            person4_stopped_after_insight_view_reverse_order.uuid,
-            person5_stopped_after_insight_view_random.uuid,
-            person6_did_only_insight_view.uuid,
-            person7_did_only_pageview.uuid,
-            person8_didnot_signup.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_signup.uuid,
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+                person4_stopped_after_insight_view_reverse_order.uuid,
+                person5_stopped_after_insight_view_random.uuid,
+                person6_did_only_insight_view.uuid,
+                person7_did_only_pageview.uuid,
+                person8_didnot_signup.uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 2)) == Counter([
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_insight_view.uuid,
-            person4_stopped_after_insight_view_reverse_order.uuid,
-            person5_stopped_after_insight_view_random.uuid,
-            person8_didnot_signup.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+            [
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+                person4_stopped_after_insight_view_reverse_order.uuid,
+                person5_stopped_after_insight_view_random.uuid,
+                person8_didnot_signup.uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 3)) == Counter([
-            person3_stopped_after_insight_view.uuid,
-            person4_stopped_after_insight_view_reverse_order.uuid,
-            person5_stopped_after_insight_view_random.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter(
+            [
+                person3_stopped_after_insight_view.uuid,
+                person4_stopped_after_insight_view_reverse_order.uuid,
+                person5_stopped_after_insight_view_random.uuid,
+            ]
         )
 
-        assert Counter(self._get_actor_ids_at_step(query, 4)) == Counter([person5_stopped_after_insight_view_random.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 4)) == Counter(
+            [person5_stopped_after_insight_view_random.uuid]
+        )
 
     def test_basic_unordered_funnel_conversion_times(self):
         query = unordered_funnels_query(
@@ -959,19 +967,19 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             # (2+3)/2 hours for Person 3 = 2.5 hours
             assert results[2]["average_conversion_time"] == 9000
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_signup.uuid,
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_insight_view.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_signup.uuid,
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 2)) == Counter([
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_insight_view.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+            [
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter([person3_stopped_after_insight_view.uuid])
@@ -1414,7 +1422,9 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         assert results[3]["count"] == 1
         assert results[4]["count"] == 1
 
-        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter([person1.uuid, person2.uuid, person3.uuid, person4.uuid, person5.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [person1.uuid, person2.uuid, person3.uuid, person4.uuid, person5.uuid]
+        )
         assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person1.uuid, person4.uuid])
         assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter([person4.uuid])
         assert Counter(self._get_actor_ids_at_step(query, 4)) == Counter([person4.uuid])

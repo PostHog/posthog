@@ -270,7 +270,15 @@ class TestOptOutSyncConfigAPI(APIBaseTest):
     def test_optout_sync_config_returns_defaults_when_no_config_exists(self):
         response = self.client.get(self._url("optout_sync_config"))
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"app_integration_id": None, "app_import_result": None, "csv_import_result": None, "webhook_enabled": False, "has_webhook_secret": False, "track_enabled": False, "has_track_credentials": False}
+        assert response.json() == {
+            "app_integration_id": None,
+            "app_import_result": None,
+            "csv_import_result": None,
+            "webhook_enabled": False,
+            "has_webhook_secret": False,
+            "track_enabled": False,
+            "has_track_credentials": False,
+        }
 
     def test_optout_sync_config_returns_stored_state(self):
         integration = Integration.objects.create(

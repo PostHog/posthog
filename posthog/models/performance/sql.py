@@ -96,8 +96,8 @@ def PERFORMANCE_EVENT_DATA_TABLE():
     return "sharded_performance_events"
 
 
-PERFORMANCE_EVENTS_TABLE_BASE_SQL = (
-    lambda: """
+PERFORMANCE_EVENTS_TABLE_BASE_SQL = lambda: (
+    """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     {columns}

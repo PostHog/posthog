@@ -207,7 +207,10 @@ class TestEmail(BaseTest):
         assert sanitized["project_name"] == "&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;"
 
         # Check that nested dictionaries are sanitized
-        assert sanitized["nested"]["html_content"] == "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:alert(1)&quot;&gt;"
+        assert (
+            sanitized["nested"]["html_content"]
+            == "&lt;b&gt;Bold text&lt;/b&gt;&lt;img src=&quot;x&quot; onerror=&quot;javascript:alert(1)&quot;&gt;"
+        )
 
         # Check that numbers and booleans are preserved
         assert sanitized["nested"]["safe_number"] == 123
@@ -307,7 +310,10 @@ class TestEmail(BaseTest):
             message.add_recipient(email="test@example.com", name='Malicious"><script>alert("XSS")</script>')
 
             # Verify the name was properly sanitized in the recipient string
-            assert message.to[0]["recipient"] == '"Malicious&quot;&gt;&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;" <test@example.com>'
+            assert (
+                message.to[0]["recipient"]
+                == '"Malicious&quot;&gt;&lt;script&gt;alert(&quot;XSS&quot;)&lt;/script&gt;" <test@example.com>'
+            )
 
             # Raw email should remain unchanged
             assert message.to[0]["raw_email"] == "test@example.com"

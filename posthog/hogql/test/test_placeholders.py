@@ -33,9 +33,15 @@ class TestParser(BaseTest):
 
     def test_replace_placeholders_comparison(self):
         expr = clear_locations(parse_expr("timestamp < {timestamp}"))
-        assert expr == ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["timestamp"]), right=ast.Placeholder(expr=ast.Field(chain=["timestamp"])))
+        assert expr == ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Placeholder(expr=ast.Field(chain=["timestamp"])),
+        )
         expr2 = replace_placeholders(expr, {"timestamp": ast.Constant(value=123)})
-        assert expr2 == ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=123))
+        assert expr2 == ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=123)
+        )
 
     def test_assert_no_placeholders(self):
         expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))

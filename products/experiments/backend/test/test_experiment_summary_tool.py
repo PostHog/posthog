@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
@@ -31,7 +32,6 @@ from products.experiments.backend.experiment_summary_data_service import (
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
-import pytest
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -80,8 +80,8 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         result2 = get_chance_to_win(0.15, "decrease")
         assert result1 is not None
         assert result2 is not None
-        assert result1 == pytest.approx(0.15, abs=10**(-7) * 0.5)
-        assert result2 == pytest.approx(0.85, abs=10**(-7) * 0.5)
+        assert result1 == pytest.approx(0.15, abs=10 ** (-7) * 0.5)
+        assert result2 == pytest.approx(0.85, abs=10 ** (-7) * 0.5)
 
     def test_get_chance_to_win_no_goal(self):
         # When goal is None, chance_to_win stays the same
@@ -147,7 +147,7 @@ class TestExperimentSummaryToolHelpers(APIBaseTest):
         assert result.key == "test"
         # chance_to_win should be inverted: 1 - 0.85 = 0.15
         assert result.chance_to_win is not None
-        assert result.chance_to_win == pytest.approx(0.15, abs=10**(-7) * 0.5)
+        assert result.chance_to_win == pytest.approx(0.15, abs=10 ** (-7) * 0.5)
         assert result.credible_interval == [0.1, 0.3]
         assert result.delta == 0.2
         assert result.significant
@@ -363,8 +363,14 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         assert not pending_calculation
         assert mock_query_runner_class.call_args.kwargs["limit_context"] == LimitContext.QUERY_ASYNC
         assert mock_exposure_runner_class.call_args.kwargs["limit_context"] == LimitContext.QUERY_ASYNC
-        assert mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"] == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-        assert mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"] == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+        assert (
+            mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"]
+            == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+        )
+        assert (
+            mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"]
+            == ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+        )
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_uses_sync_execution_when_rollout_flag_enabled(self):
@@ -396,8 +402,14 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             data_service = ExperimentSummaryDataService(self.team)
             await data_service.fetch_experiment_data(experiment.id)
 
-        assert mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"] == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        assert mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"] == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        assert (
+            mock_query_runner_class.return_value.run.call_args.kwargs["execution_mode"]
+            == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
+        assert (
+            mock_exposure_runner_class.return_value.run.call_args.kwargs["execution_mode"]
+            == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        )
 
     @freeze_time("2020-01-10T12:00:00Z")
     async def test_fetch_experiment_data_executes_queries_on_cold_cache(self):

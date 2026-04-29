@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime
 
 from freezegun import freeze_time
@@ -28,7 +29,6 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import fu
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
 from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_journeys import journeys_for
-from collections import Counter
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
@@ -293,19 +293,21 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         assert results[2]["name"] == "insight viewed"
         assert results[0]["count"] == 7
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_signup.uuid,
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_insight_view.uuid,
-            person4_stopped_after_insight_view_not_strict_order.uuid,
-            person5_stopped_after_insight_view_random.uuid,
-            person6.uuid,
-            person7.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_signup.uuid,
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+                person4_stopped_after_insight_view_not_strict_order.uuid,
+                person5_stopped_after_insight_view_random.uuid,
+                person6.uuid,
+                person7.uuid,
+            ]
         )
 
-        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter([person3_stopped_after_insight_view.uuid, person7.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+            [person3_stopped_after_insight_view.uuid, person7.uuid]
+        )
 
         assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter([person7.uuid])
 
@@ -470,31 +472,33 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         assert results[3]["name"] == "pageview"
         assert results[0]["count"] == 8
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_signup.uuid,
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_insight_view.uuid,
-            person4.uuid,
-            person5.uuid,
-            person6.uuid,
-            person7.uuid,
-            person8.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_signup.uuid,
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+                person4.uuid,
+                person5.uuid,
+                person6.uuid,
+                person7.uuid,
+                person8.uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 2)) == Counter([
-            person3_stopped_after_insight_view.uuid,
-            person4.uuid,
-            person5.uuid,
-            person6.uuid,
-            person7.uuid,
-            person8.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+            [
+                person3_stopped_after_insight_view.uuid,
+                person4.uuid,
+                person5.uuid,
+                person6.uuid,
+                person7.uuid,
+                person8.uuid,
+            ]
         )
 
-        assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter([person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid])
+        assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter(
+            [person4.uuid, person5.uuid, person6.uuid, person7.uuid, person8.uuid]
+        )
 
         assert Counter(self._get_actor_ids_at_step(query, 4)) == Counter([person8.uuid])
 
@@ -568,19 +572,19 @@ class TestFunnelStrictSteps(ClickhouseTestMixin, APIBaseTest):
         assert results[2]["average_conversion_time"] == 7200
         # 2 hours for Person 3
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 1)) == Counter([
-            person1_stopped_after_signup.uuid,
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_insight_view.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 1)) == Counter(
+            [
+                person1_stopped_after_signup.uuid,
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+            ]
         )
 
-        assert (
-            Counter(self._get_actor_ids_at_step(query, 2)) == Counter([
-            person2_stopped_after_one_pageview.uuid,
-            person3_stopped_after_insight_view.uuid,
-            ])
+        assert Counter(self._get_actor_ids_at_step(query, 2)) == Counter(
+            [
+                person2_stopped_after_one_pageview.uuid,
+                person3_stopped_after_insight_view.uuid,
+            ]
         )
 
         assert Counter(self._get_actor_ids_at_step(query, 3)) == Counter([person3_stopped_after_insight_view.uuid])

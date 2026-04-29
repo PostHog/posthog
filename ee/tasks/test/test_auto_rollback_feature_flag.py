@@ -38,19 +38,21 @@ class AutoRollbackTest(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2021-08-21T21:00:00.000Z"):
             assert (
                 calculate_rolling_average(
-                threshold_metric=threshold_metric,
-                team=self.team,
-                timezone="UTC",
-                ) == 10
+                    threshold_metric=threshold_metric,
+                    team=self.team,
+                    timezone="UTC",
+                )
+                == 10
             )
 
         with freeze_time("2021-08-22T21:00:00.000Z"):
             assert (
                 calculate_rolling_average(
-                threshold_metric=threshold_metric,
-                team=self.team,
-                timezone="UTC",
-                ) == 20
+                    threshold_metric=threshold_metric,
+                    team=self.team,
+                    timezone="UTC",
+                )
+                == 20
             )
 
     def test_check_condition(self):

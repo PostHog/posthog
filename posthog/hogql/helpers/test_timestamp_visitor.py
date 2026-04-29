@@ -133,13 +133,25 @@ class TestIsTimeOrIntervalConstant(unittest.TestCase):
         assert is_time_or_interval_constant(ast.Call(name="toStartOfDay", args=[ast.Constant(value="2024-01-01")]))
 
     def test_arithmetic_both_constants_true(self) -> None:
-        assert is_time_or_interval_constant(ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Add, left=ast.Constant(value="2024-01-01"), right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)])))
+        assert is_time_or_interval_constant(
+            ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Add,
+                left=ast.Constant(value="2024-01-01"),
+                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)]),
+            )
+        )
 
     def test_arithmetic_with_field_false(self) -> None:
-        assert not is_time_or_interval_constant(ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Add, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=1)))
+        assert not is_time_or_interval_constant(
+            ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Add, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=1)
+            )
+        )
 
     def test_minus_call_with_constants_true(self) -> None:
-        assert is_time_or_interval_constant(ast.Call(name="minus", args=[ast.Constant(value="2024-01-01"), ast.Constant(value=1)]))
+        assert is_time_or_interval_constant(
+            ast.Call(name="minus", args=[ast.Constant(value="2024-01-01"), ast.Constant(value=1)])
+        )
 
     def test_and_returns_false(self) -> None:
         assert not is_time_or_interval_constant(ast.And(exprs=[ast.Constant(value=True)]))
@@ -164,10 +176,16 @@ class TestIsTimeOrIntervalConstant(unittest.TestCase):
         assert is_time_or_interval_constant(ast.Array(exprs=[ast.Constant(value="a"), ast.Constant(value="b")]))
 
     def test_compare_both_constants_true(self) -> None:
-        assert is_time_or_interval_constant(ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=ast.Constant(value="a"), right=ast.Constant(value="b")))
+        assert is_time_or_interval_constant(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq, left=ast.Constant(value="a"), right=ast.Constant(value="b")
+            )
+        )
 
     def test_between_returns_false(self) -> None:
-        assert not is_time_or_interval_constant(ast.BetweenExpr(expr=ast.Constant(value=1), low=ast.Constant(value=0), high=ast.Constant(value=2)))
+        assert not is_time_or_interval_constant(
+            ast.BetweenExpr(expr=ast.Constant(value=1), low=ast.Constant(value=0), high=ast.Constant(value=2))
+        )
 
     def test_unknown_call_returns_false(self) -> None:
         assert not is_time_or_interval_constant(ast.Call(name="unknownFunction", args=[ast.Constant(value=1)]))
@@ -208,8 +226,12 @@ class TestIsStartOfDayConstant(unittest.TestCase):
         assert not is_start_of_day_constant(ast.Constant(value="tombstone"), tombstone_string="tombstone")
 
     def test_parseDateTime64BestEffortOrNull_delegates(self) -> None:
-        assert is_start_of_day_constant(ast.Call(name="parseDateTime64BestEffortOrNull", args=[ast.Constant(value="2024-01-15T00:00:00")]))
-        assert not is_start_of_day_constant(ast.Call(name="parseDateTime64BestEffortOrNull", args=[ast.Constant(value="2024-01-15T12:30:00")]))
+        assert is_start_of_day_constant(
+            ast.Call(name="parseDateTime64BestEffortOrNull", args=[ast.Constant(value="2024-01-15T00:00:00")])
+        )
+        assert not is_start_of_day_constant(
+            ast.Call(name="parseDateTime64BestEffortOrNull", args=[ast.Constant(value="2024-01-15T12:30:00")])
+        )
 
 
 class TestIsStartOfHourConstant(unittest.TestCase):
@@ -246,7 +268,9 @@ class TestIsEndOfDayConstant(unittest.TestCase):
         assert not is_end_of_day_constant(ast.Constant(value="tombstone"), tombstone_string="tombstone")
 
     def test_parseDateTime64BestEffortOrNull_delegates(self) -> None:
-        assert is_end_of_day_constant(ast.Call(name="parseDateTime64BestEffortOrNull", args=[ast.Constant(value="2024-01-15T23:59:59")]))
+        assert is_end_of_day_constant(
+            ast.Call(name="parseDateTime64BestEffortOrNull", args=[ast.Constant(value="2024-01-15T23:59:59")])
+        )
 
 
 class TestIsEndOfHourConstant(unittest.TestCase):
@@ -291,11 +315,20 @@ class TestIsSimpleTimestampFieldExpression(unittest.TestCase):
 
     def test_compare_operation_returns_false(self) -> None:
         ctx = _make_hogql_context()
-        assert not is_simple_timestamp_field_expression(ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value="2024-01-01")), ctx)
+        assert not is_simple_timestamp_field_expression(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value="2024-01-01"),
+            ),
+            ctx,
+        )
 
     def test_and_returns_false(self) -> None:
         ctx = _make_hogql_context()
-        assert not is_simple_timestamp_field_expression(ast.And(exprs=[ast.Constant(value=True), ast.Constant(value=True)]), ctx)
+        assert not is_simple_timestamp_field_expression(
+            ast.And(exprs=[ast.Constant(value=True), ast.Constant(value=True)]), ctx
+        )
 
     def test_or_returns_false(self) -> None:
         ctx = _make_hogql_context()
@@ -307,7 +340,9 @@ class TestIsSimpleTimestampFieldExpression(unittest.TestCase):
 
     def test_between_returns_false(self) -> None:
         ctx = _make_hogql_context()
-        assert not is_simple_timestamp_field_expression(ast.BetweenExpr(expr=ast.Constant(value=1), low=ast.Constant(value=0), high=ast.Constant(value=2)), ctx)
+        assert not is_simple_timestamp_field_expression(
+            ast.BetweenExpr(expr=ast.Constant(value=1), low=ast.Constant(value=0), high=ast.Constant(value=2)), ctx
+        )
 
     @parameterized.expand(
         [
@@ -326,36 +361,77 @@ class TestIsSimpleTimestampFieldExpression(unittest.TestCase):
 
     def test_minus_call_delegates_like_arithmetic(self) -> None:
         ctx = _make_hogql_context()
-        assert is_simple_timestamp_field_expression(ast.Call(name="minus", args=[ast.Field(chain=["timestamp"]), ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)])]), ctx)
+        assert is_simple_timestamp_field_expression(
+            ast.Call(
+                name="minus",
+                args=[ast.Field(chain=["timestamp"]), ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)])],
+            ),
+            ctx,
+        )
 
     def test_add_call_delegates_like_arithmetic(self) -> None:
         ctx = _make_hogql_context()
-        assert is_simple_timestamp_field_expression(ast.Call(name="add", args=[ast.Field(chain=["timestamp"]), ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)])]), ctx)
+        assert is_simple_timestamp_field_expression(
+            ast.Call(
+                name="add",
+                args=[ast.Field(chain=["timestamp"]), ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)])],
+            ),
+            ctx,
+        )
 
     def test_unknown_call_returns_false(self) -> None:
         ctx = _make_hogql_context()
-        assert not is_simple_timestamp_field_expression(ast.Call(name="unknownFunction", args=[ast.Field(chain=["timestamp"])]), ctx)
+        assert not is_simple_timestamp_field_expression(
+            ast.Call(name="unknownFunction", args=[ast.Field(chain=["timestamp"])]), ctx
+        )
 
     def test_arithmetic_timestamp_plus_interval(self) -> None:
         ctx = _make_hogql_context()
-        assert is_simple_timestamp_field_expression(ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Add, left=ast.Field(chain=["timestamp"]), right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)])), ctx)
+        assert is_simple_timestamp_field_expression(
+            ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Add,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)]),
+            ),
+            ctx,
+        )
 
     def test_arithmetic_interval_plus_timestamp(self) -> None:
         ctx = _make_hogql_context()
-        assert is_simple_timestamp_field_expression(ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Add, left=ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)]), right=ast.Field(chain=["timestamp"])), ctx)
+        assert is_simple_timestamp_field_expression(
+            ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Add,
+                left=ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)]),
+                right=ast.Field(chain=["timestamp"]),
+            ),
+            ctx,
+        )
 
     def test_arithmetic_two_fields_returns_false(self) -> None:
         ctx = _make_hogql_context()
-        assert not is_simple_timestamp_field_expression(ast.ArithmeticOperation(op=ast.ArithmeticOperationOp.Add, left=ast.Field(chain=["timestamp"]), right=ast.Field(chain=["timestamp"])), ctx)
+        assert not is_simple_timestamp_field_expression(
+            ast.ArithmeticOperation(
+                op=ast.ArithmeticOperationOp.Add,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Field(chain=["timestamp"]),
+            ),
+            ctx,
+        )
 
     def test_tuple_all_timestamp_fields(self) -> None:
         ctx = _make_hogql_context()
-        assert is_simple_timestamp_field_expression(ast.Tuple(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["timestamp"])]), ctx)
+        assert is_simple_timestamp_field_expression(
+            ast.Tuple(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["timestamp"])]), ctx
+        )
 
     def test_tuple_with_non_timestamp_field_false(self) -> None:
         ctx = _make_hogql_context()
-        assert not is_simple_timestamp_field_expression(ast.Tuple(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["event"])]), ctx)
+        assert not is_simple_timestamp_field_expression(
+            ast.Tuple(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["event"])]), ctx
+        )
 
     def test_array_all_timestamp_fields(self) -> None:
         ctx = _make_hogql_context()
-        assert is_simple_timestamp_field_expression(ast.Array(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["timestamp"])]), ctx)
+        assert is_simple_timestamp_field_expression(
+            ast.Array(exprs=[ast.Field(chain=["timestamp"]), ast.Field(chain=["timestamp"])]), ctx
+        )

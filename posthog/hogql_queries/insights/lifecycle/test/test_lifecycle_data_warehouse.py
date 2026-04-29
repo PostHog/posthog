@@ -244,7 +244,17 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         assert [0.0, 1.0] == results_by_status["returning"]["data"]
         assert [0.0, 1.0] == results_by_status["resurrecting"]["data"]
         assert [0.0, -1.0] == results_by_status["dormant"]["data"]
-        assert {"name": table_name, "type": "data_warehouse", "order": 0, "math": "total", "table_name": table_name, "timestamp_field": "sent_at", "aggregation_target_field": "users.person_id", "created_at_field": "users.signed_up", "id": "posthog_test_sent_messages"} == results_by_status["new"]["action"]
+        assert {
+            "name": table_name,
+            "type": "data_warehouse",
+            "order": 0,
+            "math": "total",
+            "table_name": table_name,
+            "timestamp_field": "sent_at",
+            "aggregation_target_field": "users.person_id",
+            "created_at_field": "users.signed_up",
+            "id": "posthog_test_sent_messages",
+        } == results_by_status["new"]["action"]
 
         with freeze_time("2025-11-07T12:00:00Z"):
             for status, expected_name in {

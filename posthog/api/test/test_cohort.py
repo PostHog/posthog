@@ -2301,7 +2301,10 @@ email@example.org,
             },
         )
         assert response.status_code == 400, response.content
-        assert {"detail": "Cohorts cannot reference other cohorts in a loop.", "type": "validation_error"}.items() <= response.json().items()
+        assert {
+            "detail": "Cohorts cannot reference other cohorts in a loop.",
+            "type": "validation_error",
+        }.items() <= response.json().items()
         assert get_total_calculation_calls() == 3
 
         # Update Cohort A to depend on Cohort A itself
@@ -2323,7 +2326,10 @@ email@example.org,
             },
         )
         assert response.status_code == 400, response.content
-        assert {"detail": "Cohorts cannot reference other cohorts in a loop.", "type": "validation_error"}.items() <= response.json().items()
+        assert {
+            "detail": "Cohorts cannot reference other cohorts in a loop.",
+            "type": "validation_error",
+        }.items() <= response.json().items()
         assert get_total_calculation_calls() == 3
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
@@ -2765,7 +2771,9 @@ email@example.org,
 
         assert query_post_response.status_code == 201
         assert query_get_response.status_code == 200
-        assert query_get_response.json()["errors_calculating"] == 1  # Should be because selecting from groups is not allowed
+        assert (
+            query_get_response.json()["errors_calculating"] == 1
+        )  # Should be because selecting from groups is not allowed
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -2843,7 +2851,10 @@ email@example.org,
         )
 
         assert update_response.status_code == 400, response.content
-        assert {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}.items() <= update_response.json().items()
+        assert {
+            "detail": "Must contain a 'properties' key with type and values",
+            "type": "validation_error",
+        }.items() <= update_response.json().items()
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -2943,7 +2954,12 @@ email@example.org,
             },
         )
         assert response.status_code == 400
-        assert {"type": "validation_error", "code": "behavioral_cohort_found", "detail": "Behavioral filters cannot be added to cohorts used in feature flags.", "attr": "filters"}.items() <= response.json().items()
+        assert {
+            "type": "validation_error",
+            "code": "behavioral_cohort_found",
+            "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+            "attr": "filters",
+        }.items() <= response.json().items()
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort_pk}",
@@ -2970,7 +2986,12 @@ email@example.org,
             },
         )
         assert response.status_code == 400
-        assert {"type": "validation_error", "code": "behavioral_cohort_found", "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.", "attr": "filters"}.items() <= response.json().items()
+        assert {
+            "type": "validation_error",
+            "code": "behavioral_cohort_found",
+            "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
+            "attr": "filters",
+        }.items() <= response.json().items()
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_duplicating_dynamic_cohort_as_static(self, patch_on_commit):
@@ -4348,7 +4369,10 @@ email@example.org,
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "This cohort is used in 'Filter out internal and test users' for 1 environment(s):" in response.json()["detail"]
+        assert (
+            "This cohort is used in 'Filter out internal and test users' for 1 environment(s):"
+            in response.json()["detail"]
+        )
         assert self.team.name in response.json()["detail"]
 
     @patch("posthog.api.cohort.report_user_action")
@@ -4729,7 +4753,10 @@ email@example.org,
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "This cohort is used as criteria in 1 other cohort(s): Complex Dependent Cohort" in response.json()["detail"]
+        assert (
+            "This cohort is used as criteria in 1 other cohort(s): Complex Dependent Cohort"
+            in response.json()["detail"]
+        )
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")

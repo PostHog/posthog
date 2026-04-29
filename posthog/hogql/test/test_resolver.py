@@ -548,7 +548,10 @@ class TestResolver(BaseTest):
         assert expr == "WITH 1 AS cte SELECT cte FROM events LIMIT 50000"
 
     def test_ctes_recursive_column(self):
-        assert self._print_hogql("with 1 as cte, cte as soap select soap from events") == "WITH 1 AS cte, cte AS soap SELECT soap FROM events LIMIT 50000"
+        assert (
+            self._print_hogql("with 1 as cte, cte as soap select soap from events")
+            == "WITH 1 AS cte, cte AS soap SELECT soap FROM events LIMIT 50000"
+        )
 
     def test_ctes_field_access(self):
         with self.assertRaises(QueryError) as e:
@@ -556,25 +559,69 @@ class TestResolver(BaseTest):
         assert "No scope or CTE available" in str(e.exception)
 
     def test_ctes_subqueries(self):
-        assert self._print_hogql("with my_table as (select event from events) select event from my_table") == "WITH my_table AS (SELECT event FROM events) SELECT event FROM my_table LIMIT 50000"
+        assert (
+            self._print_hogql("with my_table as (select event from events) select event from my_table")
+            == "WITH my_table AS (SELECT event FROM events) SELECT event FROM my_table LIMIT 50000"
+        )
 
-        assert self._print_hogql("with my_table as (select timestamp from events) select my_table.timestamp from my_table") == "WITH my_table AS (SELECT timestamp FROM events) SELECT my_table.timestamp FROM my_table LIMIT 50000"
+        assert (
+            self._print_hogql("with my_table as (select timestamp from events) select my_table.timestamp from my_table")
+            == "WITH my_table AS (SELECT timestamp FROM events) SELECT my_table.timestamp FROM my_table LIMIT 50000"
+        )
 
-        assert self._print_hogql("with my_table as (select timestamp from events) select timestamp from my_table") == "WITH my_table AS (SELECT timestamp FROM events) SELECT timestamp FROM my_table LIMIT 50000"
+        assert (
+            self._print_hogql("with my_table as (select timestamp from events) select timestamp from my_table")
+            == "WITH my_table AS (SELECT timestamp FROM events) SELECT timestamp FROM my_table LIMIT 50000"
+        )
 
     def test_ctes_subquery_deep(self):
-        assert self._print_hogql("with my_table as (select event from events), " "other_table as (select event from (select event from (select event from my_table))) " "select event from other_table") == "WITH my_table AS (SELECT event FROM events), other_table AS (SELECT event FROM (SELECT event FROM (SELECT event FROM my_table))) SELECT event FROM other_table LIMIT 50000"
+        assert (
+            self._print_hogql(
+                "with my_table as (select event from events), "
+                "other_table as (select event from (select event from (select event from my_table))) "
+                "select event from other_table"
+            )
+            == "WITH my_table AS (SELECT event FROM events), other_table AS (SELECT event FROM (SELECT event FROM (SELECT event FROM my_table))) SELECT event FROM other_table LIMIT 50000"
+        )
 
     def test_ctes_subquery_recursion(self):
-        assert self._print_hogql("with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final") == "WITH users AS (SELECT event, timestamp AS tt FROM events), final AS (SELECT tt FROM users) SELECT tt FROM final LIMIT 50000"
+        assert (
+            self._print_hogql(
+                "with users as (select event, timestamp as tt from events ), final as ( select tt from users ) select * from final"
+            )
+            == "WITH users AS (SELECT event, timestamp AS tt FROM events), final AS (SELECT tt FROM users) SELECT tt FROM final LIMIT 50000"
+        )
 
     def test_ctes_with_aliases(self):
-        assert self._print_hogql("WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1") == "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE equals(new_alias.a, 1) LIMIT 50000"
+        assert (
+            self._print_hogql(
+                "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1"
+            )
+            == "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE equals(new_alias.a, 1) LIMIT 50000"
+        )
 
     def test_ctes_with_aliases_in_joins(self):
-        assert self._print_hogql("""\n                WITH\n                    exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),\n                    conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)\n                SELECT\n                    e.person_id,\n                    e.exposure_time,\n                    c.conversion_time\n                FROM exposures AS e\n                LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time\n                """) == "WITH exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events), " "conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events) " "SELECT e.person_id, e.exposure_time, c.conversion_time " "FROM exposures AS e LEFT JOIN conversions AS c " "ON and(equals(e.person_id, c.person_id), greaterOrEquals(c.conversion_time, e.exposure_time)) " "LIMIT 50000"
+        assert (
+            self._print_hogql(
+                """\n                WITH\n                    exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events),\n                    conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events)\n                SELECT\n                    e.person_id,\n                    e.exposure_time,\n                    c.conversion_time\n                FROM exposures AS e\n                LEFT JOIN conversions AS c ON e.person_id = c.person_id AND c.conversion_time >= e.exposure_time\n                """
+            )
+            == "WITH exposures AS (SELECT event AS person_id, timestamp AS exposure_time FROM events), "
+            "conversions AS (SELECT event AS person_id, timestamp AS conversion_time FROM events) "
+            "SELECT e.person_id, e.exposure_time, c.conversion_time "
+            "FROM exposures AS e LEFT JOIN conversions AS c "
+            "ON and(equals(e.person_id, c.person_id), greaterOrEquals(c.conversion_time, e.exposure_time)) "
+            "LIMIT 50000"
+        )
 
-        assert self._print_hogql("""\n                WITH\n                    users AS (SELECT event AS user_id FROM events)\n                SELECT\n                    users.user_id,\n                    u2.user_id\n                FROM users\n                LEFT JOIN users AS u2 ON users.user_id = u2.user_id\n                """) == "WITH users AS (SELECT event AS user_id FROM events) " "SELECT users.user_id, u2.user_id " "FROM users LEFT JOIN users AS u2 ON equals(users.user_id, u2.user_id) " "LIMIT 50000"
+        assert (
+            self._print_hogql(
+                """\n                WITH\n                    users AS (SELECT event AS user_id FROM events)\n                SELECT\n                    users.user_id,\n                    u2.user_id\n                FROM users\n                LEFT JOIN users AS u2 ON users.user_id = u2.user_id\n                """
+            )
+            == "WITH users AS (SELECT event AS user_id FROM events) "
+            "SELECT users.user_id, u2.user_id "
+            "FROM users LEFT JOIN users AS u2 ON equals(users.user_id, u2.user_id) "
+            "LIMIT 50000"
+        )
 
     def test_ctes_with_union_all(self):
         union_printed = self._print_hogql(
@@ -590,7 +637,10 @@ class TestResolver(BaseTest):
                     """
         )
 
-        assert union_printed == "WITH cte1 AS (SELECT 1 AS a) SELECT 1 AS a LIMIT 50000 UNION ALL WITH cte2 AS (SELECT 2 AS a) SELECT a FROM cte2 LIMIT 50000 UNION ALL WITH cte1 AS (SELECT 1 AS a) SELECT a FROM cte1 LIMIT 50000"
+        assert (
+            union_printed
+            == "WITH cte1 AS (SELECT 1 AS a) SELECT 1 AS a LIMIT 50000 UNION ALL WITH cte2 AS (SELECT 2 AS a) SELECT a FROM cte2 LIMIT 50000 UNION ALL WITH cte1 AS (SELECT 1 AS a) SELECT a FROM cte1 LIMIT 50000"
+        )
 
     def test_root_ctes_propagate_to_union_branches(self):
         # Root WITH propagates to all branches; branch-level CTEs shadow root CTEs
@@ -603,18 +653,38 @@ class TestResolver(BaseTest):
             SELECT * FROM page_view_stats
             """
         )
-        assert printed == "WITH page_view_stats AS (SELECT 1 AS a) SELECT a FROM page_view_stats LIMIT 50000 UNION ALL WITH purchase_stats AS (SELECT 2 AS a) SELECT a FROM page_view_stats LIMIT 50000"
+        assert (
+            printed
+            == "WITH page_view_stats AS (SELECT 1 AS a) SELECT a FROM page_view_stats LIMIT 50000 UNION ALL WITH purchase_stats AS (SELECT 2 AS a) SELECT a FROM page_view_stats LIMIT 50000"
+        )
 
     def test_with_clause_before_parens_select_set(self):
         printed = self._print_hogql("WITH cte AS (SELECT 1 AS a) (SELECT a FROM cte UNION ALL SELECT a FROM cte)")
-        assert printed == "WITH cte AS (SELECT 1 AS a) SELECT a FROM cte LIMIT 50000 UNION ALL SELECT a FROM cte LIMIT 50000"
+        assert (
+            printed
+            == "WITH cte AS (SELECT 1 AS a) SELECT a FROM cte LIMIT 50000 UNION ALL SELECT a FROM cte LIMIT 50000"
+        )
 
     def test_ctes_scalar_subquery(self):
-        assert self._print_hogql("WITH (SELECT 1) AS x SELECT x FROM events") == "WITH (SELECT 1) AS x SELECT x FROM events LIMIT 50000"
+        assert (
+            self._print_hogql("WITH (SELECT 1) AS x SELECT x FROM events")
+            == "WITH (SELECT 1) AS x SELECT x FROM events LIMIT 50000"
+        )
 
-        assert self._print_hogql("WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events") == "WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events LIMIT 50000"
+        assert (
+            self._print_hogql("WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events")
+            == "WITH (SELECT count() FROM events) AS event_count SELECT event_count FROM events LIMIT 50000"
+        )
 
-        assert self._print_hogql("WITH params AS (SELECT 1 AS a, 2 AS b), " "(SELECT a FROM params) AS val_a, " "(SELECT b FROM params) AS val_b " "SELECT val_a + val_b FROM events") == "WITH params AS (SELECT 1 AS a, 2 AS b), (SELECT a FROM params) AS val_a, (SELECT b FROM params) AS val_b SELECT plus(val_a, val_b) FROM events LIMIT 50000"
+        assert (
+            self._print_hogql(
+                "WITH params AS (SELECT 1 AS a, 2 AS b), "
+                "(SELECT a FROM params) AS val_a, "
+                "(SELECT b FROM params) AS val_b "
+                "SELECT val_a + val_b FROM events"
+            )
+            == "WITH params AS (SELECT 1 AS a, 2 AS b), (SELECT a FROM params) AS val_a, (SELECT b FROM params) AS val_b SELECT plus(val_a, val_b) FROM events LIMIT 50000"
+        )
 
     def test_ctes_with_scalar_subquery_column(self):
         # A table CTE that uses a scalar subquery as a SELECT column,

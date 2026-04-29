@@ -155,7 +155,9 @@ class TestWebOverviewStateTransform(ClickhouseTestMixin, APIBaseTest):
 
         original_result, transformed_result = self._run_web_overview_with_aggregate_state("2023-12-01", "2023-12-03")
 
-        assert self._compare_results(original_result, transformed_result), f"Results differ:\nOriginal: {original_result}\nTransformed: {transformed_result}"
+        assert self._compare_results(original_result, transformed_result), (
+            f"Results differ:\nOriginal: {original_result}\nTransformed: {transformed_result}"
+        )
 
     def test_web_overview_query_with_compare_period(self):
         self._create_test_data()
@@ -164,4 +166,6 @@ class TestWebOverviewStateTransform(ClickhouseTestMixin, APIBaseTest):
             "2023-12-01", "2023-12-03", compare=True
         )
 
-        assert self._compare_results(original_result, transformed_result), f"Results differ:\nOriginal: {original_result}\nTransformed: {transformed_result}"
+        assert self._compare_results(original_result, transformed_result), (
+            f"Results differ:\nOriginal: {original_result}\nTransformed: {transformed_result}"
+        )

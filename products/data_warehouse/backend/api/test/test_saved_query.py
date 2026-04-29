@@ -93,7 +93,17 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 201, response.content
         saved_query = response.json()
         assert saved_query["name"] == "event_view"
-        assert saved_query["columns"] == [{"key": "event", "name": "event", "type": "string", "schema_valid": True, "fields": None, "table": None, "chain": None}]
+        assert saved_query["columns"] == [
+            {
+                "key": "event",
+                "name": "event",
+                "type": "string",
+                "schema_valid": True,
+                "fields": None,
+                "table": None,
+                "chain": None,
+            }
+        ]
         assert saved_query["latest_history_id"] is not None
 
     def test_upsert(self):
@@ -681,7 +691,17 @@ class TestSavedQuery(APIBaseTest):
         assert saved_query_1_response.status_code == 200, saved_query_1_response.content
         view_1 = saved_query_1_response.json()
         assert view_1["name"] == "event_view"
-        assert view_1["columns"] == [{"key": "distinct_id", "name": "distinct_id", "type": "string", "schema_valid": True, "fields": None, "table": None, "chain": None}]
+        assert view_1["columns"] == [
+            {
+                "key": "distinct_id",
+                "name": "distinct_id",
+                "type": "string",
+                "schema_valid": True,
+                "fields": None,
+                "table": None,
+                "chain": None,
+            }
+        ]
 
     def test_nested_view(self):
         saved_query_1_response = self.client.post(
@@ -1034,12 +1054,21 @@ class TestSavedQuery(APIBaseTest):
             assert activity_logs[0].activity == "updated"
             latest_detail = cast(dict[str, Any], activity_logs[0].detail)
             query_change = next(change for change in latest_detail["changes"] if change["field"] == "query")
-            assert query_change["after"] == {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"}
-            assert query_change["before"] == {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"}
+            assert query_change["after"] == {
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 10",
+            }
+            assert query_change["before"] == {
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            }
             assert activity_logs[1].activity == "created"
             created_detail = cast(dict[str, Any], activity_logs[1].detail)
             query_change = next(change for change in created_detail["changes"] if change["field"] == "query")
-            assert query_change["after"] == {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"}
+            assert query_change["after"] == {
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            }
             assert query_change["before"] is None
 
             # this should fail because the activity log has changed
@@ -1144,7 +1173,12 @@ class TestSavedQuery(APIBaseTest):
             mock_table.refresh_from_db()
             assert mock_table.deleted
 
-            assert DataWarehouseModelPath.objects.filter(team=self.team, path__lquery=f"*{{1,}}.{db_saved_query.id.hex}").count() == 0
+            assert (
+                DataWarehouseModelPath.objects.filter(
+                    team=self.team, path__lquery=f"*{{1,}}.{db_saved_query.id.hex}"
+                ).count()
+                == 0
+            )
 
             mock_delete_schedule.assert_called_once_with(mock.ANY, schedule_id=str(db_saved_query.id))
 
@@ -1216,7 +1250,10 @@ class TestSavedQuery(APIBaseTest):
             )
 
             assert response.status_code == 400
-            assert response.json()["detail"] == "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
+            assert (
+                response.json()["detail"]
+                == "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead."
+            )
 
     def test_revert_materialization_saved_query_with_managed_viewset_fails(self):
         """Test that reverting materialization of a saved query with managed viewset fails with correct error message"""

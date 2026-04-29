@@ -147,7 +147,13 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [(0, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (60, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (91, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (120, 3.0, [0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (180, 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            (0, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (60, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (91, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (120, 3.0, [0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (180, 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_session_duration_of_events_with_bucketing(self):
@@ -166,7 +172,11 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [("[0.0,69.92]", 3.0, [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("[69.92,110.72]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("[110.72,180.01]", 5.0, [0.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            ("[0.0,69.92]", 3.0, [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("[69.92,110.72]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("[110.72,180.01]", 5.0, [0.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_session_duration_of_events_single_aggregate(self):
@@ -179,7 +189,11 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        assert [(item["breakdown_value"], item["aggregated_value"]) for item in response] == [("[0.0,69.92]", 3), ("[69.92,110.72]", 1), ("[110.72,180.01]", 5)]
+        assert [(item["breakdown_value"], item["aggregated_value"]) for item in response] == [
+            ("[0.0,69.92]", 3),
+            ("[69.92,110.72]", 1),
+            ("[110.72,180.01]", 5),
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_session_duration_of_unique_sessions(self):
@@ -188,7 +202,13 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             events_extra={"math": "unique_session"},
         )
 
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [(0, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (60, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (91, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (120, 1.0, [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (180, 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            (0, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (60, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (91, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (120, 1.0, [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (180, 2.0, [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_session_duration_of_unique_sessions_with_bucketing(self):
@@ -200,7 +220,11 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             },
             events_extra={"math": "unique_session"},
         )
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [("[0.0,69.92]", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("[69.92,110.72]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("[110.72,180.01]", 3.0, [0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            ("[0.0,69.92]", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("[69.92,110.72]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("[110.72,180.01]", 3.0, [0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_event_property_with_bucketing(self):
@@ -212,7 +236,11 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [("[25.0,66.25]", 4.0, [2.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("[66.25,98.37]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("[98.37,1000.01]", 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            ("[25.0,66.25]", 4.0, [2.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("[66.25,98.37]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("[98.37,1000.01]", 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_event_property_of_unique_sessions_with_bucketing(self):
@@ -225,7 +253,11 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             events_extra={"math": "unique_session"},
         )
 
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [("[25.0,66.25]", 3.0, [2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("[66.25,98.37]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("[98.37,1000.01]", 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            ("[25.0,66.25]", 3.0, [2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("[66.25,98.37]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("[98.37,1000.01]", 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
 
     def test_breakdown_by_event_property_with_bucketing_and_duplicate_buckets(self):
         journey = {
@@ -277,7 +309,9 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [("[300.0,300.01]", 4.0, [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            ("[300.0,300.01]", 4.0, [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0])
+        ]
 
     def test_breakdown_by_event_property_with_bucketing_and_single_bucket(self):
         journey = {
@@ -327,7 +361,9 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
 
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [("[300.0,320.01]", 4.0, [1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            ("[300.0,320.01]", 4.0, [1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_event_property_with_entity_session_filter(self):
@@ -345,7 +381,11 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [(BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("https://example.com", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("https://example.com/", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("https://example.com", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("https://example.com/", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_histogram_by_missing_property_regression(self):
@@ -357,7 +397,9 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [("[nan,nan]", 0.0, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            ("[nan,nan]", 0.0, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_numeric_hogql(self):
@@ -368,7 +410,11 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_limit": 2,
             },
         )
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [(BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (BREAKDOWN_OTHER_NUMERIC_LABEL, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            (BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (BREAKDOWN_OTHER_NUMERIC_LABEL, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_numeric_hogql_hide_other(self):
@@ -380,7 +426,10 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_limit": 2,
             },
         )
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [(BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            (BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
         response = self._run(
             {
                 "breakdown": "length(properties.$current_url)",
@@ -389,7 +438,11 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_limit": 3,
             },
         )
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [(BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (20, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            (BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (20, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_string_hogql(self):
@@ -400,7 +453,11 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_limit": 2,
             },
         )
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [(BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (BREAKDOWN_OTHER_STRING_LABEL, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            (BREAKDOWN_OTHER_STRING_LABEL, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
 
     @snapshot_clickhouse_queries
     def test_breakdown_string_hogql_hide_other(self):
@@ -412,7 +469,10 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_limit": 2,
             },
         )
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [(BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]
         response = self._run(
             {
                 "breakdown": "properties.$current_url",
@@ -421,4 +481,8 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 "breakdown_limit": 3,
             },
         )
-        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [(BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), ("https://example.com/", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]
+        assert [(item["breakdown_value"], item["count"], item["data"]) for item in response] == [
+            (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ("https://example.com/", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+        ]

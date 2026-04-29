@@ -218,7 +218,9 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
 
         results = response.json()["results"]
         for entry in results:
-            assert entry.get("matchedOn") != "value", "value matches must not surface when search term is shorter than the minimum length"
+            assert entry.get("matchedOn") != "value", (
+                "value matches must not surface when search term is shorter than the minimum length"
+            )
 
     def test_log_attributes_search_values_ranks_key_matches_first(self):
         """Key matches must always rank above value matches when both exist."""

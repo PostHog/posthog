@@ -1,6 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 
@@ -19,7 +20,6 @@ from posthog.schema import (
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.utils import uuid7
-import pytest
 
 
 @dataclass
@@ -178,8 +178,8 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10**(-2) * 0.5)
-        assert stats["/a"]["p90_duration"] == pytest.approx(51.0, abs=10**(-2) * 0.5)
+        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
+        assert stats["/a"]["p90_duration"] == pytest.approx(51.0, abs=10 ** (-2) * 0.5)
 
     def test_multiple_sessions_p90_across_all_durations(self):
         p1_page_views = [
@@ -206,8 +206,8 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10**(-2) * 0.5)
-        assert stats["/a"]["p90_duration"] == pytest.approx(50.0, abs=10**(-2) * 0.5)
+        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
+        assert stats["/a"]["p90_duration"] == pytest.approx(50.0, abs=10 ** (-2) * 0.5)
 
     def test_only_sessions_visiting_path_affect_p90(self):
         p1_page_views = [
@@ -234,8 +234,8 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10**(-2) * 0.5)
-        assert stats["/a"]["p90_duration"] == pytest.approx(36.4, abs=10**(-2) * 0.5)
+        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
+        assert stats["/a"]["p90_duration"] == pytest.approx(36.4, abs=10 ** (-2) * 0.5)
 
     def test_multiple_paths_in_session_p90(self):
         p1_page_views = [
@@ -269,8 +269,8 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10**(-2) * 0.5)
-        assert stats["/a"]["p90_duration"] == pytest.approx(37.0, abs=10**(-2) * 0.5)
+        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
+        assert stats["/a"]["p90_duration"] == pytest.approx(37.0, abs=10 ** (-2) * 0.5)
 
     def test_no_results_for_nonexistent_pathname(self):
         page_views = [
@@ -312,8 +312,8 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        assert result_data[0] == pytest.approx(day1_stats["/a"]["p90_duration"], abs=10**(-2) * 0.5)
-        assert result_data[1] == pytest.approx(day2_stats["/a"]["p90_duration"], abs=10**(-2) * 0.5)
+        assert result_data[0] == pytest.approx(day1_stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
+        assert result_data[1] == pytest.approx(day2_stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
 
     @parameterized.expand([IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH])
     def test_interval_grouping_p90(self, interval: IntervalType):
@@ -330,7 +330,7 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10**(-2) * 0.5)
+        assert result_data[0] == pytest.approx(stats["/a"]["p90_duration"], abs=10 ** (-2) * 0.5)
 
     def test_null_prev_pageview_duration_excluded_from_p90(self):
         p1_page_views = [
@@ -362,4 +362,4 @@ class TestPageReportsTimeOnPage(ClickhouseTestMixin, APIBaseTest):
 
         result_data = response.results[0]["data"]
 
-        assert result_data[0] == pytest.approx(stats["/start"]["p90_duration"], abs=10**(-2) * 0.5)
+        assert result_data[0] == pytest.approx(stats["/start"]["p90_duration"], abs=10 ** (-2) * 0.5)

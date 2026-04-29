@@ -85,10 +85,30 @@ class TestTeam(BaseTest):
         assert test_users_cohort.kind == CohortKind.INTERNAL_TEST_USERS
 
         # Cohort should have $internal_or_test_user filter AND email domain filter (posthog.com is not generic)
-        assert test_users_cohort.filters == {"properties": {"type": "OR", "values": [{"type": "AND", "values": [{"key": "$internal_or_test_user", "type": "person", "value": [True], "operator": "exact"}]}, {"type": "AND", "values": [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}]}]}}
+        assert test_users_cohort.filters == {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$internal_or_test_user", "type": "person", "value": [True], "operator": "exact"}
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+                        ],
+                    },
+                ],
+            }
+        }
 
         # test_account_filters should reference the cohort with not_in
-        assert team.test_account_filters == [{"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}]
+        assert team.test_account_filters == [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}
+        ]
 
     def test_create_team_with_generic_email_skips_domain_filter(self):
         user = User.objects.create(email="test@gmail.com")
@@ -99,10 +119,24 @@ class TestTeam(BaseTest):
         # Cohort should only have $internal_or_test_user filter (no email domain for gmail.com)
         test_users_cohort = Cohort.objects.get(team=team, name=INTERNAL_TEST_USERS_COHORT_NAME)
         assert test_users_cohort.kind == CohortKind.INTERNAL_TEST_USERS
-        assert test_users_cohort.filters == {"properties": {"type": "OR", "values": [{"type": "AND", "values": [{"key": "$internal_or_test_user", "type": "person", "value": [True], "operator": "exact"}]}]}}
+        assert test_users_cohort.filters == {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$internal_or_test_user", "type": "person", "value": [True], "operator": "exact"}
+                        ],
+                    }
+                ],
+            }
+        }
 
         # test_account_filters should still reference the cohort
-        assert team.test_account_filters == [{"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}]
+        assert team.test_account_filters == [
+            {"key": "id", "type": "cohort", "value": test_users_cohort.pk, "operator": "not_in"}
+        ]
 
     def test_create_team_sets_primary_dashboard(self):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)

@@ -92,7 +92,9 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
         with self.assertRaises(ValidationError) as context:
             ValidateDataWarehouseBreakdown().validate(self._context(query))
 
-        assert "Event based breakdowns are not supported for trends insights with a data warehouse series." in str(context.exception)
+        assert "Event based breakdowns are not supported for trends insights with a data warehouse series." in str(
+            context.exception
+        )
         assert context.exception.get_codes() == ["data_warehouse_series_unsupported_breakdown"]
 
     @parameterized.expand(
@@ -179,7 +181,9 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
         with self.assertRaises(ValidationError) as context:
             ValidateDataWarehouseBreakdown().validate(self._context(query))
 
-        assert "Event based breakdowns are not supported for trends insights with a data warehouse series." in str(context.exception)
+        assert "Event based breakdowns are not supported for trends insights with a data warehouse series." in str(
+            context.exception
+        )
         assert context.exception.get_codes() == ["data_warehouse_series_unsupported_breakdown"]
 
     @parameterized.expand(
@@ -231,5 +235,7 @@ class TestValidateDataWarehouseBreakdown(BaseTest):
         with self.assertRaises(ValidationError) as context:
             ValidateDataWarehouseBreakdown().validate(self._context(query))
 
-        assert "Event based breakdowns are not supported for trends insights with a data warehouse series." in str(context.exception)
+        assert "Event based breakdowns are not supported for trends insights with a data warehouse series." in str(
+            context.exception
+        )
         assert context.exception.get_codes() == ["data_warehouse_series_unsupported_breakdown"]

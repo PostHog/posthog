@@ -126,7 +126,12 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"type": "validation_error", "code": "unique", "detail": f"This project already has an action with this name, ID {original_action.id}", "attr": "name"}
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "unique",
+            "detail": f"This project already has an action with this name, ID {original_action.id}",
+            "attr": "name",
+        }
 
         assert Action.objects.count() == count
 
@@ -139,7 +144,12 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"type": "validation_error", "code": "blank", "detail": "This field may not be blank.", "attr": "name"}
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "blank",
+            "detail": "This field may not be blank.",
+            "attr": "name",
+        }
         assert Action.objects.count() == count
 
     def test_cant_create_action_with_whitespace_only_name(self, *args):
@@ -151,7 +161,12 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json() == {"type": "validation_error", "code": "blank", "detail": "This field may not be blank.", "attr": "name"}
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "blank",
+            "detail": "This field may not be blank.",
+            "attr": "name",
+        }
         assert Action.objects.count() == count
 
     @freeze_time("2021-12-12")

@@ -1,3 +1,5 @@
+from collections import Counter
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -21,7 +23,6 @@ from posthog.rbac.user_access_control import (
 )
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from collections import Counter
 
 try:
     from ee.models.rbac.access_control import AccessControl

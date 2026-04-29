@@ -415,8 +415,8 @@ def PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(on_cluster=True):
     )
 
 
-KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = (
-    lambda on_cluster=True: PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
+KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda on_cluster=True: (
+    PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
         table_name=KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID, group="clickhouse-person-distinct-id-overrides"),
@@ -675,8 +675,8 @@ ORDER BY actor_value DESC, actor_id DESC /* Also sorting by ID for determinism *
 {offset}
 """
 
-COMMENT_DISTINCT_ID_COLUMN_SQL = (
-    lambda: "ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
+COMMENT_DISTINCT_ID_COLUMN_SQL = lambda: (
+    "ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
 )
 
 

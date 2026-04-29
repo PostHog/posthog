@@ -105,7 +105,19 @@ class TestLLMPromptCache(BaseTest):
         prompt = self.create_prompt_version(name="serializer-shape")
 
         serialized_prompt = _serialize_prompt(prompt)
-        assert set(serialized_prompt.keys()) == {"id", "name", "prompt", "version", "created_at", "updated_at", "deleted", "is_latest", "latest_version", "version_count", "first_version_created_at"}
+        assert set(serialized_prompt.keys()) == {
+            "id",
+            "name",
+            "prompt",
+            "version",
+            "created_at",
+            "updated_at",
+            "deleted",
+            "is_latest",
+            "latest_version",
+            "version_count",
+            "first_version_created_at",
+        }
 
     def test_get_prompt_by_name_from_cache_hits_latest_loader_once_when_cache_is_warm(self):
         self.create_prompt_version(name="cached-prompt", version=1, is_latest=True)

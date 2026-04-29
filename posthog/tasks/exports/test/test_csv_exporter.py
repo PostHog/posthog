@@ -471,7 +471,10 @@ class TestCSVExporter(APIBaseTest):
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").split("\r\n")
             assert len(lines) == 12
-            assert lines[0] == "event,*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode"
+            assert (
+                lines[0]
+                == "event,*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode"
+            )
             assert lines[11] == ""
             first_row = lines[1].split(",")
             assert first_row[0] == "$pageview"
@@ -513,7 +516,10 @@ class TestCSVExporter(APIBaseTest):
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").split("\r\n")
             assert len(lines) == 12
-            assert lines[0] == "*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode"
+            assert (
+                lines[0]
+                == "*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode"
+            )
             assert lines[11] == ""
             first_row = lines[1].split(",")
             assert first_row[1] == "$pageview"
@@ -569,7 +575,11 @@ class TestCSVExporter(APIBaseTest):
             assert exported_asset.content_location is not None
             content = object_storage.read(exported_asset.content_location)
             lines = (content or "").strip().split("\r\n")
-            assert lines == ["name,breakdown_value,action_id,count,median_conversion_time (seconds),average_conversion_time (seconds)", "$pageview,test'123,$pageview,1,,", "$pageview,test'123,$pageview,1,60.0,60.0"]
+            assert lines == [
+                "name,breakdown_value,action_id,count,median_conversion_time (seconds),average_conversion_time (seconds)",
+                "$pageview,test'123,$pageview,1,,",
+                "$pageview,test'123,$pageview,1,60.0,60.0",
+            ]
 
     @patch("posthog.models.exported_asset.object_storage.write_from_file")
     @patch("posthog.tasks.exports.csv_exporter.process_query_dict")
@@ -951,7 +961,11 @@ class TestCSVExporter(APIBaseTest):
             csv_exporter.export_tabular(exported_asset)
             content = object_storage.read(exported_asset.content_location)  # type: ignore
             lines = (content or "").strip().split("\r\n")
-            assert lines == ["actor.id,actor.is_identified,actor.created_at,actor.last_seen_at,actor.distinct_ids.0,event_count,event_distinct_ids.0", "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,,user_1,2,user_1", "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,,user_2,1,user_2"]
+            assert lines == [
+                "actor.id,actor.is_identified,actor.created_at,actor.last_seen_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
+                "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,,user_1,2,user_1",
+                "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,,user_2,1,user_2",
+            ]
 
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_query_with_formula(
@@ -1160,7 +1174,11 @@ class TestCSVExporter(APIBaseTest):
             # Sort data lines for consistent comparison (order may vary)
             data_lines = sorted(lines[1:])
 
-            assert lines[0:1] + data_lines == ["series,distinct_id,$browser,Total Sum", "Formula (A+B),multi_breakdown_user_1,Chrome,2.0", "Formula (A+B),multi_breakdown_user_2,Firefox,1.0"]
+            assert lines[0:1] + data_lines == [
+                "series,distinct_id,$browser,Total Sum",
+                "Formula (A+B),multi_breakdown_user_1,Chrome,2.0",
+                "Formula (A+B),multi_breakdown_user_2,Firefox,1.0",
+            ]
 
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown(self, mocked_uuidt: Any) -> None:
@@ -1223,7 +1241,11 @@ class TestCSVExporter(APIBaseTest):
             lines = (content or "").strip().split("\r\n")
             data_lines = sorted(lines[1:])
 
-            assert lines[0:1] + data_lines == ["series,$browser,Total Sum", "test_event,Chrome,1", "test_event,Firefox,1"]
+            assert lines[0:1] + data_lines == [
+                "series,$browser,Total Sum",
+                "test_event,Chrome,1",
+                "test_event,Firefox,1",
+            ]
 
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown_and_action(self, mocked_uuidt: Any) -> None:
@@ -1292,7 +1314,11 @@ class TestCSVExporter(APIBaseTest):
             lines = (content or "").strip().split("\r\n")
             data_lines = sorted(lines[1:])
 
-            assert lines[0:1] + data_lines == ["series,$browser,Total Sum", "Test Action,Chrome,1", "Test Action,Firefox,1"]
+            assert lines[0:1] + data_lines == [
+                "series,$browser,Total Sum",
+                "Test Action,Chrome,1",
+                "Test Action,Firefox,1",
+            ]
 
     @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")

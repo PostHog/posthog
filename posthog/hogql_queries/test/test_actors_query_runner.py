@@ -819,10 +819,14 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Should return no results because latest version doesn't have email with @
         person_ids_in_results = [row[1] for row in response.results]
-        assert str(person.uuid) not in person_ids_in_results, "Person with deleted email property should not appear in search results for '@'"
+        assert str(person.uuid) not in person_ids_in_results, (
+            "Person with deleted email property should not appear in search results for '@'"
+        )
 
         # Verify that direct ActorsQuery is using PersonsArgMaxVersion.V2
-        assert runner.modifiers.personsArgMaxVersion == PersonsArgMaxVersion.V2, "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data"
+        assert runner.modifiers.personsArgMaxVersion == PersonsArgMaxVersion.V2, (
+            "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data"
+        )
 
     def test_person_strategy_batches_large_actor_sets(self):
         """Verify that PersonStrategy.get_actors batches queries."""
@@ -871,4 +875,6 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         result = response.results[0]
         last_seen_idx = response.columns.index("last_seen_at")
         last_seen_value = result[last_seen_idx]
-        assert "2023-05-07 15:00:00+00:00" == str(last_seen_value), "Should round to the bottom of the hour of the event (user creation)"
+        assert "2023-05-07 15:00:00+00:00" == str(last_seen_value), (
+            "Should round to the bottom of the hour of the event (user creation)"
+        )

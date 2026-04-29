@@ -471,7 +471,10 @@ class TestMaxChatOpenAI(BaseTest):
 
         allowed_keys = {"base_url", "mounts", "timeout"}
         unexpected = set(kwargs) - allowed_keys
-        assert not unexpected, f"_bypass_http_client_kwargs set unexpected keys {unexpected}; " f"these would override anthropic SDK defaults — revisit the bypass approach"
+        assert not unexpected, (
+            f"_bypass_http_client_kwargs set unexpected keys {unexpected}; "
+            f"these would override anthropic SDK defaults — revisit the bypass approach"
+        )
         assert kwargs["mounts"] == {"http://": None, "https://": None, "all://": None}
 
     def test_bypass_client_matches_anthropic_default_for_timeout_redirects_transport(self):

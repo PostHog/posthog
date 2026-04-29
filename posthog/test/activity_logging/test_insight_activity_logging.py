@@ -1,5 +1,6 @@
 import random
 import string
+from collections import Counter
 
 from posthog.test.base import BaseTest
 
@@ -10,7 +11,6 @@ from posthog.models.activity_logging.activity_log import Change, changes_between
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from collections import Counter
 
 
 class TestChangesBetweenInsights(BaseTest):

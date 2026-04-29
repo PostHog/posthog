@@ -389,4 +389,6 @@ class TestEmailTemplateRendering(TestApprovalNotifications):
                         "approver_name": "Admin User",
                     },
                 )
-                assert expected_cta in message.html_body, f"Template {template_name} should have CTA button '{expected_cta}'"
+                assert expected_cta in message.html_body, (
+                    f"Template {template_name} should have CTA button '{expected_cta}'"
+                )

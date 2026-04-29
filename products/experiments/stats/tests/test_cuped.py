@@ -1,3 +1,4 @@
+import pytest
 from unittest import TestCase
 
 import numpy as np
@@ -14,7 +15,6 @@ from products.experiments.stats.shared.cuped import (
 )
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import ProportionStatistic, SampleMeanStatistic, StatisticError
-import pytest
 
 
 def _generate_sufficient_stats(rng: np.random.Generator, n: int, mean: float, std: float):
@@ -49,7 +49,7 @@ class TestComputeTheta(TestCase):
         )
 
         theta = compute_theta(treatment_post, control_post, treatment_cuped, control_cuped)
-        assert theta == pytest.approx(2.0, abs=10**(-1) * 0.5)
+        assert theta == pytest.approx(2.0, abs=10 ** (-1) * 0.5)
 
     def test_theta_zero_when_no_pre_variance(self):
         """When all pre-exposure values are identical, theta should be 0."""
@@ -81,7 +81,7 @@ class TestComputeTheta(TestCase):
 
         # Use same data for control to isolate theta behavior
         theta = compute_theta(treatment_post, treatment_post, treatment_cuped, treatment_cuped)
-        assert theta == pytest.approx(0.0, abs=10**(-0) * 0.5)
+        assert theta == pytest.approx(0.0, abs=10 ** (-0) * 0.5)
 
 
 class TestCupedAdjust(TestCase):
@@ -117,7 +117,7 @@ class TestCupedAdjust(TestCase):
         assert result.control_adjusted.variance < control_post.variance
 
         # Theta should be approximately 2
-        assert result.theta == pytest.approx(2.0, abs=10**(-1) * 0.5)
+        assert result.theta == pytest.approx(2.0, abs=10 ** (-1) * 0.5)
 
     def test_unadjusted_means_preserved(self):
         """CupedResult should contain the original unadjusted means."""
@@ -141,8 +141,8 @@ class TestCupedAdjust(TestCase):
 
         result = cuped_adjust(treatment_post, control_post, treatment_cuped, control_cuped)
 
-        assert result.treatment_unadjusted_mean == pytest.approx(treatment_post.mean, abs=10**(-10) * 0.5)
-        assert result.control_unadjusted_mean == pytest.approx(control_post.mean, abs=10**(-10) * 0.5)
+        assert result.treatment_unadjusted_mean == pytest.approx(treatment_post.mean, abs=10 ** (-10) * 0.5)
+        assert result.control_unadjusted_mean == pytest.approx(control_post.mean, abs=10 ** (-10) * 0.5)
 
     def test_no_adjustment_when_zero_pre_variance(self):
         """When pre-exposure has zero variance, should return original stats with theta=0."""
@@ -159,8 +159,8 @@ class TestCupedAdjust(TestCase):
         assert result.theta == 0.0
         assert result.variance_reduction_treatment == 0.0
         assert result.variance_reduction_control == 0.0
-        assert result.treatment_adjusted.mean == pytest.approx(treatment_post.mean, abs=10**(-10) * 0.5)
-        assert result.control_adjusted.mean == pytest.approx(control_post.mean, abs=10**(-10) * 0.5)
+        assert result.treatment_adjusted.mean == pytest.approx(treatment_post.mean, abs=10 ** (-10) * 0.5)
+        assert result.control_adjusted.mean == pytest.approx(control_post.mean, abs=10 ** (-10) * 0.5)
 
     def test_proportion_input_produces_sample_mean_output(self):
         """ProportionStatistic inputs should produce SampleMeanStatistic outputs."""
@@ -367,9 +367,9 @@ class TestCupedReferenceData(TestCase):
         )
         adjusted, vr = _adjust_group(post, cuped_data, theta=0)
 
-        assert adjusted.mean == pytest.approx(2.8, abs=10**(-9) * 0.5)
-        assert adjusted.variance == pytest.approx(2.2, abs=10**(-9) * 0.5)
-        assert vr == pytest.approx(0.0, abs=10**(-9) * 0.5)
+        assert adjusted.mean == pytest.approx(2.8, abs=10 ** (-9) * 0.5)
+        assert adjusted.variance == pytest.approx(2.2, abs=10 ** (-9) * 0.5)
+        assert vr == pytest.approx(0.0, abs=10 ** (-9) * 0.5)
 
     def test_adjust_group_nonzero_theta(self):
         """Nonzero theta adjusts mean and variance."""
@@ -380,13 +380,13 @@ class TestCupedReferenceData(TestCase):
         )
         adjusted, _ = _adjust_group(post, cuped_data, theta=0.31)
 
-        assert adjusted.mean == pytest.approx(1.033, abs=10**(-5) * 0.5)
-        assert adjusted.variance == pytest.approx(9.960346, abs=10**(-4) * 0.5)
+        assert adjusted.mean == pytest.approx(1.033, abs=10 ** (-5) * 0.5)
+        assert adjusted.variance == pytest.approx(9.960346, abs=10 ** (-4) * 0.5)
 
     def test_covariance_computation(self):
         """Sample covariance: (85.2 - 14*28.5/5) / 4 = 1.35."""
         cov = _compute_covariance(n=5, post_sum=14, pre_sum=28.5, sum_of_cross_products=85.2)
-        assert cov == pytest.approx(1.35, abs=10**(-9) * 0.5)
+        assert cov == pytest.approx(1.35, abs=10 ** (-9) * 0.5)
 
     def test_adjust_group_single_observation(self):
         """n=1 gives variance=0 regardless of theta."""
@@ -397,7 +397,7 @@ class TestCupedReferenceData(TestCase):
         )
         adjusted, _ = _adjust_group(post, cuped_data, theta=0.4)
 
-        assert adjusted.variance == pytest.approx(0.0, abs=10**(-9) * 0.5)
+        assert adjusted.variance == pytest.approx(0.0, abs=10 ** (-9) * 0.5)
 
     # --- Theta computation ---
 
@@ -411,7 +411,7 @@ class TestCupedReferenceData(TestCase):
 
         theta = compute_theta(post, post, cuped_data, cuped_data)
 
-        assert theta == pytest.approx(0.015090122, abs=10**(-7) * 0.5)
+        assert theta == pytest.approx(0.015090122, abs=10 ** (-7) * 0.5)
 
     # --- End-to-end mean metric, frequentist ---
 
@@ -430,11 +430,11 @@ class TestCupedReferenceData(TestCase):
 
         result = cuped_adjust(treatment_post, control_post, treatment_cuped, control_cuped)
 
-        assert result.control_unadjusted_mean == pytest.approx(0.099964299, abs=10**(-7) * 0.5)
-        assert result.treatment_unadjusted_mean == pytest.approx(0.073214286, abs=10**(-7) * 0.5)
-        assert result.theta == pytest.approx(-0.069566052, abs=10**(-7) * 0.5)
-        assert result.control_adjusted.mean == pytest.approx(0.104807347, abs=10**(-7) * 0.5)
-        assert result.treatment_adjusted.mean == pytest.approx(0.075947238, abs=10**(-7) * 0.5)
+        assert result.control_unadjusted_mean == pytest.approx(0.099964299, abs=10 ** (-7) * 0.5)
+        assert result.treatment_unadjusted_mean == pytest.approx(0.073214286, abs=10 ** (-7) * 0.5)
+        assert result.theta == pytest.approx(-0.069566052, abs=10 ** (-7) * 0.5)
+        assert result.control_adjusted.mean == pytest.approx(0.104807347, abs=10 ** (-7) * 0.5)
+        assert result.treatment_adjusted.mean == pytest.approx(0.075947238, abs=10 ** (-7) * 0.5)
         assert result.control_adjusted.variance < control_post.variance
         assert result.treatment_adjusted.variance < treatment_post.variance
 
@@ -459,9 +459,9 @@ class TestCupedReferenceData(TestCase):
             result.treatment_adjusted, result.control_adjusted, unadjusted_mean=result.control_unadjusted_mean
         )
 
-        assert test_result.point_estimate == pytest.approx(-0.288704169, abs=10**(-5) * 0.5)
-        assert test_result.confidence_interval[0] == pytest.approx(-0.486775, abs=10**(-5) * 0.5)
-        assert test_result.confidence_interval[1] == pytest.approx(-0.090633, abs=10**(-5) * 0.5)
+        assert test_result.point_estimate == pytest.approx(-0.288704169, abs=10 ** (-5) * 0.5)
+        assert test_result.confidence_interval[0] == pytest.approx(-0.486775, abs=10 ** (-5) * 0.5)
+        assert test_result.confidence_interval[1] == pytest.approx(-0.090633, abs=10 ** (-5) * 0.5)
         assert test_result.is_significant
 
     def test_mean_metric_relative_effect_bayesian(self):
@@ -484,9 +484,9 @@ class TestCupedReferenceData(TestCase):
             result.treatment_adjusted, result.control_adjusted, unadjusted_mean=result.control_unadjusted_mean
         )
 
-        assert test_result.effect_size == pytest.approx(-0.288704169, abs=10**(-4) * 0.5)
-        assert test_result.credible_interval[0] == pytest.approx(-0.486732, abs=10**(-5) * 0.5)
-        assert test_result.credible_interval[1] == pytest.approx(-0.090676, abs=10**(-5) * 0.5)
+        assert test_result.effect_size == pytest.approx(-0.288704169, abs=10 ** (-4) * 0.5)
+        assert test_result.credible_interval[0] == pytest.approx(-0.486732, abs=10 ** (-5) * 0.5)
+        assert test_result.credible_interval[1] == pytest.approx(-0.090676, abs=10 ** (-5) * 0.5)
 
     # --- Binomial metric ---
 
@@ -507,8 +507,8 @@ class TestCupedReferenceData(TestCase):
 
         assert isinstance(result.treatment_adjusted, SampleMeanStatistic)
         assert isinstance(result.control_adjusted, SampleMeanStatistic)
-        assert result.control_unadjusted_mean == pytest.approx(280 / 2801, abs=10**(-9) * 0.5)
-        assert result.treatment_unadjusted_mean == pytest.approx(205 / 2800, abs=10**(-9) * 0.5)
+        assert result.control_unadjusted_mean == pytest.approx(280 / 2801, abs=10 ** (-9) * 0.5)
+        assert result.treatment_unadjusted_mean == pytest.approx(205 / 2800, abs=10 ** (-9) * 0.5)
         assert result.variance_reduction_treatment > 0
         assert result.variance_reduction_control > 0
 
@@ -587,4 +587,4 @@ class TestCupedReferenceData(TestCase):
         theta = compute_theta(theta_partner_post, control_post, theta_partner_cuped, control_cuped)
         adjusted, _ = _adjust_group(target_post, target_cuped, theta)
 
-        assert np.sqrt(adjusted.variance) == pytest.approx(expected_stddev, abs=10**(-5) * 0.5)
+        assert np.sqrt(adjusted.variance) == pytest.approx(expected_stddev, abs=10 ** (-5) * 0.5)

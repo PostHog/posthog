@@ -28,7 +28,10 @@ class TestPrintString(BaseTest):
         assert escape_hogql_identifier("back`tick") == "`back\\`tick`"
         assert escape_hogql_identifier("single'quote") == "`single'quote`"
         assert escape_hogql_identifier('double"quote') == '`double"quote`'
-        assert escape_hogql_identifier("other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\") == "`other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\`"
+        assert (
+            escape_hogql_identifier("other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\")
+            == "`other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\`"
+        )
 
     def test_sanitize_clickhouse_identifier(self):
         assert escape_clickhouse_identifier("a") == "a"
@@ -43,7 +46,10 @@ class TestPrintString(BaseTest):
         assert escape_clickhouse_identifier("back`tick") == "`back\\`tick`"
         assert escape_clickhouse_identifier("single'quote") == "`single'quote`"
         assert escape_clickhouse_identifier('double"quote') == '`double"quote`'
-        assert escape_clickhouse_identifier("other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\") == "`other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\`"
+        assert (
+            escape_clickhouse_identifier("other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\")
+            == "`other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\`"
+        )
 
     def test_sanitize_postgres_identifier(self):
         assert escape_postgres_identifier("a") == "a"
@@ -58,7 +64,10 @@ class TestPrintString(BaseTest):
         assert escape_postgres_identifier("back`tick") == '"back`tick"'
         assert escape_postgres_identifier("single'quote") == '"single\'quote"'
         assert escape_postgres_identifier('double"quote') == '"double""quote"'
-        assert escape_postgres_identifier("other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\") == '"other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\"'
+        assert (
+            escape_postgres_identifier("other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\")
+            == '"other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\"'
+        )
 
     def test_escape_postgres_identifier_length(self):
         identifier_at_max_length = "a" * 63
@@ -77,14 +86,20 @@ class TestPrintString(BaseTest):
         assert escape_clickhouse_string("back`tick") == "'back`tick'"
         assert escape_clickhouse_string("single'quote") == "'single\\'quote'"
         assert escape_clickhouse_string('double"quote') == "'double\"quote'"
-        assert escape_clickhouse_string("other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\") == "'other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\'"
+        assert (
+            escape_clickhouse_string("other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\")
+            == "'other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\'"
+        )
         assert escape_clickhouse_string(["list", "things", []]) == "['list', 'things', []]"
         assert escape_clickhouse_string(("tuple", "things", ())) == "('tuple', 'things', ())"
         uuid = UUIDT()
         assert escape_clickhouse_string(uuid) == f"toUUIDOrNull('{str(uuid)}')"
         date = datetime.fromisoformat("2020-02-02 02:02:02")
         assert escape_clickhouse_string(date) == "toDateTime64('2020-02-02 02:02:02.000000', 6, 'UTC')"
-        assert escape_clickhouse_string(date, timezone="Europe/Brussels") == "toDateTime64('2020-02-02 03:02:02.000000', 6, 'Europe/Brussels')"
+        assert (
+            escape_clickhouse_string(date, timezone="Europe/Brussels")
+            == "toDateTime64('2020-02-02 03:02:02.000000', 6, 'Europe/Brussels')"
+        )
         assert escape_clickhouse_string(date.date()) == "toDate('2020-02-02')"
         assert escape_clickhouse_string(1) == "1"
         assert escape_clickhouse_string(-1) == "-1"
@@ -105,7 +120,10 @@ class TestPrintString(BaseTest):
         assert escape_hogql_string("back`tick") == "'back`tick'"
         assert escape_hogql_string("single'quote") == "'single\\'quote'"
         assert escape_hogql_string('double"quote') == "'double\"quote'"
-        assert escape_hogql_string("other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\") == "'other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\'"
+        assert (
+            escape_hogql_string("other escapes: \x08 \x0c \n \t \x00 \x07 \x0b \\")
+            == "'other escapes: \\b \\f \\n \\t \\0 \\a \\v \\\\'"
+        )
         assert escape_hogql_string(["list", "things", []]) == "['list', 'things', []]"
         assert escape_hogql_string(("tuple", "things", ())) == "('tuple', 'things', ())"
         uuid = UUIDT()
@@ -128,12 +146,16 @@ class TestPrintString(BaseTest):
     def test_escape_hogql_identifier_errors(self):
         with self.assertRaises(QueryError) as context:
             escape_hogql_identifier("with % percent")
-        assert 'The HogQL identifier "with % percent" is not permitted as it contains the "%" character' in str(context.exception)
+        assert 'The HogQL identifier "with % percent" is not permitted as it contains the "%" character' in str(
+            context.exception
+        )
 
     def test_escape_clickhouse_identifier_errors(self):
         with self.assertRaises(QueryError) as context:
             escape_clickhouse_identifier("with % percent")
-        assert 'The HogQL identifier "with % percent" is not permitted as it contains the "%" character' in str(context.exception)
+        assert 'The HogQL identifier "with % percent" is not permitted as it contains the "%" character' in str(
+            context.exception
+        )
 
     def test_escape_clickhouse_string_errors(self):
         # This test is a stopgap. Think long and hard before adding support for printing dicts or objects.

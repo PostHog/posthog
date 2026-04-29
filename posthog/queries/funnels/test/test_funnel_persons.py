@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -20,7 +21,6 @@ from posthog.models.person.util import bulk_create_persons
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
-from collections import Counter
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
@@ -565,7 +565,18 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         assert results[0]["id"] == p1.uuid
-        assert results[0]["matched_recordings"] == [{"session_id": "s2", "events": [{"uuid": UUID("21111111-1111-1111-1111-111111111111"), "timestamp": timezone.now() + timedelta(days=1), "window_id": "w2"}]}]
+        assert results[0]["matched_recordings"] == [
+            {
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
+            }
+        ]
 
         # Third event dropoff, with recording
         filter = Filter(
@@ -586,4 +597,15 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         )
         _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
         assert results[0]["id"] == p1.uuid
-        assert results[0]["matched_recordings"] == [{"session_id": "s2", "events": [{"uuid": UUID("21111111-1111-1111-1111-111111111111"), "timestamp": timezone.now() + timedelta(days=1), "window_id": "w2"}]}]
+        assert results[0]["matched_recordings"] == [
+            {
+                "session_id": "s2",
+                "events": [
+                    {
+                        "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now() + timedelta(days=1),
+                        "window_id": "w2",
+                    }
+                ],
+            }
+        ]

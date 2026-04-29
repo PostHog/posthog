@@ -1,5 +1,6 @@
 import csv
 import tempfile
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,6 @@ from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from collections import Counter
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention.data_warehouse"
 
@@ -280,7 +280,9 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         assert appearances_by_actor_id[str(actor_ids["user-2"])] == [0, 2]
 
         if actor_type == "person":
-            assert Counter([tuple(actor[0]["distinct_ids"]) for actor in actor_result]) == Counter([("user-1",), ("user-2",)])
+            assert Counter([tuple(actor[0]["distinct_ids"]) for actor in actor_result]) == Counter(
+                [("user-1",), ("user-2",)]
+            )
         else:
             assert Counter([actor[0]["id"] for actor in actor_result]) == Counter(["org:1", "org:2"])
 

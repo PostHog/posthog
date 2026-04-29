@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -28,7 +29,6 @@ from posthog.models.property import Property, PropertyGroup
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
-from collections import Counter
 
 
 def _make_event_sequence(

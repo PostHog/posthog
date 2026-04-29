@@ -1,4 +1,5 @@
 import uuid
+from collections import Counter
 from datetime import datetime
 
 from freezegun import freeze_time
@@ -28,7 +29,6 @@ from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
 from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.test.test_journeys import journeys_for
-from collections import Counter
 
 
 class TestFunnelBreakdown(
@@ -857,11 +857,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[1]["count"] == 1
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                person1_stopped_after_two_signups.uuid,
-                person2_stopped_after_signup.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -915,11 +915,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[1]["count"] == 1
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                person1_stopped_after_two_signups.uuid,
-                person2_stopped_after_signup.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -955,11 +955,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             assert result[1]["count"] == 1
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                people["stopped_after_signup1"].uuid,
-                people["stopped_after_signup2"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup2"].uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([people["stopped_after_signup1"].uuid])
@@ -1416,38 +1416,38 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[4]["count"] == 1
 
             # check ordering of people in every step
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                people["stopped_after_signup1"].uuid,
-                people["stopped_after_pageview1"].uuid,
-                people["stopped_after_pageview2"].uuid,
-                people["stopped_after_pageview3"].uuid,
-                people["stopped_after_pageview4"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_pageview1"].uuid,
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([
-                people["stopped_after_pageview1"].uuid,
-                people["stopped_after_pageview2"].uuid,
-                people["stopped_after_pageview3"].uuid,
-                people["stopped_after_pageview4"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
+                [
+                    people["stopped_after_pageview1"].uuid,
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 3)) == Counter([
-                people["stopped_after_pageview2"].uuid,
-                people["stopped_after_pageview3"].uuid,
-                people["stopped_after_pageview4"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter(
+                [
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 4)) == Counter([
-                people["stopped_after_pageview3"].uuid,
-                people["stopped_after_pageview4"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 4)) == Counter(
+                [
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 5)) == Counter([people["stopped_after_pageview4"].uuid])
@@ -1572,30 +1572,36 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[4]["count"] == 1
 
             # check ordering of people in every step
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                person1_stopped_after_signup.uuid,
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    person1_stopped_after_signup.uuid,
+                    person2_stopped_after_one_pageview.uuid,
+                    person3_stopped_after_two_pageview.uuid,
+                    person4_stopped_after_three_pageview.uuid,
+                    person5_stopped_after_many_pageview.uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([
-                person2_stopped_after_one_pageview.uuid,
-                person3_stopped_after_two_pageview.uuid,
-                person4_stopped_after_three_pageview.uuid,
-                person5_stopped_after_many_pageview.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
+                [
+                    person2_stopped_after_one_pageview.uuid,
+                    person3_stopped_after_two_pageview.uuid,
+                    person4_stopped_after_three_pageview.uuid,
+                    person5_stopped_after_many_pageview.uuid,
+                ]
             )
 
-            assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter([person5_stopped_after_many_pageview.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter(
+                [person5_stopped_after_many_pageview.uuid]
+            )
 
-            assert Counter(self._get_actor_ids_at_step(filter, 4)) == Counter([person5_stopped_after_many_pageview.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 4)) == Counter(
+                [person5_stopped_after_many_pageview.uuid]
+            )
 
-            assert Counter(self._get_actor_ids_at_step(filter, 5)) == Counter([person5_stopped_after_many_pageview.uuid])
+            assert Counter(self._get_actor_ids_at_step(filter, 5)) == Counter(
+                [person5_stopped_after_many_pageview.uuid]
+            )
 
         @also_test_with_materialized_columns(["key"])
         def test_funnel_with_actions(self):
@@ -1656,11 +1662,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["count"] == 1
 
             # check ordering of people in first step
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                person1_stopped_after_two_signups.uuid,
-                person2_stopped_after_signup.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -1726,14 +1732,16 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 assert result[1]["count"] == 1
 
                 # check ordering of people in first step
-                assert (
-                    Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                    person1_stopped_after_two_signups.uuid,
-                    person2_stopped_after_signup.uuid,
-                    ])
+                assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                    [
+                        person1_stopped_after_two_signups.uuid,
+                        person2_stopped_after_signup.uuid,
+                    ]
                 )
 
-                assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
+                assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
+                    [person1_stopped_after_two_signups.uuid]
+                )
 
         def test_funnel_with_actions_and_props(self):
             sign_up_action = _create_action(
@@ -1799,11 +1807,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["count"] == 1
 
             # check ordering of people in first step
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                person1_stopped_after_two_signups.uuid,
-                person2_stopped_after_signup.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -1891,11 +1899,11 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["count"] == 1
 
             # check ordering of people in first step
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                person1_stopped_after_two_signups.uuid,
-                person2_stopped_after_signup.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -2051,30 +2059,30 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[3]["count"] == 1
 
             # check ordering of people in steps
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                person1_stopped_after_two_signups.uuid,
-                person2_stopped_after_signup.uuid,
-                person3.uuid,
-                person4.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                    person3.uuid,
+                    person4.uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([
-                person1_stopped_after_two_signups.uuid,
-                person2_stopped_after_signup.uuid,
-                person3.uuid,
-                person4.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                    person3.uuid,
+                    person4.uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 3)) == Counter([
-                person1_stopped_after_two_signups.uuid,
-                person2_stopped_after_signup.uuid,
-                person3.uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter(
+                [
+                    person1_stopped_after_two_signups.uuid,
+                    person2_stopped_after_signup.uuid,
+                    person3.uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 4)) == Counter([person1_stopped_after_two_signups.uuid])
@@ -2185,38 +2193,38 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[3]["count"] == 2
             assert result[4]["count"] == 0
             # check ordering of people in every step
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                people["stopped_after_signup1"].uuid,
-                people["stopped_after_pageview1"].uuid,
-                people["stopped_after_pageview2"].uuid,
-                people["stopped_after_pageview3"].uuid,
-                people["stopped_after_pageview4"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_pageview1"].uuid,
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([
-                people["stopped_after_pageview1"].uuid,
-                people["stopped_after_pageview2"].uuid,
-                people["stopped_after_pageview3"].uuid,
-                people["stopped_after_pageview4"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
+                [
+                    people["stopped_after_pageview1"].uuid,
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 3)) == Counter([
-                people["stopped_after_pageview2"].uuid,
-                people["stopped_after_pageview3"].uuid,
-                people["stopped_after_pageview4"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter(
+                [
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 4)) == Counter([
-                people["stopped_after_pageview3"].uuid,
-                people["stopped_after_pageview4"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 4)) == Counter(
+                [
+                    people["stopped_after_pageview3"].uuid,
+                    people["stopped_after_pageview4"].uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 5)) == Counter([])
@@ -3375,19 +3383,19 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             assert result[1]["count"] == 2
             assert result[2]["count"] == 1
             # check ordering of people in every step
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                people["stopped_after_pageview1"].uuid,
-                people["stopped_after_pageview2"].uuid,
-                people["stopped_after_pageview3"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    people["stopped_after_pageview1"].uuid,
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([
-                people["stopped_after_pageview2"].uuid,
-                people["stopped_after_pageview3"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
+                [
+                    people["stopped_after_pageview2"].uuid,
+                    people["stopped_after_pageview3"].uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 3)) == Counter([people["stopped_after_pageview3"].uuid])

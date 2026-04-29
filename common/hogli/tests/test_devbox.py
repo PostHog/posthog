@@ -664,15 +664,17 @@ class TestDevboxCommands:
             git_name=None,
             git_email=None,
             dotfiles_uri=None,
-            verbose=False: captured.update(
-                {
-                    "name": name,
-                    "disk_size": str(disk_size),
-                    "claude_oauth_token": claude_oauth_token,
-                    "git_name": git_name,
-                    "git_email": git_email,
-                    "dotfiles_uri": dotfiles_uri,
-                }
+            verbose=False: (
+                captured.update(
+                    {
+                        "name": name,
+                        "disk_size": str(disk_size),
+                        "claude_oauth_token": claude_oauth_token,
+                        "git_name": git_name,
+                        "git_email": git_email,
+                        "dotfiles_uri": dotfiles_uri,
+                    }
+                )
             ),
         )
 
@@ -722,13 +724,15 @@ class TestDevboxCommands:
             git_name=None,
             git_email=None,
             dotfiles_uri=None,
-            verbose=False: captured.update(
-                {
-                    "name": name,
-                    "git_name": git_name,
-                    "git_email": git_email,
-                    "dotfiles_uri": dotfiles_uri,
-                }
+            verbose=False: (
+                captured.update(
+                    {
+                        "name": name,
+                        "git_name": git_name,
+                        "git_email": git_email,
+                        "dotfiles_uri": dotfiles_uri,
+                    }
+                )
             ),
         )
 

@@ -204,7 +204,16 @@ class TestScoreDefinitionsApi(APIBaseTest):
         assert current_version.version == 2
         assert definition.versions.count() == 2
         assert definition.versions.get(version=1).config == original_config
-        assert definition.versions.get(version=2).config == {"options": [{"key": "pass", "label": "Pass"}, {"key": "needs_work", "label": "Needs work"}, {"key": "fail", "label": "Fail"}], "selection_mode": "multiple", "min_selections": 1, "max_selections": 2}
+        assert definition.versions.get(version=2).config == {
+            "options": [
+                {"key": "pass", "label": "Pass"},
+                {"key": "needs_work", "label": "Needs work"},
+                {"key": "fail", "label": "Fail"},
+            ],
+            "selection_mode": "multiple",
+            "min_selections": 1,
+            "max_selections": 2,
+        }
 
     def test_list_supports_search_kind_archived_and_ordering(self):
         active = self._create_definition(name="Quality", kind="categorical")

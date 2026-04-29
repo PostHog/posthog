@@ -571,7 +571,9 @@ class TestAnthropicConversationCompactionManager(BaseTest):
                 tool_result_count += 1
 
         # Even when removing incomplete sequences, remaining should be complete
-        assert tool_call_count == tool_result_count, "Even when removing incomplete sequences, remaining should be complete"
+        assert tool_call_count == tool_result_count, (
+            "Even when removing incomplete sequences, remaining should be complete"
+        )
 
     def test_tool_call_multiple_complete_sequences(self):
         """

@@ -1,6 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
@@ -18,7 +19,6 @@ from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import
 from posthog.models.action.action import Action
 from posthog.models.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
-import pytest
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -1499,11 +1499,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         # Expected should be calculated from 100 total (excluding disabled)
         # Not 101 total (including disabled)
-        assert result.expected["control"] == pytest.approx(50.0, abs=10**(-1) * 0.5)
-        assert result.expected["test"] == pytest.approx(50.0, abs=10**(-1) * 0.5)
+        assert result.expected["control"] == pytest.approx(50.0, abs=10 ** (-1) * 0.5)
+        assert result.expected["test"] == pytest.approx(50.0, abs=10 ** (-1) * 0.5)
 
         # P-value should be 1.0 (perfect match after excluding disabled)
-        assert result.p_value == pytest.approx(1.0, abs=10**(-2) * 0.5)
+        assert result.p_value == pytest.approx(1.0, abs=10 ** (-2) * 0.5)
 
     def test_srm_handles_variant_with_zero_exposures_missing_from_total(self):
         """
@@ -1571,9 +1571,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert "variant_c" in result.expected
 
         # Expected should be based on 150 total (80+70+0) distributed by rollout %
-        assert result.expected["control"] == pytest.approx(150 * 0.45, abs=10**(-1) * 0.5)  # 67.5
-        assert result.expected["test"] == pytest.approx(150 * 0.45, abs=10**(-1) * 0.5)  # 67.5
-        assert result.expected["variant_c"] == pytest.approx(150 * 0.10, abs=10**(-1) * 0.5)  # 15.0
+        assert result.expected["control"] == pytest.approx(150 * 0.45, abs=10 ** (-1) * 0.5)  # 67.5
+        assert result.expected["test"] == pytest.approx(150 * 0.45, abs=10 ** (-1) * 0.5)  # 67.5
+        assert result.expected["variant_c"] == pytest.approx(150 * 0.10, abs=10 ** (-1) * 0.5)  # 15.0
 
         # Should detect mismatch since variant_c has 0 observed but 15 expected
         assert result.p_value < 0.01

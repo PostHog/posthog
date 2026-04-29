@@ -384,7 +384,12 @@ class TestTable(BaseTest):
         )
         assert list(table.hogql_definition().fields.keys()) == ["id", "timestamp", "mrr", "offset"]
 
-        assert list(table.hogql_definition().fields.values()) == [StringDatabaseField(name="id", nullable=False), DateTimeDatabaseField(name="timestamp", nullable=False), IntegerDatabaseField(name="mrr", nullable=True), IntegerDatabaseField(name="offset", nullable=False)]
+        assert list(table.hogql_definition().fields.values()) == [
+            StringDatabaseField(name="id", nullable=False),
+            DateTimeDatabaseField(name="timestamp", nullable=False),
+            IntegerDatabaseField(name="mrr", nullable=True),
+            IntegerDatabaseField(name="offset", nullable=False),
+        ]
 
     def test_hogql_definition_new_style(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
@@ -403,7 +408,12 @@ class TestTable(BaseTest):
         )
         assert list(table.hogql_definition().fields.keys()) == ["id", "timestamp", "mrr", "offset"]
 
-        assert list(table.hogql_definition().fields.values()) == [StringDatabaseField(name="id", nullable=False), DateTimeDatabaseField(name="timestamp", nullable=False), IntegerDatabaseField(name="mrr", nullable=True), IntegerDatabaseField(name="offset", nullable=False)]
+        assert list(table.hogql_definition().fields.values()) == [
+            StringDatabaseField(name="id", nullable=False),
+            DateTimeDatabaseField(name="timestamp", nullable=False),
+            IntegerDatabaseField(name="mrr", nullable=True),
+            IntegerDatabaseField(name="offset", nullable=False),
+        ]
 
     def test_hogql_definition_new_style_with_lowercase_hogql_type(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
@@ -485,7 +495,10 @@ class TestTable(BaseTest):
         definition = table.hogql_definition()
         assert isinstance(definition, HogQLDataWarehouseTable)
         assert list(definition.fields.keys()) == ["id", "timestamp", "mrr", "complex_field", "tuple_field", "offset"]
-        assert definition.structure == "`id` String, `timestamp` DateTime64(3, 'UTC'), `mrr` Nullable(Int64), `complex_field` Array(Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String)))), `tuple_field` Tuple(type Nullable(String), value Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), `offset` UInt32"
+        assert (
+            definition.structure
+            == "`id` String, `timestamp` DateTime64(3, 'UTC'), `mrr` Nullable(Int64), `complex_field` Array(Tuple( Nullable(String),  Nullable(String),  Map(String, Nullable(String)))), `tuple_field` Tuple(type Nullable(String), value Nullable(String), _airbyte_additional_properties Map(String, Nullable(String))), `offset` UInt32"
+        )
 
     def test_hogql_definition_nullable(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
@@ -504,7 +517,10 @@ class TestTable(BaseTest):
         assert isinstance(definition, HogQLDataWarehouseTable)
         assert list(definition.fields.keys()) == ["id", "mrr"]
 
-        assert list(definition.fields.values()) == [StringDatabaseField(name="id", nullable=False), IntegerDatabaseField(name="mrr", nullable=True)]
+        assert list(definition.fields.values()) == [
+            StringDatabaseField(name="id", nullable=False),
+            IntegerDatabaseField(name="mrr", nullable=True),
+        ]
 
         assert definition.structure == "`id` String, `mrr` Nullable(Int64)"
 

@@ -29,7 +29,10 @@ class TestDataWarehouseManagedViewSetAPIBase(APIBaseTest):
 
         assert DataWarehouseManagedViewSet.objects.filter(team=self.team, kind=self.kind).count() == 1
 
-        assert DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset__kind=self.kind).count() == self.expected_count
+        assert (
+            DataWarehouseSavedQuery.objects.filter(team=self.team, managed_viewset__kind=self.kind).count()
+            == self.expected_count
+        )
 
     def test_enable_managed_viewset_idempotent(self):
         response1 = self.client.put(

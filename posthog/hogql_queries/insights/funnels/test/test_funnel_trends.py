@@ -167,7 +167,50 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        assert results == [{"reached_to_step_count": 0, "conversion_rate": 0.0, "reached_from_step_count": 1, "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo(timezone))}, {"reached_to_step_count": 0, "conversion_rate": 0.0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo(timezone))}, {"reached_to_step_count": 0, "conversion_rate": 0.0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo(timezone))}, {"reached_to_step_count": 0, "conversion_rate": 0.0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo(timezone))}, {"reached_to_step_count": 0, "conversion_rate": 0.0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo(timezone))}, {"reached_to_step_count": 0, "conversion_rate": 0.0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo(timezone))}, {"reached_to_step_count": 0, "conversion_rate": 0.0, "reached_from_step_count": 0, "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo(timezone))}]
+        assert results == [
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 1,
+                "timestamp": datetime(2021, 6, 7, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 8, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 9, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 10, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 11, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 12, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+            {
+                "reached_to_step_count": 0,
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "timestamp": datetime(2021, 6, 13, 0, 0).replace(tzinfo=ZoneInfo(timezone)),
+            },
+        ]
 
         # 1 user who dropped off starting 2021-06-07
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
@@ -349,7 +392,50 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
-        assert results == [{"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 1, 1)}, {"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 2, 1)}, {"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 3, 1)}, {"conversion_rate": 100.0 if timezone == "US/Pacific" else 0.0, "reached_from_step_count": 1 if timezone == "US/Pacific" else 0, "reached_to_step_count": 1 if timezone == "US/Pacific" else 0, "timestamp": date(2020, 4, 1)}, {"conversion_rate": 100.0 if timezone == "UTC" else 0.0, "reached_from_step_count": 1 if timezone == "UTC" else 0, "reached_to_step_count": 1 if timezone == "UTC" else 0, "timestamp": date(2020, 5, 1)}, {"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 6, 1)}, {"conversion_rate": 0.0, "reached_from_step_count": 0, "reached_to_step_count": 0, "timestamp": date(2020, 7, 1)}]
+        assert results == [
+            {
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "reached_to_step_count": 0,
+                "timestamp": date(2020, 1, 1),
+            },
+            {
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "reached_to_step_count": 0,
+                "timestamp": date(2020, 2, 1),
+            },
+            {
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "reached_to_step_count": 0,
+                "timestamp": date(2020, 3, 1),
+            },
+            {
+                "conversion_rate": 100.0 if timezone == "US/Pacific" else 0.0,
+                "reached_from_step_count": 1 if timezone == "US/Pacific" else 0,
+                "reached_to_step_count": 1 if timezone == "US/Pacific" else 0,
+                "timestamp": date(2020, 4, 1),
+            },
+            {
+                "conversion_rate": 100.0 if timezone == "UTC" else 0.0,
+                "reached_from_step_count": 1 if timezone == "UTC" else 0,
+                "reached_to_step_count": 1 if timezone == "UTC" else 0,
+                "timestamp": date(2020, 5, 1),
+            },
+            {
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "reached_to_step_count": 0,
+                "timestamp": date(2020, 6, 1),
+            },
+            {
+                "conversion_rate": 0.0,
+                "reached_from_step_count": 0,
+                "reached_to_step_count": 0,
+                "timestamp": date(2020, 7, 1),
+            },
+        ]
         entrance_period_start = "2020-05-01 00:00:00" if timezone == "UTC" else "2020-04-01 00:00:00"
         persons = self._get_actors_at_step(query, entrance_period_start, False)
 
@@ -753,7 +839,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(funnel_trends_persons_existent_dropped_off_results) == 1
-        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [["user_two"]]
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
+            ["user_two"]
+        ]
 
         # 1 user who converted starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
@@ -761,7 +849,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(funnel_trends_persons_existent_dropped_off_results) == 1
-        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [["user_one"]]
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
+            ["user_one"]
+        ]
 
     def test_from_second_step(self):
         journeys_for(
@@ -973,7 +1063,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(funnel_trends_persons_existent_dropped_off_results) == 1
-        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [["user_two"]]
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
+            ["user_two"]
+        ]
 
         # 1 user who converted starting # 2021-05-04
         funnel_trends_persons_existent_dropped_off_results = self._get_actors_at_step(
@@ -981,7 +1073,9 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(funnel_trends_persons_existent_dropped_off_results) == 1
-        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [["user_one"]]
+        assert [person["distinct_ids"] for person in funnel_trends_persons_existent_dropped_off_results] == [
+            ["user_one"]
+        ]
 
     def test_one_person_in_multiple_periods_and_windows_in_strict_funnel(self):
         journeys_for(
@@ -3046,7 +3140,33 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         # First Touchpoint (just "one")
         results = FunnelsQueryRunner(query=funnels_query, team=self.team).calculate().results
 
-        assert [{"breakdown_value": ["one"], "count": 8, "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "days": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05", "2024-01-06", "2024-01-07", "2024-01-08"], "labels": ["1-Jan-2024", "2-Jan-2024", "3-Jan-2024", "4-Jan-2024", "5-Jan-2024", "6-Jan-2024", "7-Jan-2024", "8-Jan-2024"]}] == results
+        assert [
+            {
+                "breakdown_value": ["one"],
+                "count": 8,
+                "data": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                "days": [
+                    "2024-01-01",
+                    "2024-01-02",
+                    "2024-01-03",
+                    "2024-01-04",
+                    "2024-01-05",
+                    "2024-01-06",
+                    "2024-01-07",
+                    "2024-01-08",
+                ],
+                "labels": [
+                    "1-Jan-2024",
+                    "2-Jan-2024",
+                    "3-Jan-2024",
+                    "4-Jan-2024",
+                    "5-Jan-2024",
+                    "6-Jan-2024",
+                    "7-Jan-2024",
+                    "8-Jan-2024",
+                ],
+            }
+        ] == results
 
         # All events attribution
         assert funnels_query.funnelsFilter is not None

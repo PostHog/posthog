@@ -46,7 +46,10 @@ class TestPandaDocClient(TestCase):
         assert body["template_uuid"] == "tpl"
         assert body["name"] == "PostHog BAA"
         assert body["recipients"] == [{"email": "ada@acme.example", "role": "Client"}]
-        assert body["tokens"] == [{"name": "Client.Company", "value": "Acme, Inc."}, {"name": "Client.StreetAddress", "value": "1 Analytics Way"}]
+        assert body["tokens"] == [
+            {"name": "Client.Company", "value": "Acme, Inc."},
+            {"name": "Client.StreetAddress", "value": "1 Analytics Way"},
+        ]
         assert body["metadata"] == {"legal_document_id": "lid-1"}
         assert result.id == "doc_123"
 

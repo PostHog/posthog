@@ -261,7 +261,11 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         response_data = response.json()
         response_data.pop("last_refresh")
-        assert response_data == response_data | {"is_cached": False, "timezone": "UTC", "result": {"bins": [[2220, 2], [42510, 0], [82800, 1]], "average_conversion_time": 29540}}
+        assert response_data == response_data | {
+            "is_cached": False,
+            "timezone": "UTC",
+            "result": {"bins": [[2220, 2], [42510, 0], [82800, 1]], "average_conversion_time": 29540},
+        }
 
     @snapshot_clickhouse_queries
     def test_funnel_time_to_convert_auto_bins_strict(self):
@@ -309,7 +313,11 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         response_data = response.json()
         response_data.pop("last_refresh")
-        assert response_data == response_data | {"is_cached": False, "timezone": "UTC", "result": {"bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]], "average_conversion_time": 29540.0}}
+        assert response_data == response_data | {
+            "is_cached": False,
+            "timezone": "UTC",
+            "result": {"bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]], "average_conversion_time": 29540.0},
+        }
 
     @snapshot_clickhouse_queries
     def test_funnel_time_to_convert_auto_bins_unordered(self):
@@ -357,7 +365,11 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200
         response_data = response.json()
         response_data.pop("last_refresh")
-        assert response_data == response_data | {"is_cached": False, "timezone": "UTC", "result": {"bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]], "average_conversion_time": 29540.0}}
+        assert response_data == response_data | {
+            "is_cached": False,
+            "timezone": "UTC",
+            "result": {"bins": [[2220.0, 2], [42510.0, 0], [82800.0, 1]], "average_conversion_time": 29540.0},
+        }
 
     def test_funnel_invalid_action_handled(self):
         response = self.client.post(
@@ -451,7 +463,10 @@ class ClickhouseTestFunnelTypes(ClickhouseTestMixin, APIBaseTest):
 
             if error:
                 assert response.status_code == 400
-                assert response.json() == self.validation_error_response("Exclusion steps cannot contain an event that's part of funnel steps.", code="funnel_exclusions_invalid")
+                assert response.json() == self.validation_error_response(
+                    "Exclusion steps cannot contain an event that's part of funnel steps.",
+                    code="funnel_exclusions_invalid",
+                )
             else:
                 assert response.status_code == 200
 

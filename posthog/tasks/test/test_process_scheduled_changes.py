@@ -613,7 +613,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         assert updated_flag.filters["multivariate"]["variants"] == new_variants
 
         # Check that payloads were updated (object values are normalized to JSON strings)
-        assert updated_flag.filters["payloads"] == {k: json.dumps(v) if isinstance(v, dict) else v for k, v in new_payloads.items()}
+        assert updated_flag.filters["payloads"] == {
+            k: json.dumps(v) if isinstance(v, dict) else v for k, v in new_payloads.items()
+        }
 
         # Verify other filter properties were preserved
         assert updated_flag.filters["groups"] == []
@@ -683,7 +685,9 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         # Check that variants were updated
         assert updated_flag.filters["multivariate"]["variants"] == new_variants
         # Object payloads are normalized to JSON strings
-        assert updated_flag.filters["payloads"] == {k: json.dumps(v) if isinstance(v, dict) else v for k, v in new_payloads.items()}
+        assert updated_flag.filters["payloads"] == {
+            k: json.dumps(v) if isinstance(v, dict) else v for k, v in new_payloads.items()
+        }
 
         # Check that existing release conditions were preserved
         assert len(updated_flag.filters["groups"]) == 1

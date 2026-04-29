@@ -1,3 +1,4 @@
+from collections import Counter
 from datetime import datetime
 
 from posthog.test.base import APIBaseTest
@@ -5,7 +6,6 @@ from posthog.test.base import APIBaseTest
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
 from posthog.test.test_journeys import journeys_for
-from collections import Counter
 
 
 def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _create_person):
@@ -168,19 +168,19 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             assert result[1]["count"] == 2
             assert result[1]["average_conversion_time"] == 600
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                people["stopped_after_signup1"].uuid,
-                people["stopped_after_signup2"].uuid,
-                people["stopped_after_signup3"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup2"].uuid,
+                    people["stopped_after_signup3"].uuid,
+                ]
             )
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([
-                people["stopped_after_signup1"].uuid,
-                people["stopped_after_signup3"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter(
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup3"].uuid,
+                ]
             )
 
             filter = filter.shallow_clone({"funnel_window_interval": 5, "funnel_window_interval_unit": "minute"})
@@ -193,12 +193,12 @@ def funnel_conversion_time_test_factory(Funnel, FunnelPerson, _create_event, _cr
             assert result4[1]["count"] == 1
             assert result4[1]["average_conversion_time"] == 300
 
-            assert (
-                Counter(self._get_actor_ids_at_step(filter, 1)) == Counter([
-                people["stopped_after_signup1"].uuid,
-                people["stopped_after_signup2"].uuid,
-                people["stopped_after_signup3"].uuid,
-                ])
+            assert Counter(self._get_actor_ids_at_step(filter, 1)) == Counter(
+                [
+                    people["stopped_after_signup1"].uuid,
+                    people["stopped_after_signup2"].uuid,
+                    people["stopped_after_signup3"].uuid,
+                ]
             )
 
             assert Counter(self._get_actor_ids_at_step(filter, 2)) == Counter([people["stopped_after_signup1"].uuid])

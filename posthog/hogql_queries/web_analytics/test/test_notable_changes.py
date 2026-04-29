@@ -1,3 +1,4 @@
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 
@@ -5,7 +6,6 @@ from posthog.schema import CompareFilter, DateRange, HogQLQueryModifiers, WebNot
 
 from posthog.hogql_queries.web_analytics.notable_changes import WebNotableChangesQueryRunner
 from posthog.models.utils import uuid7
-import pytest
 
 
 @snapshot_clickhouse_queries
@@ -110,7 +110,7 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
         scored = runner._score_results(results)
         assert len(scored) == 1
-        assert scored[0].percent_change == pytest.approx(-0.25, abs=10**(-2) * 0.5)
+        assert scored[0].percent_change == pytest.approx(-0.25, abs=10 ** (-2) * 0.5)
 
     @snapshot_clickhouse_queries
     def test_integration_with_events(self):
@@ -165,6 +165,15 @@ class TestWebNotableChangesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             # Every result should have valid fields
             for item in response.results:
-                assert item.dimension_type in ["Page", "Entry page", "Referrer", "Device", "Browser", "Country", "Channel", "UTM source"]
+                assert item.dimension_type in [
+                    "Page",
+                    "Entry page",
+                    "Referrer",
+                    "Device",
+                    "Browser",
+                    "Country",
+                    "Channel",
+                    "UTM source",
+                ]
                 assert item.dimension_value is not None
                 assert item.percent_change is not None

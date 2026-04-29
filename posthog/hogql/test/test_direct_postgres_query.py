@@ -80,7 +80,10 @@ class TestDirectPostgresQuery(APIBaseTest):
         metadata_cursor.fetchone.return_value = ("ducklake", "DuckDB v1.3.2")
         connection.execute.return_value = metadata_cursor
 
-        assert get_runtime_direct_postgres_connection_metadata(connection, {"engine": "duckdb"}) == {"engine": "duckdb", "database": "ducklake"}
+        assert get_runtime_direct_postgres_connection_metadata(connection, {"engine": "duckdb"}) == {
+            "engine": "duckdb",
+            "database": "ducklake",
+        }
         connection.execute.assert_called_once_with("SELECT current_database(), version()")
 
     def test_generate_sql_for_direct_postgres_table_does_not_require_team_id_field(self):
@@ -1029,7 +1032,10 @@ class TestDirectPostgresQuery(APIBaseTest):
         error = psycopg.errors.GroupingError(
             'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function'
         )
-        assert postgres_error_to_message(error) == 'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function'
+        assert (
+            postgres_error_to_message(error)
+            == 'column "posthog_dashboard.name" must appear in the GROUP BY clause or be used in an aggregate function'
+        )
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @patch("posthog.hogql.query.psycopg.connect")
@@ -1126,7 +1132,9 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         assert "must appear in the GROUP BY clause" in str(error.exception)
         assert mock_connect.call_args.kwargs["connect_timeout"] == 15
-        assert mock_connect.call_args.kwargs["options"] == "-c default_transaction_read_only=on -c statement_timeout=60000"
+        assert (
+            mock_connect.call_args.kwargs["options"] == "-c default_transaction_read_only=on -c statement_timeout=60000"
+        )
 
     @patch("posthog.hogql.query.psycopg.connect")
     def test_execute_direct_postgres_query_uses_custom_statement_timeout(self, mock_connect):
@@ -1177,7 +1185,9 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         executor.execute()
 
-        assert mock_connect.call_args.kwargs["options"] == "-c default_transaction_read_only=on -c statement_timeout=12000"
+        assert (
+            mock_connect.call_args.kwargs["options"] == "-c default_transaction_read_only=on -c statement_timeout=12000"
+        )
         assert any(timing.k.endswith("/postgres_execute") for timing in executor.timings.to_list())
 
     @patch("posthog.hogql.query.psycopg.connect")
