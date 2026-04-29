@@ -7,6 +7,17 @@ export interface EventWithProperties extends PluginEvent {
 }
 
 /**
+ * Read a numeric property from the event's properties bag, treating any
+ * non-finite or non-number value as zero. Used by the cost calculation pipeline
+ * for modality token counts which providers report as numbers but third-party
+ * SDKs occasionally serialise as strings or null.
+ */
+export const numericProperty = (event: PluginEvent, key: string): number => {
+    const value = event.properties?.[key]
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+/**
  * Extract modality-specific token counts from raw provider usage metadata.
  * Currently supports Gemini's candidatesTokensDetails for image token breakdown.
  * Removes $ai_usage from properties after extraction.

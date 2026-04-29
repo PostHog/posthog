@@ -868,6 +868,61 @@ describe('calculateInputCost()', () => {
             expectCostToBeCloseTo(result, 0.0003)
         })
 
+        it('clamps the text pool to zero when modality tokens exceed it', () => {
+            // 500 input total, 400 cache read, 200 audio — the residual text pool
+            // would be 500 - 400 - 200 = -100; clamp to 0 so we don't silently
+            // understate the audio-billed cost via a negative text contribution.
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'openai',
+                    $ai_model: 'gpt-4o-audio-preview',
+                    $ai_input_tokens: 500,
+                    $ai_cache_read_input_tokens: 400,
+                    $ai_audio_input_tokens: 200,
+                },
+            })
+
+            const result = calculateInputCost(event, {
+                ...imageInputModel,
+                model: 'gpt-4o-audio-preview',
+                cost: {
+                    prompt_token: 0.0000025,
+                    completion_token: 0.00001,
+                    cache_read_token: 0.00000125,
+                    audio: 0.00004,
+                },
+            })
+
+            // Text (clamped to 0): 0
+            // Cache read: 400 × 0.00000125 = 0.0005
+            // Audio: 200 × 0.00004 = 0.008
+            // Total: 0.0085
+            expectCostToBeCloseTo(result, 0.0085)
+        })
+
+        it('clamps the Anthropic uncached text pool to zero when modality tokens exceed it', () => {
+            const event = createTestEvent({
+                properties: {
+                    $ai_provider: 'anthropic',
+                    $ai_model: 'claude-3-5-sonnet',
+                    $ai_input_tokens: 100,
+                    $ai_image_input_tokens: 200, // exceeds inputTokens
+                },
+            })
+            const anthropicWithImage: ResolvedModelCost = {
+                ...ANTHROPIC_MODEL,
+                cost: { ...ANTHROPIC_MODEL.cost, image: 5e-7 },
+            }
+
+            const result = calculateInputCost(event, anthropicWithImage)
+
+            // Anthropic exclusive: uncachedTokens = 100 - 200 = -100 (clamped to 0)
+            // Image: 200 × 5e-7 = 0.0001
+            // No cache costs
+            // Total: 0.0001
+            expectCostToBeCloseTo(result, 0.0001)
+        })
+
         it('handles audio + image input together for multimodal calls', () => {
             const multiModalCost: ResolvedModelCost = {
                 model: 'gemini-2.5-flash',

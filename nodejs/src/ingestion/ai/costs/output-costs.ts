@@ -2,17 +2,13 @@ import bigDecimal from 'js-big-decimal'
 
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { numericProperty } from './modality-tokens'
 import { ResolvedModelCost } from './providers/types'
 
 const REASONING_COST_MODELS = [/^gemini-2\.5-/, /^gemini-3(\.\d+)?-/]
 
 const mustAddReasoningCost = (model: string): boolean => {
     return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
-}
-
-const numericProperty = (event: PluginEvent, key: string): number => {
-    const value = event.properties?.[key]
-    return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
 export interface OutputModalityCost {

@@ -3,6 +3,7 @@ import bigDecimal from 'js-big-decimal'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { logger } from '../../../utils/logger'
+import { numericProperty } from './modality-tokens'
 import { ResolvedModelCost } from './providers/types'
 
 const matchProvider = (event: PluginEvent, provider: string): boolean => {
@@ -62,9 +63,17 @@ export const resolveCacheReportingExclusive = (event: PluginEvent): boolean => {
     return inputTokens < cacheReadTokens + cacheWriteTokens
 }
 
-const numericProperty = (event: PluginEvent, key: string): number => {
-    const value = event.properties?.[key]
-    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+/**
+ * Clamp the text-token pool to zero when modality tokens are present and the
+ * subtraction would push it negative. Without modality tokens, preserve the
+ * pre-existing behavior of letting negative values flow through (some callers
+ * rely on that for synthetic test inputs).
+ */
+const clampTextTokens = (value: string | number, hasModalityTokens: boolean): string | number => {
+    if (!hasModalityTokens) {
+        return value
+    }
+    return Number(value) < 0 ? 0 : value
 }
 
 /**
@@ -126,6 +135,7 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     const audioInputCost = computeAudioInputCost(event, cost)
     const imageInputCost = computeImageInputCost(event, cost)
     const modalityInputCost = bigDecimal.add(audioInputCost, imageInputCost)
+    const hasModalityTokens = audioInputTokens > 0 || imageInputTokens > 0
 
     if (matchProvider(event, 'anthropic')) {
         const cacheWriteTokens = event.properties['$ai_cache_creation_input_tokens'] || 0
@@ -144,9 +154,9 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
         const baseUncachedTokens = exclusive
             ? inputTokens
             : bigDecimal.subtract(bigDecimal.subtract(inputTokens, cacheReadTokens), cacheWriteTokens)
-        const uncachedTextTokens = bigDecimal.subtract(
-            bigDecimal.subtract(baseUncachedTokens, audioInputTokens),
-            imageInputTokens
+        const uncachedTextTokens = clampTextTokens(
+            bigDecimal.subtract(bigDecimal.subtract(baseUncachedTokens, audioInputTokens), imageInputTokens),
+            hasModalityTokens
         )
         const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, uncachedTextTokens)
 
@@ -154,9 +164,9 @@ export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost):
     }
 
     const baseRegularTokens = exclusive ? inputTokens : bigDecimal.subtract(inputTokens, cacheReadTokens)
-    const regularTextTokens = bigDecimal.subtract(
-        bigDecimal.subtract(baseRegularTokens, audioInputTokens),
-        imageInputTokens
+    const regularTextTokens = clampTextTokens(
+        bigDecimal.subtract(bigDecimal.subtract(baseRegularTokens, audioInputTokens), imageInputTokens),
+        hasModalityTokens
     )
 
     let cacheReadCost: string
