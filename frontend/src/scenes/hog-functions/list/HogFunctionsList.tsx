@@ -8,6 +8,7 @@ import {
     LemonButton,
     LemonCheckbox,
     LemonInput,
+    LemonSwitch,
     LemonTable,
     LemonTableColumn,
     LemonTag,
@@ -222,7 +223,20 @@ export function HogFunctionList({
                 sorter: (a) => (a.enabled ? 1 : -1),
                 width: 0,
                 render: function RenderStatus(_, hogFunction) {
-                    return <HogFunctionStatusIndicator hogFunction={hogFunction} />
+                    const showInlineToggle =
+                        hogFunction.type === 'internal_destination' && !isManualFunction(hogFunction)
+                    return (
+                        <div className="flex items-center gap-2">
+                            {showInlineToggle && (
+                                <LemonSwitch
+                                    checked={hogFunction.enabled}
+                                    onChange={(checked) => toggleEnabled(hogFunction, checked)}
+                                    tooltip={hogFunction.enabled ? 'Disable notification' : 'Enable notification'}
+                                />
+                            )}
+                            <HogFunctionStatusIndicator hogFunction={hogFunction} />
+                        </div>
+                    )
                 },
             },
             {
