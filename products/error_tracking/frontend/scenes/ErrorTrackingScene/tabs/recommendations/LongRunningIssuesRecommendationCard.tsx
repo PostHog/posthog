@@ -17,7 +17,7 @@ export function LongRunningIssuesRecommendationCard({
     recommendation: LongRunningIssuesRecommendation
     dismissed?: boolean
 }): JSX.Element | null {
-    const { suppressIssue } = useActions(recommendationsTabLogic)
+    const { suppressIssue, activateIssue } = useActions(recommendationsTabLogic)
 
     const issues = recommendation.meta.issues ?? []
 
@@ -58,8 +58,8 @@ export function LongRunningIssuesRecommendationCard({
                                     {humanFriendlyLargeNumber(issue.occurrences)} occurrences in last 7 days
                                 </div>
                             </div>
-                            {isActive && (
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                {isActive ? (
                                     <LemonButton
                                         size="xsmall"
                                         type="secondary"
@@ -72,8 +72,20 @@ export function LongRunningIssuesRecommendationCard({
                                     >
                                         Suppress
                                     </LemonButton>
-                                </div>
-                            )}
+                                ) : (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            activateIssue(issue.id)
+                                        }}
+                                    >
+                                        Undo
+                                    </LemonButton>
+                                )}
+                            </div>
                         </Link>
                     )
                 })}

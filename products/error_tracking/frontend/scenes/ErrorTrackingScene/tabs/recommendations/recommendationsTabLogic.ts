@@ -46,6 +46,7 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         toggleDismissedExpanded: true,
         setOpenAlertTriggerKey: (triggerKey: HogFunctionSubTemplateIdType | null) => ({ triggerKey }),
         suppressIssue: (issueId: string) => ({ issueId }),
+        activateIssue: (issueId: string) => ({ issueId }),
         setRecommendationRefreshing: (id: string, refreshing: boolean) => ({ id, refreshing }),
     }),
 
@@ -78,6 +79,10 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
     listeners(({ actions }) => ({
         suppressIssue: async ({ issueId }) => {
             await api.errorTracking.updateIssue(issueId, { status: 'suppressed' })
+            actions.loadRecommendations()
+        },
+        activateIssue: async ({ issueId }) => {
+            await api.errorTracking.updateIssue(issueId, { status: 'active' })
             actions.loadRecommendations()
         },
     })),
