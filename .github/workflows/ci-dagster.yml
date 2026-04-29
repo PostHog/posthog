@@ -278,8 +278,6 @@ jobs:
                   python manage.py migrate_clickhouse
 
             - name: Run Dagster tests
-              env:
-                  SHARD_GROUP: ${{ matrix.group }}
               run: |
                   pytest posthog/dags products/**/dags \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \

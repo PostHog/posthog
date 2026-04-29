@@ -18,6 +18,7 @@ much faster than others. This script doesn't try to "game" the algorithm;
 it just provides clean timing data.
 """
 
+import glob
 import json
 import logging
 import argparse
@@ -100,10 +101,12 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
             "-q",
         ]
     elif segment == "Dagster":
+        # Expand glob in Python since subprocess won't do shell expansion
+        product_dags = glob.glob("products/**/dags", recursive=True)
         cmd = [
             "pytest",
             "posthog/dags",
-            "products/**/dags",
+            *product_dags,
             "--collect-only",
             "-q",
         ]
