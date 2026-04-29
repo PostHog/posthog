@@ -90,7 +90,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             },
         ],
         showInternal: [
-            false as boolean,
+            false,
             {
                 setShowInternal: (_, { showInternal }) => showInternal,
             },
