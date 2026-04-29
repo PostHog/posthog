@@ -88,6 +88,7 @@ export interface RunSummaryApi {
     new: number
     removed: number
     unchanged: number
+    unresolved?: number
     tolerated_matched?: number
 }
 
@@ -197,6 +198,15 @@ export interface ApproveRunRequestInputApi {
 export interface AutoApproveResultApi {
     run: RunApi
     baseline_content: string
+}
+
+export interface RecomputeResultApi {
+    run: RunApi
+    counts_changed: boolean
+    unresolved: number
+    ci_rerun_triggered: boolean
+    /** @nullable */
+    ci_rerun_error?: string | null
 }
 
 export interface SnapshotHistoryEntryApi {
@@ -321,15 +331,6 @@ export type VisualReviewReposQuarantineListParams = {
      * Filter by run type
      */
     run_type?: string
-}
-
-export type VisualReviewReposQuarantineDestroyParams = {
-    /**
-     * Snapshot identifier to unquarantine
-     * @minLength 1
-     * @maxLength 512
-     */
-    identifier: string
 }
 
 export type VisualReviewRunsListParams = {

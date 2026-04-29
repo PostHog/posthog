@@ -176,7 +176,8 @@ wrappers:
         title: List persons behind a trends data point
         description_file: ./prompts/query-trends-actors.md
         system_prompt_hint: List persons behind a trends data point
-        ui_resource_uri: ui://posthog/query-results.html
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
         exclude_properties:
             - response
             - modifiers

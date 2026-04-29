@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-04-23 10:29:30 UTC
+// Generated at: 2026-04-28 10:38:44 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -7,6 +7,7 @@ export type CanonicalProvider =
     | 'aion-labs'
     | 'aion-labs-bf16'
     | 'akashml-fp8'
+    | 'akashml-int4'
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
@@ -22,7 +23,7 @@ export type CanonicalProvider =
     | 'baidu-fp8'
     | 'baseten-fp4'
     | 'cerebras-fp16'
-    | 'chutes-bf16'
+    | 'chutes-fp4'
     | 'chutes-fp8'
     | 'chutes-int4'
     | 'clarifai-bf16'
@@ -30,7 +31,6 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -38,6 +38,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'featherless'
     | 'fireworks'
@@ -57,7 +58,6 @@ export type CanonicalProvider =
     | 'inflection'
     | 'io-net-bf16'
     | 'io-net-fp16'
-    | 'io-net-fp8'
     | 'io-net-int4'
     | 'ionstream-bf16'
     | 'ionstream-fp8'
@@ -118,10 +118,12 @@ export type CanonicalProvider =
     | 'upstage'
     | 'venice'
     | 'venice-beta'
+    | 'venice-bf16'
     | 'venice-e2ee'
     | 'venice-fp16'
     | 'venice-fp4'
     | 'venice-fp8'
+    | 'venice-int4'
     | 'wandb-bf16'
     | 'wandb-fp16'
     | 'wandb-fp4'

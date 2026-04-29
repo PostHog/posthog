@@ -86,6 +86,7 @@ depends_on = [
     "products.notifications",
     "products.posthog_ai",
     "products.product_tours",
+    "products.query_performance_ai",
     "products.revenue_analytics",
     "products.signals",
     "products.slack_app",
@@ -368,6 +369,13 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.query_performance_ai"
+depends_on = [
+    "posthog",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.replay"
 depends_on = [
     "ee",
@@ -482,6 +490,7 @@ from = [
 
 [[interfaces]]
 expose = [
+    "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
     "backend\\.max_tools.*",
