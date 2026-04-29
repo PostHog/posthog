@@ -140,15 +140,9 @@ fn build_client_config(
             "topic.metadata.refresh.interval.ms",
             topic_metadata_refresh_interval_ms.to_string(),
         )
-        .set(
-            "message.send.max.retries",
-            producer_max_retries.to_string(),
-        )
+        .set("message.send.max.retries", producer_max_retries.to_string())
         .set("linger.ms", producer_linger_ms.to_string())
-        .set(
-            "message.max.bytes",
-            producer_message_max_bytes.to_string(),
-        )
+        .set("message.max.bytes", producer_message_max_bytes.to_string())
         .set("message.timeout.ms", message_timeout_ms.to_string())
         .set("compression.codec", compression_codec)
         .set(
@@ -176,9 +170,10 @@ async fn build_producer(
     label: &str,
 ) -> anyhow::Result<FutureProducer<KafkaContext>> {
     debug!("rdkafka {label} configuration: {client_config:?}");
-    let producer: FutureProducer<KafkaContext> = client_config.create_with_context(KafkaContext {
-        liveness: liveness.clone(),
-    })?;
+    let producer: FutureProducer<KafkaContext> =
+        client_config.create_with_context(KafkaContext {
+            liveness: liveness.clone(),
+        })?;
 
     // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
     // Note: we don't error if we fail to connect as there may be other sinks that report healthy
