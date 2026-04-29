@@ -16,6 +16,17 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 logger = structlog.get_logger(__name__)
 
+# Fernet v1 tokens always begin with this prefix: the version byte (0x80)
+# combined with the leading bytes of the timestamp encodes to `gAAAAA` under
+# URL-safe base64. We use this to distinguish ciphertext from plaintext input
+# (e.g. defaults / form values that flow through `to_python` during save).
+_FERNET_TOKEN_PREFIX = "gAAAAA"
+
+
+def looks_like_fernet_token(value: object) -> bool:
+    """Return True if the given value looks like an undecrypted Fernet token."""
+    return isinstance(value, str) and value.startswith(_FERNET_TOKEN_PREFIX)
+
 
 class EncryptedFieldMixin:
     # Useful if migrating to an encrypted field from a non encrypted field
@@ -90,6 +101,12 @@ class EncryptedFieldMixin:
     def to_python(self, value):
         if value is None or not isinstance(value, str) or hasattr(self, "_already_decrypted"):
             return value
+        # Django calls `to_python` on plaintext input too (form values, model
+        # defaults during migrations). Only attempt decryption when the value
+        # actually looks like a Fernet token, otherwise fall through and let
+        # the underlying field type handle the plaintext.
+        if not looks_like_fernet_token(value):
+            return super().to_python(value)  # type: ignore
         try:
             value = self.decrypt(value=value)
         except InvalidToken:
@@ -172,7 +189,13 @@ class EncryptedJSONField(EncryptedFieldMixin, models.JSONField):
             return [self._decrypt_values(data) for data in value]
         elif value is None:
             return value
-        else:
+        # `to_python` is also invoked on plaintext input (form values, model
+        # defaults during migrations) — only attempt decryption on values that
+        # actually look like Fernet ciphertext. Non-string scalars are coerced
+        # to str preserving the existing behavior.
+        if isinstance(value, str) and not looks_like_fernet_token(value):
+            return value
+        if not isinstance(value, str):
             value = str(value)
         return self.decrypt(value)
 
@@ -188,12 +211,13 @@ class EncryptedJSONField(EncryptedFieldMixin, models.JSONField):
         try:
             value = self._decrypt_values(value=json.loads(value))
         except InvalidToken:
-            # If we get here, at least one nested value could not be decrypted with any
-            # available key. Falling back to the raw JSON (as the previous implementation
-            # did) silently leaks ciphertext into downstream code that expects plaintext
-            # — e.g. the data warehouse SSH-tunnel port parser then crashes inside a
-            # Temporal activity. Log and re-raise so callers / fields with
-            # `ignore_decrypt_errors=True` opt in explicitly to the soft-fail behavior.
+            # If we get here, at least one nested value looked like a Fernet token but
+            # could not be decrypted with any available key. Falling back to the raw
+            # JSON (as the previous implementation did) silently leaks ciphertext into
+            # downstream code that expects plaintext — e.g. the data warehouse
+            # SSH-tunnel port parser then crashes inside a Temporal activity. Log and
+            # re-raise so callers / fields with `ignore_decrypt_errors=True` opt in
+            # explicitly to the soft-fail behavior.
             self._log_decrypt_failure(nested=True)
             raise
         except UnicodeEncodeError:

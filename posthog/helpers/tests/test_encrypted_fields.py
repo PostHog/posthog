@@ -60,3 +60,42 @@ class TestEncryptedFields(BaseTest):
         # With `ignore_decrypt_errors=True` we do not raise; the un-decryptable
         # value is returned as-is (no plaintext available).
         assert result == {"k": bad_token}
+
+    def test_simple_field_to_python_passes_plaintext_through(self):
+        """Django invokes `to_python` on plaintext during default/save prep — that path
+        must not attempt decryption (which would fail since it's not a Fernet token)."""
+        from posthog.helpers.encrypted_fields import EncryptedTextField
+
+        field = EncryptedTextField()
+        # Plain text input should pass through without raising.
+        assert field.to_python("hello world") == "hello world"
+        assert field.to_python("") == ""
+
+    def test_simple_field_to_python_decrypts_fernet_input(self):
+        from posthog.helpers.encrypted_fields import EncryptedTextField
+
+        field = EncryptedTextField()
+        encrypted = field.encrypt("secret-value")
+        assert field.to_python(encrypted) == "secret-value"
+
+    def test_encrypted_json_field_to_python_passes_plaintext_through(self):
+        """Plaintext JSON (e.g. defaults like `{}` or form input) must pass through
+        even though it contains values that aren't Fernet tokens."""
+        field = EncryptedJSONField()
+
+        assert field.to_python(json.dumps({})) == {}
+        assert field.to_python(json.dumps({"key": "plaintext"})) == {"key": "plaintext"}
+        assert field.to_python(json.dumps({"port": 5432, "host": "localhost"})) == {
+            "port": 5432,
+            "host": "localhost",
+        }
+
+    def test_encrypted_json_field_to_python_round_trips_encrypted_values(self):
+        """Encrypted values written via `_encrypt_values` round-trip back to plaintext."""
+        field = EncryptedJSONField()
+        plaintext = {"port": "5432", "host": "db.example.com"}
+        # Simulate the save → load round trip.
+        encoded = field.get_prep_value(plaintext)
+        result = field.to_python(encoded)
+
+        assert result == plaintext
