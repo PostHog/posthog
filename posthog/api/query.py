@@ -30,6 +30,7 @@ from posthog.schema import (
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.metadata import enrich_hogql_validation_error
 
 from posthog import settings
 from posthog.api.documentation import _FallbackSerializer, extend_schema
@@ -103,7 +104,15 @@ _SCENE_TO_TAGS: dict[str, dict[str, Product | ProductKey | Feature]] = {
 
 def _infer_query_tags(query: BaseModel) -> dict[str, Product | ProductKey | Feature]:
     scene = getattr(getattr(query, "tags", None), "scene", None) or ""
-    return _SCENE_TO_TAGS.get(scene, {})
+    if mapped := _SCENE_TO_TAGS.get(scene):
+        return mapped
+    # Fallback: queries arriving here with a frontend-supplied `tags.productKey` are
+    # customer-facing (tagged via addTags in dataNodeLogic.ts). `QueryRunner.run` will
+    # later set `product` from that productKey, so we only need to default `feature`
+    # so unmapped scenes don't trip UntaggedQueryError in DEBUG.
+    if getattr(getattr(query, "tags", None), "productKey", None):
+        return {"feature": Feature.QUERY}
+    return {}
 
 
 def _extract_validation_code(error: ValidationError) -> str:
@@ -276,7 +285,15 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
+            detail = str(e)
+            extra: dict | None = None
+            if isinstance(e, ExposedHogQLError):
+                request_user = request.user if isinstance(request.user, User) else None
+                detail, extra = enrich_hogql_validation_error(query, self.team, request_user, detail)
+            validation_error = ValidationError(detail, getattr(e, "code_name", None))
+            if extra is not None:
+                validation_error.extra = extra  # type: ignore[attr-defined]
+            raise validation_error
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)

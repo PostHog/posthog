@@ -556,14 +556,17 @@ class OauthIntegration:
             if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
                 raise NotImplementedError("Stripe app not configured")
 
-            # Stripe issues separate client_ids for live vs sandbox installs of the
-            # same app. Same authorize endpoint and same client_secret for both.
+            # Stripe issues separate client_id and secret for live vs sandbox installs of the
+            # same app. Sandbox-issued OAuth codes can only be redeemed with the sandbox secret;
+            # using the live secret returns "Authorization code provided does not belong to you".
             if is_sandbox:
-                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID:
-                    raise NotImplementedError("Stripe sandbox client_id not configured")
+                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID or not settings.STRIPE_APP_SANDBOX_SECRET_KEY:
+                    raise NotImplementedError("Stripe sandbox not configured")
                 client_id = settings.STRIPE_APP_SANDBOX_CLIENT_ID
+                client_secret = settings.STRIPE_APP_SANDBOX_SECRET_KEY
             else:
                 client_id = settings.STRIPE_APP_CLIENT_ID
+                client_secret = settings.STRIPE_APP_SECRET_KEY
 
             authorize_url = (
                 settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
@@ -572,7 +575,7 @@ class OauthIntegration:
                 authorize_url=authorize_url,
                 token_url="https://api.stripe.com/v1/oauth/token",
                 client_id=client_id,
-                client_secret=settings.STRIPE_APP_SECRET_KEY,
+                client_secret=client_secret,
                 scope="",
                 id_path="stripe_user_id",
                 name_path="account_name",
@@ -670,6 +673,27 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
             )
+            # Marketplace-initiated installs land on /integrations/stripe/confirm-install
+            # without any signal indicating live vs sandbox. If the live secret rejected
+            # the code as "does not belong to you", it was minted by the sandbox app -
+            # retry with the sandbox secret. Both sandbox client_id and secret must be
+            # configured: oauth_config_for_kind requires both, so guard on both here to
+            # avoid raising NotImplementedError over the original OAuth error.
+            if (
+                res.status_code == 400
+                and settings.STRIPE_APP_SANDBOX_CLIENT_ID
+                and settings.STRIPE_APP_SANDBOX_SECRET_KEY
+                and "does not belong to you" in (res.text or "")
+            ):
+                sandbox_oauth_config = cls.oauth_config_for_kind("stripe", is_sandbox=True)
+                res = requests.post(
+                    sandbox_oauth_config.token_url,
+                    auth=HTTPBasicAuth(sandbox_oauth_config.client_secret, ""),
+                    data={
+                        "code": params["code"],
+                        "grant_type": "authorization_code",
+                    },
+                )
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
@@ -2177,6 +2201,9 @@ class GitHubIntegration(GitHubIntegrationBase):
     def github_user_from_code(cls, code: str, *, redirect_uri: str | None = None) -> "GitHubUserAuthorization | None":
         """Exchange an OAuth code from the GitHub App user authorization flow.
 
+        Pass ``redirect_uri`` when the user was sent to ``/login/oauth/authorize`` with
+        the same redirect URI (required by GitHub for the token exchange in that flow).
+
         Returns a :class:`GitHubUserAuthorization` with the user's id/login plus the
         user-to-server access/refresh tokens and their expirations, or ``None`` if
         the exchange fails or the response lacks an id/login.
@@ -2187,64 +2214,60 @@ class GitHubIntegration(GitHubIntegrationBase):
             logger.warning("GitHubIntegration: GITHUB_APP_CLIENT_ID/SECRET not configured, cannot exchange code")
             return None
 
-        token_payload: dict[str, str] = {
+        token_body: dict[str, str] = {
             "client_id": client_id,
             "client_secret": client_secret,
             "code": code,
         }
         if redirect_uri is not None:
-            token_payload["redirect_uri"] = redirect_uri
+            token_body["redirect_uri"] = redirect_uri
 
-        try:
-            token_response = requests.post(
-                "https://github.com/login/oauth/access_token",
-                json=token_payload,
-                headers={"Accept": "application/json"},
-                timeout=10,
+        token_response = requests.post(
+            "https://github.com/login/oauth/access_token",
+            json=token_body,
+            headers={"Accept": "application/json"},
+            timeout=10,
+        )
+        token_data = token_response.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            logger.warning(
+                "GitHubIntegration: code exchange returned no access_token",
+                status_code=token_response.status_code,
+                error=token_data.get("error"),
+                error_description=token_data.get("error_description"),
+                error_uri=token_data.get("error_uri"),
             )
-            token_data = token_response.json()
-            access_token = token_data.get("access_token")
-            if not access_token:
-                logger.warning(
-                    "GitHubIntegration: code exchange returned no access_token",
-                    status_code=token_response.status_code,
-                    error=token_data.get("error"),
-                    error_description=token_data.get("error_description"),
-                    error_uri=token_data.get("error_uri"),
-                )
-                return None
-
-            user_response = requests.get(
-                "https://api.github.com/user",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-                timeout=10,
-            )
-            if user_response.status_code != 200:
-                logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
-                return None
-
-            payload = user_response.json()
-            gh_id = payload.get("id")
-            gh_login = payload.get("login")
-            if gh_id is None or not gh_login:
-                return None
-            access_expires_in = token_data.get("expires_in")
-            refresh_expires_in = token_data.get("refresh_token_expires_in")
-            return GitHubUserAuthorization(
-                gh_id=int(gh_id),
-                gh_login=str(gh_login),
-                access_token=str(access_token),
-                refresh_token=token_data.get("refresh_token") or None,
-                access_token_expires_in=int(access_expires_in) if access_expires_in is not None else None,
-                refresh_token_expires_in=int(refresh_expires_in) if refresh_expires_in is not None else None,
-            )
-        except Exception:
-            logger.warning("GitHubIntegration: failed to exchange code for github user", exc_info=True)
             return None
+
+        user_response = requests.get(
+            "https://api.github.com/user",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {access_token}",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+            timeout=10,
+        )
+        if user_response.status_code != 200:
+            logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
+            return None
+
+        payload = user_response.json()
+        gh_id = payload.get("id")
+        gh_login = payload.get("login")
+        if gh_id is None or not gh_login:
+            return None
+        access_expires_in = token_data.get("expires_in")
+        refresh_expires_in = token_data.get("refresh_token_expires_in")
+        return GitHubUserAuthorization(
+            gh_id=int(gh_id),
+            gh_login=str(gh_login),
+            access_token=str(access_token),
+            refresh_token=token_data.get("refresh_token") or None,
+            access_token_expires_in=int(access_expires_in) if access_expires_in is not None else None,
+            refresh_token_expires_in=int(refresh_expires_in) if refresh_expires_in is not None else None,
+        )
 
     @classmethod
     def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":

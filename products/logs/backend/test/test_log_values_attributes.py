@@ -159,6 +159,96 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(all_names, empty_names, "Empty value filter should return same values as no filter")
         self.assertEqual(set(all_names), {"info", "DEBUG", "PING", "more", "error"})
 
+    def test_log_attributes_search_values_off_by_default(self):
+        """Searching with `search_values` unset should match attribute keys only."""
+
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "attribute_type": "resource",
+            "search": "argo-rollouts-dashboard",
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        # No attribute key contains "argo-rollouts-dashboard", so without value search the result is empty.
+        self.assertEqual(results, [], "search_values defaults to false — value-only matches must not surface")
+
+    def test_log_attributes_search_values_finds_match_on_value(self):
+        """When `search_values=true`, matches against attribute_value should surface with matchedOn='value'."""
+
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "attribute_type": "resource",
+            "search": "argo-rollouts-dashboard",
+            "search_values": "true",
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        self.assertGreater(len(results), 0, "Expected value-based matches for argo-rollouts-dashboard")
+
+        for entry in results:
+            self.assertIn("matchedOn", entry)
+            self.assertIn(entry["matchedOn"], ("key", "value"))
+            if entry["matchedOn"] == "value":
+                self.assertTrue(entry.get("matchedValue"), "Value matches should expose the matched sample value")
+                self.assertIn("argo-rollouts-dashboard", (entry["matchedValue"] or "").lower())
+
+        # All keys here match purely on value (no attribute key contains "argo-rollouts-dashboard").
+        self.assertTrue(any(r["matchedOn"] == "value" for r in results))
+
+    def test_log_attributes_search_values_skipped_for_short_search(self):
+        """Searches under 4 characters should never trigger value matching, even with `search_values=true`."""
+
+        # "arg" (3 chars) is a substring of values like "argo-rollouts-dashboard", but value
+        # search is gated to >= 4 chars to avoid scanning attribute_value on broad queries.
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "attribute_type": "resource",
+            "search": "arg",
+            "search_values": "true",
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        for entry in results:
+            self.assertNotEqual(
+                entry.get("matchedOn"),
+                "value",
+                "value matches must not surface when search term is shorter than the minimum length",
+            )
+
+    def test_log_attributes_search_values_ranks_key_matches_first(self):
+        """Key matches must always rank above value matches when both exist."""
+
+        # Search "argo" — `service.name` value is "argo-rollouts" (value match), and several
+        # k8s.* keys contain it as substring of their values, but no key literally contains "argo".
+        # We assert that whenever a key match is present it appears before any value match.
+        query_params = {
+            "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
+            "attribute_type": "resource",
+            "search": "argo",
+            "search_values": "true",
+        }
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/logs/attributes", query_params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        results = response.json()["results"]
+        match_kinds = [r["matchedOn"] for r in results]
+
+        # Once we hit the first value match, we should never see a key match after it.
+        first_value_idx = next((i for i, m in enumerate(match_kinds) if m == "value"), None)
+        if first_value_idx is not None:
+            tail = match_kinds[first_value_idx:]
+            self.assertNotIn("key", tail, "key matches must appear before value matches")
+
     def test_log_attributes_search_trace_id_before_pid(self):
         """Test that searching attributes for 'id' returns trace_id before pid"""
 

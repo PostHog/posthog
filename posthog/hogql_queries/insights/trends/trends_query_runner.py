@@ -631,11 +631,19 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                             continue
                         remapped_label = "none"
 
+                    # Multi-breakdowns return a list — mirror the frontend's "::"-join when rendering the label,
+                    # but keep `breakdown_value` as the raw list for consistency with the non-boolean path.
+                    label_value = (
+                        "::".join(str(item) for item in remapped_label)
+                        if isinstance(remapped_label, list)
+                        else remapped_label
+                    )
+
                     # if count of series == 1, then we don't need to include the object label in the series label
                     if real_series_count > 1:
-                        series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
+                        series_object["label"] = "{} - {}".format(series_object["label"], label_value)
                     else:
-                        series_object["label"] = remapped_label
+                        series_object["label"] = label_value
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
@@ -1092,11 +1100,16 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             breakdown_key = breakdown_value[0] if isinstance(breakdown_value, list) else breakdown_value
 
-            columns = dict(table_or_view.columns)
+            columns = table_or_view.columns
+            if not isinstance(columns, dict):
+                return False
+
             if breakdown_key not in columns:
                 return False
 
-            field_type = columns[breakdown_key]["clickhouse"]
+            field_type = self._data_warehouse_column_clickhouse_type(columns[breakdown_key])
+            if field_type is None:
+                return False
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]
@@ -1109,6 +1122,17 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             breakdown_type,
             breakdown_group_type_index,
         )
+
+    def _data_warehouse_column_clickhouse_type(self, column: object) -> str | None:
+        if isinstance(column, str):
+            return column
+
+        if isinstance(column, dict):
+            clickhouse_type = column.get("clickhouse")
+            if isinstance(clickhouse_type, str):
+                return clickhouse_type
+
+        return None
 
     def _is_breakdown_field_boolean(
         self,
@@ -1135,6 +1159,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return field_type == "Boolean"
 
     def _convert_boolean(self, value: Any):
+        if isinstance(value, list):
+            return [self._convert_boolean(item) for item in value]
         bool_map = {1: "true", 0: "false", "": "", "1": "true", "0": "false"}
         return bool_map.get(value) or value
 

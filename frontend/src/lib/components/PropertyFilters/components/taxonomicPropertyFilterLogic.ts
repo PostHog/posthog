@@ -164,7 +164,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     propertyKey,
                     propertyType,
                     taxonomicGroup,
-                    values.describeProperty
+                    values.describeProperty,
+                    item
                 )
 
                 // Add cohort name if this is a cohort filter
