@@ -390,6 +390,19 @@ export const onboardingLogic = kea<onboardingLogicType>([
         goToNextStep: ({ numStepsToAdvance }) => {
             const currentStepIndex = values.allOnboardingSteps.findIndex((step) => getStepKey(step) === values.stepKey)
             const nextStep = values.allOnboardingSteps[currentStepIndex + (numStepsToAdvance || 1)]
+            // If the user is leaving the Install step of a non-Logs onboarding while
+            // they also have a Logs product intent, divert them to the Logs install
+            // step so the OTel setup isn't skipped along with the analytics SDK.
+            if (
+                values.stepKey === OnboardingStepKey.INSTALL &&
+                values.productKey !== ProductKey.LOGS &&
+                values.currentTeam?.product_intents?.some((intent) => intent.product_type === ProductKey.LOGS)
+            ) {
+                return [
+                    urls.onboarding({ productKey: ProductKey.LOGS, stepKey: OnboardingStepKey.INSTALL }),
+                    router.values.searchParams,
+                ]
+            }
             if (nextStep) {
                 return [
                     `/onboarding/${values.productKey}`,
