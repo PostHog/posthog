@@ -124,9 +124,9 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                 ),
             model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.string().nullish(),
@@ -214,9 +214,9 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     model_configuration: zod
         .object({
             provider: zod
-                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai'])
+                .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
                 .describe(
-                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI'
+                    '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                 ),
             model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
             provider_key_id: zod.string().nullish(),

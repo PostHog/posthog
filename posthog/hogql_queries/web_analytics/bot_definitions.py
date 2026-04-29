@@ -40,9 +40,15 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Applebot-Extended": BotDefinition("Apple AI", "ai_search", "AI Agent", "Apple"),
     # AI Assistants (real-time user-facing fetching)
     "ChatGPT-User": BotDefinition("ChatGPT", "ai_assistant", "AI Agent", "OpenAI"),
+    # Lowercase variant first — Meta emits this casing in the wild (matches the bingbot/Bingbot
+    # precedent). Both forms map to the same BotDefinition. Removable once we switch to
+    # multiMatchAnyIndexCaseInsensitive in the HogQL bot detection function.
+    "meta-externalfetcher": BotDefinition("Meta Fetcher", "ai_assistant", "AI Agent", "Meta"),
     "Meta-ExternalFetcher": BotDefinition("Meta Fetcher", "ai_assistant", "AI Agent", "Meta"),
     "DuckAssistBot": BotDefinition("DuckDuckGo AI", "ai_assistant", "AI Agent", "DuckDuckGo"),
     "MistralAI-User": BotDefinition("Mistral AI", "ai_assistant", "AI Agent", "Mistral"),
+    "Manus-User": BotDefinition("Manus", "ai_assistant", "AI Agent", "Manus"),
+    "Google-NotebookLM": BotDefinition("NotebookLM", "ai_assistant", "AI Agent", "Google"),
     # Search Crawlers (Applebot/ avoids matching Applebot-Extended)
     "Applebot/": BotDefinition("Applebot", "ai_search", "AI Agent", "Apple"),
     "Googlebot": BotDefinition("Googlebot", "search_crawler", "Bot", "Google"),
@@ -62,6 +68,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "SemrushBot": BotDefinition("Semrush", "seo_crawler", "Bot", "Semrush"),
     "MJ12bot": BotDefinition("Majestic", "seo_crawler", "Bot", "Majestic"),
     "DotBot": BotDefinition("Moz", "seo_crawler", "Bot", "Moz"),
+    "Lighthouse": BotDefinition("Lighthouse", "seo_crawler", "Bot", "Google"),
     # Social Crawlers
     "FacebookBot": BotDefinition("Facebook Bot", "social_crawler", "Bot", "Meta"),
     "facebookexternalhit": BotDefinition("Facebook", "social_crawler", "Bot", "Meta"),
@@ -69,6 +76,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "LinkedInBot": BotDefinition("LinkedIn", "social_crawler", "Bot", "LinkedIn"),
     "Pinterest": BotDefinition("Pinterest", "social_crawler", "Bot", "Pinterest"),
     "Slackbot": BotDefinition("Slack", "social_crawler", "Bot", "Salesforce"),
+    "Slack-ImgProxy": BotDefinition("Slack Image Proxy", "social_crawler", "Bot", "Salesforce"),
     "TelegramBot": BotDefinition("Telegram", "social_crawler", "Bot", "Telegram"),
     "WhatsApp": BotDefinition("WhatsApp", "social_crawler", "Bot", "Meta"),
     # Monitoring

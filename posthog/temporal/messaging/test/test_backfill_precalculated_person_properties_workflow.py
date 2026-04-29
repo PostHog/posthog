@@ -1,3 +1,5 @@
+from types import TracebackType
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -7,6 +9,7 @@ from parameterized import parameterized
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     backfill_precalculated_person_properties_activity,
+    build_person_properties_select_clause,
     evaluate_combined_filters_sync,
     flush_kafka_batch_async,
 )
@@ -15,6 +18,40 @@ from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import Operation
+
+
+class _NoopHeartbeater:
+    details: tuple[str, ...]
+
+    def __init__(self, details: tuple[str, ...] = (), factor: int = 120) -> None:
+        self.details = details
+
+    async def __aenter__(self) -> "_NoopHeartbeater":
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
+
+
+class _AsyncClientContextManager:
+    def __init__(self, client: Mock) -> None:
+        self.client = client
+
+    async def __aenter__(self) -> Mock:
+        return self.client
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        return None
 
 
 class TestFlushKafkaBatchAsync:
@@ -185,6 +222,83 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
 
         # Basic verification that the filter was stored correctly
         assert inputs.filter_storage_key == storage_key
+
+    def test_build_person_properties_select_clause_parameterizes_property_keys(self):
+        malicious_property = "email') FROM person WHERE team_id != %(team_id)s UNION ALL SELECT sleep(3) --"
+
+        properties_clause, property_alias_mapping, property_query_params = build_person_properties_select_clause(
+            [malicious_property]
+        )
+
+        assert malicious_property not in properties_clause
+        assert "team_id !=" not in properties_clause
+        assert "%(property_key_0)s" in properties_clause
+        assert property_alias_mapping == {"prop_0": malicious_property}
+        assert property_query_params == {"property_key_0": malicious_property}
+
+    @pytest.mark.asyncio
+    async def test_activity_parameterizes_property_keys_in_clickhouse_query(self):
+        malicious_property = "email') FROM person WHERE team_id != %(team_id)s UNION ALL SELECT sleep(3) --"
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="injection_condition",
+                bytecode=["_H", 1, 29],
+                cohort_ids=[10],
+                property_key=malicious_property,
+            ),
+        ]
+        captured_query: dict[str, object] = {}
+
+        async def stream_query_as_jsonl(query: str, query_parameters: dict[str, object] | None = None):
+            captured_query["query"] = query
+            captured_query["query_parameters"] = query_parameters
+            if False:
+                yield {}
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = stream_query_as_jsonl
+
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key="storage_key",
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        )
+
+        with (
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters_and_properties",
+                return_value=(filters, [malicious_property], combine_filter_bytecodes(filters)),
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client",
+                return_value=_AsyncClientContextManager(mock_client),
+            ),
+            patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_producer"),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.Heartbeater",
+                _NoopHeartbeater,
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_person_properties_backfill_success_metric",
+                return_value=Mock(),
+            ),
+        ):
+            result = await backfill_precalculated_person_properties_activity(inputs)
+
+        assert result.persons_processed == 0
+
+        query = captured_query["query"]
+        assert isinstance(query, str)
+        assert malicious_property not in query
+        assert "team_id !=" not in query
+        assert "%(property_key_0)s" in query
+
+        query_parameters = captured_query["query_parameters"]
+        assert isinstance(query_parameters, dict)
+        assert query_parameters["property_key_0"] == malicious_property
 
 
 class TestCombineFilterBytecodes:

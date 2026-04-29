@@ -10,6 +10,7 @@ import {
     copySnappyWASMFile,
     createHashlessEntrypoints,
     isDev,
+    reportTopChunks,
     startDevServer,
 } from '@posthog/esbuilder'
 
@@ -113,6 +114,9 @@ await buildInParallel(
                 if (!isDev && Object.keys(entrypoints).length === 0) {
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
+                }
+                if (!isDev) {
+                    reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
                 }
                 writeIndexHtml(chunks, entrypoints)
             }

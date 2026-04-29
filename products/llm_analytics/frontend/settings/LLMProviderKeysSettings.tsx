@@ -92,6 +92,8 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'sk-ant-...'
         case 'gemini':
             return 'Enter your Gemini API key'
+        case 'together_ai':
+            return 'Enter your Together AI API key'
         case 'openrouter':
             return 'Enter your OpenRouter API key'
         case 'fireworks':

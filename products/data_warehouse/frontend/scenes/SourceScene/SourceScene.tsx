@@ -33,12 +33,13 @@ import { cleanSourceId, isSelfManagedSourceId } from 'products/data_warehouse/fr
 
 import type { sourceSceneLogicType } from './SourceSceneType'
 import { ConfigurationTab } from './tabs/ConfigurationTab'
+import { MetricsTab } from './tabs/MetricsTab'
 import { SchemasTab } from './tabs/SchemasTab'
 import { sourceSettingsLogic } from './tabs/sourceSettingsLogic'
 import { SyncsTab } from './tabs/SyncsTab'
 import { WebhookTab } from './tabs/WebhookTab'
 
-const SOURCE_SCENE_TABS = ['schemas', 'syncs', 'configuration', 'webhook'] as const
+const SOURCE_SCENE_TABS = ['schemas', 'syncs', 'metrics', 'configuration', 'webhook'] as const
 export type SourceSceneTab = (typeof SOURCE_SCENE_TABS)[number]
 
 export interface SourceSceneProps {
@@ -226,6 +227,7 @@ function ManagedSourceTabs({
         !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY]
     )
     const showWebhookTab = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_SOURCE_WEBHOOKS] && !!source?.supports_webhooks
+    const showMetricsTab = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     useEffect(() => {
         if (!showSyncsTab && currentTab === 'syncs') {
@@ -234,28 +236,24 @@ function ManagedSourceTabs({
         if (!showWebhookTab && currentTab === 'webhook') {
             setCurrentTab('schemas')
         }
-    }, [showSyncsTab, showWebhookTab, currentTab, setCurrentTab])
+        if (!showMetricsTab && currentTab === 'metrics') {
+            setCurrentTab('schemas')
+        }
+    }, [showSyncsTab, showWebhookTab, showMetricsTab, currentTab, setCurrentTab])
 
     const tabs: LemonTab<SourceSceneTab>[] = [
-        {
-            label: 'Schemas',
-            key: 'schemas',
-            content: <SchemasTab id={sourceId} />,
-        },
-        {
-            label: 'Configuration',
-            key: 'configuration',
-            content: <ConfigurationTab id={sourceId} />,
-        },
+        { label: 'Schemas', key: 'schemas', content: <SchemasTab id={sourceId} /> },
     ]
 
     if (showSyncsTab) {
-        tabs.splice(1, 0, {
-            label: 'Syncs',
-            key: 'syncs',
-            content: <SyncsTab id={sourceId} />,
-        })
+        tabs.push({ label: 'Syncs', key: 'syncs', content: <SyncsTab id={sourceId} /> })
     }
+
+    if (showMetricsTab) {
+        tabs.push({ label: 'Metrics', key: 'metrics', content: <MetricsTab id={sourceId} /> })
+    }
+
+    tabs.push({ label: 'Configuration', key: 'configuration', content: <ConfigurationTab id={sourceId} /> })
 
     if (showWebhookTab) {
         tabs.push({

@@ -597,8 +597,10 @@ describe('cohortEditLogic', () => {
                                                             row.fields
                                                                 .filter(
                                                                     ({ fieldKey }) =>
-                                                                        !!fieldKey && fieldKey !== 'event_filters'
-                                                                ) // event_filters are optional
+                                                                        !!fieldKey &&
+                                                                        fieldKey !== 'event_filters' &&
+                                                                        fieldKey !== 'explicit_datetime_to'
+                                                                ) // event_filters and explicit_datetime_to are optional
                                                                 .map(({ fieldKey, type }) => [
                                                                     fieldKey,
                                                                     CRITERIA_VALIDATIONS[type](undefined),

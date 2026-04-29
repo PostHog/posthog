@@ -9,6 +9,7 @@ import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
 import { GENERATED_TOOLS as conversations } from './conversations'
 import { GENERATED_TOOLS as core } from './core'
+import { GENERATED_TOOLS as customer_analytics } from './customer_analytics'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as early_access_features } from './early_access_features'
@@ -44,6 +45,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...cohorts,
     ...conversations,
     ...core,
+    ...customer_analytics,
     ...dashboards,
     ...data_warehouse,
     ...early_access_features,
