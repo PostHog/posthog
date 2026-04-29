@@ -65,6 +65,12 @@ Make sure to grant the following read permissions:
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error": "Invalid Klaviyo API key. Please update your API key and try again.",
+            "403 Client Error": "Access forbidden. Your Klaviyo API key may lack the required read permissions.",
+        }
+
     def get_schemas(
         self, config: KlaviyoSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:

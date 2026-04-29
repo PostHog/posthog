@@ -8,6 +8,7 @@ from posthog.temporal.data_imports.sources.klaviyo.klaviyo import (
     _format_incremental_value,
 )
 from posthog.temporal.data_imports.sources.klaviyo.settings import KLAVIYO_ENDPOINTS, KlaviyoEndpointConfig
+from posthog.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
 
 
 class TestFormatIncrementalValue:
@@ -88,3 +89,25 @@ class TestBuildInitialParams:
         assert "filter" in params
         assert "+00:00" not in params["filter"]
         assert params["filter"].endswith("Z)")
+
+
+class TestKlaviyoSourceNonRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "unauthorized",
+                "401 Client Error",
+                "Invalid Klaviyo API key. Please update your API key and try again.",
+            ),
+            (
+                "forbidden",
+                "403 Client Error",
+                "Access forbidden. Your Klaviyo API key may lack the required read permissions.",
+            ),
+        ]
+    )
+    def test_get_non_retryable_errors_includes_auth_failures(
+        self, _name: str, error_substring: str, expected_message: str
+    ) -> None:
+        errors = KlaviyoSource().get_non_retryable_errors()
+        assert errors[error_substring] == expected_message
