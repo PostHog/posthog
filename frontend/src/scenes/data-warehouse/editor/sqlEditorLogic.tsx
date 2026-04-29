@@ -1,4 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
+import equal from 'fast-deep-equal'
 import {
     actions,
     afterMount,
@@ -15,7 +16,6 @@ import {
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import isEqual from 'lodash.isequal'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
 
@@ -2000,7 +2000,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             const filters = normalizeFiltersForUrl(sourceQuery.source.filters)
             const previousFilters = normalizeFiltersForUrl(previousSourceQuery?.source.filters)
-            if (!isEqual(filters ?? {}, previousFilters ?? {})) {
+            if (!equal(filters ?? {}, previousFilters ?? {})) {
                 actions.syncUrlWithQuery()
             }
         },
@@ -2162,7 +2162,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 return (
                     updatedName ||
-                    !isEqual(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsightQuery))
+                    !equal(sourceQueryWithoutUndefinedAndNullKeys, removeUndefinedAndNull(editingInsightQuery))
                 )
             },
         ],
@@ -2483,7 +2483,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             const filtersForSourceQuery = applyFiltersFromUrl(values.sourceQuery).source.filters
             const shouldSyncFilters =
                 shouldApplyFiltersFromUrl &&
-                !isEqual(
+                !equal(
                     normalizeFiltersForUrl(filtersForSourceQuery) ?? {},
                     normalizeFiltersForUrl(values.sourceQuery.source.filters) ?? {}
                 )

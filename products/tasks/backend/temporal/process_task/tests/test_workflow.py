@@ -12,6 +12,7 @@ from django.conf import settings
 
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -63,6 +64,31 @@ def _build_context(
         state=state or {},
         _branch="feature-branch",
     )
+
+
+@pytest.mark.django_db
+def test_activity_error_properties_includes_failed_activity_context():
+    error = ActivityError(
+        "Activity task timed out",
+        scheduled_event_id=10,
+        started_event_id=11,
+        identity="worker-1",
+        activity_type="get_pr_context",
+        activity_id="activity-1",
+        retry_state=RetryState.TIMEOUT,
+    )
+    error.__cause__ = TimeoutError("start-to-close timeout")
+
+    assert ProcessTaskWorkflow._activity_error_properties(error) == {
+        "temporal_activity_id": "activity-1",
+        "temporal_activity_type": "get_pr_context",
+        "temporal_activity_identity": "worker-1",
+        "temporal_activity_retry_state": "TIMEOUT",
+        "temporal_activity_scheduled_event_id": 10,
+        "temporal_activity_started_event_id": 11,
+        "cause_error_type": "TimeoutError",
+        "cause_error_message": "start-to-close timeout",
+    }
 
 
 @pytest.mark.django_db(transaction=True)

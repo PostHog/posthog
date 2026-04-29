@@ -23,7 +23,23 @@ Two options:
 When a user is exposed to multiple variants (e.g., due to flag changes or race conditions):
 
 - **Exclude multivariate users** — removes these users from the analysis entirely. Cleaner data, smaller sample.
-- **First seen variant** — assigns users to the first variant they were exposed to. Keeps all users in the analysis.
+- **First seen variant** — assigns users to the first variant they were exposed to. Keeps all users in the analysis. Note that "first seen" can introduce other biases as
+  behavior cannot be clearly attributed to a single variant and is not recommended unless necessary.
+
+**Bias risk on uneven splits.** "Exclude multivariate users" combined with an uneven variant split can
+introduce bias — multi-variant users are dropped asymmetrically and the smaller variant loses a larger
+fraction of its assignments. If those users behave differently from the rest, the smaller variant's
+metrics will be skewed.
+
+The right mitigation depends on experiment state:
+
+- **Not yet launched, or only exposed to a few users so far** — switch to an even variant split and
+  use the overall rollout percentage to limit test-variant exposure. This removes the bias and
+  preserves statistical power. See `configuring-experiment-rollout`.
+- **Live experiment with significant exposures** — changing the split mid-run reassigns users across
+  variants, which is bad for user experience and data quality. Switch this setting to "First seen
+  variant" instead — it keeps already-assigned users in their original variant (no reassignment) and
+  removes the asymmetric exclusion.
 
 ### Filter test accounts
 

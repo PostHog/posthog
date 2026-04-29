@@ -24,6 +24,10 @@ import { DataWarehouseTableForInsight } from 'products/data_warehouse/frontend/t
 export interface SimpleOption {
     name: string
     propertyFilterType?: PropertyFilterType
+    /** When the search query matched a value rather than a key, this is set to 'value'. Otherwise 'key' or omitted. */
+    matchedOn?: 'key' | 'value'
+    /** Sample value that matched the search — only set when matchedOn === 'value'. */
+    matchedValue?: string
 }
 
 export interface QuickFilterItem {

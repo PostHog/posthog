@@ -14,6 +14,7 @@ import {
     IntegrationFilter,
     MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
     MARKETING_ANALYTICS_SCHEMA,
+    MarketingAnalyticsBaseColumns,
     MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
@@ -244,11 +245,22 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
                     (c) => c.columnAlias
                 )
-                const staleGroupingColumns = allGroupingAliases.filter((c) => c !== groupingAlias)
+                // A grouping alias from another drill-down level is "stale" only if it isn't also a
+                // valid base column at the current level. The Source drill-down's alias is literally
+                // "Source", which collides with the Source base column at the Campaign drill-down —
+                // without this guard, marking Source in the column config silently rewrites it to
+                // the current grouping alias and the column never sticks.
+                const staleGroupingColumns = allGroupingAliases.filter(
+                    (c) => c !== groupingAlias && !defaultColumns.includes(c)
+                )
                 // Columns excluded at the current drill-down level (e.g. ID/Campaign at Source level).
                 // Without this filter, switching drill-down levels leaves stale columns in the select,
                 // and the stale response data renders as raw JSON (no matching context.columns render fn).
                 const excludedColumns = new Set<string>(drillDownConfig.excludedBaseColumns)
+
+                // Same rule as marketingAnalyticsTableLogic: at UTM levels the Cost metric is excluded
+                // so cost-per-conversion for the draft goal must be excluded too.
+                const costAvailable = !drillDownConfig.excludedBaseColumns.includes(MarketingAnalyticsBaseColumns.Cost)
 
                 const columnsWithDraftConversionGoal = [
                     ...(marketingQuery?.select?.length ? marketingQuery.select : defaultColumns)
@@ -257,10 +269,12 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         .filter((column) => column === groupingAlias || !excludedColumns.has(column))
                         .filter((column, index, arr) => arr.indexOf(column) === index),
                     ...(draftConversionGoal
-                        ? [
-                              draftConversionGoal.conversion_goal_name,
-                              `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`,
-                          ]
+                        ? costAvailable
+                            ? [
+                                  draftConversionGoal.conversion_goal_name,
+                                  `${MarketingAnalyticsConstants.CostPer} ${draftConversionGoal.conversion_goal_name}`,
+                              ]
+                            : [draftConversionGoal.conversion_goal_name]
                         : []),
                 ]
                 const sortedColumns = getSortedColumnsByArray(columnsWithDraftConversionGoal, defaultColumns)

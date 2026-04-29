@@ -24,6 +24,8 @@ metadata:
           title: Docker-based service orchestration
         - key: deploy
           title: Deploy PostHog to remote instances
+        - key: auth
+          title: Authenticate to internal services
         - key: tools
           title: Developer tools and utilities
         - key: utilities
@@ -581,6 +583,11 @@ quality:
     format:mcp:
         cmd: pnpm run --filter @posthog/mcp format
         description: Format MCP files
+auth:
+    metabase:login: null # Click-defined, placed here for categorization
+    metabase:cookie: null # Click-defined, placed here for categorization
+    metabase:databases: null # Click-defined, placed here for categorization
+    metabase:query: null # Click-defined, placed here for categorization
 tools:
     doctor: null # Click-defined, placed here for categorization
     tool:temporal-codec-server:
