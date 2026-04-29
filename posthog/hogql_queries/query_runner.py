@@ -1287,6 +1287,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     operation=SloOperation.QUERY_SERVICE,
                     team_id=self.team.id,
                     resource_id=self.query_id,
+                    sample_rate=settings.QUERY_SERVICE_SLO_SAMPLE_RATE,
                 ),
                 properties=slo_properties,
             ) as slo:

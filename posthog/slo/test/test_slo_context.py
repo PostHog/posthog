@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import traceback
+import dataclasses
 from pathlib import Path
 from typing import Any
 
@@ -287,3 +288,83 @@ async def test_slo_operation_contextvar_survives_await(
     completed_extra = mock_emit_slo_completed.call_args.kwargs["extra_properties"]
     correlation_id = started_extra["correlation_id"]
     assert completed_extra == {"async_stage": "after_await", "correlation_id": correlation_id}
+
+
+@pytest.mark.parametrize(
+    "sample_rate, random_value, expect_emit",
+    [
+        (1.0, None, True),
+        (0.0, 0.0, False),
+        (0.01, 0.005, True),
+        (0.01, 0.5, False),
+        (0.5, 0.49, True),
+        (0.5, 0.51, False),
+    ],
+)
+@patch("posthog.slo.context.emit_slo_completed")
+@patch("posthog.slo.context.emit_slo_started")
+@patch("posthog.slo.context.random.random")
+def test_slo_operation_respects_sample_rate(
+    mock_random: MagicMock,
+    mock_emit_slo_started: MagicMock,
+    mock_emit_slo_completed: MagicMock,
+    sample_rate: float,
+    random_value: float | None,
+    expect_emit: bool,
+) -> None:
+    if random_value is not None:
+        mock_random.return_value = random_value
+
+    spec = dataclasses.replace(_build_spec(), sample_rate=sample_rate)
+
+    with slo_operation(spec=spec):
+        pass
+
+    if expect_emit:
+        mock_emit_slo_started.assert_called_once()
+        mock_emit_slo_completed.assert_called_once()
+        started_extra = mock_emit_slo_started.call_args.kwargs["extra_properties"]
+        completed_extra = mock_emit_slo_completed.call_args.kwargs["extra_properties"]
+        if sample_rate < 1.0:
+            assert started_extra["sample_rate"] == sample_rate
+            assert completed_extra["sample_rate"] == sample_rate
+        else:
+            assert "sample_rate" not in started_extra
+            assert "sample_rate" not in completed_extra
+    else:
+        mock_emit_slo_started.assert_not_called()
+        mock_emit_slo_completed.assert_not_called()
+
+
+@patch("posthog.slo.context.emit_slo_completed")
+@patch("posthog.slo.context.emit_slo_started")
+@patch("posthog.slo.context.random.random", return_value=0.99)
+def test_slo_operation_sampled_out_still_propagates_exception(
+    _mock_random: MagicMock,
+    mock_emit_slo_started: MagicMock,
+    mock_emit_slo_completed: MagicMock,
+) -> None:
+    spec = dataclasses.replace(_build_spec(), sample_rate=0.01)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        with slo_operation(spec=spec):
+            raise RuntimeError("boom")
+
+    mock_emit_slo_started.assert_not_called()
+    mock_emit_slo_completed.assert_not_called()
+
+
+@patch("posthog.slo.context.emit_slo_completed")
+@patch("posthog.slo.context.emit_slo_started")
+def test_slo_operation_full_rate_does_not_call_random(
+    mock_emit_slo_started: MagicMock, mock_emit_slo_completed: MagicMock
+) -> None:
+    spec = _build_spec()
+
+    with patch("posthog.slo.context.random.random") as mock_random:
+        with slo_operation(spec=spec):
+            pass
+
+    mock_random.assert_not_called()
+    mock_emit_slo_started.assert_called_once()
+    mock_emit_slo_completed.assert_called_once()
