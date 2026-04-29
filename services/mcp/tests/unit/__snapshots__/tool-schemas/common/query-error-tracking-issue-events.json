@@ -23,7 +23,7 @@
             "type": "object"
         },
         "filterGroup": {
-            "description": "Advanced flat AND property filters applied to sampled events.",
+            "description": "Advanced flat AND property filters applied to sampled events. HogQL filters are rejected.",
             "items": {
                 "properties": {
                     "key": {

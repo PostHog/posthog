@@ -67,6 +67,13 @@ class ErrorTrackingDateRangeSerializer(serializers.Serializer):
     )
 
 
+def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, object]]:
+    for item in value:
+        if item.get("type") == "hogql":
+            raise serializers.ValidationError("HogQL property filters are not supported here.")
+    return value
+
+
 class ErrorTrackingAssigneeSerializer(serializers.Serializer):
     id = StringOrIntegerField(help_text="User ID or role UUID to filter by.")
     type = serializers.ChoiceField(choices=["user", "role"], help_text="Assignee target type: user or role.")
@@ -102,7 +109,7 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
         child=PropertyItemSerializer(),
         required=False,
         default=list,
-        help_text="Advanced flat AND property filters. Prefer typed shortcut fields when they fit.",
+        help_text="Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.",
     )
     orderBy = serializers.ChoiceField(
         choices=["last_seen", "first_seen", "occurrences", "users", "sessions"],
@@ -133,11 +140,14 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
         required=False, help_text="Filter by exact exception fingerprint hash, not fuzzy search."
     )
     user = serializers.CharField(required=False, max_length=500, help_text="Search user/email text.")
-    personId = serializers.CharField(required=False, max_length=100, help_text="Filter by exact PostHog person UUID.")
+    personId = serializers.UUIDField(required=False, help_text="Filter by exact PostHog person UUID.")
     url = serializers.CharField(required=False, max_length=1000, help_text="Filter by current URL substring.")
     filePath = serializers.CharField(
         required=False, max_length=1000, help_text="Search stack-frame source/file path text."
     )
+
+    def validate_filterGroup(self, value: list[dict[str, object]]) -> list[dict[str, object]]:
+        return validate_filter_group(value)
 
 
 class ErrorTrackingIssueQueryRequestSerializer(serializers.Serializer):
@@ -174,7 +184,7 @@ class ErrorTrackingIssueEventsQueryRequestSerializer(serializers.Serializer):
         child=PropertyItemSerializer(),
         required=False,
         default=list,
-        help_text="Advanced flat AND property filters applied to sampled events.",
+        help_text="Advanced flat AND property filters applied to sampled events. HogQL filters are rejected.",
     )
     searchQuery = serializers.CharField(
         required=False,
@@ -198,6 +208,9 @@ class ErrorTrackingIssueEventsQueryRequestSerializer(serializers.Serializer):
         help_text="When true, include only stack frames marked in_app. Defaults to true.",
     )
 
+    def validate_filterGroup(self, value: list[dict[str, object]]) -> list[dict[str, object]]:
+        return validate_filter_group(value)
+
 
 class ErrorTrackingAssigneeResponseSerializer(serializers.Serializer):
     id = StringOrIntegerField(required=False, allow_null=True, help_text="Assignee user ID or role UUID.")
@@ -206,18 +219,18 @@ class ErrorTrackingAssigneeResponseSerializer(serializers.Serializer):
 
 class ErrorTrackingVolumeBucketSerializer(serializers.Serializer):
     label = serializers.CharField(help_text="Bucket timestamp label.")
-    value = serializers.IntegerField(required=False, allow_null=True, help_text="Occurrence count for the bucket.")
+    value = serializers.FloatField(required=False, allow_null=True, help_text="Occurrence count for the bucket.")
 
 
 class ErrorTrackingImpactSerializer(serializers.Serializer):
-    occurrences = serializers.IntegerField(required=False, help_text="Exception occurrence count.")
-    users = serializers.IntegerField(required=False, help_text="Unique user count.")
-    sessions = serializers.IntegerField(required=False, help_text="Unique session count.")
+    occurrences = serializers.FloatField(required=False, help_text="Exception occurrence count.")
+    users = serializers.FloatField(required=False, help_text="Unique user count.")
+    sessions = serializers.FloatField(required=False, help_text="Unique session count.")
 
 
 class ErrorTrackingAggregationsSerializer(ErrorTrackingImpactSerializer):
     volumeRange = serializers.ListField(
-        child=serializers.IntegerField(), required=False, help_text="Occurrence counts per volume bucket."
+        child=serializers.FloatField(), required=False, help_text="Occurrence counts per volume bucket."
     )
     volume_buckets = serializers.ListField(
         child=ErrorTrackingVolumeBucketSerializer(), required=False, help_text="Labeled volume buckets."
@@ -274,7 +287,7 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     latest_release = ErrorTrackingLatestReleaseSerializer(required=False, help_text="Latest release metadata.")
     impact = ErrorTrackingImpactSerializer(required=False, help_text="Compact impact counts.")
     sparkline = serializers.ListField(
-        child=serializers.IntegerField(), required=False, help_text="Optional compact occurrence sparkline."
+        child=serializers.FloatField(), required=False, help_text="Optional compact occurrence sparkline."
     )
 
 

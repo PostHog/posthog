@@ -15611,7 +15611,7 @@ export namespace Schemas {
       dateRange?: ErrorTrackingDateRange;
       /** When true, exclude internal/test account data from results. Defaults to true. */
       filterTestAccounts?: boolean;
-      /** Advanced flat AND property filters applied to sampled events. */
+      /** Advanced flat AND property filters applied to sampled events. HogQL filters are rejected. */
       filterGroup?: PropertyItem[];
       /**
        * Search exception types, exception values, and current URL among sampled events.
@@ -15844,7 +15844,7 @@ export namespace Schemas {
        * @maxLength 500
        */
       searchQuery?: string;
-      /** Advanced flat AND property filters. Prefer typed shortcut fields when they fit. */
+      /** Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected. */
       filterGroup?: PropertyItem[];
       /** Field used to sort issues. Defaults to occurrences.
 
@@ -15889,10 +15889,7 @@ export namespace Schemas {
        * @maxLength 500
        */
       user?: string;
-      /**
-       * Filter by exact PostHog person UUID.
-       * @maxLength 100
-       */
+      /** Filter by exact PostHog person UUID. */
       personId?: string;
       /**
        * Filter by current URL substring.

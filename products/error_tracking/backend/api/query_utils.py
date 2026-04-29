@@ -89,6 +89,12 @@ def add_release_filter(filters: list[dict[str, object]], release: str) -> None:
     filters.append(
         {
             "type": "hogql",
+            "key": f"position(toString(properties.$exception_releases), {escaped_release}) > 0",
+        }
+    )
+    filters.append(
+        {
+            "type": "hogql",
             "key": (
                 f"arrayExists(r -> (r.1 = {escaped_release} "
                 f"OR JSONExtractString(r.2, 'version') = {escaped_release} "
@@ -122,18 +128,13 @@ def build_property_group(filters: list[dict[str, object]]) -> dict[str, object] 
     return {"type": "AND", "values": [{"type": "AND", "values": filters}]}
 
 
-def search_term(value: str) -> str:
-    trimmed = value.strip().replace('"', " ").replace("'", " ")
-    return f'"{trimmed}"' if any(char.isspace() for char in trimmed) else trimmed
-
-
 def build_search_query(params: dict[str, object]) -> str | None:
     terms = [
-        value
+        value.strip()
         for value in [params.get("searchQuery"), params.get("user"), params.get("filePath")]
         if isinstance(value, str) and value.strip()
     ]
-    return " ".join(search_term(value) for value in terms) if terms else None
+    return " ".join(terms) if terms else None
 
 
 def get_page_info(data: dict[str, object], limit: int, offset: int) -> tuple[bool, int | None]:
@@ -147,8 +148,10 @@ def pick_fields(record: dict[str, object], fields: list[str]) -> dict[str, objec
     return {field: record[field] for field in fields if field in record}
 
 
-def to_number(value: object) -> int | float | None:
-    return value if isinstance(value, int | float) and not isinstance(value, bool) else None
+def to_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    return float(value)
 
 
 def parse_jsonish(value: object) -> object:
@@ -389,15 +392,19 @@ def build_impact(issue: dict[str, object]) -> dict[str, object]:
     )
 
 
-def build_sparkline(issue: dict[str, object]) -> list[int] | None:
+def build_sparkline(issue: dict[str, object]) -> list[float] | None:
     aggregations = as_record(issue.get("aggregations")) or {}
     volume_range = aggregations.get("volumeRange")
-    if isinstance(volume_range, list) and all(isinstance(value, int) for value in volume_range):
-        return cast(list[int], volume_range)
+    if isinstance(volume_range, list):
+        numeric_values = [to_number(value) for value in volume_range]
+        if all(value is not None for value in numeric_values):
+            return cast(list[float], numeric_values)
     volume_buckets = aggregations.get("volume_buckets")
     if isinstance(volume_buckets, list):
-        values = [record.get("value") for bucket in volume_buckets if (record := as_record(bucket)) is not None]
-        numeric_values = [value for value in values if isinstance(value, int)]
+        values = [
+            to_number(record.get("value")) for bucket in volume_buckets if (record := as_record(bucket)) is not None
+        ]
+        numeric_values = [value for value in values if value is not None]
         return numeric_values or None
     return None
 

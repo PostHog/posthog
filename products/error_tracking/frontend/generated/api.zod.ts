@@ -460,7 +460,7 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
             })
         )
         .optional()
-        .describe('Advanced flat AND property filters applied to sampled events.'),
+        .describe('Advanced flat AND property filters applied to sampled events. HogQL filters are rejected.'),
     searchQuery: zod
         .string()
         .max(errorTrackingQueryIssueEventsCreateBodySearchQueryMax)
@@ -519,8 +519,6 @@ export const errorTrackingQueryIssuesListCreateBodyVolumeResolutionMin = 0
 export const errorTrackingQueryIssuesListCreateBodyReleaseMax = 500
 
 export const errorTrackingQueryIssuesListCreateBodyUserMax = 500
-
-export const errorTrackingQueryIssuesListCreateBodyPersonIdMax = 100
 
 export const errorTrackingQueryIssuesListCreateBodyUrlMax = 1000
 
@@ -654,7 +652,9 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
             })
         )
         .optional()
-        .describe('Advanced flat AND property filters. Prefer typed shortcut fields when they fit.'),
+        .describe(
+            'Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.'
+        ),
     orderBy: zod
         .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
         .describe(
@@ -703,11 +703,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .max(errorTrackingQueryIssuesListCreateBodyUserMax)
         .optional()
         .describe('Search user/email text.'),
-    personId: zod
-        .string()
-        .max(errorTrackingQueryIssuesListCreateBodyPersonIdMax)
-        .optional()
-        .describe('Filter by exact PostHog person UUID.'),
+    personId: zod.uuid().optional().describe('Filter by exact PostHog person UUID.'),
     url: zod
         .string()
         .max(errorTrackingQueryIssuesListCreateBodyUrlMax)

@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from products.error_tracking.backend.api.query_utils import build_event_where
+from products.error_tracking.backend.api.query_utils import (
+    build_event_where,
+    build_issue_filters,
+    build_search_query,
+    build_sparkline,
+)
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 
 
@@ -18,6 +24,25 @@ def test_issue_event_search_escapes_like_wildcards_and_quotes() -> None:
     assert r"\_" in where
     assert r"\'" in where
     assert r"\\" in where
+
+
+def test_search_query_preserves_quotes() -> None:
+    assert build_search_query({"searchQuery": "can't read property"}) == "can't read property"
+    assert build_search_query({"searchQuery": '"cannot read"', "filePath": "src/app.ts"}) == '"cannot read" src/app.ts'
+
+
+def test_release_filter_adds_substring_prefilter() -> None:
+    filters = build_issue_filters({"release": "2026.04.24"})
+
+    assert filters[0] == {
+        "type": "hogql",
+        "key": "position(toString(properties.$exception_releases), '2026.04.24') > 0",
+    }
+    assert "JSONExtractKeysAndValuesRaw" in str(filters[1]["key"])
+
+
+def test_build_sparkline_accepts_float_values() -> None:
+    assert build_sparkline({"aggregations": {"volumeRange": [1.0, 2.5]}}) == [1.0, 2.5]
 
 
 class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
@@ -35,6 +60,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         _create_person(team=self.team, distinct_ids=["user-1"], is_identified=True)
+        flush_persons_and_events()
 
     def create_issue(self, issue_id: str | None = None, fingerprint: str | None = None) -> ErrorTrackingIssue:
         issue = ErrorTrackingIssue.objects.create(id=issue_id or self.issue_id, team=self.team, name="TypeError")
@@ -116,6 +142,25 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert project_response.status_code == 200
         assert project_response.json()["results"] == []
 
+    def test_rejects_hogql_property_filters(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={"filterGroup": [{"key": "1 = 1", "type": "hogql", "value": "1"}]},
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "HogQL property filters are not supported here" in str(response.json())
+
+    def test_rejects_invalid_person_id(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={"personId": "not-a-uuid"},
+            format="json",
+        )
+
+        assert response.status_code == 400
+
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_detail_returns_impact_top_frame_and_latest_release(self) -> None:
         self.create_issue()
@@ -176,6 +221,46 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         }
         assert data["latest_release"]["version"] == "2026.04.24"
         assert data["latest_release"]["commit_id"] == "commit-123"
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_detail_returns_without_context_when_context_query_fails(self) -> None:
+        self.create_issue()
+        self.create_exception_event()
+        flush_persons_and_events()
+
+        with patch("products.error_tracking.backend.api.query.EventsQueryRunner") as events_query_runner:
+            events_query_runner.side_effect = RuntimeError("boom")
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue",
+                data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json()["id"] == self.issue_id
+        assert "top_in_app_frame" not in response.json()
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issue_detail_distinguishes_missing_issue_from_empty_date_range(self) -> None:
+        self.create_issue()
+
+        empty_range_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={
+                "issueId": self.issue_id,
+                "dateRange": {"date_from": "2026-04-23T00:00:00Z", "date_to": "2026-04-23T01:00:00Z"},
+            },
+            format="json",
+        )
+        missing_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": "00000000-0000-0000-0000-000000000000"},
+            format="json",
+        )
+
+        assert empty_range_response.status_code == 200
+        assert empty_range_response.json()["impact"] == {}
+        assert missing_response.status_code == 404
 
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:

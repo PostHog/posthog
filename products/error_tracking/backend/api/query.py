@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, cast
 
+import structlog
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
 from rest_framework.response import Response
@@ -15,6 +16,7 @@ from posthog.api.utils import action
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
+from products.error_tracking.backend.models import ErrorTrackingIssue
 
 from .query_serializers import (
     ErrorTrackingIssueDetailSerializer,
@@ -46,6 +48,8 @@ from .query_utils import (
     pick_fields,
 )
 
+logger = structlog.get_logger(__name__)
+
 
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -64,6 +68,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         filters = build_issue_filters(params)
         limit = int(params.get("limit", 25))
         offset = int(params.get("offset", 0))
+        person_id = params.get("personId")
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             dateRange=DateRange(**build_date_range(params.get("dateRange"))),
@@ -77,7 +82,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             limit=limit,
             offset=offset,
             volumeResolution=int(params.get("volumeResolution", 0)),
-            personId=cast(str | None, params.get("personId")),
+            personId=str(person_id) if person_id is not None else None,
             withAggregations=True,
             withFirstEvent=False,
             withLastEvent=False,
@@ -111,6 +116,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         volume_resolution = int(params.get("volumeResolution", 0))
         if include_sparkline and volume_resolution <= 0:
             volume_resolution = 12
+        issue_model = ErrorTrackingIssue.objects.filter(team=self.team, id=issue_id).first()
+        if issue_model is None:
+            return Response(status=status.HTTP_404_NOT_FOUND)
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             issueId=issue_id,
@@ -128,22 +136,52 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = ErrorTrackingQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
         raw_results = data.get("results") if isinstance(data.get("results"), list) else []
         if not raw_results:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+            payload: dict[str, object] = compact_dict(
+                {
+                    "id": str(issue_model.id),
+                    "name": issue_model.name,
+                    "description": issue_model.description,
+                    "status": issue_model.status,
+                }
+            )
+            payload["impact"] = {}
+            if include_sparkline:
+                payload["sparkline"] = []
+            return Response(payload)
         issue = cast(dict[str, object], raw_results[0])
-        context_event_query = EventsQuery(
-            kind="EventsQuery",
-            event="$exception",
-            select=CONTEXT_EVENT_SELECTS,
-            where=build_issue_where(issue_id),
-            filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
-            after=date_range.get("date_from"),
-            before=date_range.get("date_to"),
-            orderBy=["timestamp DESC"],
-            limit=1,
-            tags={"productKey": "error_tracking"},
-        )
-        event_data = EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
-        event_properties = map_context_event_properties(event_data)
+        event_properties: dict[str, object] = {}
+        try:
+            context_event_query = EventsQuery(
+                kind="EventsQuery",
+                event="$exception",
+                select=CONTEXT_EVENT_SELECTS,
+                where=build_issue_where(issue_id),
+                filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
+                after=date_range.get("date_from"),
+                before=date_range.get("date_to"),
+                orderBy=["timestamp DESC"],
+                limit=1,
+                tags={"productKey": "error_tracking"},
+            )
+            event_data = (
+                EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
+            )
+            if event_data.get("error"):
+                logger.warning(
+                    "error_tracking_issue_context_query_failed",
+                    issue_id=issue_id,
+                    team_id=self.team.pk,
+                    error=event_data.get("error"),
+                )
+            else:
+                event_properties = map_context_event_properties(event_data)
+        except Exception:
+            logger.warning(
+                "error_tracking_issue_context_query_failed",
+                issue_id=issue_id,
+                team_id=self.team.pk,
+                exc_info=True,
+            )
         payload = compact_dict(
             {
                 **pick_fields(issue, ISSUE_FIELDS),

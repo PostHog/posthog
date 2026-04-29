@@ -58,7 +58,7 @@
             "type": "string"
         },
         "filterGroup": {
-            "description": "Advanced flat AND property filters. Prefer typed shortcut fields when they fit.",
+            "description": "Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.",
             "items": {
                 "properties": {
                     "key": {
@@ -238,7 +238,6 @@
         },
         "personId": {
             "description": "Filter by exact PostHog person UUID.",
-            "maxLength": 100,
             "type": "string"
         },
         "release": {
