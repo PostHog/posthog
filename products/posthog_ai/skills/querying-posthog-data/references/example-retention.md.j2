@@ -1,0 +1,5 @@
+# Retention (unique users, $ai_trace -> $ai_trace in the next 12 weeks, recurring)
+
+```sql
+{{ render_hogql_example({"kind": "RetentionQuery", "filterTestAccounts": false, "dateRange": {"date_from": "-90d"}, "retentionFilter": {"period": "Week", "totalIntervals": 12, "retentionType": "retention_recurring", "targetEntity": {"id": "$ai_trace", "name": "$ai_trace", "type": "events", "properties": [{"type": "event", "key": "$ai_span_name", "operator": "exact", "value": ["LangGraph", "LangGraphUpdateState"]}]}, "returningEntity": {"id": "$ai_trace", "name": "$ai_trace", "type": "events", "properties": [{"type": "event", "key": "$ai_span_name", "operator": "exact", "value": ["LangGraph", "LangGraphUpdateState"]}]}}}) }}
+```

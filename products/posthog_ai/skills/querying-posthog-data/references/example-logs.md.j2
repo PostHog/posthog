@@ -1,0 +1,5 @@
+# Logs (filtering by severity and searching for a term)
+
+```sql
+{{ render_hogql_example({"kind": "LogsQuery", "dateRange": {"date_from": "-24h"}, "filterGroup": {"type": "AND", "values": []}, "serviceNames": [], "severityLevels": ["warn", "error", "fatal"], "searchTerm": "timeout", "orderBy": "latest"}) }}
+```
