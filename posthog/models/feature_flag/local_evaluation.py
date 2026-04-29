@@ -580,7 +580,12 @@ def _get_flags_response_for_local_evaluation_batch(
 
     # Bulk load group type mappings for all projects
     gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
-    for row in GroupTypeMapping.objects.db_manager(READ_ONLY_DATABASE_FOR_PERSONS).filter(project_id__in=project_ids):
+    # nosemgrep: no-direct-persons-db-orm
+    for row in GroupTypeMapping.objects.db_manager(
+        READ_ONLY_DATABASE_FOR_PERSONS
+    ).filter(  # nosemgrep: no-direct-persons-db-orm
+        project_id__in=project_ids
+    ):  # nosemgrep: no-direct-persons-db-orm
         gtm_by_project[row.project_id][str(row.group_type_index)] = row.group_type
 
     results: dict[int, dict[str, Any]] = {}
