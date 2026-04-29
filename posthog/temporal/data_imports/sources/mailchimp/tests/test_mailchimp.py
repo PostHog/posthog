@@ -6,15 +6,19 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests
 from requests import Request, Response
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.mailchimp.mailchimp import (
     MailchimpPaginator,
     MailchimpResumeConfig,
+    MailchimpRetryableError,
+    _fetch_all_lists,
     _fetch_contacts_for_list,
     _format_incremental_value,
     _get_contacts_iterator,
+    _mailchimp_get,
     extract_data_center,
     mailchimp_source,
 )
@@ -458,3 +462,131 @@ class TestRestEndpointResumeBehavior:
         reconstituted = MailchimpResumeConfig(**json.loads(as_json))
         assert reconstituted == cfg
         assert reconstituted.list_id is None
+
+
+def _build_retry_response(status_code: int, headers: dict[str, str] | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.headers = headers or {}
+    response.json.return_value = {"members": [], "total_items": 0, "lists": []}
+    response.raise_for_status.return_value = None
+    return response
+
+
+class TestMailchimpGetRetry:
+    """Verify ``_mailchimp_get`` retries transient upstream failures.
+
+    Mailchimp returns 503/502/504 during incidents and 429 when rate limiting; without
+    retries the in-flight HTTP call fails the Temporal activity outright. We sleep-patch
+    tenacity so retry timing doesn't slow the suite.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("tenacity.nap.time.sleep", lambda _seconds: None)
+
+    @pytest.mark.parametrize("status_code", [500, 502, 503, 504])
+    def test_retries_on_5xx_then_succeeds(self, status_code: int, monkeypatch: pytest.MonkeyPatch) -> None:
+        responses = [
+            _build_retry_response(status_code),
+            _build_retry_response(200),
+        ]
+        get_mock = MagicMock(side_effect=responses)
+        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
+
+        result = _mailchimp_get("https://us6.api.mailchimp.com/3.0/lists")
+
+        assert result.status_code == 200
+        assert get_mock.call_count == 2
+
+    def test_429_uses_retry_after_header(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        responses = [
+            _build_retry_response(429, headers={"Retry-After": "7"}),
+            _build_retry_response(200),
+        ]
+        get_mock = MagicMock(side_effect=responses)
+        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
+
+        observed_waits: list[float] = []
+        original_sleep = lambda seconds: observed_waits.append(seconds)
+        monkeypatch.setattr("tenacity.nap.time.sleep", original_sleep)
+
+        result = _mailchimp_get("https://us6.api.mailchimp.com/3.0/lists")
+
+        assert result.status_code == 200
+        assert observed_waits == [7.0]
+
+    def test_gives_up_after_five_attempts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        get_mock = MagicMock(side_effect=[_build_retry_response(503) for _ in range(5)])
+        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
+
+        with pytest.raises(MailchimpRetryableError, match="server error 503"):
+            _mailchimp_get("https://us6.api.mailchimp.com/3.0/lists")
+
+        assert get_mock.call_count == 5
+
+    def test_retries_on_connection_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        get_mock = MagicMock(side_effect=[requests.exceptions.ConnectionError("boom"), _build_retry_response(200)])
+        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
+
+        result = _mailchimp_get("https://us6.api.mailchimp.com/3.0/lists")
+
+        assert result.status_code == 200
+        assert get_mock.call_count == 2
+
+    def test_does_not_retry_on_4xx_other_than_429(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        get_mock = MagicMock(side_effect=[_build_retry_response(401)])
+        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
+
+        result = _mailchimp_get("https://us6.api.mailchimp.com/3.0/lists")
+
+        assert result.status_code == 401
+        assert get_mock.call_count == 1
+
+
+class TestFetchHelpersRetry:
+    """End-to-end check that the retry decorator applies to the public fetch helpers."""
+
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("tenacity.nap.time.sleep", lambda _seconds: None)
+
+    def test_fetch_all_lists_retries_503(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        success = MagicMock()
+        success.status_code = 200
+        success.headers = {}
+        success.json.return_value = {"lists": [{"id": "list_a"}], "total_items": 1}
+        success.raise_for_status.return_value = None
+
+        responses = [_build_retry_response(503), success]
+        get_mock = MagicMock(side_effect=responses)
+        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
+
+        result = _fetch_all_lists("key-us6", "us6")
+
+        assert result == [{"id": "list_a"}]
+        assert get_mock.call_count == 2
+
+    def test_fetch_contacts_for_list_retries_503(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        manager = _fake_manager()
+        success = _build_response([{"id": "m1"}], total_items=1)
+        success.status_code = 200
+        success.headers = {}
+
+        responses = [_build_retry_response(503), success]
+        get_mock = MagicMock(side_effect=responses)
+        monkeypatch.setattr("posthog.temporal.data_imports.sources.mailchimp.mailchimp.requests.get", get_mock)
+
+        emitted = list(
+            _fetch_contacts_for_list(
+                api_key="key-us6",
+                dc="us6",
+                list_id="list_a",
+                since_last_changed=None,
+                resumable_source_manager=manager,
+                start_offset=0,
+            )
+        )
+
+        assert [c["id"] for c in emitted] == ["m1"]
+        assert get_mock.call_count == 2

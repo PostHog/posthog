@@ -4,7 +4,9 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 import requests
+import structlog
 from requests import Request, Response
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
@@ -12,6 +14,41 @@ from posthog.temporal.data_imports.sources.common.rest_source.paginators import 
 from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.mailchimp.settings import MAILCHIMP_ENDPOINTS
+
+logger = structlog.get_logger(__name__)
+
+
+class MailchimpRetryableError(Exception):
+    def __init__(self, message: str, retry_after: int | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _wait_with_retry_after(retry_state: RetryCallState) -> float:
+    exception = retry_state.outcome and retry_state.outcome.exception()
+    if isinstance(exception, MailchimpRetryableError) and exception.retry_after is not None:
+        return float(exception.retry_after)
+    return wait_exponential_jitter(initial=1, max=30)(retry_state)
+
+
+@retry(
+    retry=retry_if_exception_type(
+        (MailchimpRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+    ),
+    stop=stop_after_attempt(5),
+    wait=_wait_with_retry_after,
+    reraise=True,
+)
+def _mailchimp_get(url: str, **kwargs: Any) -> requests.Response:
+    response = requests.get(url, **kwargs)
+    if response.status_code == 429:
+        retry_after = int(response.headers.get("Retry-After", 1))
+        logger.warning("Mailchimp API rate limited", url=url, retry_after=retry_after)
+        raise MailchimpRetryableError("Mailchimp: rate limited", retry_after=retry_after)
+    if response.status_code in (500, 502, 503, 504):
+        logger.warning("Mailchimp API server error, will retry", url=url, status_code=response.status_code)
+        raise MailchimpRetryableError(f"Mailchimp: server error {response.status_code}")
+    return response
 
 
 @dataclasses.dataclass
@@ -195,7 +232,7 @@ def _fetch_all_lists(api_key: str, dc: str) -> list[dict[str, Any]]:
     }
 
     while True:
-        response = requests.get(
+        response = _mailchimp_get(
             f"https://{dc}.api.mailchimp.com/3.0/lists",
             headers=headers,
             params={"count": page_size, "offset": offset},
@@ -240,7 +277,7 @@ def _fetch_contacts_for_list(
         if since_last_changed:
             params["since_last_changed"] = since_last_changed
 
-        response = requests.get(
+        response = _mailchimp_get(
             f"https://{dc}.api.mailchimp.com/3.0/lists/{list_id}/members",
             headers=headers,
             params=params,
