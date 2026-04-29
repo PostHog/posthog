@@ -49,7 +49,6 @@ export const sessionRecordingMetadataLogic = kea<sessionRecordingMetadataLogicTy
         }),
         enqueuePending: (sessionId: string, want: keyof PendingFetch) => ({ sessionId, want }),
         removePending: (sessionIds: string[]) => ({ sessionIds }),
-        markExistenceLoading: (sessionIds: string[]) => ({ sessionIds }),
         recordExistence: (updates: RecordingExistsStorage) => ({ updates }),
         recordOutcomes: (outcomes: Record<string, StoredOutcome>) => ({ outcomes }),
         flushPending: true,
@@ -59,10 +58,6 @@ export const sessionRecordingMetadataLogic = kea<sessionRecordingMetadataLogicTy
         recordingExistsStorage: [
             {} as RecordingExistsStorage,
             {
-                markExistenceLoading: (state, { sessionIds }) => ({
-                    ...state,
-                    ...Object.fromEntries(sessionIds.map((id) => [id, RecordingExistsState.Loading])),
-                }),
                 recordExistence: (state, { updates }) => ({ ...state, ...updates }),
             },
         ],
@@ -132,7 +127,9 @@ export const sessionRecordingMetadataLogic = kea<sessionRecordingMetadataLogicTy
             const includeOutcomes = outcomeNeeded.length > 0
 
             if (existenceNeeded.length > 0) {
-                actions.markExistenceLoading(existenceNeeded)
+                actions.recordExistence(
+                    Object.fromEntries(existenceNeeded.map((id) => [id, RecordingExistsState.Loading]))
+                )
             }
 
             try {
