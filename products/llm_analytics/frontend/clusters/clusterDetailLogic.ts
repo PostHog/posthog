@@ -33,6 +33,11 @@ import {
 // can't break out of the string. UUIDs already match this character set.
 const SAFE_ID_RE = /^[a-f0-9-]+$/i
 
+// Mirrors `MAX_SELECT_RETURNED_ROWS` in `posthog/hogql/constants.py`. EventsQuery rows above
+// this are silently truncated server-side, so the filter must either fit under the cap or
+// fall back to "no filtering" rather than show an arbitrary partial subset.
+const FILTER_QUERY_MAX_ROWS = 50000
+
 export interface ClusterDetailLogicProps {
     runId: string
     clusterId: number
@@ -157,13 +162,27 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                         return new Set<string>()
                     }
 
+                    // For clusters larger than the server's row cap we'd silently miss matches,
+                    // which would render a misleading partial result. Skip filtering instead and
+                    // surface a warning — a future change can paginate via offset if this becomes
+                    // a real-world hit rather than a theoretical one.
+                    if (clusterIds.length > FILTER_QUERY_MAX_ROWS) {
+                        console.warn(
+                            `Cluster has ${clusterIds.length} items, exceeding the ${FILTER_QUERY_MAX_ROWS}-row cap for filter queries. Filters not applied.`
+                        )
+                        return null
+                    }
+
                     const idColumn =
                         clusteringLevel === 'generation' ? 'properties.$ai_generation_id' : 'properties.$ai_trace_id'
                     const escapedIds = clusterIds.map((id) => `'${id}'`).join(', ')
 
                     const eventsQuery: EventsQuery = {
                         kind: NodeKind.EventsQuery,
-                        select: [`DISTINCT ${idColumn}`],
+                        // The Set accumulator below already dedupes, so we don't need DISTINCT —
+                        // and `DISTINCT col` is not a valid HogQL select expression anyway (it's a
+                        // query-level modifier, not a per-column prefix).
+                        select: [idColumn],
                         event: '$ai_generation',
                         properties: propertyFilters,
                         where: [`${idColumn} IN (${escapedIds})`],
