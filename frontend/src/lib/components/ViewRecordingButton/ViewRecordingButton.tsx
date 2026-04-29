@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { MatchedRecording } from '~/types'
 
-import { selectOutcome, sessionRecordingExistsLogic, SummaryOutcome } from './sessionRecordingExistsLogic'
+import { selectOutcome, sessionRecordingMetadataLogic, SummaryOutcome } from './sessionRecordingMetadataLogic'
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
 
 export enum ViewRecordingButtonVariant {
@@ -84,23 +84,17 @@ export default function ViewRecordingButton({
     const shouldFetchSummaryOutcome = summaryOutcomeEnabled && !summaryOutcome
 
     const { summaryBySessionId } = useValues(sessionSummaryProgressLogic)
-    const { checkRecordingExists: registerCheck } = useActions(sessionRecordingExistsLogic)
-    const { getRecordingExists, getSummaryOutcome } = useValues(sessionRecordingExistsLogic)
+    const { checkRecordingMetadata } = useActions(sessionRecordingMetadataLogic)
+    const { getRecordingExists, getSummaryOutcome } = useValues(sessionRecordingMetadataLogic)
 
     useEffect(() => {
         if (!sessionId) {
             return
         }
         if (checkRecordingExists || shouldFetchSummaryOutcome) {
-            registerCheck(sessionId, { includeOutcome: shouldFetchSummaryOutcome })
+            checkRecordingMetadata(sessionId, { includeOutcome: shouldFetchSummaryOutcome })
         }
-    }, [checkRecordingExists, shouldFetchSummaryOutcome, sessionId, registerCheck])
-
-    const liveOutcome = summaryOutcomeEnabled && sessionId ? summaryBySessionId[sessionId]?.session_outcome : null
-    const persistedOutcome = shouldFetchSummaryOutcome && sessionId ? getSummaryOutcome(sessionId) : null
-    const outcomeTooltip = summaryOutcomeEnabled
-        ? (selectOutcome([liveOutcome, summaryOutcome, persistedOutcome])?.description ?? undefined)
-        : undefined
+    }, [checkRecordingExists, shouldFetchSummaryOutcome, sessionId, checkRecordingMetadata])
 
     if (hasRecording === undefined && checkRecordingExists && sessionId) {
         hasRecording = getRecordingExists(sessionId)
@@ -116,6 +110,16 @@ export default function ViewRecordingButton({
         openPlayerIn,
         hasRecording,
     })
+
+    // Outcome precedence: live progress beats parent-supplied prop beats persisted fetch.
+    // Live is freshest mid-summarisation; the prop is a parent-list short-circuit; persisted is the kea-cached fallback.
+    const liveOutcome = summaryOutcomeEnabled && sessionId ? summaryBySessionId[sessionId]?.session_outcome : null
+    const persistedOutcome = shouldFetchSummaryOutcome && sessionId ? getSummaryOutcome(sessionId) : null
+    const isInteractive = !disabledReason && !props.loading
+    const outcomeTooltip =
+        summaryOutcomeEnabled && isInteractive
+            ? (selectOutcome([liveOutcome, summaryOutcome, persistedOutcome])?.description ?? undefined)
+            : undefined
 
     const { recordingViewed, recordingViewedLoading } = useValues(
         sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' })
@@ -173,11 +177,22 @@ export default function ViewRecordingButton({
         if (outcomeTooltip) {
             return (
                 <Tooltip title={outcomeTooltip}>
-                    <span className="inline-flex items-center">{linkContent}</span>
+                    <span
+                        className="inline-flex items-center"
+                        data-ph-capture-attribute-view-recording-checked-existence={checkRecordingExists}
+                        data-ph-capture-attribute-view-recording-has-outcome={true}
+                    >
+                        {linkContent}
+                    </span>
                 </Tooltip>
             )
         }
         return linkContent
+    }
+
+    const captureAttrs = {
+        'data-ph-capture-attribute-view-recording-checked-existence': checkRecordingExists,
+        'data-ph-capture-attribute-view-recording-has-outcome': !!outcomeTooltip,
     }
 
     if (iconOnly) {
@@ -190,6 +205,7 @@ export default function ViewRecordingButton({
                 tooltip={outcomeTooltip ?? 'View recording'}
                 aria-label="View recording"
                 noPadding={noPadding}
+                {...captureAttrs}
                 {...props}
             />
         )
@@ -202,6 +218,7 @@ export default function ViewRecordingButton({
             onClick={onClick}
             sideIcon={sideIcon}
             tooltip={outcomeTooltip}
+            {...captureAttrs}
             {...props}
         >
             <div className="flex items-center gap-2 whitespace-nowrap">

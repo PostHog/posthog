@@ -1126,6 +1126,10 @@ class SessionRecordingViewSet(
 
         When ``include_outcomes`` is truthy, also returns ``outcomes`` mapping session_id ->
         ``{"description": ...}`` for sessions with a persisted AI summary outcome description.
+
+        This action is deliberately *not* in ``scope_object_read_actions`` so personal API keys
+        cannot call it; outcome descriptions can contain user-activity text and must remain
+        scoped to authenticated session-based access.
         Sessions without a persisted summary or without an outcome description are omitted from
         the outcomes map rather than returned with a null value.
         """
@@ -1160,10 +1164,7 @@ class SessionRecordingViewSet(
                         outcomes[session_id] = {"description": outcome["description"]}
             payload["outcomes"] = outcomes
 
-        response = Response(payload)
-        if include_outcomes:
-            response["Cache-Control"] = "private, max-age=60"
-        return response
+        return Response(payload)
 
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
