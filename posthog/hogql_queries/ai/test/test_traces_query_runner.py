@@ -1927,4 +1927,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(trace.imageCost, 0.039)
         # Modality costs are a breakdown — they live INSIDE input/output, so the
         # overall total is just input + output (request and web_search are 0).
+        self.assertIsNotNone(trace.totalCost)
+        assert trace.totalCost is not None
         self.assertAlmostEqual(trace.totalCost, 0.1162, places=4)
