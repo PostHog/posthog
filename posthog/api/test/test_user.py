@@ -586,31 +586,30 @@ class TestUserAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("single_google_with_github", ["google-sub-1"], True),
-            ("multiple_google", ["google-sub-1", "google-sub-2"], False),
+            ("single_google", [("google-oauth2", "google-sub-1")]),
+            (
+                "multiple_providers",
+                [
+                    ("google-oauth2", "google-sub-1"),
+                    ("google-oauth2", "google-sub-2"),
+                    ("github", "octocat"),
+                    ("gitlab", "12345"),
+                ],
+            ),
         ]
     )
-    def test_verified_email_change_removes_google_social_auth_connections(
-        self, _, google_uids: list[str], keep_github_social_auth: bool
-    ):
+    def test_verified_email_change_removes_social_auth_connections(self, _, social_auths: list[tuple[str, str]]):
         self.user.email = "alpha@example.com"
         self.user.save()
 
-        google_social_auth_ids = [
-            UserSocialAuth.objects.create(
-                user=self.user,
-                provider="google-oauth2",
-                uid=google_uid,
-            ).id
-            for google_uid in google_uids
+        social_auth_ids = [
+            UserSocialAuth.objects.create(user=self.user, provider=provider, uid=uid).id
+            for provider, uid in social_auths
         ]
-        github_social_auth_id = None
-        if keep_github_social_auth:
-            github_social_auth_id = UserSocialAuth.objects.create(
-                user=self.user,
-                provider="github",
-                uid="octocat",
-            ).id
+        other_user = User.objects.create_user("other@example.com", "pwd1234*", "Other")
+        other_user_social_auth_id = UserSocialAuth.objects.create(
+            user=other_user, provider="google-oauth2", uid="other-google-sub"
+        ).id
 
         with (
             patch("posthog.api.user.is_email_available", return_value=True) as mock_is_email_available,
@@ -639,10 +638,9 @@ class TestUserAPI(APIBaseTest):
             self.user.refresh_from_db()
             assert self.user.email == "beta@example.com"
             assert self.user.pending_email is None
-            for google_social_auth_id in google_social_auth_ids:
-                assert not UserSocialAuth.objects.filter(id=google_social_auth_id).exists()
-            if github_social_auth_id:
-                assert UserSocialAuth.objects.filter(id=github_social_auth_id).exists()
+            for social_auth_id in social_auth_ids:
+                assert not UserSocialAuth.objects.filter(id=social_auth_id).exists()
+            assert UserSocialAuth.objects.filter(id=other_user_social_auth_id).exists()
             mock_send_email_change_emails.assert_called_once_with(
                 ANY,
                 self.user.first_name,
@@ -651,10 +649,8 @@ class TestUserAPI(APIBaseTest):
             )
 
     @patch("posthog.tasks.email.send_email_change_emails.delay")
-    def test_verify_email_without_pending_email_keeps_google_social_auth_connections(
-        self, mock_send_email_change_emails
-    ):
-        google_social_auth = UserSocialAuth.objects.create(
+    def test_verify_email_without_pending_email_keeps_social_auth_connections(self, mock_send_email_change_emails):
+        social_auth = UserSocialAuth.objects.create(
             user=self.user,
             provider="google-oauth2",
             uid="google-sub-1",
@@ -668,7 +664,7 @@ class TestUserAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         self.user.refresh_from_db()
-        assert UserSocialAuth.objects.filter(id=google_social_auth.id).exists()
+        assert UserSocialAuth.objects.filter(id=social_auth.id).exists()
         mock_send_email_change_emails.assert_not_called()
 
     @patch("posthog.api.user.is_email_available", return_value=True)
