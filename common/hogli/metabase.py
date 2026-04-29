@@ -32,9 +32,12 @@ from hogli.core.cli import cli
 
 LOGIN_TIMEOUT_SECONDS: float = 180.0
 LOGIN_POLL_INTERVAL_SECONDS: float = 1.0
-# Chrome buffers cookies in memory and flushes to SQLite roughly every 30s.
-# After this many seconds without progress we hint at closing the tab to
-# force a flush.
+# Chrome batches cookie writes and only commits to SQLite every ~30s
+# (constexpr kCommitInterval = base::Seconds(30); in
+# net/extras/sqlite/sqlite_persistent_cookie_store.cc). There's no public API
+# to force an earlier flush — closing tabs/windows doesn't trigger it, and
+# even Cmd+Q is racy. The honest UX is to keep polling and tell the user the
+# 30s lower bound.
 FLUSH_HINT_AFTER_SECONDS: float = 8.0
 
 # Per-browser profile-cookie locations. Each entry is (loader_name, base_directory).
@@ -189,9 +192,10 @@ def _wait_for_valid_cookie(
     `timeout` seconds without finding a valid session.
 
     Chrome flushes cookies to its on-disk SQLite store roughly every 30s, so a
-    freshly-set `metabase.SESSION` can be invisible to us for a while. After
-    `FLUSH_HINT_AFTER_SECONDS` we surface a hint suggesting the user close the
-    Metabase tab — closing a tab forces an immediate flush.
+    freshly-set `metabase.SESSION` can be invisible to us for up to half a
+    minute. There's no reliable way to force an earlier flush — closing the
+    tab/window does nothing, and Cmd+Q is racy. After
+    `FLUSH_HINT_AFTER_SECONDS` we surface a status note explaining the wait.
     """
     start = time.monotonic()
     deadline = start + timeout
@@ -219,8 +223,9 @@ def _wait_for_valid_cookie(
 
         if not flush_hint_shown and time.monotonic() - start >= FLUSH_HINT_AFTER_SECONDS:
             click.echo(
-                "  hint: if you've already signed in, close the Metabase tab — "
-                "Chrome only flushes cookies to disk every ~30s, but closing a tab forces it.",
+                "  note: Chrome batches cookie writes to disk every ~30s. "
+                "If you've signed in, just wait — the CLI will pick them up on the next flush. "
+                "Closing the tab or window does NOT force a flush.",
             )
             flush_hint_shown = True
 
