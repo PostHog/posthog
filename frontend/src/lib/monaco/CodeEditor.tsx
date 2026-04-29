@@ -55,6 +55,16 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
 }
 let codeEditorIndex = 0
 
+// Monaco's `CancellationError` sets `name = 'Canceled'`; some bundlers
+// preserve the class name `CancellationError`. Match either.
+function isMonacoCancellation(reason: unknown): boolean {
+    if (!reason || typeof reason !== 'object') {
+        return false
+    }
+    const name = (reason as { name?: unknown }).name
+    return name === 'Canceled' || name === 'CancellationError'
+}
+
 export function initModel(model: editor.ITextModel, builtCodeEditorLogic: BuiltLogic<codeEditorLogicType>): void {
     ;(model as any).codeEditorLogic = builtCodeEditorLogic
 }
@@ -287,6 +297,30 @@ export function CodeEditor({
         return () => {
             disposeMonacoDisposables()
             disconnectMutationObserver()
+
+            // Monaco's wordHighlighter (and other Delayer-based providers)
+            // reject a pending Promise with `CancellationError` (`name ===
+            // 'Canceled'`) when the editor is disposed. The rejection is
+            // delivered on a microtask, so it escapes the synchronous
+            // try/catch inside `disposeEditor` and surfaces as an
+            // unhandled rejection during React's commit phase. Filter
+            // just that expected cancellation noise around the dispose
+            // block; the listeners are removed on the next tick so the
+            // microtask-queued rejection fires first.
+            const suppressCancellation = (event: PromiseRejectionEvent | ErrorEvent): void => {
+                const reason = 'reason' in event ? event.reason : event.error
+                if (reason && typeof reason === 'object' && isMonacoCancellation(reason)) {
+                    event.preventDefault()
+                }
+            }
+            if (typeof window !== 'undefined') {
+                window.addEventListener('unhandledrejection', suppressCancellation)
+                window.addEventListener('error', suppressCancellation)
+                setTimeout(() => {
+                    window.removeEventListener('unhandledrejection', suppressCancellation)
+                    window.removeEventListener('error', suppressCancellation)
+                }, 0)
+            }
 
             // Dispose the editor BEFORE @monaco-editor/react's own cleanup
             // runs: Monaco's services (HoverService, ContextView,
