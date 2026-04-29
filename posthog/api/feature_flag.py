@@ -1758,7 +1758,7 @@ class FeatureFlagSerializer(
 
                 if group_keys:
                     group_names: dict[str, str] = {}
-                    for group in Group.objects.filter(
+                    for group in Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
                         team_id=instance.team_id,
                         group_type_index__in=group_type_indices,
                         group_key__in=group_keys,
