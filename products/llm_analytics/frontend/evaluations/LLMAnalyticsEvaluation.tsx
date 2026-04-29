@@ -155,7 +155,6 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         (c) => c.rollout_percentage > 100 || c.rollout_percentage < 0
     )
     const hasConditions = evaluation.conditions.length > 0
-    const saveButtonDisabled = !basicFieldsValid
     const saveButtonDisabledReason = !hasName
         ? 'Add a name for this evaluation'
         : !configValid
@@ -259,7 +258,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 onClick={handleSave}
-                                disabledReason={saveButtonDisabled ? saveButtonDisabledReason : undefined}
+                                disabledReason={saveButtonDisabledReason}
                                 loading={evaluationFormSubmitting}
                             >
                                 {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
