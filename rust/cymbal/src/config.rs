@@ -36,6 +36,12 @@ pub struct Config {
     #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_HOSTS")]
     pub cyclotron_kafka_hosts: Option<String>,
 
+    // Optional TLS override for the cyclotron producer. When unset, the cyclotron producer
+    // inherits `KAFKA_TLS` from the primary kafka config; set this to flip TLS independently
+    // (e.g. primary on plaintext warpstream-shared, secondary on SSL MSK).
+    #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_TLS")]
+    pub cyclotron_kafka_tls: Option<bool>,
+
     #[envconfig(default = "cdp_internal_events")]
     pub internal_events_topic: String,
 

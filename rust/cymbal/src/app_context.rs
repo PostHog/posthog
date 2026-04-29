@@ -98,6 +98,9 @@ impl AppContext {
             Some(hosts) if !hosts.is_empty() => {
                 let mut cyclotron_config = config.kafka.clone();
                 cyclotron_config.kafka_hosts = hosts.to_string();
+                if let Some(tls) = config.cyclotron_kafka_tls {
+                    cyclotron_config.kafka_tls = tls;
+                }
                 let kafka_cyclotron_liveness = health_registry
                     .register("cyclotron_kafka".to_string(), Duration::from_secs(30))
                     .await;
