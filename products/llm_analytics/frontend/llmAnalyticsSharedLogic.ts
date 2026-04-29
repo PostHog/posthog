@@ -317,6 +317,9 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             [urls.llmAnalyticsSentiment()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
+            // Cluster detail honors the same `filters` / `filter_test_accounts` params so
+            // deep links from generations/traces tabs carry their filter set through.
+            '/llm-analytics/clusters/:runId/:clusterId': (_, searchParams) => applySearchParams(searchParams),
         }
     }),
 
