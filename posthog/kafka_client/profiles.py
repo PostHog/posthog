@@ -14,3 +14,4 @@ class KafkaClusterProfile(StrEnum):
     CYCLOTRON = "cyclotron"
     INGESTION = "ingestion"
     CALCULATED_EVENTS = "calculated_events"
+    SHARED = "shared"
