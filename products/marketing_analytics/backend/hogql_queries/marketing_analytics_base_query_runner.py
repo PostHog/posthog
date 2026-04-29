@@ -157,13 +157,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             level = self.config.drill_down_level
             if level == MarketingAnalyticsDrillDownLevel.CHANNEL:
                 # Repurpose campaign_name to hold the channel derived from source
-                select_columns.extend(
-                    [
-                        ast.Alias(alias=self.config.campaign_field, expr=self._build_channel_type_expr()),
-                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
-                        ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
-                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
-                    ]
+                select_columns.append(
+                    ast.Alias(alias=self.config.campaign_field, expr=self._build_channel_type_expr()),
                 )
             elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
                 # Repurpose campaign_name to hold the source

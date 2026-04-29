@@ -9,6 +9,7 @@ from posthog.schema import (
     ConversionGoalFilter3,
     DateRange,
     MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
@@ -21,7 +22,11 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.data_warehouse.backend.models import DataWarehouseTable
 from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
-from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT_LIMIT, DRILL_DOWN_LEVEL_CONFIG
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    DEFAULT_LIMIT,
+    DRILL_DOWN_LEVEL_CONFIG,
+    MATCH_KEY_FIELD,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
@@ -433,6 +438,62 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert isinstance(result, MarketingAnalyticsTableQueryResponse)
         assert result.columns is not None
         assert config_alias_in_columns(result.columns, DRILL_DOWN_LEVEL_CONFIG[level]["column_alias"])
+
+    def _build_fake_adapter_for_source(self, source_name: str) -> Mock:
+        adapter = Mock(spec=MarketingSourceAdapter)
+        adapter.config = Mock(source_id=f"fake-{source_name}")
+        adapter.validate.return_value = Mock(is_valid=True)
+        adapter.build_query.return_value = ast.SelectQuery(
+            select=[
+                ast.Alias(alias=MATCH_KEY_FIELD, expr=ast.Constant(value="Test Campaign")),
+                ast.Alias(
+                    alias=MarketingAnalyticsColumnsSchemaNames.CAMPAIGN, expr=ast.Constant(value="Test Campaign")
+                ),
+                ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.ID, expr=ast.Constant(value="12345")),
+                ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.SOURCE, expr=ast.Constant(value=source_name)),
+                ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS, expr=ast.Constant(value=8900.0)),
+                ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.CLICKS, expr=ast.Constant(value=1675.0)),
+                ast.Alias(alias=MarketingAnalyticsColumnsSchemaNames.COST, expr=ast.Constant(value=5148.75)),
+                ast.Alias(
+                    alias=MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION, expr=ast.Constant(value=153.0)
+                ),
+                ast.Alias(
+                    alias=MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE,
+                    expr=ast.Constant(value=1532.0),
+                ),
+            ],
+        )
+        return adapter
+
+    @parameterized.expand(
+        [
+            ("google", "Paid Search"),
+            ("linkedin", "Paid Social"),
+            ("bing", "Paid Search"),
+        ]
+    )
+    def test_channel_drill_down_classifies_paid_sources(self, source_name, expected_channel):
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL,
+        )
+        runner = self._create_query_runner(query)
+
+        fake_adapter = self._build_fake_adapter_for_source(source_name)
+        with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get:
+            mock_get.return_value = [fake_adapter]
+            result = runner.calculate()
+
+        assert isinstance(result, MarketingAnalyticsTableQueryResponse)
+        assert result.columns is not None
+        channel_idx = next(i for i, c in enumerate(result.columns) if str(c) == "Channel")
+        channels = [getattr(row[channel_idx], "value", row[channel_idx]) for row in (result.results or [])]
+        assert channels == [expected_channel], (
+            f"Expected Channel='{expected_channel}' for source='{source_name}', got {channels}"
+        )
 
     @parameterized.expand(
         [
