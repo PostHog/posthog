@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+import structlog
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -200,27 +201,26 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             else:
                 row_counts = {}
 
-            # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
-            # quirk on `information_schema` (rare but possible) only disables CDC
-            # advertising for this listing instead of breaking schema discovery for
-            # everyone — including non-CDC users.
+            table_names_by_schema: dict[str, list[str]] = {}
+            table_names_by_source_location: dict[tuple[str, str], str] = {}
+            for discovered_schema in db_schemas.values():
+                table_names_by_schema.setdefault(discovered_schema.source_schema, []).append(
+                    discovered_schema.source_table_name
+                )
+            for table_name, discovered_schema in db_schemas.items():
+                table_names_by_source_location[
+                    (discovered_schema.source_schema, discovered_schema.source_table_name)
+                ] = table_name
+
             pk_columns_by_table: dict[str, list[str]] = {}
             # `indexed_columns_by_table` is None when discovery failed (so we default
             # `is_indexed=True` and never warn), and a dict[table -> set] when it
             # succeeded. A successful lookup returns an empty set for tables without
             # indexes — that's how we tell "no indexes" apart from "couldn't check".
             indexed_columns_by_table: dict[str, set[str]] | None = {}
+            tables_with_pks: set[str] = set()
+
             try:
-                table_names_by_schema: dict[str, list[str]] = {}
-                table_names_by_source_location: dict[tuple[str, str], str] = {}
-                for discovered_schema in db_schemas.values():
-                    table_names_by_schema.setdefault(discovered_schema.source_schema, []).append(
-                        discovered_schema.source_table_name
-                    )
-                for table_name, discovered_schema in db_schemas.items():
-                    table_names_by_source_location[
-                        (discovered_schema.source_schema, discovered_schema.source_table_name)
-                    ] = table_name
                 with pg_connection(
                     host=host,
                     port=port,
@@ -228,29 +228,58 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     password=config.password,
                     database=config.database,
                 ) as conn:
-                    for source_schema, source_table_names in table_names_by_schema.items():
-                        if not source_table_names:
-                            continue
+                    # PK lookup powers `supports_cdc`. Wrap in try/except so a permissions
+                    # quirk on `pg_catalog` (rare) only disables CDC advertising for this
+                    # listing instead of breaking schema discovery for everyone — including
+                    # non-CDC users.
+                    try:
+                        for source_schema, source_table_names in table_names_by_schema.items():
+                            if not source_table_names:
+                                continue
+                            source_pk_columns_by_table = get_primary_key_columns(
+                                conn, source_schema, source_table_names
+                            )
+                            for source_table_name, pk_columns in source_pk_columns_by_table.items():
+                                display_name = table_names_by_source_location.get((source_schema, source_table_name))
+                                if display_name is not None:
+                                    pk_columns_by_table[display_name] = pk_columns
+                        tables_with_pks = set(pk_columns_by_table.keys())
+                    except Exception as e:
+                        capture_exception(e)
+                        pk_columns_by_table = {}
+                        tables_with_pks = set()
 
-                        source_pk_columns_by_table = get_primary_key_columns(conn, source_schema, source_table_names)
-                        for source_table_name, pk_columns in source_pk_columns_by_table.items():
-                            display_name = table_names_by_source_location.get((source_schema, source_table_name))
-                            if display_name is not None:
-                                pk_columns_by_table[display_name] = pk_columns
-
-                        source_indexed_by_table = get_leading_index_columns(conn, source_schema, source_table_names)
-                        for source_table_name in source_table_names:
-                            display_name = table_names_by_source_location.get((source_schema, source_table_name))
-                            if display_name is not None:
-                                # Use an empty set when the table has no indexes, so the
-                                # frontend warning fires for those tables.
-                                assert indexed_columns_by_table is not None
-                                indexed_columns_by_table[display_name] = source_indexed_by_table.get(
-                                    source_table_name, set()
-                                )
-
-                tables_with_pks = set(pk_columns_by_table.keys())
+                    # Index lookup powers the unindexed-incremental-field warning. Isolated
+                    # in its own try/except so a failure here doesn't discard PK results
+                    # (and vice versa). The helper catches and logs its own per-query errors
+                    # and returns None on failure; once any schema returns None we mark the
+                    # whole listing as unknown so the UI defaults to no warning rather than
+                    # a misleading one.
+                    try:
+                        for source_schema, source_table_names in table_names_by_schema.items():
+                            if not source_table_names:
+                                continue
+                            source_indexed_by_table = get_leading_index_columns(conn, source_schema, source_table_names)
+                            if source_indexed_by_table is None:
+                                indexed_columns_by_table = None
+                                break
+                            if indexed_columns_by_table is None:
+                                continue
+                            for source_table_name in source_table_names:
+                                display_name = table_names_by_source_location.get((source_schema, source_table_name))
+                                if display_name is not None:
+                                    # Use an empty set when the table has no indexes, so the
+                                    # frontend warning fires for those tables.
+                                    indexed_columns_by_table[display_name] = source_indexed_by_table.get(
+                                        source_table_name, set()
+                                    )
+                    except Exception as e:
+                        structlog.get_logger().warning(
+                            "Failed to detect leading index columns for Postgres schemas", exc_info=e
+                        )
+                        indexed_columns_by_table = None
             except Exception as e:
+                # Connection-level failure: neither lookup is usable.
                 capture_exception(e)
                 pk_columns_by_table = {}
                 indexed_columns_by_table = None

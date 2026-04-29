@@ -1086,6 +1086,22 @@ class TestGetLeadingIndexColumns:
         assert result == {}
         connection.cursor.assert_not_called()
 
+    def test_returns_none_when_query_raises(self):
+        # Permission errors on system catalogs (rare, but possible with
+        # restricted roles) must not leak out — the caller defaults to
+        # `is_indexed=True` and skips the warning when discovery fails.
+        connection = mock.MagicMock()
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = Exception("permission denied for table pg_index")
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+        connection.cursor.return_value = cursor_context
+
+        result = get_leading_index_columns(connection, "public", ["orders"])
+        assert result is None
+
 
 class TestHasDuplicatePrimaryKeys:
     @pytest.mark.django_db
