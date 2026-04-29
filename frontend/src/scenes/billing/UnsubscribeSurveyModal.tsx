@@ -182,7 +182,7 @@ export const UnsubscribeSurveyModal = ({
                                         {humanFriendlyCurrency(Number(product.unit_amount_usd), 0)} /{' '}
                                         {product.unit ?? 'month'}
                                     </strong>{' '}
-                                    - removing this add-on will end the discount and you'll lose access to the features
+                                    — removing this add-on will end the discount and you'll lose access to the features
                                     immediately.
                                 </p>
                             ) : (
