@@ -724,7 +724,9 @@ class DashboardSerializer(DashboardMetadataSerializer):
         self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
 
-    # Fields safe to pass through to DashboardTile.objects.update_or_create defaults
+    # Display-only tile fields that may appear in PATCH payloads. Safe to pass to
+    # ``update_or_create`` defaults (used by ``_upsert_tile``) and to
+    # ``save(update_fields=...)`` (used by ``_update_existing_tile_display_fields``).
     TILE_DISPLAY_FIELDS = {
         "color",
         "layouts",
@@ -735,8 +737,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
     }
 
     @staticmethod
+    def _extract_display_defaults(tile_data: dict) -> dict:
+        return {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+
+    @staticmethod
     def _upsert_tile(instance: Dashboard, tile_data: dict, **extra_defaults: Any) -> tuple[DashboardTile, bool]:
-        tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
         return DashboardTile.objects_including_soft_deleted.update_or_create(
             id=tile_data.get("id", None),
@@ -759,7 +765,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if tile_id is None:
             return
 
-        tile_defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         if not tile_defaults:
             return
 
@@ -777,11 +783,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         for attr, val in tile_defaults.items():
             setattr(existing, attr, val)
-        # update_fields scopes the UPDATE to only the columns we changed, so a concurrent
-        # write to other columns on the same tile (e.g. another user editing color while we
-        # save layouts) isn't overwritten by our stale read of those fields. Using save()
-        # rather than queryset.update() preserves the post_save signal that the caching-state
-        # sync task relies on for ``filters_overrides`` changes.
+        # ``update_fields`` scopes the UPDATE to only the columns we changed, so a concurrent
+        # write to other columns on the same tile is not clobbered by our stale read of them.
+        # Sticking with ``save()`` (vs queryset ``update()``) keeps the post_save signal that
+        # ``sync_dashboard_tile`` listens to for caching-state invalidation.
         existing.save(update_fields=list(tile_defaults.keys()))
 
     @staticmethod

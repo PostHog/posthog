@@ -772,19 +772,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_layout_patch_succeeds_on_dashboard_with_mixed_tile_state(self):
         """
-        Reproduces the shape of a real EU dashboard (id 460098) where editing the layout
-        consistently 500s. The dashboard mixes: alive insight tiles with proper sm layouts,
-        alive insight tiles whose layouts are still ``{}``, tiles whose underlying insight
-        has been soft-deleted (cascade soft-deletes the tile row), tiles soft-deleted
-        directly, and a text + button tile with empty layouts.
+        Coverage for layout edits on a dashboard with a realistic mix of tile states:
+        alive insight tiles with proper sm layouts, alive insight tiles whose layouts
+        are still ``{}``, tiles whose underlying insight has been soft-deleted (cascade
+        soft-deletes the tile row), tiles soft-deleted directly, plus a text and button
+        tile with empty layouts.
 
         The frontend's saveEditModeChanges sends ``{id, layouts: {sm: ...}}`` for every
         VISIBLE tile (i.e. tiles returned by GET, which excludes soft-deleted rows and
-        rows pointing at soft-deleted insights). The PATCH must succeed.
+        rows pointing at soft-deleted insights). The PATCH must succeed AND the new
+        layouts must actually be persisted.
         """
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "460098-shaped"})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "mixed-tile-state"})
 
-        # 5 alive insight tiles with proper sm layouts (matches the 27 tiles with valid layouts)
+        # 5 alive insight tiles that we will give proper sm layouts.
         with_layout_insight_ids: list[int] = []
         for i in range(5):
             insight_id, _ = self.dashboard_api.create_insight(
@@ -792,13 +793,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             )
             with_layout_insight_ids.append(insight_id)
 
-        # 3 alive insight tiles whose layouts are still {} (mirrors rows 29-38 in the SQL output)
-        empty_layout_insight_ids: list[int] = []
+        # 3 alive insight tiles whose layouts stay {} (creation default).
         for i in range(3):
-            insight_id, _ = self.dashboard_api.create_insight(
+            self.dashboard_api.create_insight(
                 {"filters": {"hello": f"empty-{i}"}, "dashboards": [dashboard_id], "name": f"empty-layout-{i}"}
             )
-            empty_layout_insight_ids.append(insight_id)
 
         # 2 tiles whose insight gets soft-deleted -> tile cascades to deleted=True
         for i in range(2):
@@ -848,32 +847,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         # Mirror frontend saveEditModeChanges: layouts: tile.layouts?.sm ? {sm: tile.layouts.sm} : {}
         layouts_payload = []
+        expected_layouts_by_tile_id: dict[int, dict] = {}
         for idx, tile in enumerate(visible_tiles):
             sm = (tile.get("layouts") or {}).get("sm")
             if sm:
                 # Move it slightly to simulate a real edit
                 new_sm = {**sm, "y": sm["y"] + 1}
-                layouts_payload.append({"id": tile["id"], "layouts": {"sm": new_sm}})
             else:
                 # Frontend just resized this previously-empty tile
-                layouts_payload.append(
-                    {
-                        "id": tile["id"],
-                        "layouts": {
-                            "sm": {
-                                "h": 5,
-                                "i": str(tile["id"]),
-                                "w": 6,
-                                "x": 0,
-                                "y": 100 + idx,
-                                "minH": 2,
-                                "minW": 2,
-                                "moved": False,
-                                "static": False,
-                            }
-                        },
-                    }
-                )
+                new_sm = {
+                    "h": 5,
+                    "i": str(tile["id"]),
+                    "w": 6,
+                    "x": 0,
+                    "y": 100 + idx,
+                    "minH": 2,
+                    "minW": 2,
+                    "moved": False,
+                    "static": False,
+                }
+            new_layouts = {"sm": new_sm}
+            layouts_payload.append({"id": tile["id"], "layouts": new_layouts})
+            expected_layouts_by_tile_id[tile["id"]] = new_layouts
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
@@ -883,6 +878,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK, (
             f"layout PATCH 500'd: {response.status_code} body={response.content[:500]}"
         )
+
+        # Crucial: assert the helper actually wrote the new layouts. Without this, the test
+        # would still pass if `_update_existing_tile_display_fields` silently no-op'd everything.
+        for tile_id, expected_layouts in expected_layouts_by_tile_id.items():
+            persisted = DashboardTile.objects.get(id=tile_id)
+            assert persisted.layouts == expected_layouts, (
+                f"tile {tile_id} layouts not persisted — expected {expected_layouts}, got {persisted.layouts}"
+            )
 
     @parameterized.expand(
         [
