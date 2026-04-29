@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconTrash } from '@posthog/icons'
+import { IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonInputSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -66,8 +66,8 @@ interface TranslationsSectionProps {
 }
 
 export function TranslationsSection({ editingLanguage, setEditingLanguage }: TranslationsSectionProps): JSX.Element {
-    const { survey } = useValues(surveyLogic)
-    const { setSurveyValue } = useActions(surveyLogic)
+    const { survey, generatingTranslationDrafts, dataProcessingAccepted } = useValues(surveyLogic)
+    const { setSurveyValue, generateTranslationDrafts } = useActions(surveyLogic)
 
     const translations = survey.translations ?? {}
     const addedLanguages = Object.keys(translations)
@@ -203,24 +203,44 @@ export function TranslationsSection({ editingLanguage, setEditingLanguage }: Tra
             descriptionClassName="text-sm"
         >
             <WizardPanel className="space-y-4">
-                <LemonInputSelect
-                    mode="single"
-                    options={COMMON_LANGUAGES.filter((language) => !addedLanguages.includes(language.value)).map(
-                        (language) => ({
-                            key: language.value,
-                            label: language.label,
-                        })
-                    )}
-                    onChange={(values) => {
-                        const language = values[0]
-                        if (language) {
-                            addLanguage(language)
+                <div className="flex gap-2">
+                    <LemonInputSelect
+                        mode="single"
+                        options={COMMON_LANGUAGES.filter((language) => !addedLanguages.includes(language.value)).map(
+                            (language) => ({
+                                key: language.value,
+                                label: language.label,
+                            })
+                        )}
+                        onChange={(values) => {
+                            const language = values[0]
+                            if (language) {
+                                addLanguage(language)
+                            }
+                        }}
+                        placeholder="Add a language"
+                        allowCustomValues
+                        value={[]}
+                        className="grow"
+                    />
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconSparkles />}
+                        loading={generatingTranslationDrafts}
+                        disabledReason={
+                            !activeLanguage
+                                ? 'Add or select a language before generating translations'
+                                : survey.id === 'new'
+                                  ? 'Save the survey before generating translations'
+                                  : !dataProcessingAccepted
+                                    ? 'AI data processing must be approved to generate translations'
+                                    : undefined
                         }
-                    }}
-                    placeholder="Add a language"
-                    allowCustomValues
-                    value={[]}
-                />
+                        onClick={() => activeLanguage && generateTranslationDrafts(activeLanguage, false)}
+                    >
+                        Fill missing with AI
+                    </LemonButton>
+                </div>
 
                 {addedLanguages.length > 0 ? (
                     <div className="flex flex-wrap gap-2">

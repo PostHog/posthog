@@ -264,9 +264,9 @@ describe('translation validation', () => {
     })
 
     it('deep merges generated translation drafts without dropping manual fields', async () => {
-        jest.spyOn(api.surveys, 'generateTranslations').mockResolvedValue({
+        const generateTranslations = jest.spyOn(api.surveys, 'generateTranslations').mockResolvedValue({
             translations: { es: { thankYouMessageHeader: 'Gracias' } },
-            questions: [{ id: 'question-1', translations: { es: { buttonText: 'Enviar' } } }],
+            questions: [{ id: '__draft_question_0', translations: { es: { buttonText: 'Enviar' } } }],
             generated_field_paths: ['translations.es.thankYouMessageHeader'],
             trace_id: 'trace-1',
         })
@@ -276,7 +276,7 @@ describe('translation validation', () => {
             questions: [
                 {
                     ...createPersistedSurvey().questions[0],
-                    id: 'question-1',
+                    id: undefined,
                     translations: { es: { question: 'Manual question' } },
                 },
             ],
@@ -287,6 +287,23 @@ describe('translation validation', () => {
             logic.actions.generateTranslationDrafts('es')
         }).toFinishAllListeners()
 
+        const draftSurvey = generateTranslations.mock.calls[0][1].survey as Record<string, unknown>
+        expect(draftSurvey).toEqual(
+            expect.objectContaining({
+                name: 'Saved survey',
+                appearance: expect.objectContaining({
+                    thankYouMessageHeader: 'Thank you for your feedback!',
+                }),
+                questions: [
+                    expect.objectContaining({
+                        id: '__draft_question_0',
+                        question: 'What do you think?',
+                    }),
+                ],
+            })
+        )
+        expect(draftSurvey).not.toHaveProperty('linked_flag')
+        expect(draftSurvey).not.toHaveProperty('targeting_flag')
         expect(logic.values.survey.translations?.es).toEqual({
             name: 'Manual name',
             thankYouMessageHeader: 'Gracias',

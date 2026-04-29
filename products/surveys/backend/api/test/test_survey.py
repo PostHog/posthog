@@ -167,7 +167,7 @@ class TestSurvey(APIBaseTest):
             f"/api/projects/{self.team.id}/surveys/{survey.id}/generate_translations/",
             data={
                 "target_language": "pt-BR",
-                "survey": {"name": "Draft feedback", "questions": survey.questions},
+                "survey": {"name": "Draft feedback", "linked_flag": None, "questions": survey.questions},
             },
             format="json",
         )
@@ -179,6 +179,7 @@ class TestSurvey(APIBaseTest):
             "questions.0.translations.pt-BR.question",
         ]
         assert mock_generate_survey_translation.call_args.kwargs["survey"]["name"] == "Draft feedback"
+        assert "linked_flag" not in mock_generate_survey_translation.call_args.kwargs["survey"]
 
     @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")

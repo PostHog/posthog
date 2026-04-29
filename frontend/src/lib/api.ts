@@ -4936,7 +4936,7 @@ const api = {
                 target_language: string
                 source_language?: string
                 overwrite?: boolean
-                survey?: Partial<Survey>
+                survey?: unknown
             }
         ): Promise<{
             translations: Record<string, Record<string, string>>

@@ -121,12 +121,80 @@ export type TranslationValidationError = {
 type SurveyTranslationField = keyof NonNullable<Survey['translations']>[string]
 type QuestionTranslation = NonNullable<SurveyQuestion['translations']>[string]
 type QuestionTextTranslationField = Exclude<keyof QuestionTranslation, 'choices'>
+type SurveyTranslationDraftQuestion = {
+    id?: string | null
+    type?: SurveyQuestionType
+    question?: string
+    description?: string | null
+    buttonText?: string
+    choices?: string[]
+    lowerBoundLabel?: string
+    upperBoundLabel?: string
+    link?: string
+    translations?: SurveyQuestion['translations']
+}
+type SurveyTranslationDraftPayload = {
+    name?: string
+    description?: string | null
+    type?: Survey['type']
+    appearance?: {
+        thankYouMessageHeader?: string
+        thankYouMessageDescription?: string
+        thankYouMessageCloseButtonText?: string
+    }
+    questions?: SurveyTranslationDraftQuestion[]
+    translations?: Survey['translations']
+}
 type TranslationFieldCheck<T extends string> = {
     key: T
     defaultValue?: string | null
 }
 
 const SURVEY_QUERY_TAG_BASE = { scene: 'Survey' as const, productKey: 'surveys' as const }
+const DRAFT_TRANSLATION_QUESTION_ID_PREFIX = '__draft_question_'
+
+function getTranslationDraftQuestionId(question: SurveyQuestion, index: number): string {
+    return question.id || `${DRAFT_TRANSLATION_QUESTION_ID_PREFIX}${index}`
+}
+
+function getSurveyTranslationDraftPayload(survey: Survey | NewSurvey): SurveyTranslationDraftPayload {
+    return {
+        name: survey.name,
+        description: survey.description,
+        type: survey.type,
+        appearance: {
+            thankYouMessageHeader: survey.appearance?.thankYouMessageHeader,
+            thankYouMessageDescription: survey.appearance?.thankYouMessageDescription,
+            thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText,
+        },
+        questions: survey.questions.map((question, index): SurveyTranslationDraftQuestion => {
+            const draftQuestion: SurveyTranslationDraftQuestion = {
+                id: getTranslationDraftQuestionId(question, index),
+                type: question.type,
+                question: question.question,
+                description: question.description,
+                buttonText: question.buttonText,
+                translations: question.translations,
+            }
+
+            if ('choices' in question) {
+                draftQuestion.choices = question.choices
+            }
+            if ('lowerBoundLabel' in question) {
+                draftQuestion.lowerBoundLabel = question.lowerBoundLabel
+            }
+            if ('upperBoundLabel' in question) {
+                draftQuestion.upperBoundLabel = question.upperBoundLabel
+            }
+            if ('link' in question) {
+                draftQuestion.link = question.link
+            }
+
+            return draftQuestion
+        }),
+        translations: survey.translations,
+    }
+}
 
 const SURVEY_QUERY_TAGS = {
     baseStats: { ...SURVEY_QUERY_TAG_BASE, name: 'survey_base_stats' as const },
@@ -1170,7 +1238,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     const result = await api.surveys.generateTranslations(values.survey.id, {
                         target_language: language,
                         overwrite,
-                        survey: values.survey,
+                        survey: getSurveyTranslationDraftPayload(values.survey),
                     })
                     const translations = { ...values.survey.translations }
                     for (const [translationLanguage, translationPatch] of Object.entries(result.translations)) {
@@ -1180,8 +1248,8 @@ export const surveyLogic = kea<surveyLogicType>([
                         }
                     }
                     const patchesById = new Map(result.questions.map((question) => [question.id, question]))
-                    const questions = values.survey.questions.map((question) => {
-                        const patch = patchesById.get(question.id || '')
+                    const questions = values.survey.questions.map((question, index) => {
+                        const patch = patchesById.get(getTranslationDraftQuestionId(question, index))
                         if (!patch) {
                             return question
                         }

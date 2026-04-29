@@ -165,23 +165,23 @@ export function SurveyTranslations(): JSX.Element {
                     autoFocus={addedLanguages.length === 0}
                     value={[]}
                 />
-                {editingLanguage && (
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconSparkles />}
-                        loading={generatingTranslationDrafts}
-                        disabledReason={
-                            survey.id === 'new'
-                                ? 'Save the survey before generating translations'
-                                : !dataProcessingAccepted
-                                  ? 'AI data processing must be approved to generate translations'
-                                  : undefined
-                        }
-                        onClick={() => generateTranslationDrafts(editingLanguage, false)}
-                    >
-                        Fill missing with AI
-                    </LemonButton>
-                )}
+                <LemonButton
+                    type="secondary"
+                    icon={<IconSparkles />}
+                    loading={generatingTranslationDrafts}
+                    disabledReason={
+                        !editingLanguage
+                            ? 'Add or select a language before generating translations'
+                            : survey.id === 'new'
+                              ? 'Save the survey before generating translations'
+                              : !dataProcessingAccepted
+                                ? 'AI data processing must be approved to generate translations'
+                                : undefined
+                    }
+                    onClick={() => editingLanguage && generateTranslationDrafts(editingLanguage, false)}
+                >
+                    Fill missing with AI
+                </LemonButton>
             </div>
 
             <div className="space-y-2">

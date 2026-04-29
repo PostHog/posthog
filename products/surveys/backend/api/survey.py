@@ -99,6 +99,24 @@ FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "linked_flag_id",
     "targeting_flag_filters",
 ]
+SURVEY_TRANSLATION_DRAFT_FIELDS = ("name", "description", "type", "appearance", "questions", "translations")
+SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+)
+SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
+    "id",
+    "type",
+    "question",
+    "description",
+    "buttonText",
+    "choices",
+    "lowerBoundLabel",
+    "upperBoundLabel",
+    "link",
+    "translations",
+)
 
 
 class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
@@ -110,10 +128,29 @@ class GenerateSurveyTranslationsRequestSerializer(serializers.Serializer):
         required=False, default=False, help_text="Whether to overwrite existing translations for this language."
     )
     survey = serializers.DictField(
-        child=serializers.JSONField(help_text="Draft survey field value."),
+        child=serializers.JSONField(allow_null=True, help_text="Draft survey field value."),
         required=False,
-        help_text="Optional draft survey payload to translate instead of the last saved survey.",
+        help_text="Optional translation-only draft survey payload to translate instead of the last saved survey.",
     )
+
+    def validate_survey(self, survey: dict[str, Any]) -> dict[str, Any]:
+        draft = {field: survey[field] for field in SURVEY_TRANSLATION_DRAFT_FIELDS if field in survey}
+
+        appearance = draft.get("appearance")
+        if isinstance(appearance, dict):
+            draft["appearance"] = {
+                field: appearance[field] for field in SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS if field in appearance
+            }
+
+        questions = draft.get("questions")
+        if isinstance(questions, list):
+            draft["questions"] = [
+                {field: question[field] for field in SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS if field in question}
+                for question in questions
+                if isinstance(question, dict)
+            ]
+
+        return draft
 
 
 class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
