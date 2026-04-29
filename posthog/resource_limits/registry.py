@@ -10,9 +10,6 @@ class LimitDefinition:
     create a resource that would put them at or above ``default``, the
     evaluator emits a ``resource limit hit`` PostHog event so ops can route
     via Action and Slack destination. The create itself is not blocked.
-    Hard enforcement and per-team overrides are not part of this catalog
-    today; if they come back, ``default`` becomes the cap and an override
-    table layers on top.
     """
 
     key: str
