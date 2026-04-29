@@ -1,19 +1,60 @@
 from __future__ import annotations
 
+import random
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+import pytest_asyncio
+from asgiref.sync import sync_to_async
+from temporalio.testing import ActivityEnvironment
+
+from posthog.models import Organization, Team
+from posthog.sync import database_sync_to_async
+
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
 from products.signals.backend.agent_harness.budgets import DEFAULT_BUDGET, BudgetCaps, resolve_budget
 from products.signals.backend.agent_harness.prompt import build_run_prompt
-from products.signals.backend.agent_harness.runner import run_signals_agent
+from products.signals.backend.agent_harness.runner import RunResult, arun_signals_agent
 from products.signals.backend.agent_harness.skill_loader import (
     SkillNotFoundError,
     is_signals_agent_skill,
     load_skill_for_run,
 )
 from products.signals.backend.models import SignalAgentConfig, SignalAgentRun
+from products.signals.backend.temporal.agentic.agent_scheduler import RunSignalsAgentInput, run_signals_agent_activity
+
+
+@pytest_asyncio.fixture
+async def aorganization():
+    organization = await sync_to_async(Organization.objects.create)(
+        name=f"SignalsAgentTestOrg-{random.randint(1, 99999)}",
+        is_ai_data_processing_approved=True,
+    )
+    yield organization
+    await sync_to_async(organization.delete)()
+
+
+@pytest_asyncio.fixture
+async def ateam(aorganization):
+    team = await sync_to_async(Team.objects.create)(
+        organization=aorganization,
+        name=f"SignalsAgentTestTeam-{random.randint(1, 99999)}",
+    )
+    yield team
+    await sync_to_async(team.delete)()
+
+
+@pytest_asyncio.fixture
+async def aerrors_skill(ateam):
+    skill = await sync_to_async(LLMSkill.objects.create)(
+        team=ateam,
+        name="signals-agent-errors",
+        description="Errors scout",
+        body="scout",
+    )
+    yield skill
 
 
 class TestBudgetResolution(BaseTest):
@@ -96,76 +137,158 @@ class TestPromptBuilder(BaseTest):
         assert "Do not emit any signals" in prompt
 
 
-class TestRunnerOrchestration(BaseTest):
-    """Exercise the runner without actually spawning a sandbox.
+# Orchestration tests run as plain pytest functions because the async runner uses
+# `database_sync_to_async`, which requires the test team to be visible across threads.
+# The fixture-based pattern (matching test_agentic_report_activity.py) gives us that.
 
-    Mocks `_spawn_and_run` so we can assert the run-row lifecycle (insert with
-    status=running, update with status=completed/failed) and the per-run config
-    get-or-create behavior.
-    """
 
-    def setUp(self) -> None:
-        super().setUp()
-        LLMSkill.objects.create(
-            team=self.team,
-            name="signals-agent-errors",
-            description="Errors scout",
-            body="scout",
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_successful_run_persists_completed_row(ateam, aerrors_skill):
+    async def fake_spawn(**_kwargs):
+        return "I would investigate /checkout 500s next."
+
+    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
+
+    assert result.status == SignalAgentRun.Status.COMPLETED
+    assert result.skill_name == "signals-agent-errors"
+    assert result.skill_version == 1
+    assert result.last_message and "checkout" in result.last_message
+
+    run_row = await database_sync_to_async(SignalAgentRun.objects.get)(id=result.run_id)
+    assert run_row.status == SignalAgentRun.Status.COMPLETED
+    assert run_row.completed_at is not None
+    assert run_row.summary == "I would investigate /checkout 500s next."
+    assert "runtime_s" in run_row.budget_used
+    config = await database_sync_to_async(SignalAgentConfig.objects.get)(team=ateam)
+    assert config.enabled is False
+    assert config.shadow_mode is True
+    assert run_row.agent_config_id == config.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_failed_run_persists_failure_metadata(ateam, aerrors_skill):
+    async def fake_spawn(**_kwargs):
+        raise RuntimeError("sandbox refused to start")
+
+    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
+
+    assert result.status == SignalAgentRun.Status.FAILED
+    assert result.last_message is None
+    run_row = await database_sync_to_async(SignalAgentRun.objects.get)(id=result.run_id)
+    assert run_row.status == SignalAgentRun.Status.FAILED
+    assert run_row.completed_at is not None
+    assert "sandbox refused to start" in run_row.summary
+    assert run_row.metadata.get("error_type") == "RuntimeError"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_missing_skill_does_not_create_run_row(ateam):
+    with pytest.raises(SkillNotFoundError):
+        await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-missing")
+    has_runs = await database_sync_to_async(SignalAgentRun.objects.filter(team=ateam).exists)()
+    assert not has_runs
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_budget_overrides_propagate_into_run_metadata(ateam, aerrors_skill):
+    async def fake_spawn(**_kwargs):
+        return "ok"
+
+    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_agent(
+            team_id=ateam.id,
+            skill_name="signals-agent-errors",
+            budget_overrides={"max_runtime_s": 120},
         )
 
-    def test_successful_run_persists_completed_row(self) -> None:
-        async def fake_spawn(**_kwargs):
-            return "I would investigate /checkout 500s next."
+    run_row = await database_sync_to_async(SignalAgentRun.objects.get)(id=result.run_id)
+    assert run_row.metadata["budget"]["max_runtime_s"] == 120
 
-        with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
-            result = run_signals_agent(team_id=self.team.id, skill_name="signals-agent-errors")
 
-        assert result.status == SignalAgentRun.Status.COMPLETED
-        assert result.skill_name == "signals-agent-errors"
-        assert result.skill_version == 1
-        assert result.last_message and "checkout" in result.last_message
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
+    config = await database_sync_to_async(SignalAgentConfig.objects.create)(team=ateam)
+    await database_sync_to_async(SignalAgentRun.objects.create)(
+        team=ateam,
+        agent_config=config,
+        skill_name="signals-agent-errors",
+        skill_version=1,
+        status=SignalAgentRun.Status.RUNNING,
+    )
 
-        run_row = SignalAgentRun.objects.get(id=result.run_id)
-        assert run_row.status == SignalAgentRun.Status.COMPLETED
-        assert run_row.completed_at is not None
-        assert run_row.summary == "I would investigate /checkout 500s next."
-        assert "runtime_s" in run_row.budget_used
-        # Config gets auto-created with safe defaults on first run.
-        config = SignalAgentConfig.objects.get(team=self.team)
-        assert config.enabled is False
-        assert config.shadow_mode is True
-        assert run_row.agent_config_id == config.id
+    async def fake_spawn(**_kwargs):
+        raise AssertionError("spawn should not run while a prior run is RUNNING")
 
-    def test_failed_run_persists_failure_metadata(self) -> None:
-        async def fake_spawn(**_kwargs):
-            raise RuntimeError("sandbox refused to start")
+    with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
+        result = await arun_signals_agent(team_id=ateam.id, skill_name="signals-agent-errors")
 
-        with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
-            result = run_signals_agent(team_id=self.team.id, skill_name="signals-agent-errors")
+    assert result.run_id is None
+    assert result.status is None
+    assert result.skip_reason and "RUNNING" in result.skip_reason
+    count = await database_sync_to_async(SignalAgentRun.objects.filter(team=ateam).count)()
+    assert count == 1
 
-        assert result.status == SignalAgentRun.Status.FAILED
-        assert result.last_message is None
-        run_row = SignalAgentRun.objects.get(id=result.run_id)
-        assert run_row.status == SignalAgentRun.Status.FAILED
-        assert run_row.completed_at is not None
-        assert "sandbox refused to start" in run_row.summary
-        assert run_row.metadata.get("error_type") == "RuntimeError"
 
-    def test_missing_skill_does_not_create_run_row(self) -> None:
-        with pytest.raises(SkillNotFoundError):
-            run_signals_agent(team_id=self.team.id, skill_name="signals-agent-missing")
-        assert not SignalAgentRun.objects.filter(team=self.team).exists()
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_activity_returns_completed_outcome(ateam):
+    async def fake_arun(**_kwargs):
+        return RunResult(
+            run_id="abc",
+            status=SignalAgentRun.Status.COMPLETED,
+            last_message="ok",
+            runtime_s=1.5,
+            skill_name="signals-agent-errors",
+            skill_version=2,
+        )
 
-    def test_budget_overrides_propagate_into_run_metadata(self) -> None:
-        async def fake_spawn(**_kwargs):
-            return "ok"
+    with patch(
+        "products.signals.backend.temporal.agentic.agent_scheduler.arun_signals_agent",
+        side_effect=fake_arun,
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(
+            run_signals_agent_activity,
+            RunSignalsAgentInput(team_id=ateam.id, skill_name="signals-agent-errors"),
+        )
 
-        with patch("products.signals.backend.agent_harness.runner._spawn_and_run", side_effect=fake_spawn):
-            result = run_signals_agent(
-                team_id=self.team.id,
-                skill_name="signals-agent-errors",
-                budget_overrides={"max_runtime_s": 120},
-            )
+    assert output.run_id == "abc"
+    assert output.status == "completed"
+    assert output.skill_version == 2
+    assert output.skip_reason is None
 
-        run_row = SignalAgentRun.objects.get(id=result.run_id)
-        assert run_row.metadata["budget"]["max_runtime_s"] == 120
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_activity_returns_skip_outcome_when_already_running(ateam):
+    async def fake_arun(**_kwargs):
+        return RunResult(
+            run_id=None,
+            status=None,
+            last_message=None,
+            runtime_s=0.0,
+            skill_name="signals-agent-errors",
+            skill_version=1,
+            skip_reason="prior run still in RUNNING status",
+        )
+
+    with patch(
+        "products.signals.backend.temporal.agentic.agent_scheduler.arun_signals_agent",
+        side_effect=fake_arun,
+    ):
+        env = ActivityEnvironment()
+        output = await env.run(
+            run_signals_agent_activity,
+            RunSignalsAgentInput(team_id=ateam.id, skill_name="signals-agent-errors"),
+        )
+
+    assert output.run_id is None
+    assert output.status is None
+    assert output.skip_reason and "RUNNING" in output.skip_reason

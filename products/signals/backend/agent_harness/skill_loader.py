@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 from posthog.models.team.team import Team
 
-from products.llm_analytics.backend.api.skill_services import get_skill_by_name_from_db
 from products.llm_analytics.backend.models.skills import LLMSkill, LLMSkillFile
 
 # Naming contract for skills that steer a Signals-agent run.
@@ -43,6 +42,11 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
     Pass `version=None` to follow-latest. The `signals-agent-*` prefix is not enforced
     here — the management command can hand-trigger any skill on the team.
     """
+    # Lazy import: `products.llm_analytics.backend.api` triggers a temporal module load
+    # that this package is itself imported from at temporal-worker boot, so a top-level
+    # import here cycles. Models only is fine.
+    from products.llm_analytics.backend.api.skill_services import get_skill_by_name_from_db
+
     skill = get_skill_by_name_from_db(team, skill_name, version=version)
     if skill is None:
         raise SkillNotFoundError(
