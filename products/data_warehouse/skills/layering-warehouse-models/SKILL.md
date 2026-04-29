@@ -93,7 +93,7 @@ final model would want. Examples:
 
 Intermediate models can be expensive (they often join), so this is the layer where you most often consider
 materializing — but only when the same intermediate is reused by multiple final models. A one-off intermediate that
-only feeds a single final model is usually better inlined into that final model, or kept virtual.
+only feeds a single final model is usually better kept virtual.
 
 ### `final_*` — the thing the user actually queries
 
