@@ -65,6 +65,7 @@ export type SettingSectionId =
     | 'organization-billing'
     | 'organization-legal-documents'
     | 'organization-startup-program'
+    | 'organization-extras'
     | 'user-profile'
     | 'user-connected-apps'
     | 'user-api-keys'
@@ -217,6 +218,7 @@ export type SettingId =
     | 'approval-policies'
     | 'change-requests'
     | 'banner'
+    | 'factorio-server'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

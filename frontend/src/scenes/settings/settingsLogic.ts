@@ -15,7 +15,7 @@ import { organizationIntegrationsLogic } from 'scenes/settings/organization/orga
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { Realm } from '~/types'
+import { BillingPlan, Realm } from '~/types'
 
 import type { settingsLogicType } from './settingsLogicType'
 import { SETTINGS_MAP } from './SettingsMap'
@@ -96,7 +96,7 @@ export const settingsLogic = kea<settingsLogicType>([
             organizationIntegrationsLogic,
             ['organizationIntegrations'],
             billingLogic,
-            ['canAccessBilling'],
+            ['canAccessBilling', 'currentPlatformAddon'],
         ],
     })),
 
@@ -255,6 +255,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 s.organizationIntegrations,
                 s.preflight,
                 s.canAccessBilling,
+                s.currentPlatformAddon,
                 s.isAdminOrOwner,
             ],
             (
@@ -265,6 +266,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 organizationIntegrations,
                 preflight,
                 canAccessBilling,
+                currentPlatformAddon,
                 isAdminOrOwner
             ): SettingSection[] => {
                 const isSettingVisible = (setting: Setting): boolean => {
@@ -296,6 +298,9 @@ export const settingsLogic = kea<settingsLogicType>([
                         return false
                     }
                     if (section.id === 'organization-legal-documents' && !isAdminOrOwner) {
+                        return false
+                    }
+                    if (section.id === 'organization-extras' && currentPlatformAddon?.type !== BillingPlan.Boost) {
                         return false
                     }
 
