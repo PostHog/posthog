@@ -40,6 +40,10 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Applebot-Extended": BotDefinition("Apple AI", "ai_search", "AI Agent", "Apple"),
     # AI Assistants (real-time user-facing fetching)
     "ChatGPT-User": BotDefinition("ChatGPT", "ai_assistant", "AI Agent", "OpenAI"),
+    # Lowercase variant first — Meta emits this casing in the wild (matches the bingbot/Bingbot
+    # precedent). Both forms map to the same BotDefinition. Removable once we switch to
+    # multiMatchAnyIndexCaseInsensitive in the HogQL bot detection function.
+    "meta-externalfetcher": BotDefinition("Meta Fetcher", "ai_assistant", "AI Agent", "Meta"),
     "Meta-ExternalFetcher": BotDefinition("Meta Fetcher", "ai_assistant", "AI Agent", "Meta"),
     "DuckAssistBot": BotDefinition("DuckDuckGo AI", "ai_assistant", "AI Agent", "DuckDuckGo"),
     "MistralAI-User": BotDefinition("Mistral AI", "ai_assistant", "AI Agent", "Mistral"),

@@ -40,6 +40,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; Claude-User/1.0; +https://anthropic.com/claude-user)",
         "Mozilla/5.0 (compatible; Perplexity-User/1.0; +https://perplexity.ai/perplexity-user)",
         "Meta-ExternalFetcher/1.0 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)",
+        "meta-externalfetcher/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)",
         "Mozilla/5.0 (compatible; DuckAssistBot/1.0; +https://duckduckgo.com/duckassistbot)",
         "Mozilla/5.0 (compatible; MistralAI-User/1.0; +https://mistral.ai/mistralai-user)",
     ],
