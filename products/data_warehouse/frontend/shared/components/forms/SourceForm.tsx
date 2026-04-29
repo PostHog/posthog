@@ -28,7 +28,7 @@ import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableS
 import { SSH_FIELD, sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
-import { parseConnectionString } from './parseConnectionString'
+import { parseConnectionStringForSource } from './parsers'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -38,11 +38,6 @@ export interface SourceFormProps {
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
-}
-
-const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
-    Postgres: 5432,
-    Redshift: 5439,
 }
 
 export function SourceAccessMethodSelector({
@@ -117,30 +112,18 @@ export const sourceFieldToElement = (
                             type="text"
                             onChange={(updatedConnectionString) => {
                                 onChange(updatedConnectionString)
-                                const { host, port, database, user, password, isValid } =
-                                    parseConnectionString(updatedConnectionString)
+                                const { isValid, fields } = parseConnectionStringForSource(
+                                    sourceConfig.name,
+                                    updatedConnectionString
+                                )
 
                                 if (isValid) {
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'database'],
-                                        database || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'host'],
-                                        host || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'user'],
-                                        user || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'port'],
-                                        port || CONNECTION_STRING_DEFAULT_PORT[sourceConfig.name]
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'password'],
-                                        password || ''
-                                    )
+                                    for (const { path, value } of fields) {
+                                        sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                            ['payload', ...path],
+                                            value
+                                        )
+                                    }
                                 }
                             }}
                         />

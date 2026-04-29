@@ -243,6 +243,70 @@ def get_partition_settings(
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
+def get_leading_indexed_columns_for_schemas(
+    config: BigQuerySourceConfig,
+    table_names: list[str],
+) -> dict[str, set[str]] | None:
+    """Return columns that act as the leading "index" per BigQuery table.
+
+    BigQuery doesn't have B-tree indexes; predicate pushdown for `WHERE col >= …`
+    is accelerated by:
+      - The partition column (INFORMATION_SCHEMA.COLUMNS.is_partitioning_column = 'YES')
+      - The leading clustering column (clustering_ordinal_position = 1)
+    Both are equally effective for skipping data, so we treat both as indexed.
+
+    Returns None on discovery failure so callers default to no warning. Tables
+    without partitioning or clustering map to an empty set so the UI warns for
+    them.
+    """
+    if not table_names:
+        return {}
+
+    try:
+        region: str | None = None
+        if (
+            config.use_custom_region
+            and config.use_custom_region.enabled
+            and config.use_custom_region.region is not None
+            and config.use_custom_region.region != ""
+        ):
+            region = config.use_custom_region.region
+
+        result: dict[str, set[str]] = {table: set() for table in table_names}
+
+        with bigquery_client(
+            config.key_file.project_id,
+            region,
+            config.key_file.private_key,
+            config.key_file.private_key_id,
+            config.key_file.client_email,
+            config.key_file.token_uri,
+        ) as bq:
+            project = (
+                config.dataset_project.dataset_project_id
+                if config.dataset_project and config.dataset_project.enabled
+                else config.key_file.project_id
+            )
+
+            query = f"""
+            SELECT table_name, column_name
+            FROM `{config.dataset_id}`.INFORMATION_SCHEMA.COLUMNS
+            WHERE is_partitioning_column = 'YES'
+               OR clustering_ordinal_position = 1
+            """
+
+            job = bq.query(query, job_config=QueryJobConfig(), project=project)
+            for row in job.result():
+                table_name = row["table_name"]
+                if table_name in result:
+                    result[table_name].add(row["column_name"])
+    except Exception as e:
+        structlog.get_logger().warning("Failed to detect partitioning/clustering for BigQuery schemas", exc_info=e)
+        return None
+
+    return result
+
+
 def get_primary_keys_for_schemas(
     config: BigQuerySourceConfig,
     schemas: dict[str, list[tuple[str, str, bool]]],
