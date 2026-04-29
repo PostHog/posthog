@@ -29,15 +29,15 @@ tools:
             Recipe — deliver an insight alert to Slack or a webhook (canonical reference; alert-create / alert-update
             point here):
 
-            1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration
-               id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user
-               provides the destination URL directly.
+            1. Pick the integration. For Slack, call integrations-list (filter for kind in [slack, slack-posthog-code]
+               — both variants are real Slack integrations) to find the integration id, then call
+               integrations-channels-retrieve with that id to list channels. For a webhook, the user provides the
+               destination URL directly.
 
             2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the
-               response now includes filters. Look for an existing function whose filters.properties contains a value
-               matching <alert.id>. If one exists, call cdp-functions-partial-update on that id; if not, proceed to
-               step 3. (Paginate beyond limit=1000 only if the project genuinely has more than 1000 internal
-               destinations.)
+               response now includes filters. Look for an existing function whose filters.properties has an entry
+               with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on
+               that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)
 
             3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook), and:
                  filters = {
@@ -63,11 +63,13 @@ tools:
                  # Webhook — must be an https:// URL.
                  inputs = {"url": {"value": "<destination_url>"}}
 
-            4. $insight_alert_firing event properties available for templating: alert_id,
-               alert_name, insight_name, insight_id (short_id), state, last_checked_at,
-               breaches (human-readable summary, e.g. "Series A is below 1000"). Project
-               context is available as {project.url}, {project.id}, {project.name}. Do not
-               reference value, threshold_lower, or insight_url — those are not emitted.
+            4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,
+               insight_id (short_id), state (always "Firing" — the event is only emitted on a firing transition,
+               not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.
+               "Series A is below 1000"), and detector metadata: alert_mode (always present), detector_type and
+               ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is
+               available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do
+               not reference value, threshold_lower, or insight_url — those are not emitted.
         exclude_params:
             - _create_in_folder
             - batch_export_id

@@ -1040,11 +1040,14 @@ class SlackIntegrationError(Exception):
     pass
 
 
+SLACK_INTEGRATION_KINDS: tuple[str, ...] = ("slack", "slack-posthog-code")
+
+
 class SlackIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind not in ("slack", "slack-posthog-code"):
+        if integration.kind not in SLACK_INTEGRATION_KINDS:
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
@@ -1092,6 +1095,12 @@ class SlackIntegration:
                 return None
             raise
 
+    # Per-call HTTP timeout used only by list_channels' paginated fan-out. Caps a slow Slack
+    # outage at ~10s × 100 calls = ~16 min worst case wall time inside a sync request handler.
+    # Other SlackIntegration callers (subscriptions, threads, unfurls, single-channel lookup)
+    # keep the default unbounded behavior to avoid changing their retry posture.
+    LIST_CHANNELS_TIMEOUT_SECONDS = 10
+
     def _list_channels_by_type(
         self,
         type: Literal["public_channel", "private_channel"],
@@ -1101,13 +1110,16 @@ class SlackIntegration:
         max_page = 50
         channels = []
         cursor = None
+        bounded_client = WebClient(
+            self.integration.sensitive_config["access_token"], timeout=self.LIST_CHANNELS_TIMEOUT_SECONDS
+        )
 
         while max_page > 0:
             max_page -= 1
             if type == "public_channel":
-                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+                res = bounded_client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
             else:
-                res = self.client.users_conversations(
+                res = bounded_client.users_conversations(
                     exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
                 )
 

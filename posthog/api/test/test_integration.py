@@ -993,6 +993,32 @@ class TestIntegrationAPIKeyAccess:
         elif expected_detail_substring is not None:
             assert expected_detail_substring in response.json()["detail"]
 
+    def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_NOAUTHEDUSER",
+            config={},
+            sensitive_config={"access_token": "test-token"},
+            created_by=self.user,
+        )
+
+        key_value = "test_key_no_authed_user"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "authed_user" in response.json()["detail"]
+
     def test_create_integration_with_api_key_fails(self, client: HttpClient):
         key_value = "test_key_123"
         PersonalAPIKey.objects.create(
