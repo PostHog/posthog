@@ -1116,8 +1116,12 @@ class TestGitHubIntegrationStateValidation:
     def test_create_github_integration_surfaces_missing_app_credentials(
         self, mock_from_install, mock_from_code, client: HttpClient
     ):
-        """If the GitHub App really is unconfigured the user-facing error must say so —
-        but only in that case (we no longer guess at the cause of every failure)."""
+        """If the GitHub App is unconfigured the user-facing error must clearly say so.
+
+        The response intentionally does NOT echo which specific setting is missing,
+        to avoid leaking internal error text into API responses (CodeQL
+        py/stack-trace-exposure). Operators get the specific reason via logs.
+        """
         from posthog.models.github_integration_base import GitHubAppNotConfiguredError
 
         client.force_login(self.user)
@@ -1133,7 +1137,11 @@ class TestGitHubIntegrationStateValidation:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "GITHUB_APP_CLIENT_SECRET is not configured" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert "GitHub App is not configured" in detail
+        # Internal env-var names must not appear in the user-facing response.
+        assert "GITHUB_APP_CLIENT_SECRET" not in detail
+        assert "GITHUB_APP_CLIENT_ID" not in detail
         mock_from_install.assert_not_called()
 
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")

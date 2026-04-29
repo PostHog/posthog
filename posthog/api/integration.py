@@ -68,6 +68,14 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 logger = structlog.get_logger(__name__)
 
+# Static user-facing message for missing GitHub App configuration. Returned in
+# place of the underlying exception text so we don't echo internal error details
+# (or anything resembling a stack trace) back to API callers — see CodeQL
+# py/stack-trace-exposure. The precise missing setting is logged for operators.
+GITHUB_APP_NOT_CONFIGURED_USER_MESSAGE = (
+    "GitHub App is not configured on this PostHog deployment. Please contact your administrator."
+)
+
 
 def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, install_signature: str) -> bool:
     """Verify Stripe Apps marketplace install signature.
@@ -267,9 +275,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             # This requires GITHUB_APP_CLIENT_ID and GITHUB_APP_CLIENT_SECRET to be configured.
             try:
                 authorization = GitHubIntegration.github_user_from_code(code)
-            except GitHubAppNotConfiguredError as e:
-                # Real config gap — surface the precise message so operators can fix it.
-                raise ValidationError(str(e))
+            except GitHubAppNotConfiguredError:
+                # Real config gap. Don't echo the exception message into the response
+                # (CodeQL py/stack-trace-exposure); the precise missing setting is
+                # already logged by GitHubIntegration.github_user_from_code.
+                logger.warning("github_integration_create: GitHub App OAuth credentials not configured")
+                raise ValidationError(GITHUB_APP_NOT_CONFIGURED_USER_MESSAGE)
             if authorization is None:
                 # Token endpoint failure, /user lookup failure, missing id/login, etc.
                 # github_user_from_code already logged the underlying GitHub response.
@@ -303,8 +314,14 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
             try:
                 instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, request.user)
-            except GitHubAppNotConfiguredError as e:
-                raise ValidationError(str(e))
+            except GitHubAppNotConfiguredError:
+                # As above — surface a static user-facing message and log the cause.
+                logger.warning(
+                    "github_integration_create: GitHub App credentials not configured for installation_id",
+                    installation_id=installation_id,
+                    exc_info=True,
+                )
+                raise ValidationError(GITHUB_APP_NOT_CONFIGURED_USER_MESSAGE)
 
             # Store the connecting user's GitHub login on the team integration
             # (shown on the integration card) and auto-create a UserIntegration
