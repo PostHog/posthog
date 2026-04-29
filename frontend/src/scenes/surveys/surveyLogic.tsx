@@ -251,7 +251,6 @@ export enum SurveyEditSection {
     DisplayConditions = 'DisplayConditions',
     Scheduling = 'scheduling',
     CompletionConditions = 'CompletionConditions',
-    Translations = 'translations',
 }
 export interface SurveyLogicProps {
     /** Either a UUID or 'new'. */

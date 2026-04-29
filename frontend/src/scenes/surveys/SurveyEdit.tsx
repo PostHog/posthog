@@ -295,7 +295,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     } = useActions(surveyLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const surveyTranslationsEnabled = true
+    const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
     const activeEditingLanguage = surveyTranslationsEnabled ? editingLanguage : null
     const surveyTranslations = survey.translations ?? {}
     const hasActualTranslations = !!(
@@ -730,6 +730,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                     header: 'Steps',
                                     content: (
                                         <>
+                                            {surveyTranslationsEnabled ? (
+                                                <div className="mb-4">
+                                                    <SurveyTranslations />
+                                                </div>
+                                            ) : null}
                                             <DndContext
                                                 onDragEnd={({ active, over }) => {
                                                     if (over && active.id !== over.id) {
@@ -1302,15 +1307,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                         </>
                                     ),
                                 },
-                                ...(surveyTranslationsEnabled
-                                    ? [
-                                          {
-                                              key: SurveyEditSection.Translations,
-                                              header: 'Translations',
-                                              content: <SurveyTranslations />,
-                                          },
-                                      ]
-                                    : []),
                                 ...(survey.type !== SurveyType.API
                                     ? [
                                           {

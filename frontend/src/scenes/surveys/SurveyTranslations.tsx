@@ -145,7 +145,7 @@ export function SurveyTranslations(): JSX.Element {
     }
 
     return (
-        <div className={`flex flex-col ${addedLanguages.length > 0 ? 'gap-4' : ''}`}>
+        <div className="flex flex-col gap-3 rounded border border-border bg-bg-light p-3">
             <div className="flex gap-2">
                 <LemonInputSelect
                     mode="single"
@@ -184,12 +184,12 @@ export function SurveyTranslations(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
                 {addedLanguages.length > 0 && (
                     <div
                         role="button"
                         tabIndex={0}
-                        className={`flex items-center justify-between px-2 py-1.5 border rounded cursor-pointer ${editingLanguage === null ? 'border-warning bg-warning-highlight' : 'border-border'}`}
+                        className={`flex items-center justify-between gap-2 px-2 py-1.5 border rounded cursor-pointer ${editingLanguage === null ? 'border-warning bg-warning-highlight' : 'border-border bg-bg-light'}`}
                         onClick={() => selectLanguage(null)}
                         onKeyDown={(event) => onLanguageKeyDown(event, null)}
                     >
@@ -202,7 +202,7 @@ export function SurveyTranslations(): JSX.Element {
                         key={lang}
                         role="button"
                         tabIndex={0}
-                        className={`flex items-center justify-between px-2 py-1 border rounded cursor-pointer ${editingLanguage === lang ? 'border-warning bg-warning-highlight' : 'border-border'}`}
+                        className={`flex items-center justify-between gap-2 px-2 py-1 border rounded cursor-pointer ${editingLanguage === lang ? 'border-warning bg-warning-highlight' : 'border-border bg-bg-light'}`}
                         onClick={() => selectLanguage(lang)}
                         onKeyDown={(event) => onLanguageKeyDown(event, lang)}
                     >
