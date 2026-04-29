@@ -1,9 +1,11 @@
 mod leader;
 mod replica;
 mod retry;
+mod stash;
 
-pub use leader::LeaderBackend;
+pub use leader::{AddressResolver, LeaderBackend, LeaderBackendConfig};
 pub use replica::{ReplicaBackend, ReplicaBackendConfig};
+pub use stash::{StashDecision, StashTable, StashedRequest};
 
 use async_trait::async_trait;
 use personhog_proto::personhog::types::v1::{

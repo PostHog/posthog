@@ -122,6 +122,19 @@ pub struct Config {
     #[envconfig(default = "50053")]
     pub leader_port: u16,
 
+    /// Maximum number of stashed write requests held per partition while
+    /// a handoff is in progress. Excess requests return UNAVAILABLE and
+    /// rely on caller-side retries.
+    #[envconfig(default = "5000")]
+    pub stash_max_messages_per_partition: usize,
+
+    /// Maximum total payload bytes held in the stash per partition. Bounds
+    /// memory pressure independent of message count, which matters when
+    /// payload sizes vary widely (typical for person properties). Default
+    /// is 50 MiB.
+    #[envconfig(default = "52428800")]
+    pub stash_max_bytes_per_partition: usize,
+
     // ── coordinator (leader election among router-leader pods) ───
     /// Lease TTL for the coordinator leader election
     #[envconfig(default = "15")]
