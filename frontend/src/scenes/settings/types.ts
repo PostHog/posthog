@@ -76,13 +76,9 @@ export type SettingSectionId =
     | 'mcp-servers'
 
 export type SettingId =
-    | 'conversations-api'
+    | 'conversations-general'
+    | 'conversations-channels'
     | 'conversations-notifications'
-    | 'conversations-slack'
-    | 'conversations-email'
-    | 'conversations-widget'
-    | 'conversations-workflows'
-    | 'conversations-teams'
     | 'snippet-v2'
     | 'js-snippet-version'
     | 'replay-triggers'

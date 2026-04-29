@@ -1,9 +1,10 @@
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGithub } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { VisualImageDiffViewer, type ComparisonMode, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
+import { VisualImageDiffViewer, type VisualDiffResult } from 'lib/components/VisualImageDiffViewer'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -16,6 +17,7 @@ import type {
     SnapshotHistoryEntryApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
 
 function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
@@ -27,6 +29,7 @@ function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): J
                 type="button"
                 className="relative rounded border border-border overflow-hidden bg-bg-3000 w-full cursor-pointer hover:border-primary transition-colors"
                 onClick={onClick}
+                data-attr="visual-review-diff-minimap"
             >
                 {!loaded && <LemonSkeleton className="absolute inset-0" />}
                 <img
@@ -89,7 +92,12 @@ function QuarantineAction({
 
     return (
         <div>
-            <LemonButton type="secondary" size="small" onClick={() => setIsOpen(true)}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={() => setIsOpen(true)}
+                data-attr="visual-review-quarantine-open"
+            >
                 Quarantine this identifier
             </LemonButton>
             <LemonModal
@@ -98,13 +106,18 @@ function QuarantineAction({
                 title="Quarantine snapshot"
                 footer={
                     <>
-                        <LemonButton type="secondary" onClick={() => setIsOpen(false)}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => setIsOpen(false)}
+                            data-attr="visual-review-quarantine-cancel"
+                        >
                             Cancel
                         </LemonButton>
                         <LemonButton
                             type="primary"
                             disabledReason={!reason.trim() ? 'Reason is required' : undefined}
                             onClick={handleSubmit}
+                            data-attr="visual-review-quarantine-confirm"
                         >
                             Quarantine
                         </LemonButton>
@@ -217,7 +230,8 @@ export function SnapshotDiffViewer({
     onRecompute,
     recomputeDisabledReason,
 }: SnapshotDiffViewerProps): JSX.Element {
-    const [comparisonMode, setComparisonMode] = useState<ComparisonMode>('sideBySide')
+    const { comparisonMode } = useValues(visualReviewPreferencesLogic)
+    const { setComparisonMode } = useActions(visualReviewPreferencesLogic)
     const baselineUrl = snapshot.baseline_artifact?.download_url
     const currentUrl = snapshot.current_artifact?.download_url
 
@@ -262,6 +276,7 @@ export function SnapshotDiffViewer({
                                 type="secondary"
                                 size="small"
                                 disabledReason="Leaving a snapshot unreviewed already blocks the PR. To fix it, update your code and rerun CI."
+                                data-attr="visual-review-snapshot-reject"
                             >
                                 Reject
                             </LemonButton>
@@ -282,11 +297,18 @@ export function SnapshotDiffViewer({
                                             secondaryButton: { children: 'Cancel' },
                                         })
                                     }}
+                                    data-attr="visual-review-snapshot-tolerate"
                                 >
                                     Tolerate
                                 </LemonButton>
                             )}
-                            <LemonButton type="primary" size="small" onClick={onApprove} loading={isApproving}>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={onApprove}
+                                loading={isApproving}
+                                data-attr="visual-review-snapshot-accept"
+                            >
                                 Accept change
                             </LemonButton>
                         </>
@@ -441,6 +463,7 @@ export function SnapshotDiffViewer({
                                         size="xsmall"
                                         loading={isRecomputing}
                                         disabledReason={recomputeDisabledReason}
+                                        data-attr="visual-review-snapshot-recompute"
                                         onClick={() => {
                                             LemonDialog.open({
                                                 title: 'Re-trigger CI job?',
@@ -569,6 +592,7 @@ export function SnapshotDiffViewer({
                                 type="secondary"
                                 status="danger"
                                 size="small"
+                                data-attr="visual-review-unquarantine"
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: 'Unquarantine this identifier?',

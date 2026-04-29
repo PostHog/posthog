@@ -24,64 +24,43 @@ jobs:
               with:
                   version: '0.10.2'
 
-            - name: Check dorny pattern sync
-              run: uv run bin/find_affected_tests.py --check-sync
-
-            - name: Compute affected tests (shadow mode)
-              id: selection
+            - name: Run shadow selection
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  PR_SHA: ${{ github.event.pull_request.head.sha }}
+                  PR_BRANCH: ${{ github.event.pull_request.head.ref }}
               run: |
-                  # Fetch the *current* tip of the base branch, not pull_request.base.sha
+                  set -euo pipefail
+                  mkdir -p /tmp/shadow-selection
+
+                  # Write metadata first so the artifact still has run context if
+                  # selection itself blows up (set -e would otherwise skip it).
+                  jq -n \
+                      --arg pr "$PR_NUMBER" \
+                      --arg sha "$PR_SHA" \
+                      --arg branch "$PR_BRANCH" \
+                      --arg base "$BASE_REF" \
+                      --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                      '{pr: $pr, sha: $sha, branch: $branch, base: $base, timestamp: $timestamp}' \
+                      > /tmp/shadow-selection/metadata.json
+
+                  # Fetch the *current* tip of the base branch, not pull_request.base.sha:
                   # base.sha is captured at webhook time and goes stale if the branch later
                   # merges a newer master, which makes `base.sha...HEAD` balloon to include
                   # every merged-in master change.
                   git fetch --no-tags origin "$BASE_REF"
-                  echo "### Changed files" >&2
-                  git diff --name-only "origin/$BASE_REF"...HEAD >&2
 
-                  RESULT=$(uv run bin/find_affected_tests.py --base-ref "origin/$BASE_REF" 2>/dev/stderr | tail -1)
-                  echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+                  uv run tools/snob_backend_test_selection_shadow.py \
+                      --base-ref "origin/$BASE_REF" \
+                      --summary-path "$GITHUB_STEP_SUMMARY" \
+                      --pretty \
+                      > /tmp/shadow-selection/selection.json
 
-            - name: Write job summary
-              env:
-                  RESULT: ${{ steps.selection.outputs.result }}
-                  CURRENT_SHARDS: 38
-                  SHARD_OVERHEAD_MINUTES: 4
-              run: |
-                  MODE=$(echo "$RESULT" | jq -r '.mode')
-
-                  if [ "$MODE" = "selective" ]; then
-                    COUNT=$(echo "$RESULT" | jq -r '.affected_test_count')
-                    TOTAL=$(echo "$RESULT" | jq -r '.total_test_count')
-                    SHARDS=$(echo "$RESULT" | jq -r '.suggested_shards')
-                    AFFECTED_DUR=$(echo "$RESULT" | jq -r '.affected_duration_seconds')
-                    TOTAL_DUR=$(echo "$RESULT" | jq -r '.total_duration_seconds')
-
-                    SAVED_TESTS=$(($TOTAL - $COUNT))
-                    SAVED_SHARDS=$(($CURRENT_SHARDS - $SHARDS))
-                    # Each shard has fixed overhead (docker, deps, migrations) + test time
-                    FULL_MINUTES=$(( ($CURRENT_SHARDS * $SHARD_OVERHEAD_MINUTES) + ($TOTAL_DUR / 60) ))
-                    SELECTIVE_MINUTES=$(( ($SHARDS * $SHARD_OVERHEAD_MINUTES) + ($AFFECTED_DUR / 60) ))
-                    SAVED_MINUTES=$(($FULL_MINUTES - $SELECTIVE_MINUTES))
-
-                    cat >> "$GITHUB_STEP_SUMMARY" << EOF
-                  ## Shadow test selection
-
-                  | Metric | Full run | Selective | Saved |
-                  |---|---|---|---|
-                  | Test files | $TOTAL | $COUNT | **$SAVED_TESTS** |
-                  | Shards | $CURRENT_SHARDS | $SHARDS | **$SAVED_SHARDS** |
-                  | Est. CI minutes | ~${FULL_MINUTES} | ~${SELECTIVE_MINUTES} | **~${SAVED_MINUTES}** |
-                  | Est. test duration | ${TOTAL_DUR}s | ${AFFECTED_DUR}s | **$(($TOTAL_DUR - $AFFECTED_DUR))s** |
-                  EOF
-                  echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode: .mode, affected: .affected_test_count, total: .total_test_count, shards: .suggested_shards, current_shards: '$CURRENT_SHARDS', affected_dur: .affected_duration_seconds, total_dur: .total_duration_seconds}')"
-                  else
-                    REASON=$(echo "$RESULT" | jq -r '.reason // "unknown"')
-                    cat >> "$GITHUB_STEP_SUMMARY" << EOF
-                  ## Shadow test selection
-
-                  **Full run required:** $REASON
-                  EOF
-                  echo "SHADOW_METRICS: $(echo "$RESULT" | jq -c '{mode: "full", reason: .reason}')"
-                  fi
+            - name: Upload shadow selection artifact
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: shadow-test-selection-pr${{ github.event.pull_request.number }}
+                  path: /tmp/shadow-selection/
+                  retention-days: 30

@@ -5,6 +5,7 @@
 // Isolation detection: products that declare a backend:contract-check script
 // (with narrowed inputs in their own turbo.json) are considered isolated —
 // they can be tested alone when only their non-contract files change.
+// Products changed by Turbo's Git affectedness query are selected for product tests.
 // Products without contract-check are non-isolated: any change in them
 // triggers the full test suite (all products + Django).
 //
@@ -16,7 +17,7 @@
 // Output: JSON on stdout: { matrix, run_legacy }
 //         Diagnostics on stderr
 
-const { execSync } = require('child_process')
+const { execFileSync } = require('child_process')
 const fs = require('fs')
 
 const SMALL_THRESHOLD_SECONDS = 2 * 60
@@ -32,9 +33,18 @@ const DURATION_SAFETY_FACTOR = 2
 const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 
 const TURBO_EXEC_OPTS = { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 50 * 1024 * 1024 }
+const TURBO_BIN = './node_modules/.bin/turbo'
+
+function runTurbo(args) {
+    return execFileSync(TURBO_BIN, args, TURBO_EXEC_OPTS)
+}
 
 function parseTurboTasks(raw) {
     return JSON.parse(raw).tasks.filter((t) => !/NONEXISTENT/.test(t.command))
+}
+
+function parseAffectedTasks(raw) {
+    return JSON.parse(raw).data.affectedTasks.items
 }
 
 function packageToProduct(pkg) {
@@ -45,14 +55,32 @@ function getIsolatedProducts(contractTasks) {
     return new Set(contractTasks.map((t) => packageToProduct(t.package)))
 }
 
-function getMissProducts(testTasks) {
-    return [
-        ...new Set(testTasks.filter((t) => t.cache?.status === 'MISS').map((t) => packageToProduct(t.package))),
-    ].sort()
+function getAffectedTaskProducts(tasks) {
+    return [...new Set(tasks.map((t) => packageToProduct(t.package.name)))].sort()
 }
 
 function getAllProducts(testTasks) {
     return [...new Set(testTasks.map((t) => packageToProduct(t.package)))].sort()
+}
+
+function affectedArgs(taskName) {
+    const args = ['query', 'affected', '--tasks', taskName]
+    if (process.env.TURBO_SCM_BASE) {
+        args.push('--base', process.env.TURBO_SCM_BASE)
+    }
+    if (process.env.TURBO_SCM_HEAD) {
+        args.push('--head', process.env.TURBO_SCM_HEAD)
+    }
+    return args
+}
+
+function logAffectedReasons(label, tasks) {
+    const reasons = {}
+    for (const task of tasks) {
+        const reason = task.reason?.__typename || 'Unknown'
+        reasons[reason] = (reasons[reason] || 0) + 1
+    }
+    console.error(`${label} affected reasons: ${JSON.stringify(reasons)}`)
 }
 
 function loadTestDurations() {
@@ -140,25 +168,24 @@ function buildMatrix(products, durations) {
 
 const legacyChanged = process.env.LEGACY_CHANGED === 'true'
 
-let testTasks, contractTasks
+let allTestTasks, affectedTestTasks, affectedContractTasks, contractTasks
 try {
-    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
-    testTasks = parseTurboTasks(execSync('./node_modules/.bin/turbo run backend:test --dry-run=json', TURBO_EXEC_OPTS))
-    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process
-    contractTasks = parseTurboTasks(
-        execSync('./node_modules/.bin/turbo run backend:contract-check --dry-run=json', TURBO_EXEC_OPTS)
-    )
+    allTestTasks = parseTurboTasks(runTurbo(['run', 'backend:test', '--dry-run=json']))
+    if (!legacyChanged) {
+        console.error(`Turbo affected base: ${process.env.TURBO_SCM_BASE || '(default)'}`)
+        console.error(`Turbo affected head: ${process.env.TURBO_SCM_HEAD || '(default)'}`)
+        affectedTestTasks = parseAffectedTasks(runTurbo(affectedArgs('backend:test')))
+        affectedContractTasks = parseAffectedTasks(runTurbo(affectedArgs('backend:contract-check')))
+        contractTasks = parseTurboTasks(runTurbo(['run', 'backend:contract-check', '--dry-run=json']))
+    }
 } catch (e) {
-    console.error(`turbo dry-run failed: ${e.message}`)
+    console.error(`turbo discovery failed: ${e.message}`)
     if (e.stderr) {
         console.error(e.stderr.toString().slice(0, 1000))
     }
     process.exit(1)
 }
-const isolatedProducts = getIsolatedProducts(contractTasks)
-const allProducts = getAllProducts(testTasks)
-
-console.error(`Isolated products (have contract-check): ${JSON.stringify([...isolatedProducts].sort())}`)
+const allProducts = getAllProducts(allTestTasks)
 
 let products
 let runLegacy
@@ -168,31 +195,35 @@ if (legacyChanged) {
     products = allProducts
     runLegacy = true
 } else {
-    const missProducts = getMissProducts(testTasks)
-    const nonIsolatedMisses = missProducts.filter((p) => !isolatedProducts.has(p))
+    const isolatedProducts = getIsolatedProducts(contractTasks)
+    const affectedProducts = getAffectedTaskProducts(affectedTestTasks)
+    const nonIsolatedAffectedProducts = affectedProducts.filter((p) => !isolatedProducts.has(p))
 
-    if (nonIsolatedMisses.length > 0) {
+    console.error(`Isolated products (have contract-check): ${JSON.stringify([...isolatedProducts].sort())}`)
+    console.error(`Affected products: ${JSON.stringify(affectedProducts)}`)
+    logAffectedReasons('backend:test', affectedTestTasks)
+
+    if (nonIsolatedAffectedProducts.length > 0) {
         // Non-isolated product changed — must test everything
         console.error(
-            `Non-isolated products changed: ${JSON.stringify(nonIsolatedMisses)} — testing all products + Django`
+            `Non-isolated products changed: ${JSON.stringify(nonIsolatedAffectedProducts)} — testing all products + Django`
         )
         products = allProducts
         runLegacy = true
-    } else if (missProducts.length > 0) {
-        // Only isolated products changed — check contract-check cache for those specific products
-        const missProductSet = new Set(missProducts)
-        const contractMisses = contractTasks
-            .filter((t) => t.cache?.status === 'MISS')
-            .map((t) => packageToProduct(t.package))
-            .filter((p) => missProductSet.has(p))
-        if (contractMisses.length > 0) {
-            console.error(`Isolated product contracts changed: ${JSON.stringify(contractMisses)} — Django will run`)
+    } else if (affectedProducts.length > 0) {
+        // Only isolated products changed — check whether their contract surface was affected
+        const affectedProductSet = new Set(affectedProducts)
+        const affectedContracts = getAffectedTaskProducts(affectedContractTasks)
+            .filter((p) => affectedProductSet.has(p))
+        logAffectedReasons('backend:contract-check', affectedContractTasks)
+        if (affectedContracts.length > 0) {
+            console.error(`Isolated product contracts changed: ${JSON.stringify(affectedContracts)} — Django will run`)
             runLegacy = true
         } else {
             console.error('Only isolated product internals changed — Django can be skipped')
             runLegacy = false
         }
-        products = missProducts
+        products = affectedProducts
     } else {
         console.error('No product changes detected')
         products = []

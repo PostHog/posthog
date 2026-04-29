@@ -158,6 +158,16 @@ def update_repo(input: contracts.UpdateRepoInput, team_id: int) -> contracts.Rep
     return _to_repo(repo)
 
 
+def get_thumbnail_hash_for_identifier(repo_id: UUID, identifier: str) -> str | None:
+    """Resolve a snapshot identifier to the content hash of its thumbnail, if any."""
+    return logic.get_thumbnail_hash_for_identifier(repo_id, identifier)
+
+
+def read_thumbnail_bytes(repo_id: UUID, content_hash: str) -> bytes | None:
+    """Read the raw bytes for a thumbnail artifact from storage."""
+    return logic.read_thumbnail_bytes(repo_id, content_hash)
+
+
 # --- Run API ---
 
 

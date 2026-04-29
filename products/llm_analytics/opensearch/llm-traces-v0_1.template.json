@@ -1,0 +1,27 @@
+{
+    "index_patterns": ["llm-traces-v0_1-*"],
+    "priority": 100,
+    "template": {
+        "settings": {
+            "number_of_shards": 1,
+            "number_of_replicas": 1
+        },
+        "mappings": {
+            "_source": { "excludes": ["input", "output", "error"] },
+            "properties": {
+                "@timestamp": { "type": "date" },
+                "trace_id": { "type": "keyword" },
+                "team_id": { "type": "keyword" },
+                "model": { "type": "keyword" },
+                "provider": { "type": "keyword" },
+                "tool_names": { "type": "keyword" },
+                "is_error": { "type": "boolean" },
+                "cost": { "type": "scaled_float", "scaling_factor": 1000000 },
+                "latency_ms": { "type": "long" },
+                "input": { "type": "text", "store": false },
+                "output": { "type": "text", "store": false },
+                "error": { "type": "text", "store": false }
+            }
+        }
+    }
+}

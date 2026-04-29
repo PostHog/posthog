@@ -229,7 +229,7 @@ export default function SchemaForm(): JSX.Element {
                                                     className="font-mono cursor-pointer"
                                                     onClick={() => onClickCheckbox(schema, !schema.should_sync)}
                                                 >
-                                                    {schema.table}
+                                                    {schema.label || schema.table}
                                                 </span>
                                                 {schema.description && (
                                                     <Tooltip title={schema.description}>
@@ -409,7 +409,9 @@ export default function SchemaForm(): JSX.Element {
                                                     type="secondary"
                                                     onClick={() => openSyncMethodModal(schema)}
                                                     disabledReason={
-                                                        !schema.incremental_available && !schema.append_available
+                                                        !schema.incremental_available &&
+                                                        !schema.append_available &&
+                                                        !schema.supports_webhooks
                                                             ? 'Full refresh is the only supported sync method for this table'
                                                             : undefined
                                                     }

@@ -7,7 +7,7 @@ from posthog.hogql_queries.experiments.base_query_utils import is_session_proper
 
 DEFAULT_CUPED_LOOKBACK_DAYS = 14
 MIN_CUPED_LOOKBACK_DAYS = 1
-MAX_CUPED_LOOKBACK_DAYS = 365
+MAX_CUPED_LOOKBACK_DAYS = 30
 
 
 @dataclass(frozen=True)
