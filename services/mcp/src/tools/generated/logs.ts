@@ -290,6 +290,7 @@ const logsAttributesList = (): ToolBase<typeof LogsAttributesListSchema, Schemas
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                search_values: params.search_values,
                 serviceNames: params.serviceNames,
             },
         })

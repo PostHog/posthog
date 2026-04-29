@@ -1649,6 +1649,21 @@
             "readOnlyHint": true
         }
     },
+    "experiment-unarchive": {
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nUnarchive an archived experiment to restore it to the default list view.\n\nReturns 400 if the experiment is not currently archived (\"Experiment is not archived.\").\n\nNo request body needed.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Unarchive experiment",
+        "title": "Unarchive experiment",
+        "required_scopes": ["experiment:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "experiment-update": {
         "description": "RULES (follow before calling):\n1. If changing rollout or variants on a RUNNING\n   experiment, you MUST warn the user about user\n   experience AND statistical implications BEFORE\n   making the change and get explicit confirmation.\n   Load the configuring-experiment-rollout skill for\n   the full warning. Do NOT silently apply the change\n   — even if the user asked directly.\n\n2. If the user mentions a percentage, clarify whether\n   they mean variant split or overall rollout BEFORE\n   calling.\n\n3. If adding or changing metrics, load the\n   configuring-experiment-analytics skill first. Call\n   read-data-schema to discover available events BEFORE\n   suggesting or using any event name. Never suggest\n   event names you haven't confirmed exist.\n\n4. For running experiments, set\n   update_feature_flag_params=true when changing\n   parameters — without it, changes save but do NOT\n   sync to the feature flag.\n\n\nUpdate an experiment by ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Metrics can be changed at any time including while running. Cannot add/remove variants on non-draft experiments (changing percentages between existing variants is allowed). Cannot change holdout on non-draft experiments.\n\nDo NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or ship_variant tools instead.",
         "category": "Experiments",
