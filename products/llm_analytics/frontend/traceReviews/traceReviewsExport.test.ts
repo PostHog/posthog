@@ -160,8 +160,8 @@ describe('traceReviewsExport', () => {
             const reviewB = { ...baseReview, id: 'b' }
             const reviewC = { ...baseReview, id: 'c' }
             mockTraceReviewsList
-                .mockResolvedValueOnce({ results: [reviewA, reviewB], count: 3, offset: 0 })
-                .mockResolvedValueOnce({ results: [reviewC], count: 3, offset: 2 })
+                .mockResolvedValueOnce({ results: [reviewA, reviewB], count: 3 })
+                .mockResolvedValueOnce({ results: [reviewC], count: 3 })
 
             const result = await fetchAllReviewsForExport(filters)
 
@@ -193,7 +193,7 @@ describe('traceReviewsExport', () => {
         })
 
         it('treats blank filter values as undefined when calling the API', async () => {
-            mockTraceReviewsList.mockResolvedValueOnce({ results: [], count: 0, offset: 0 })
+            mockTraceReviewsList.mockResolvedValueOnce({ results: [], count: 0 })
 
             await fetchAllReviewsForExport({ search: '', definition_id: '', order_by: '-updated_at' })
 
@@ -207,7 +207,7 @@ describe('traceReviewsExport', () => {
 
     describe('copyReviewsAs', () => {
         it('shows an error toast and skips the clipboard write when there are no reviews', async () => {
-            mockTraceReviewsList.mockResolvedValueOnce({ results: [], count: 0, offset: 0 })
+            mockTraceReviewsList.mockResolvedValueOnce({ results: [], count: 0 })
 
             await copyReviewsAs(filters, 'csv')
 
