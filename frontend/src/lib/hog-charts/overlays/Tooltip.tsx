@@ -57,7 +57,8 @@ export function Tooltip<Meta = unknown>({
                     ...floatingStyles,
                     pointerEvents: context.isPinned ? 'auto' : 'none',
                     width: 'max-content',
-                    zIndex: 'var(--z-tooltip)',
+                    // Below --z-modal (1100) so opening a modal cleanly covers the tooltip.
+                    zIndex: 1050,
                 }}
             >
                 {renderTooltip(context)}

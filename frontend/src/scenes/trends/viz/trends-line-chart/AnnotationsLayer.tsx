@@ -20,6 +20,12 @@ const WRAPPER_STYLE: React.CSSProperties = {
     pointerEvents: 'auto',
 }
 
+// Stop badge clicks from bubbling to the chart wrapper, which would otherwise
+// fire the chart's onPointClick (e.g. opening the persons modal).
+const stopClickPropagation = (e: React.MouseEvent<HTMLDivElement>): void => {
+    e.stopPropagation()
+}
+
 export function AnnotationsLayer({
     insightNumericId,
     dates,
@@ -48,7 +54,11 @@ export function AnnotationsLayer({
     }
 
     return (
-        <div style={WRAPPER_STYLE}>
+        <div
+            className="HogChartsAnnotationsLayer [&_.AnnotationsOverlay]:!p-0"
+            style={WRAPPER_STYLE}
+            onClick={stopClickPropagation}
+        >
             <AnnotationsOverlay
                 chart={chartLike as unknown as Chart}
                 dates={dates}
