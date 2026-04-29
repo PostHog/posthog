@@ -1,0 +1,355 @@
+"""CLI commands for intent-based developer environment.
+
+Provides hogli dev:* commands for managing the development environment.
+"""
+
+from __future__ import annotations
+
+import click
+from hogli.cli import cli
+
+from .generator import (
+    DevenvConfig,
+    MprocsGenerator,
+    build_docker_compose_command,
+    get_generated_mprocs_path,
+    load_devenv_config,
+)
+from .registry import create_mprocs_registry
+from .resolver import IntentResolver, load_intent_map
+
+
+def _create_resolver() -> IntentResolver:
+    """Create an IntentResolver with the default intent map and mprocs registry."""
+    intent_map = load_intent_map()
+    registry = create_mprocs_registry()
+    return IntentResolver(intent_map, registry)
+
+
+@cli.command(name="dev:generate", help="Regenerate mprocs config from saved settings")
+@click.option(
+    "--with",
+    "with_intents",
+    multiple=True,
+    help="Temporarily add intent(s) for this generation",
+)
+@click.option(
+    "--without",
+    "without_units",
+    multiple=True,
+    help="Temporarily exclude unit(s) for this generation (e.g., --without typegen)",
+)
+def dev_generate(
+    with_intents: tuple[str, ...],
+    without_units: tuple[str, ...],
+) -> None:
+    """Regenerate mprocs config from saved settings.
+
+    Picks up changes from intent-map.yaml without starting mprocs.
+    Run 'hogli start' to start the dev environment.
+    """
+    try:
+        resolver = _create_resolver()
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        click.echo("Are you in the PostHog repository root?", err=True)
+        raise SystemExit(1)
+
+    output_path = get_generated_mprocs_path()
+
+    # Load saved config
+    saved_config = load_devenv_config(output_path)
+
+    if saved_config is None:
+        click.echo("No dev environment config found.")
+        click.echo("Run 'hogli dev:setup' to configure your environment.")
+        click.echo("")
+        click.echo("Using default intents for now...")
+        saved_config = DevenvConfig(intents=["product_analytics"])
+
+    # Build effective intents with temporary overrides
+    intents = saved_config.intents.copy()
+    intents.extend(with_intents)
+
+    # Merge exclude_units
+    exclude_units = list(saved_config.exclude_units) + list(without_units)
+
+    try:
+        resolved = resolver.resolve(
+            intents,
+            include_units=saved_config.include_units,
+            exclude_units=exclude_units,
+            skip_autostart=saved_config.skip_autostart,
+            enable_autostart=saved_config.enable_autostart,
+        )
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    # Generate mprocs config
+    registry = create_mprocs_registry()
+    generator = MprocsGenerator(registry)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    generator.generate_and_save(resolved, output_path, saved_config)
+
+    # Stash devenv-specific properties so _fire_telemetry includes them
+    # in the command_completed event for dev:generate.
+    ctx = click.get_current_context()
+    ctx.meta["hogli.devenv"] = {
+        "intents": sorted(resolved.intents),
+        "intent_count": len(resolved.intents),
+        "unit_count": len(resolved.units),
+        "docker_profiles": sorted(resolved.docker_profiles),
+    }
+
+    click.echo("Generated mprocs config from saved config")
+    click.echo(f"  Products: {', '.join(sorted(resolved.intents))}")
+    click.echo(f"  Units: {len(resolved.units)} processes")
+    click.echo(f"  Config: {output_path}")
+    click.echo("")
+    click.echo("Run 'hogli dev:setup' to change your environment.")
+
+
+@cli.command(name="dev:explain", help="Show what services would be started for intents")
+@click.argument("intents", nargs=-1)
+def dev_explain(intents: tuple[str, ...]) -> None:
+    """Show resolution of intents to services.
+
+    If no intents are provided, shows resolution for your current config.
+    """
+    try:
+        resolver = _create_resolver()
+    except FileNotFoundError:
+        click.echo("Error: intent-map.yaml not found in devenv/", err=True)
+        raise SystemExit(1)
+
+    if intents:
+        try:
+            resolved = resolver.resolve(list(intents))
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            raise SystemExit(1)
+    else:
+        # Use saved config
+        output_path = get_generated_mprocs_path()
+        saved_config = load_devenv_config(output_path)
+
+        if saved_config is None:
+            click.echo("No config found and no intents specified.")
+            click.echo("")
+            click.echo("Usage:")
+            click.echo("  hogli dev:explain error_tracking session_replay")
+            click.echo("  hogli dev:setup  # to create a config")
+            return
+
+        try:
+            resolved = resolver.resolve(
+                saved_config.intents,
+                include_units=saved_config.include_units,
+                exclude_units=saved_config.exclude_units,
+                skip_autostart=saved_config.skip_autostart,
+                enable_autostart=saved_config.enable_autostart,
+            )
+        except ValueError as e:
+            click.echo(f"Error: {e}", err=True)
+            raise SystemExit(1)
+
+    click.echo(resolver.explain_resolution(resolved))
+
+
+@cli.command(name="dev:intents", help="List available intents")
+def dev_intents() -> None:
+    """List all available intents with descriptions."""
+    try:
+        resolver = _create_resolver()
+    except FileNotFoundError:
+        click.echo("Error: intent-map.yaml not found", err=True)
+        raise SystemExit(1)
+
+    click.echo("Available intents:")
+    click.echo("")
+
+    for name, description in resolver.get_available_intents():
+        intent = resolver.intent_map.intents[name]
+        click.echo(f"  {name}")
+        click.echo(f"    {description}")
+        click.echo(f"    Capabilities: {', '.join(intent.capabilities)}")
+        click.echo("")
+
+
+@cli.command(name="dev:list-units", help="List autostart units for given intents (used by phrocs)")
+@click.argument("intents", nargs=-1, required=True)
+def dev_list_units(intents: tuple[str, ...]) -> None:
+    """Resolve intents and print autostart unit names, one per line."""
+    try:
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    try:
+        resolved = resolver.resolve(list(intents))
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    for unit in sorted(resolved.units):
+        proc_config = registry.get_process_config(unit)
+        if proc_config.get("autostart") is not False:
+            click.echo(unit)
+
+
+@cli.command(name="dev:apply", help="Apply intent config non-interactively (used by phrocs)")
+@click.argument("intents", nargs=-1, required=True)
+@click.option(
+    "--include",
+    "include_units",
+    multiple=True,
+    default=None,
+    help="Units to include (saved to config, persists across runs)",
+)
+@click.option(
+    "--exclude",
+    "exclude_units",
+    multiple=True,
+    default=None,
+    help="Units to exclude (saved to config, persists across runs)",
+)
+@click.option(
+    "--skip-autostart",
+    "skip_autostart",
+    multiple=True,
+    default=None,
+    help="Skip autostart units (saved to config, persists across runs)",
+)
+@click.option(
+    "--enable-autostart",
+    "enable_autostart",
+    multiple=True,
+    default=None,
+    help="Enable autostart units (saved to config, persists across runs)",
+)
+def dev_apply(
+    intents: tuple[str, ...],
+    include_units: tuple[str, ...] | None,
+    exclude_units: tuple[str, ...] | None,
+    skip_autostart: tuple[str, ...] | None,
+    enable_autostart: tuple[str, ...] | None,
+) -> None:
+    """Apply a set of intents non-interactively, regenerating the mprocs config."""
+    try:
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    output_path = get_generated_mprocs_path()
+
+    # Load existing config to preserve overrides
+    saved_config = load_devenv_config(output_path)
+    if saved_config is None:
+        saved_config = DevenvConfig()
+
+    # Replace intents with the provided args
+    saved_config.intents = list(intents)
+
+    # Replace options only when explicitly provided (default=None)
+    if include_units is not None:
+        saved_config.include_units = list(include_units)
+    if exclude_units is not None:
+        saved_config.exclude_units = list(exclude_units)
+    if skip_autostart is not None:
+        saved_config.skip_autostart = list(skip_autostart)
+    if enable_autostart is not None:
+        saved_config.enable_autostart = list(enable_autostart)
+
+    try:
+        resolved = resolver.resolve(
+            saved_config.intents,
+            include_units=saved_config.include_units,
+            exclude_units=saved_config.exclude_units,
+            skip_autostart=saved_config.skip_autostart,
+            enable_autostart=saved_config.enable_autostart,
+        )
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise SystemExit(1)
+
+    generator = MprocsGenerator(registry)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    generator.generate_and_save(resolved, output_path, saved_config)
+
+    click.echo(str(output_path))
+
+
+@cli.command(name="dev:setup", help="Interactive wizard to configure your dev environment")
+@click.option("--log", "log_to_files", is_flag=True, help="Log process output to /tmp/posthog-*.log files")
+def dev_setup(log_to_files: bool) -> None:
+    """Run the interactive setup wizard to configure your development environment."""
+    from .wizard import run_setup_wizard
+
+    try:
+        intent_map = load_intent_map()
+    except FileNotFoundError:
+        click.echo("Error: intent-map.yaml not found in devenv/", err=True)
+        click.echo("Are you in the PostHog repository root?", err=True)
+        raise SystemExit(1)
+
+    run_setup_wizard(intent_map, log_to_files=log_to_files)
+
+
+def _get_docker_profiles_from_config() -> list[str]:
+    """Get docker profiles from saved intent config."""
+    try:
+        resolver = _create_resolver()
+    except FileNotFoundError:
+        return []
+
+    output_path = get_generated_mprocs_path()
+    saved_config = load_devenv_config(output_path)
+
+    if saved_config is None:
+        return []
+
+    try:
+        resolved = resolver.resolve(
+            saved_config.intents,
+            include_units=saved_config.include_units,
+            exclude_units=saved_config.exclude_units,
+        )
+        return sorted(resolved.docker_profiles)
+    except ValueError:
+        return []
+
+
+@cli.command(
+    name="docker:services:up",
+    help="Start Docker services based on your intent config",
+    context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+)
+@click.option("--yes", is_flag=True, hidden=True, help="Ignored, for composite command compatibility")
+def docker_services_up(yes: bool) -> None:
+    """Start Docker infrastructure services respecting intent configuration.
+
+    Uses docker compose profiles based on your configured intents.
+    Run 'hogli dev:setup' to configure which services to start.
+    """
+    import subprocess
+
+    profiles = _get_docker_profiles_from_config()
+    cmd = build_docker_compose_command(profiles, "up -d")
+
+    if profiles:
+        click.echo(f"Starting Docker services with profiles: {', '.join(profiles)}")
+    else:
+        click.echo("Starting Docker core services only (no intent config found)")
+    click.echo(f"  {cmd}")
+
+    # cmd is built from internal config (intent-map.yaml), not user input
+    result = subprocess.run(cmd, shell=True)  # nosemgrep: subprocess-shell-true
+    raise SystemExit(result.returncode)

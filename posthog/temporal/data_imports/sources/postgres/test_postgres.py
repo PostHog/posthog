@@ -122,6 +122,18 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Cannot build decimal array from values",
+            "ValueError: Cannot build decimal array from values",
+        ],
+    )
+    def test_unrepresentable_decimal_values_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
+
     def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
         config = source.parse_config(
             {

@@ -253,7 +253,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             captured_query["query"] = query
             captured_query["query_parameters"] = query_parameters
             if False:
-                yield {}
+                yield {}  # type: ignore[unreachable]
 
         mock_client = Mock()
         mock_client.stream_query_as_jsonl = stream_query_as_jsonl

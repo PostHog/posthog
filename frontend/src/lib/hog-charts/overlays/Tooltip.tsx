@@ -57,7 +57,7 @@ export function Tooltip<Meta = unknown>({
                     ...floatingStyles,
                     pointerEvents: context.isPinned ? 'auto' : 'none',
                     width: 'max-content',
-                    zIndex: 'var(--z-tooltip)',
+                    zIndex: 'var(--z-chart-tooltip)',
                 }}
             >
                 {renderTooltip(context)}
