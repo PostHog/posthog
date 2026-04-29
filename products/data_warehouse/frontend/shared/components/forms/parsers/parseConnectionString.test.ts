@@ -244,6 +244,38 @@ describe('parseSnowflakeConnectionString', () => {
         expect(parseSnowflakeConnectionString('snowflake://alice:pw@/MY_DB').isValid).toBe(false)
         expect(parseSnowflakeConnectionString('snowflake://alice:pw@xy12345').isValid).toBe(false)
     })
+
+    it('parses the JDBC-style URL with credentials and database in query params', () => {
+        const result = parseSnowflakeConnectionString(
+            'snowflake://xy12345.snowflakecomputing.com/?user=alice&password=hunter2&warehouse=mywh&db=mydb&schema=public'
+        )
+        expect(result.isValid).toBe(true)
+        const map = fieldMap(result.fields)
+        expect(map.account_id).toBe('xy12345.snowflakecomputing.com')
+        expect(map.database).toBe('mydb')
+        expect(map.schema).toBe('public')
+        expect(map.warehouse).toBe('mywh')
+        expect(map['auth_type.selection']).toBe('password')
+        expect(map['auth_type.user']).toBe('alice')
+        expect(map['auth_type.password']).toBe('hunter2')
+    })
+
+    it('accepts `database` as an alias for `db` in the query-param shape', () => {
+        const result = parseSnowflakeConnectionString('snowflake://xy12345/?user=alice&password=pw&database=MY_DB')
+        expect(result.isValid).toBe(true)
+        expect(fieldMap(result.fields).database).toBe('MY_DB')
+    })
+
+    it('prefers userinfo and pathname over query params when both are present', () => {
+        const result = parseSnowflakeConnectionString(
+            'snowflake://alice:pw@xy12345/REAL_DB?user=ignored&password=ignored&db=ignored'
+        )
+        expect(result.isValid).toBe(true)
+        const map = fieldMap(result.fields)
+        expect(map.database).toBe('REAL_DB')
+        expect(map['auth_type.user']).toBe('alice')
+        expect(map['auth_type.password']).toBe('pw')
+    })
 })
 
 describe('parseConnectionStringForSource dispatcher', () => {

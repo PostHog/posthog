@@ -12,13 +12,18 @@ export function parseSnowflakeConnectionString(str: string): ParseResult {
         return { isValid: false, fields: [] }
     }
 
-    const user = decodeURIComponent(result.username || '')
-    const password = decodeURIComponent(result.password || '')
+    // Snowflake URLs come in two shapes in the wild: the canonical SQLAlchemy/dlt form
+    // (`snowflake://user:pw@account/db/schema?warehouse=...`) and a JDBC-influenced form
+    // that puts credentials and database in query params. Prefer userinfo/pathname when
+    // present, fall back to the query-param shape so paste-to-fill works for either.
+    const params = result.searchParams
+    const user = decodeURIComponent(result.username || '') || params.get('user') || ''
+    const password = decodeURIComponent(result.password || '') || params.get('password') || ''
     const accountId = decodeURIComponent(result.hostname || '')
 
     const segments = result.pathname.split('/').filter(Boolean).map(decodeURIComponent)
-    const database = segments[0] || ''
-    const schema = segments[1] || ''
+    const database = segments[0] || params.get('db') || params.get('database') || ''
+    const schema = segments[1] || params.get('schema') || ''
 
     if (!user || !accountId || !database) {
         return { isValid: false, fields: [] }
@@ -33,12 +38,12 @@ export function parseSnowflakeConnectionString(str: string): ParseResult {
         fields.push({ path: ['schema'], value: schema })
     }
 
-    const warehouse = result.searchParams.get('warehouse')
+    const warehouse = params.get('warehouse')
     if (warehouse) {
         fields.push({ path: ['warehouse'], value: warehouse })
     }
 
-    const role = result.searchParams.get('role')
+    const role = params.get('role')
     if (role) {
         fields.push({ path: ['role'], value: role })
     }
