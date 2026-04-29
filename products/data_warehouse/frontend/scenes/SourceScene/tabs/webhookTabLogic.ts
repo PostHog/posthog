@@ -9,7 +9,7 @@ import api from 'lib/api'
 import { SourceConfig } from '~/queries/schema/schema-general'
 import { ExternalDataSource, WebhookInfo } from '~/types'
 
-import { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
+import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 import type { webhookTabLogicType } from './webhookTabLogicType'

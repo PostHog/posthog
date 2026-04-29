@@ -12,12 +12,12 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { WebhookInfo } from '~/types'
 
 import {
-    WebhookCreateResult,
     WebhookRefreshButton,
     WebhookSetupForm,
     WebhookStatusTags,
     WebhookUrlDisplay,
 } from '../../../shared/components/forms/WebhookSetupForm'
+import type { WebhookCreateResult } from '../../../shared/components/forms/WebhookSetupForm'
 import { webhookTabLogic } from './webhookTabLogic'
 
 const WEBHOOK_METRIC_KEYS = ['succeeded', 'failed'] as const

@@ -44,7 +44,7 @@ import {
     groupDirectQueryTablesBySchema,
     splitDirectQueryTableName,
 } from '../../shared/components/forms/directQuerySchemaUtils'
-import { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
+import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
@@ -1113,10 +1113,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 4) {
-                if (
-                    values.webhookResult?.success &&
-                    (values.webhookResult.pending_inputs?.length ?? 0) === 0
-                ) {
+                if (values.webhookResult?.success && (values.webhookResult.pending_inputs?.length ?? 0) === 0) {
                     actions.onNext()
                 } else {
                     // Manual mode (or auto-create with pending inputs) — submit webhook form

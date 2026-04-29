@@ -158,6 +158,10 @@ class CustomerIOSource(
         with_counts: bool = False,
         names: list[str] | None = None,
     ) -> list[SourceSchema]:
+        # `supports_append=False` on the webhook schemas: events arrive via the realtime
+        # webhook pipeline (not the polling sync), so user-facing append/full-refresh
+        # toggles don't apply. The polling sync would also have nothing to fetch from
+        # the API for these — they're webhook-only.
         webhook_schemas = [
             SourceSchema(
                 name=name,
@@ -168,6 +172,9 @@ class CustomerIOSource(
             )
             for name in CIO_WEBHOOK_SCHEMA_NAMES
         ]
+        # API list endpoints are full-refresh: the App API doesn't expose a
+        # server-side time filter on `created_at`, so an "append" sync would still
+        # have to read every row each run.
         api_schemas = [
             SourceSchema(
                 name=name,

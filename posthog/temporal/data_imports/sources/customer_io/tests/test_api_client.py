@@ -154,6 +154,34 @@ class TestCreateWebhook:
 
     @patch("posthog.temporal.data_imports.sources.customer_io.api_client.requests.post")
     @patch("posthog.temporal.data_imports.sources.customer_io.api_client.requests.get")
+    def test_returns_failure_when_existing_webhook_is_disabled(self, mock_get, mock_post):
+        mock_get.return_value = _ok_json_response(
+            {
+                "reporting_webhooks": [
+                    {
+                        "id": 7,
+                        "endpoint": "https://example.com/hook",
+                        "events": ["email_sent"],
+                        "disabled": True,
+                    }
+                ]
+            }
+        )
+
+        result = api_client.create_webhook(
+            api_key="key",
+            region="us",
+            webhook_url="https://example.com/hook",
+            resource_names=["email_events"],
+        )
+
+        assert result.success is False
+        assert result.error is not None
+        assert "disabled" in result.error.lower()
+        mock_post.assert_not_called()
+
+    @patch("posthog.temporal.data_imports.sources.customer_io.api_client.requests.post")
+    @patch("posthog.temporal.data_imports.sources.customer_io.api_client.requests.get")
     def test_skips_create_when_webhook_already_exists_for_url(self, mock_get, mock_post):
         mock_get.return_value = _ok_json_response(
             {"reporting_webhooks": [{"id": 7, "endpoint": "https://example.com/hook", "events": ["email_sent"]}]}

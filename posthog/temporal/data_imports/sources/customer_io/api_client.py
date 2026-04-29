@@ -47,8 +47,8 @@ def _auth_headers(api_key: str) -> dict[str, str]:
 def _events_for_resources(resource_names: list[str]) -> list[str]:
     """Expand PostHog resource names into the full Customer.io event list.
 
-    Only object types with reporting-webhook events are subscribed; unsupported
-    types (e.g. `in_app`) are silently skipped.
+    Resource names that aren't in `RESOURCE_TO_CIO_OBJECT_TYPE` (or whose object_type
+    has no entries in `CIO_OBJECT_TYPE_TO_EVENTS`) are silently skipped.
     """
     events: list[str] = []
     seen: set[str] = set()
@@ -161,11 +161,12 @@ def create_webhook(
 
     events = _events_for_resources(resource_names)
     if not events:
+        supported = ", ".join(sorted(CIO_OBJECT_TYPE_TO_EVENTS.keys()))
         return WebhookCreationResult(
             success=False,
             error=(
-                "None of the selected tables map to Customer.io reporting-webhook events. "
-                "Choose at least one of: customer, email, push, sms, slack, webhook."
+                f"None of the selected tables map to Customer.io reporting-webhook events. "
+                f"Choose at least one of: {supported}."
             ),
         )
 
@@ -180,6 +181,16 @@ def create_webhook(
     try:
         existing = _find_webhook_by_url(_list_webhooks(api_key, region), webhook_url)
         if existing is not None:
+            if existing.get("disabled"):
+                # A disabled webhook on the same URL would silently drop events; bail
+                # out and ask the user to re-enable or remove it in Customer.io.
+                return WebhookCreationResult(
+                    success=False,
+                    error=(
+                        "A disabled reporting webhook already exists for this URL in Customer.io. "
+                        "Re-enable it (or delete it) from the Reporting Webhooks page and try again."
+                    ),
+                )
             # Webhook already exists for this URL — treat as success so the user can
             # finish setup by entering the signing key.
             return WebhookCreationResult(success=True, pending_inputs=["signing_secret"])
