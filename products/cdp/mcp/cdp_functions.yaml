@@ -44,9 +44,30 @@ tools:
                    "events": [{"id": "$insight_alert_firing", "type": "events"}],
                    "properties": [{"key": "alert_id", "value": "<alert.id>", "operator": "exact", "type": "event"}]
                  }
-                 inputs = {"slack_workspace": {"value": <slack_integration_id_int>},
-                           "channel": {"value": "<channel_id>"}}      # Slack — channel id is preferred (e.g. C0123ABC); "#general" is also accepted
-                 inputs = {"url": {"value": "<destination_url>"}}     # webhook — must be an https:// URL
+                 # Slack. Channel id is preferred (e.g. C0123ABC); "#general" is also accepted.
+                 # Always override text + blocks. The template's defaults are person-event shaped
+                 # ("*{person.name}* triggered event…") and render empty for $insight_alert_firing,
+                 # which is a system event with no person attached.
+                 inputs = {
+                   "slack_workspace": {"value": <slack_integration_id_int>},
+                   "channel": {"value": "<channel_id>"},
+                   "text": {"value": "*{event.properties.alert_name}* fired — {event.properties.insight_name}: {event.properties.breaches}"},
+                   "blocks": {"value": [
+                     {"type": "section", "text": {"type": "mrkdwn",
+                       "text": "*{event.properties.alert_name}* fired\n*Insight:* {event.properties.insight_name}\n{event.properties.breaches}"}},
+                     {"type": "actions", "elements": [{"type": "button",
+                       "text": {"type": "plain_text", "text": "View insight"},
+                       "url": "{project.url}/insights/{event.properties.insight_id}"}]}
+                   ]}
+                 }
+                 # Webhook — must be an https:// URL.
+                 inputs = {"url": {"value": "<destination_url>"}}
+
+            4. $insight_alert_firing event properties available for templating: alert_id,
+               alert_name, insight_name, insight_id (short_id), state, last_checked_at,
+               breaches (human-readable summary, e.g. "Series A is below 1000"). Project
+               context is available as {project.url}, {project.id}, {project.name}. Do not
+               reference value, threshold_lower, or insight_url — those are not emitted.
         exclude_params:
             - _create_in_folder
             - batch_export_id
