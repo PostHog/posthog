@@ -614,7 +614,8 @@ API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_t
 # events per day. The chosen rate is stamped on each event as `properties.sample_rate`
 # so dashboards can weight by 1/sample_rate to reconstruct true counts. Tunable via env
 # var without redeploy. 1.0 = emit every operation, 0.01 = 1% sample.
-QUERY_SERVICE_SLO_SAMPLE_RATE = get_from_env("QUERY_SERVICE_SLO_SAMPLE_RATE", 0.01, type_cast=float)
+# Defaults to 1.0 under TEST so assertions on emitted SLO events are deterministic.
+QUERY_SERVICE_SLO_SAMPLE_RATE = get_from_env("QUERY_SERVICE_SLO_SAMPLE_RATE", 1.0 if TEST else 0.01, type_cast=float)
 
 ####
 # Livestream
