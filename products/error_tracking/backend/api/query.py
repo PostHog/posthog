@@ -13,6 +13,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
@@ -88,7 +89,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             withLastEvent=False,
             tags={"productKey": "error_tracking"},
         )
-        data = ErrorTrackingQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
+        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+            data = ErrorTrackingQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
         raw_results = data.get("results") if isinstance(data.get("results"), list) else []
         results = [pick_fields(cast(dict[str, object], issue), LIST_ISSUE_FIELDS) for issue in raw_results[:limit]]
         has_more, next_offset = get_page_info(data, limit, offset)
@@ -133,7 +135,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             withLastEvent=False,
             tags={"productKey": "error_tracking"},
         )
-        data = ErrorTrackingQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
+        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+            data = ErrorTrackingQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
         raw_results = data.get("results") if isinstance(data.get("results"), list) else []
         if not raw_results:
             payload: dict[str, object] = compact_dict(
@@ -163,9 +166,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 limit=1,
                 tags={"productKey": "error_tracking"},
             )
-            event_data = (
-                EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
-            )
+            with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+                event_data = (
+                    EventsQueryRunner(team=self.team, query=context_event_query).calculate().model_dump(mode="json")
+                )
             if event_data.get("error"):
                 logger.warning(
                     "error_tracking_issue_context_query_failed",
@@ -221,7 +225,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             offset=offset,
             tags={"productKey": "error_tracking"},
         )
-        data = EventsQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
+        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+            data = EventsQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
         raw_columns = data.get("columns")
         columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else EVENT_SELECTS
         raw_results = data.get("results") if isinstance(data.get("results"), list) else []

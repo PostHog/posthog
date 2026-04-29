@@ -8,6 +8,8 @@ from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+
 from products.error_tracking.backend.api.query_utils import (
     build_event_where,
     build_issue_filters,
@@ -15,6 +17,14 @@ from products.error_tracking.backend.api.query_utils import (
     build_sparkline,
 )
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+
+
+class FakeQueryResponse:
+    def __init__(self, data: dict[str, object]) -> None:
+        self.data = data
+
+    def model_dump(self, *, mode: str = "json") -> dict[str, object]:
+        return self.data
 
 
 def test_issue_event_search_escapes_like_wildcards_and_quotes() -> None:
@@ -161,6 +171,57 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 400
 
+    def test_issues_list_tags_clickhouse_queries(self) -> None:
+        observed_tags: list[tuple[object, object]] = []
+
+        def calculate(_runner: object) -> FakeQueryResponse:
+            tags = get_query_tags()
+            observed_tags.append((tags.product, tags.feature))
+            return FakeQueryResponse({"results": [], "hasMore": False, "limit": 25, "offset": 0})
+
+        with patch("products.error_tracking.backend.api.query.ErrorTrackingQueryRunner.calculate", calculate):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issues",
+                data={"limit": 1},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)]
+
+    def test_issue_detail_tags_clickhouse_queries(self) -> None:
+        self.create_issue()
+        observed_tags: list[tuple[object, object]] = []
+
+        def calculate_issue(_runner: object) -> FakeQueryResponse:
+            tags = get_query_tags()
+            observed_tags.append((tags.product, tags.feature))
+            return FakeQueryResponse(
+                {
+                    "results": [
+                        {"id": self.issue_id, "name": "TypeError", "description": "Cannot read", "status": "active"}
+                    ]
+                }
+            )
+
+        def calculate_event(_runner: object) -> FakeQueryResponse:
+            tags = get_query_tags()
+            observed_tags.append((tags.product, tags.feature))
+            return FakeQueryResponse({"columns": [], "results": []})
+
+        with (
+            patch("products.error_tracking.backend.api.query.ErrorTrackingQueryRunner.calculate", calculate_issue),
+            patch("products.error_tracking.backend.api.query.EventsQueryRunner.calculate", calculate_event),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue",
+                data={"issueId": self.issue_id},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY), (Product.ERROR_TRACKING, Feature.QUERY)]
+
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_detail_returns_impact_top_frame_and_latest_release(self) -> None:
         self.create_issue()
@@ -261,6 +322,24 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert empty_range_response.status_code == 200
         assert empty_range_response.json()["impact"] == {}
         assert missing_response.status_code == 404
+
+    def test_issue_events_tags_clickhouse_queries(self) -> None:
+        observed_tags: list[tuple[object, object]] = []
+
+        def calculate(_runner: object) -> FakeQueryResponse:
+            tags = get_query_tags()
+            observed_tags.append((tags.product, tags.feature))
+            return FakeQueryResponse({"columns": [], "results": [], "hasMore": False, "limit": 1, "offset": 0})
+
+        with patch("products.error_tracking.backend.api.query.EventsQueryRunner.calculate", calculate):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+                data={"issueId": self.issue_id},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)]
 
     @freeze_time("2026-04-24T12:00:00Z")
     def test_issue_events_returns_plural_exception_arrays_and_truncates_summary_text(self) -> None:
