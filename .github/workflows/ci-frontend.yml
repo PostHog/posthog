@@ -349,7 +349,7 @@ jobs:
 
     calculate-running-time:
         name: Calculate running time
-        needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, changes]
+        needs: [jest, frontend-typescript-checks, frontend-format, frontend-bundle-size, frontend_tests, changes]
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
@@ -358,17 +358,26 @@ jobs:
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
             (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
         steps:
+            - name: Get telemetry app token
+              id: telemetry-app-token
+              if: github.run_attempt == '1'
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_TELEMETRY_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
             - name: Capture running time to PostHog
+              if: github.run_attempt == '1'
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{ secrets.POSTHOG_API_TOKEN }}
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Frontend Tests Pass'
                   runner: 'github'
             - name: Capture running time to DevEx PostHog
+              if: github.run_attempt == '1'
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
@@ -376,7 +385,7 @@ jobs:
                   event: 'posthog-ci-running-time'
                   capture-run-duration: true
                   capture-job-durations: true
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  github-token: ${{ steps.telemetry-app-token.outputs.token }}
                   status-job: 'Frontend Tests Pass'
                   runner: 'github'
 

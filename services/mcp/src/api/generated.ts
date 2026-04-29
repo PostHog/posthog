@@ -15680,6 +15680,7 @@ export namespace Schemas {
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
     * `azure_openai` - Azure OpenAI
+    * `together_ai` - Together AI
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -15691,6 +15692,7 @@ export namespace Schemas {
       Openrouter: 'openrouter',
       Fireworks: 'fireworks',
       AzureOpenai: 'azure_openai',
+      TogetherAi: 'together_ai',
     } as const;
 
     /**
@@ -17732,7 +17734,17 @@ export namespace Schemas {
       ref?: string | null;
       /** @nullable */
       href?: string | null;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      order?: number;
       readonly created_at: string;
+    }
+
+    export interface FileSystemShortcutReorder {
+      /** IDs of the current user's shortcuts in the desired display order. */
+      ordered_ids: string[];
     }
 
     export interface FlagValueItem {
@@ -17843,6 +17855,11 @@ export namespace Schemas {
     }
 
     /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type GroupUsageMetricFilters = {[key: string]: unknown};
+
+    /**
      * * `numeric` - numeric
     * `currency` - currency
      */
@@ -17880,19 +17897,32 @@ export namespace Schemas {
 
     export interface GroupUsageMetric {
       readonly id: string;
-      /** @maxLength 255 */
-      name: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters: GroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -27168,6 +27198,11 @@ export namespace Schemas {
       ref?: string | null;
       /** @nullable */
       href?: string | null;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      order?: number;
       readonly created_at?: string;
     }
 
@@ -27192,21 +27227,39 @@ export namespace Schemas {
       created_at?: string | null;
     }
 
+    /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type PatchedGroupUsageMetricFilters = {[key: string]: unknown};
+
     export interface PatchedGroupUsageMetric {
       readonly id?: string;
-      /** @maxLength 255 */
-      name?: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name?: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters?: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters?: PatchedGroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -28098,24 +28151,43 @@ export namespace Schemas {
     }
 
     export interface PinnedSceneTab {
+      /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
       id?: string;
+      /** URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination. */
       pathname?: string;
+      /** Query string portion of the URL, including the leading `?`. Empty string when there is no query. */
       search?: string;
+      /** Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment. */
       hash?: string;
+      /** Default tab title derived from the destination scene. Used when `customTitle` is not set. */
       title?: string;
-      /** @nullable */
+      /**
+       * Optional user-provided title that overrides `title` in the navigation UI.
+       * @nullable
+       */
       customTitle?: string | null;
+      /** Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`. */
       iconType?: string;
-      /** @nullable */
+      /**
+       * Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.
+       * @nullable
+       */
       sceneId?: string | null;
-      /** @nullable */
+      /**
+       * Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.
+       * @nullable
+       */
       sceneKey?: string | null;
+      /** Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination. */
       sceneParams?: unknown;
+      /** Whether this entry is pinned. Always coerced to true on save — pass true or omit. */
       pinned?: boolean;
     }
 
     export interface PatchedPinnedSceneTabs {
+      /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
+      /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
 
@@ -30837,7 +30909,9 @@ export namespace Schemas {
     }
 
     export interface PinnedSceneTabs {
+      /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
+      /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
 
