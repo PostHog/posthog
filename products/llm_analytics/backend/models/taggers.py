@@ -106,7 +106,7 @@ class Tagger(UUIDTModel):
     class Meta:
         ordering = ["-created_at", "id"]
         indexes = [
-            # Names must match the explicit names in migration 0031_tagger so
+            # Names must match the explicit names in migration 0032_tagger so
             # future makemigrations runs don't auto-generate alternate indexes.
             models.Index(fields=["team", "-created_at", "id"], name="llm_analyti_team_id_tagger_idx"),
             models.Index(fields=["team", "enabled"], name="llm_analyti_tagger_enabled_idx"),

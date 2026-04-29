@@ -4,10 +4,9 @@ import time
 import base64
 import socket
 import hashlib
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Optional
 from urllib.parse import urlencode, urlparse
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -16,21 +15,18 @@ if TYPE_CHECKING:
     import aiohttp
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db import models
 from django.http import HttpRequest
 from django.utils import timezone
 
-import jwt
 import requests
 import structlog
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter
 from requests.auth import HTTPBasicAuth
-from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from slack_sdk import WebClient
@@ -41,6 +37,7 @@ from stripe import StripeClient
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
@@ -79,33 +76,7 @@ oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
 )
 
-github_api_request_counter = Counter(
-    "github_integration_api_requests",
-    "Number of GitHub API requests made through a GitHub integration.",
-    labelnames=["integration_id", "method", "endpoint", "status_code"],
-)
-
 GITHUB_API_VERSION = "2022-11-28"
-github_api_rate_limit_remaining_gauge = Gauge(
-    "github_integration_api_rate_limit_remaining",
-    "Most recently observed GitHub API rate limit remaining count by integration and resource.",
-    labelnames=["integration_id", "resource"],
-)
-github_api_rate_limit_limit_gauge = Gauge(
-    "github_integration_api_rate_limit_limit",
-    "Most recently observed GitHub API rate limit limit by integration and resource.",
-    labelnames=["integration_id", "resource"],
-)
-github_api_rate_limit_reset_timestamp_gauge = Gauge(
-    "github_integration_api_rate_limit_reset_timestamp_seconds",
-    "Most recently observed GitHub API rate limit reset timestamp by integration and resource.",
-    labelnames=["integration_id", "resource"],
-)
-github_cache_access_counter = Counter(
-    "github_integration_cache_accesses",
-    "Number of GitHub integration cache accesses by cache type, repository, and result.",
-    labelnames=["integration_id", "cache", "repository", "result"],
-)
 
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
@@ -299,7 +270,7 @@ class OauthIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
+    def oauth_config_for_kind(cls, kind: str, is_sandbox: bool = False) -> OauthConfig:
         if kind == "slack":
             from_settings = get_instance_settings(
                 [
@@ -585,14 +556,26 @@ class OauthIntegration:
             if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
                 raise NotImplementedError("Stripe app not configured")
 
+            # Stripe issues separate client_id and secret for live vs sandbox installs of the
+            # same app. Sandbox-issued OAuth codes can only be redeemed with the sandbox secret;
+            # using the live secret returns "Authorization code provided does not belong to you".
+            if is_sandbox:
+                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID or not settings.STRIPE_APP_SANDBOX_SECRET_KEY:
+                    raise NotImplementedError("Stripe sandbox not configured")
+                client_id = settings.STRIPE_APP_SANDBOX_CLIENT_ID
+                client_secret = settings.STRIPE_APP_SANDBOX_SECRET_KEY
+            else:
+                client_id = settings.STRIPE_APP_CLIENT_ID
+                client_secret = settings.STRIPE_APP_SECRET_KEY
+
             authorize_url = (
                 settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
             )
             return OauthConfig(
                 authorize_url=authorize_url,
                 token_url="https://api.stripe.com/v1/oauth/token",
-                client_id=settings.STRIPE_APP_CLIENT_ID,
-                client_secret=settings.STRIPE_APP_SECRET_KEY,
+                client_id=client_id,
+                client_secret=client_secret,
                 scope="",
                 id_path="stripe_user_id",
                 name_path="account_name",
@@ -612,8 +595,8 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{path_kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next="") -> str:
-        oauth_config = cls.oauth_config_for_kind(kind)
+    def authorize_url(cls, kind: str, token: str, next: str = "", is_sandbox: bool = False) -> str:
+        oauth_config = cls.oauth_config_for_kind(kind, is_sandbox=is_sandbox)
 
         state_payload: dict[str, str] = {"next": next, "token": token}
         if kind == "slack-posthog-code":
@@ -690,6 +673,27 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
             )
+            # Marketplace-initiated installs land on /integrations/stripe/confirm-install
+            # without any signal indicating live vs sandbox. If the live secret rejected
+            # the code as "does not belong to you", it was minted by the sandbox app -
+            # retry with the sandbox secret. Both sandbox client_id and secret must be
+            # configured: oauth_config_for_kind requires both, so guard on both here to
+            # avoid raising NotImplementedError over the original OAuth error.
+            if (
+                res.status_code == 400
+                and settings.STRIPE_APP_SANDBOX_CLIENT_ID
+                and settings.STRIPE_APP_SANDBOX_SECRET_KEY
+                and "does not belong to you" in (res.text or "")
+            ):
+                sandbox_oauth_config = cls.oauth_config_for_kind("stripe", is_sandbox=True)
+                res = requests.post(
+                    sandbox_oauth_config.token_url,
+                    auth=HTTPBasicAuth(sandbox_oauth_config.client_secret, ""),
+                    data={
+                        "code": params["code"],
+                        "grant_type": "authorization_code",
+                    },
+                )
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
@@ -2068,21 +2072,11 @@ class JiraIntegration:
         return {"key": issue.get("key", ""), "id": issue.get("id", "")}
 
 
-@dataclass(frozen=True)
-class GitHubCommitAuthor:
-    login: str
-    name: str | None
-    commit_url: str
-
-
 # Default branches change rarely; a multi-hour TTL is plenty to avoid hitting
 # GitHub on every paginated branch request while keeping the window in which a
 # renamed default branch stays stale tolerably short.
 GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS = 60 * 60 * 6
-GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 60 * 60
 GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS = 30
-GITHUB_BRANCH_CACHE_TTL_SECONDS = 60 * 10
-GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS = 60 * 60 * 24
 
 
 @dataclass(frozen=True)
@@ -2095,10 +2089,6 @@ class GitHubUserAuthorization:
     refresh_token: str | None
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
-
-
-class GitHubIntegrationError(Exception):
-    pass
 
 
 class GitHubRateLimitError(GitHubIntegrationError):
@@ -2151,47 +2141,19 @@ def raise_if_github_rate_limited(response: requests.Response) -> None:
     )
 
 
-class GitHubIntegration:
+@dataclass(frozen=True)
+class GitHubInstallationAccess:
+    """Installation-level access token response for a GitHub App installation."""
+
+    installation_id: str
+    installation_info: dict[str, Any]
+    access_token: str
+    token_expires_at: str  # ISO datetime returned by GitHub, e.g. "2024-01-01T14:00:00Z"
+    repository_selection: str
+
+
+class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
-
-    @classmethod
-    def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
-        github_app_client_id = settings.GITHUB_APP_CLIENT_ID
-        github_app_private_key = settings.GITHUB_APP_PRIVATE_KEY
-
-        if not github_app_client_id:
-            raise ValidationError("GITHUB_APP_CLIENT_ID is not configured")
-
-        if not github_app_private_key:
-            raise ValidationError("GITHUB_APP_PRIVATE_KEY is not configured")
-
-        github_app_private_key = github_app_private_key.replace("\\n", "\n").strip()
-
-        try:
-            jwt_token = jwt.encode(
-                {
-                    "iat": int(time.time()) - 300,  # 5 minutes in the past
-                    "exp": int(time.time()) + 300,  # 5 minutes in the future
-                    "iss": github_app_client_id,
-                },
-                github_app_private_key,
-                algorithm="RS256",
-            )
-        except Exception:
-            logger.error("Failed to encode JWT token", exc_info=True)
-            raise ValidationError(
-                "Failed to create GitHub App JWT token. Please check your GITHUB_APP_PRIVATE_KEY format."
-            )
-
-        return requests.request(
-            method,
-            f"https://api.github.com/app/{endpoint}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {jwt_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
-        )
 
     @classmethod
     def integration_from_installation_id(
@@ -2236,7 +2198,7 @@ class GitHubIntegration:
         return result.gh_login if result else None
 
     @classmethod
-    def github_user_from_code(cls, code: str) -> "GitHubUserAuthorization | None":
+    def github_user_from_code(cls, code: str, *, redirect_uri: str | None = None) -> "GitHubUserAuthorization | None":
         """Exchange an OAuth code from the GitHub App user authorization flow.
 
         Returns a :class:`GitHubUserAuthorization` with the user's id/login plus the
@@ -2249,14 +2211,18 @@ class GitHubIntegration:
             logger.warning("GitHubIntegration: GITHUB_APP_CLIENT_ID/SECRET not configured, cannot exchange code")
             return None
 
+        token_payload: dict[str, str] = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "code": code,
+        }
+        if redirect_uri is not None:
+            token_payload["redirect_uri"] = redirect_uri
+
         try:
             token_response = requests.post(
                 "https://github.com/login/oauth/access_token",
-                json={
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "code": code,
-                },
+                json=token_payload,
                 headers={"Accept": "application/json"},
                 timeout=10,
             )
@@ -2318,135 +2284,11 @@ class GitHubIntegration:
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
 
-    @staticmethod
-    def _rate_limit_header(headers: Mapping[str, str] | None, name: str) -> float | None:
-        if headers is None:
-            return None
-        value = headers.get(name)
-        if value is None:
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _record_github_api_response(self, response: requests.Response, method: str, endpoint: str) -> None:
-        integration_id = str(self.integration.id)
-        status_code = str(response.status_code)
-        github_api_request_counter.labels(integration_id, method, endpoint, status_code).inc()
-
-        headers = response.headers if isinstance(response.headers, Mapping) else None
-        resource = headers.get("X-RateLimit-Resource", "unknown") if headers is not None else "unknown"
-        remaining = self._rate_limit_header(headers, "X-RateLimit-Remaining")
-        limit = self._rate_limit_header(headers, "X-RateLimit-Limit")
-        reset_at = self._rate_limit_header(headers, "X-RateLimit-Reset")
-
-        if remaining is not None:
-            github_api_rate_limit_remaining_gauge.labels(integration_id, resource).set(remaining)
-        if limit is not None:
-            github_api_rate_limit_limit_gauge.labels(integration_id, resource).set(limit)
-        if reset_at is not None:
-            github_api_rate_limit_reset_timestamp_gauge.labels(integration_id, resource).set(reset_at)
-
-    def _record_github_api_exception(self, method: str, endpoint: str) -> None:
-        github_api_request_counter.labels(str(self.integration.id), method, endpoint, "exception").inc()
-
-    def _record_github_cache_access(
-        self, cache_type: Literal["repositories", "branches"], result: Literal["hit", "miss"], repository: str
-    ) -> None:
-        github_cache_access_counter.labels(str(self.integration.id), cache_type, repository.casefold(), result).inc()
-
-    def _github_api_get(
-        self,
-        url: str,
-        *,
-        endpoint: str,
-        headers: dict[str, str],
-        params: dict[str, str | int] | None = None,
-        timeout: int | None = None,
-    ) -> requests.Response:
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=timeout)
-        except requests.RequestException:
-            self._record_github_api_exception("GET", endpoint)
-            raise
-        self._record_github_api_response(response, "GET", endpoint)
-        return response
-
-    def _github_api_post(
-        self,
-        url: str,
-        *,
-        endpoint: str,
-        headers: dict[str, str],
-        json_body: Mapping[str, object] | None = None,
-    ) -> requests.Response:
-        try:
-            response = requests.post(url, json=json_body, headers=headers)
-        except requests.RequestException:
-            self._record_github_api_exception("POST", endpoint)
-            raise
-        self._record_github_api_response(response, "POST", endpoint)
-        return response
-
-    def _github_api_put(
-        self,
-        url: str,
-        *,
-        endpoint: str,
-        headers: dict[str, str],
-        json_body: Mapping[str, object],
-    ) -> requests.Response:
-        try:
-            response = requests.put(url, json=json_body, headers=headers)
-        except requests.RequestException:
-            self._record_github_api_exception("PUT", endpoint)
-            raise
-        self._record_github_api_response(response, "PUT", endpoint)
-        return response
-
-    def access_token_expired(self, time_threshold: timedelta | None = None) -> bool:
-        expires_in = self.integration.config.get("expires_in")
-        refreshed_at = self.integration.config.get("refreshed_at")
-        if not expires_in or not refreshed_at:
-            return False
-
-        # To be really safe we refresh if its half way through the expiry
-        time_threshold = time_threshold or timedelta(seconds=expires_in / 2)
-
-        return time.time() > refreshed_at + expires_in - time_threshold.total_seconds()
-
-    def refresh_access_token(self):
-        """
-        Refresh the access token for the integration if necessary
-        """
-        endpoint = "/app/installations/{installation_id}/access_tokens"
-        try:
-            response = self.client_request(
-                f"installations/{self.integration.integration_id}/access_tokens", method="POST"
-            )
-        except requests.RequestException:
-            self._record_github_api_exception("POST", endpoint)
-            raise
-        self._record_github_api_response(response, "POST", endpoint)
-        config = response.json()
-
-        if response.status_code != status.HTTP_201_CREATED or not config.get("token"):
-            logger.warning(f"Failed to refresh token for {self}", response=response.text)
-            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
-            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
-            self.integration.save()
-            raise Exception(f"Failed to refresh token for {self}: {response.text}")
-        else:
-            logger.info(f"Refreshed access token for {self}")
-            expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
-            self.integration.config["expires_in"] = expires_in
-            self.integration.config["refreshed_at"] = int(time.time())
-            self.integration.sensitive_config["access_token"] = config["token"]
-            self.integration.errors = ""
-            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
-            self.integration.save()
+    def _on_token_refresh_failed(self, response: requests.Response) -> None:
+        logger.warning(f"Failed to refresh token for {self}", response=response.text)
+        self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+        oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+        self.integration.save()
 
     def get_access_token(self) -> str:
         """Return a valid installation access token, refreshing it if expired."""
@@ -2457,385 +2299,11 @@ class GitHubIntegration:
             raise GitHubIntegrationError("Access token unavailable after refresh")
         return token
 
-    def organization(self) -> str:
-        return dot_get(self.integration.config, "account.name")
-
-    def _installation_authenticated_get(
-        self, url: str, *, endpoint: str, timeout: int = 10
-    ) -> requests.Response | None:
-        """GET with installation token; refreshes on expiry or 401."""
-        try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def fetch() -> requests.Response:
-            access_token = self.integration.sensitive_config.get("access_token")
-            return self._github_api_get(
-                url,
-                endpoint=endpoint,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-                timeout=timeout,
-            )
-
-        try:
-            response = fetch()
-            if response.status_code == 401:
-                try:
-                    self.refresh_access_token()
-                except Exception:
-                    logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-                    return None
-                response = fetch()
-            return response
-        except Exception:
-            logger.warning("GitHubIntegration: installation GET failed", url=url, exc_info=True)
-            return None
-
-    def installation_can_access_repository(self, repository: str) -> bool:
-        """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
-        response = self._installation_authenticated_get(
-            f"https://api.github.com/repos/{repository}", endpoint="/repos/{owner}/{repo}"
-        )
-        if response is None:
-            return False
-        return response.status_code == 200
-
-    def get_commit_author_info(self, repository: str, sha: str) -> GitHubCommitAuthor | None:
-        """Resolve a commit SHA to author metadata via the GitHub API."""
-        response = self._installation_authenticated_get(
-            f"https://api.github.com/repos/{repository}/commits/{sha}", endpoint="/repos/{owner}/{repo}/commits/{sha}"
-        )
-        if response is None:
-            return None
-        if response.status_code != 200:
-            logger.info(
-                "GitHub API non-200 for commit lookup",
-                status_code=response.status_code,
-                sha_prefix=sha[:8],
-                repository=repository,
-            )
-            return None
-        try:
-            data = response.json()
-        except Exception:
-            logger.warning(
-                "GitHubIntegration: failed to parse commit JSON",
-                repository=repository,
-                sha_prefix=sha[:8],
-                exc_info=True,
-            )
-            return None
-        author = data.get("author")
-        if not author or not author.get("login"):
-            return None
-        git_author = data.get("commit", {}).get("author", {})
-        name = git_author.get("name") or author.get("login")
-        commit_url = data.get("html_url", f"https://github.com/{repository}/commit/{sha}")
-        return GitHubCommitAuthor(login=author["login"], name=name, commit_url=commit_url)
-
-    def list_repositories(self, *, limit: int = 100, offset: int = 0) -> tuple[list[dict], bool]:
-        """List installation repositories via the GitHub API.
-
-        Fetches only the GitHub pages needed to satisfy the requested
-        ``[offset, offset+limit)`` window. Returns a tuple of
-        ``(repositories, has_more)`` where *has_more* indicates whether
-        additional repositories exist beyond the returned window.
-        """
-        GITHUB_PER_PAGE = 100
-
-        try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def fetch(page: int) -> requests.Response:
-            access_token = self.integration.sensitive_config.get("access_token")
-            return self._github_api_get(
-                f"https://api.github.com/installation/repositories?page={page}&per_page={GITHUB_PER_PAGE}",
-                endpoint="/installation/repositories",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-            )
-
-        def extract_repos(body: dict) -> list[dict]:
-            repositories = body.get("repositories")
-            if not isinstance(repositories, list):
-                logger.warning(
-                    "GitHubIntegration: list_repositories invalid payload",
-                    integration_id=self.integration.id,
-                    payload_keys=sorted(body.keys()),
-                )
-                raise GitHubIntegrationError("GitHubIntegration: list_repositories invalid payload")
-            return [
-                {
-                    "id": repo["id"],
-                    "name": repo["name"],
-                    "full_name": repo["full_name"],
-                }
-                for repo in repositories
-                if isinstance(repo, dict)
-                and isinstance(repo.get("id"), int)
-                and isinstance(repo.get("name"), str)
-                and isinstance(repo.get("full_name"), str)
-            ]
-
-        def raise_repository_error(message: str, *, status_code: int | None = None, exc_info: bool = False) -> None:
-            logger.warning(
-                message,
-                integration_id=self.integration.id,
-                status_code=status_code,
-                exc_info=exc_info,
-            )
-            raise GitHubIntegrationError(message)
-
-        # Work out which GitHub pages cover the requested window.
-        first_page = offset // GITHUB_PER_PAGE + 1
-        skip = offset % GITHUB_PER_PAGE
-        needed = skip + limit
-
-        # Fetch the first required page with 401-retry and transient-error retry.
-        transient_status_codes = {502, 503, 504}
-        current_page = first_page
-
-        for attempt in range(2):
-            try:
-                response = fetch(current_page)
-            except requests.RequestException:
-                raise_repository_error("GitHubIntegration: list_repositories network error", exc_info=True)
-
-            if response.status_code == 401:
-                try:
-                    self.refresh_access_token()
-                except Exception:
-                    raise_repository_error("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-                try:
-                    response = fetch(current_page)
-                except requests.RequestException:
-                    raise_repository_error("GitHubIntegration: list_repositories network error on retry", exc_info=True)
-
-            try:
-                body = response.json()
-            except Exception:
-                if response.status_code in transient_status_codes and attempt == 0:
-                    logger.info(
-                        "GitHubIntegration: list_repositories retrying transient non-JSON response",
-                        status_code=response.status_code,
-                    )
-                    continue
-                logger.warning(
-                    "GitHubIntegration: list_repositories non-JSON response",
-                    integration_id=self.integration.id,
-                    status_code=response.status_code,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response")
-
-            if response.status_code == 200 and isinstance(body, dict):
-                page_repos = extract_repos(body)
-                all_fetched = page_repos
-                has_next_page = len(page_repos) == GITHUB_PER_PAGE
-                break
-
-            if response.status_code in transient_status_codes and attempt == 0:
-                logger.info(
-                    "GitHubIntegration: list_repositories retrying transient error",
-                    status_code=response.status_code,
-                    error=body if isinstance(body, dict) else None,
-                )
-                continue
-
-            logger.warning(
-                "GitHubIntegration: failed to list repositories",
-                integration_id=self.integration.id,
-                status_code=response.status_code,
-                error=body if isinstance(body, dict) else None,
-            )
-            raise GitHubIntegrationError("GitHubIntegration: failed to list repositories")
-        else:
-            raise GitHubIntegrationError("GitHubIntegration: failed to list repositories after retries")
-
-        # Fetch subsequent pages until we have enough items.
-        while len(all_fetched) < needed and has_next_page:
-            current_page += 1
-            try:
-                response = fetch(current_page)
-            except requests.RequestException:
-                logger.warning(
-                    "GitHubIntegration: list_repositories network error on page",
-                    integration_id=self.integration.id,
-                    page=current_page,
-                    exc_info=True,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: list_repositories network error on page")
-            try:
-                body = response.json()
-            except Exception:
-                logger.warning(
-                    "GitHubIntegration: list_repositories non-JSON response on page",
-                    integration_id=self.integration.id,
-                    page=current_page,
-                    status_code=response.status_code,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: list_repositories non-JSON response on page")
-            if response.status_code != 200 or not isinstance(body, dict):
-                logger.warning(
-                    "GitHubIntegration: failed to list repositories on page",
-                    integration_id=self.integration.id,
-                    page=current_page,
-                    status_code=response.status_code,
-                    error=body if isinstance(body, dict) else None,
-                )
-                raise GitHubIntegrationError("GitHubIntegration: failed to list repositories on page")
-            page_repos = extract_repos(body)
-            all_fetched.extend(page_repos)
-            has_next_page = len(page_repos) == GITHUB_PER_PAGE
-
-        result = all_fetched[skip : skip + limit]
-        has_more = has_next_page or (skip + limit < len(all_fetched))
-
-        return result, has_more
-
-    def list_all_repositories(self) -> list[dict]:
-        """Fetch all accessible repositories, paginating through GitHub's API."""
-        all_repositories: list[dict] = []
-        offset = 0
-        page_size = 100
-
-        while True:
-            repositories, has_more = self.list_repositories(limit=page_size, offset=offset)
-            all_repositories.extend(repositories)
-
-            if not has_more or not repositories:
-                return all_repositories
-
-            offset += len(repositories)
-
-    def _get_repository_cache(self) -> list[dict] | None:
-        cached = self.integration.repository_cache
-        if not isinstance(cached, list):
-            return None
-
-        repositories: list[dict] = []
-        for repo in cached:
-            if (
-                isinstance(repo, dict)
-                and isinstance(repo.get("id"), int)
-                and isinstance(repo.get("name"), str)
-                and isinstance(repo.get("full_name"), str)
-            ):
-                repositories.append(
-                    {
-                        "id": repo["id"],
-                        "name": repo["name"],
-                        "full_name": repo["full_name"],
-                    }
-                )
-
-        return repositories
-
-    def repository_cache_is_stale(self) -> bool:
-        updated_at = self.integration.repository_cache_updated_at
-        if updated_at is None:
-            return True
-
-        return (timezone.now() - updated_at).total_seconds() >= GITHUB_REPOSITORY_CACHE_TTL_SECONDS
-
-    def sync_repository_cache(self, min_refresh_interval_seconds: int | None = None) -> list[dict]:
-        cached_repositories = self._get_repository_cache()
-        updated_at = self.integration.repository_cache_updated_at
-        if (
-            min_refresh_interval_seconds is not None
-            and cached_repositories is not None
-            and updated_at is not None
-            and (timezone.now() - updated_at).total_seconds() < min_refresh_interval_seconds
-        ):
-            return cached_repositories
-
-        repositories = self.list_all_repositories()
-        refreshed_at = timezone.now()
-        update_fields = ["repository_cache_updated_at"]
-        if repositories != cached_repositories:
-            self.integration.repository_cache = repositories
-            update_fields.insert(0, "repository_cache")
-        self.integration.repository_cache_updated_at = refreshed_at
-        self.integration.save(update_fields=update_fields)
-        return repositories
-
-    def _filter_cached_repositories(self, repositories: list[dict], search: str) -> list[dict]:
-        search_query = search.strip().casefold()
-        if not search_query:
-            return repositories
-
-        return [
-            repository for repository in repositories if search_query in str(repository.get("full_name", "")).casefold()
-        ]
-
-    def list_cached_repositories(
-        self, *, search: str = "", limit: int = 100, offset: int = 0
-    ) -> tuple[list[dict], bool]:
-        cached_repositories = self._get_repository_cache()
-        updated_at = self.integration.repository_cache_updated_at
-        has_cached_snapshot = updated_at is not None
-        cache_is_stale = self.repository_cache_is_stale()
-        should_refresh = cached_repositories is None or cache_is_stale
-        self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
-
-        if should_refresh:
-            try:
-                cached_repositories = self.sync_repository_cache()
-            except Exception:
-                logger.warning(
-                    "GitHubIntegration: failed to refresh repository cache",
-                    integration_id=self.integration.id,
-                    exc_info=True,
-                )
-                if not has_cached_snapshot:
-                    raise
-
-        if cached_repositories is None:
-            cached_repositories = []
-
-        filtered_repositories = self._filter_cached_repositories(cached_repositories, search)
-        result = filtered_repositories[offset : offset + limit]
-        has_more = offset + limit < len(filtered_repositories)
-        return result, has_more
-
-    def list_all_cached_repositories(self, max_repos: int | None = None) -> list[dict]:
-        cached_repositories = self._get_repository_cache()
-        updated_at = self.integration.repository_cache_updated_at
-        has_cached_snapshot = updated_at is not None
-        cache_is_stale = self.repository_cache_is_stale()
-        should_refresh = cached_repositories is None or cache_is_stale
-        self._record_github_cache_access("repositories", "miss" if should_refresh else "hit", "__all__")
-
-        if should_refresh:
-            try:
-                cached_repositories = self.sync_repository_cache()
-            except Exception:
-                logger.warning(
-                    "GitHubIntegration: failed to refresh repository cache",
-                    integration_id=self.integration.id,
-                    exc_info=True,
-                )
-                if not has_cached_snapshot:
-                    raise
-
-        if cached_repositories is None:
-            cached_repositories = []
-
-        if max_repos is not None:
-            return cached_repositories[:max_repos]
-
-        return cached_repositories
+    def _on_token_refreshed(self) -> None:
+        logger.info(f"Refreshed access token for {self}")
+        self.integration.errors = ""
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+        oauth_refresh_counter.labels(self.integration.kind, "success").inc()
 
     @database_sync_to_async
     def list_cached_repositories_async(
@@ -2846,289 +2314,6 @@ class GitHubIntegration:
     @database_sync_to_async
     def list_all_cached_repositories_async(self, max_repos: int | None = None) -> list[dict]:
         return self.list_all_cached_repositories(max_repos=max_repos)
-
-    def _get_branch_cache_key(self, repo: str) -> str:
-        return f"github_integration:branches:{self.integration.id}:{repo.lower()}"
-
-    def _get_branch_cache(self, repo: str) -> dict[str, Any] | None:
-        cached = cache.get(self._get_branch_cache_key(repo))
-        if not isinstance(cached, dict):
-            return None
-
-        branches = cached.get("branches")
-        default_branch = cached.get("default_branch")
-        updated_at = cached.get("updated_at")
-        if not isinstance(branches, list) or not all(isinstance(branch, str) for branch in branches):
-            return None
-        if default_branch is not None and not isinstance(default_branch, str):
-            return None
-        if not isinstance(updated_at, (int, float)):
-            return None
-
-        return {
-            "branches": branches,
-            "default_branch": default_branch,
-            "updated_at": updated_at,
-        }
-
-    def branch_cache_is_stale(self, repo: str) -> bool:
-        cached = self._get_branch_cache(repo)
-        if cached is None:
-            return True
-
-        return time.time() - float(cached["updated_at"]) >= GITHUB_BRANCH_CACHE_TTL_SECONDS
-
-    def list_all_branches(self, repo: str) -> list[str]:
-        """Fetch all branches for a repository, paginating through GitHub's API."""
-        all_branches: list[str] = []
-        offset = 0
-        page_size = 100
-
-        while True:
-            branches, has_more = self.list_branches(repo, limit=page_size, offset=offset)
-            all_branches.extend(branches)
-
-            if not has_more or not branches:
-                return all_branches
-
-            offset += len(branches)
-
-    def sync_branch_cache(self, repo: str) -> tuple[list[str], str | None]:
-        branches = self.list_all_branches(repo)
-        cached = self._get_branch_cache(repo)
-        cached_default_branch = None if cached is None else cast(str | None, cached["default_branch"])
-
-        default_branch: str | None
-        try:
-            default_branch = self.get_default_branch(repo)
-        except Exception:
-            logger.warning(
-                "GitHubIntegration: failed to refresh default branch",
-                integration_id=self.integration.id,
-                repo=repo,
-                exc_info=True,
-            )
-            default_branch = cached_default_branch if cached_default_branch in branches else None
-
-        if default_branch and default_branch in branches:
-            branches = [branch for branch in branches if branch != default_branch]
-            branches.insert(0, default_branch)
-
-        cache.set(
-            self._get_branch_cache_key(repo),
-            {
-                "branches": branches,
-                "default_branch": default_branch,
-                "updated_at": time.time(),
-            },
-            timeout=GITHUB_BRANCH_CACHE_TIMEOUT_SECONDS,
-        )
-
-        return branches, default_branch
-
-    def list_cached_branches(
-        self, repo: str, *, search: str = "", limit: int = 100, offset: int = 0
-    ) -> tuple[list[str], str | None, bool]:
-        cached = self._get_branch_cache(repo)
-        should_refresh = cached is None or self.branch_cache_is_stale(repo)
-        self._record_github_cache_access("branches", "miss" if should_refresh else "hit", repo)
-
-        if should_refresh:
-            try:
-                branches, default_branch = self.sync_branch_cache(repo)
-                cached = {
-                    "branches": branches,
-                    "default_branch": default_branch,
-                }
-            except Exception:
-                logger.warning(
-                    "GitHubIntegration: failed to refresh branch cache",
-                    integration_id=self.integration.id,
-                    repo=repo,
-                    exc_info=True,
-                )
-                if cached is None:
-                    raise
-
-        assert cached is not None
-        branches = cast(list[str], cached["branches"])
-        default_branch = cast(str | None, cached["default_branch"])
-
-        normalized_search = search.strip().casefold()
-        filtered_branches = (
-            [branch for branch in branches if normalized_search in branch.casefold()] if normalized_search else branches
-        )
-
-        result = filtered_branches[offset : offset + limit]
-        has_more = offset + limit < len(filtered_branches)
-        return result, default_branch, has_more
-
-    def get_top_starred_repository(self) -> str | None:
-        """Get the repository with the most stars from the GitHub integration.
-
-        Returns the full repository name in format 'org/repo', or None if no repos available.
-        """
-        try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def fetch(page: int = 1) -> requests.Response:
-            access_token = self.integration.sensitive_config.get("access_token")
-            return self._github_api_get(
-                f"https://api.github.com/installation/repositories?page={page}&per_page=100",
-                endpoint="/installation/repositories",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-            )
-
-        response = fetch()
-
-        if response.status_code == 401:
-            try:
-                self.refresh_access_token()
-            except Exception:
-                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-            else:
-                response = fetch()
-
-        try:
-            body = response.json()
-        except Exception:
-            logger.warning(
-                "GitHubIntegration: get_top_starred_repository non-JSON response",
-                status_code=response.status_code,
-            )
-            return None
-
-        repositories = body.get("repositories")
-        if response.status_code != 200 or not isinstance(repositories, list) or not repositories:
-            return None
-
-        top_repo = max(repositories, key=lambda r: r.get("stargazers_count", 0) if isinstance(r, dict) else 0)
-        if not isinstance(top_repo, dict):
-            return None
-
-        full_name = top_repo.get("full_name")
-        if isinstance(full_name, str):
-            return full_name.lower()
-
-        return None
-
-    def list_branches(self, repo: str, *, limit: int = 100, offset: int = 0) -> tuple[list[str], bool]:
-        """List branches for a given repository via the GitHub API.
-
-        Fetches only the GitHub pages needed to satisfy the requested
-        ``[offset, offset+limit)`` window. Returns a tuple of
-        ``(branch_names, has_more)`` where *has_more* indicates whether
-        additional branches exist beyond the returned window.
-        """
-        GITHUB_PER_PAGE = 100
-
-        try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def fetch(page: int) -> requests.Response:
-            access_token = self.integration.sensitive_config.get("access_token")
-            return self._github_api_get(
-                f"https://api.github.com/repos/{repo}/branches?per_page={GITHUB_PER_PAGE}&page={page}",
-                endpoint="/repos/{owner}/{repo}/branches",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-                timeout=10,
-            )
-
-        def extract_names(data: list) -> list[str]:
-            return [
-                branch["name"] for branch in data if isinstance(branch, dict) and isinstance(branch.get("name"), str)
-            ]
-
-        # Work out which GitHub pages cover the requested window.
-        first_page = offset // GITHUB_PER_PAGE + 1
-        skip = offset % GITHUB_PER_PAGE
-        needed = skip + limit
-
-        # Fetch the first required page (with 401-retry logic).
-        current_page = first_page
-        try:
-            response = fetch(current_page)
-        except requests.RequestException:
-            logger.warning("GitHubIntegration: list_branches network error", repo=repo, exc_info=True)
-            return [], False
-
-        if response.status_code == 401:
-            try:
-                self.refresh_access_token()
-            except Exception:
-                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
-                return [], False
-            try:
-                response = fetch(current_page)
-            except requests.RequestException:
-                logger.warning("GitHubIntegration: list_branches network error on retry", repo=repo, exc_info=True)
-                return [], False
-
-        if response.status_code != 200:
-            logger.warning(
-                "GitHubIntegration: failed to list branches",
-                status_code=response.status_code,
-                repo=repo,
-            )
-            return [], False
-
-        try:
-            body = response.json()
-        except Exception:
-            logger.warning(
-                "GitHubIntegration: list_branches non-JSON response",
-                status_code=response.status_code,
-            )
-            return [], False
-
-        if not isinstance(body, list):
-            return [], False
-
-        all_fetched = extract_names(body)
-        has_next_page = 'rel="next"' in response.headers.get("Link", "")
-
-        # Fetch subsequent pages until we have enough items.
-        while len(all_fetched) < needed and has_next_page:
-            current_page += 1
-            try:
-                response = fetch(current_page)
-            except requests.RequestException:
-                break
-            if response.status_code != 200:
-                logger.warning(
-                    "GitHubIntegration.list_branches pagination stopped",
-                    status_code=response.status_code,
-                    page=current_page,
-                    repo=repo,
-                )
-                break
-            try:
-                body = response.json()
-            except Exception:
-                break
-            if not isinstance(body, list):
-                break
-            all_fetched.extend(extract_names(body))
-            has_next_page = 'rel="next"' in response.headers.get("Link", "")
-
-        result = all_fetched[skip : skip + limit]
-        has_more = has_next_page or (skip + limit < len(all_fetched))
-
-        return result, has_more
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
@@ -3152,38 +2337,6 @@ class GitHubIntegration:
         issue = response.json()
 
         return {"number": issue["number"], "repository": repository}
-
-    def get_default_branch(self, repository: str) -> str:
-        """Get the default branch for a repository."""
-        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
-        cache_key = f"github_integration:default_branch:{self.integration.id}:{repo_path}"
-
-        cached = cache.get(cache_key)
-        if isinstance(cached, str):
-            return cached
-
-        access_token = self.integration.sensitive_config.get("access_token")
-        if not access_token:
-            raise ValueError("GitHub access token not configured")
-
-        response = self._github_api_get(
-            f"https://api.github.com/repos/{repo_path}",
-            endpoint="/repos/{owner}/{repo}",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
-            timeout=10,
-        )
-
-        if response.status_code == 200:
-            repo_data = response.json()
-            default_branch = repo_data.get("default_branch", "main")
-            cache.set(cache_key, default_branch, timeout=60 * 60 * 24)
-            return default_branch
-        else:
-            raise Exception(f"Failed to get default branch: HTTP {response.status_code}")
 
     def create_branch(self, repository: str, branch_name: str, base_branch: str | None = None) -> dict[str, Any]:
         """Create a new branch from a base branch."""

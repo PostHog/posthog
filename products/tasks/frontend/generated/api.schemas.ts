@@ -368,6 +368,7 @@ export const ClaudeRuntimeAdapterEnumApi = {
  * * `low` - low
  * `medium` - medium
  * `high` - high
+ * `xhigh` - xhigh
  * `max` - max
  */
 export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
@@ -376,6 +377,7 @@ export const ReasoningEffortEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
+    Xhigh: 'xhigh',
     Max: 'max',
 } as const
 
@@ -443,6 +445,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
 * `low` - low
 * `medium` - medium
 * `high` - high
+* `xhigh` - xhigh
 * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -526,6 +529,7 @@ export interface CodexTaskRunCreateSchemaApi {
 * `low` - low
 * `medium` - medium
 * `high` - high
+* `xhigh` - xhigh
 * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -946,6 +950,7 @@ export interface TaskRunBootstrapCreateRequestApi {
 * `low` - low
 * `medium` - medium
 * `high` - high
+* `xhigh` - xhigh
 * `max` - max */
     reasoning_effort?: ReasoningEffortEnumApi
     /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */

@@ -28,6 +28,7 @@ import { getBrowserLogo } from './browserLogos'
 import { LiveBotTrafficCard } from './LiveBotTrafficCard'
 import { CONTENT_CARD_SPAN, LiveContentCardId, LiveStatCardId } from './liveCards'
 import { LiveChartCard } from './LiveChartCard'
+import { LiveLocationsCard } from './LiveLocationsCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
 import { LiveTopReferrersTable } from './LiveTopReferrersTable'
@@ -117,6 +118,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         browserBreakdown,
         countryBreakdown,
         topCountryBreakdown,
+        topCityBreakdown,
         topPaths,
         topReferrers,
         totalPageviews,
@@ -230,15 +232,24 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     />
                 )
             case 'top_countries':
+                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN]) {
+                    return (
+                        <BreakdownLiveCard<CountryBreakdownItem>
+                            title="Countries"
+                            data={topCountryBreakdown}
+                            getKey={getCountryKey}
+                            getLabel={getCountryLabel}
+                            renderIcon={renderCountryIcon}
+                            emptyMessage="No country data"
+                            statLabel="unique visitors"
+                            isLoading={isLoading}
+                        />
+                    )
+                }
                 return (
-                    <BreakdownLiveCard<CountryBreakdownItem>
-                        title="Countries"
-                        data={topCountryBreakdown}
-                        getKey={getCountryKey}
-                        getLabel={getCountryLabel}
-                        renderIcon={renderCountryIcon}
-                        emptyMessage="No country data"
-                        statLabel="unique visitors"
+                    <LiveLocationsCard
+                        countryData={topCountryBreakdown}
+                        cityData={topCityBreakdown}
                         isLoading={isLoading}
                     />
                 )

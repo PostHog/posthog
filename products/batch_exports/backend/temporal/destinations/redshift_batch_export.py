@@ -295,14 +295,14 @@ class RedshiftClient(PostgreSQLClient):
         )
 
         if stage_fields_cast_to_super is not None:
-            select_stage_table_fields = sql.SQL(
-                ",".join(
-                    f"JSON_PARSE({field[0]}) AS {field[0]}" if field[0] in stage_fields_cast_to_super else field[0]
-                    for field in final_table_fields
-                )
+            select_stage_table_fields = sql.SQL(",").join(
+                sql.SQL("JSON_PARSE({field}) AS {field}").format(field=sql.Identifier(field[0]))
+                if field[0] in stage_fields_cast_to_super
+                else sql.Identifier(field[0])
+                for field in final_table_fields
             )
         else:
-            select_stage_table_fields = sql.SQL(",".join(field[0] for field in final_table_fields))
+            select_stage_table_fields = sql.SQL(",").join(sql.Identifier(field[0]) for field in final_table_fields)
 
         merge_query = sql.SQL(
             """\
