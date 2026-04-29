@@ -1277,7 +1277,10 @@ class InsightViewSet(
         if is_basic:
             queryset = queryset.prefetch_related(
                 Prefetch("dashboards", queryset=Dashboard.objects.only("id")),
-                Prefetch("dashboard_tiles", queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id")),
+                Prefetch(
+                    "dashboard_tiles",
+                    queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
+                ),
             )
         else:
             queryset = queryset.prefetch_related(
