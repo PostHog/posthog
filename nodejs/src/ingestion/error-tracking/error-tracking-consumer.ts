@@ -3,6 +3,9 @@ import { Redis } from 'ioredis'
 import { Message } from 'node-rdkafka'
 import { Counter, Gauge } from 'prom-client'
 
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
+import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -48,6 +51,19 @@ export interface ErrorTrackingConsumerOptions {
     statefulOverflowRedisTTLSeconds: number
     statefulOverflowLocalCacheTTLSeconds: number
     pipeline: string
+    rateLimiterEnabled: boolean
+    rateLimiterReportingMode: boolean
+    rateLimiterRedisHost: string
+    rateLimiterRedisPort: number
+    rateLimiterRedisTls: boolean
+    rateLimiterBucketSize: number
+    rateLimiterRefillRate: number
+    rateLimiterTtlSeconds: number
+    /** Fallback Redis URL when no dedicated host is configured. Required when rateLimiterEnabled. */
+    fallbackRedisUrl?: string
+    /** Pool sizing for the dedicated rate limiter Redis pool. */
+    rateLimiterRedisPoolMinSize?: number
+    rateLimiterRedisPoolMaxSize?: number
 }
 
 /**
@@ -104,6 +120,9 @@ export class ErrorTrackingConsumer {
     protected overflowRedirectService?: OverflowRedirectService
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
+    protected rateLimiter?: KeyedRateLimiterService
+    protected rateLimiterAppMetricsAggregator?: AppMetricsAggregator
+    protected rateLimiterRedis?: RedisV2
 
     constructor(
         private config: ErrorTrackingConsumerOptions,
@@ -148,6 +167,39 @@ export class ErrorTrackingConsumer {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
             })
+        }
+
+        // Optional keyed rate limiter — dedicated Redis pool, only built when explicitly enabled.
+        // When the master switch is off, no pool/service exists at all (the pipeline step is a no-op).
+        if (config.rateLimiterEnabled) {
+            const dedicatedHost = config.rateLimiterRedisHost
+            this.rateLimiterRedis = createRedisV2PoolFromConfig({
+                connection: dedicatedHost
+                    ? {
+                          url: dedicatedHost,
+                          options: {
+                              port: config.rateLimiterRedisPort,
+                              tls: config.rateLimiterRedisTls ? {} : undefined,
+                          },
+                          name: 'error-tracking-rate-limiter-redis',
+                      }
+                    : {
+                          url: config.fallbackRedisUrl ?? '',
+                          name: 'error-tracking-rate-limiter-redis-fallback',
+                      },
+                poolMinSize: config.rateLimiterRedisPoolMinSize ?? 1,
+                poolMaxSize: config.rateLimiterRedisPoolMaxSize ?? 3,
+            })
+            this.rateLimiter = new KeyedRateLimiterService(
+                {
+                    name: 'error-tracking-rate-limiter',
+                    bucketSize: config.rateLimiterBucketSize,
+                    refillRate: config.rateLimiterRefillRate,
+                    ttlSeconds: config.rateLimiterTtlSeconds,
+                },
+                this.rateLimiterRedis
+            )
+            this.rateLimiterAppMetricsAggregator = new AppMetricsAggregator(deps.outputs)
         }
     }
 
@@ -206,6 +258,9 @@ export class ErrorTrackingConsumer {
             overflowEnabled: this.config.overflowEnabled,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
+            rateLimiter: this.rateLimiter,
+            rateLimiterReportingMode: this.config.rateLimiterReportingMode,
+            rateLimiterAppMetricsAggregator: this.rateLimiterAppMetricsAggregator,
             topHog: this.topHog,
         })
 
@@ -217,6 +272,17 @@ export class ErrorTrackingConsumer {
 
         // Wait for any pending side effects
         await this.promiseScheduler.waitForAll()
+
+        // Drain any pending rate-limiter outcome metrics before output producers go away.
+        if (this.rateLimiterAppMetricsAggregator) {
+            try {
+                await this.rateLimiterAppMetricsAggregator.flush()
+            } catch (error) {
+                logger.error('⚠️', `${this.name} - failed to flush rate limiter app metrics on stop`, {
+                    error: error instanceof Error ? error.message : String(error),
+                })
+            }
+        }
 
         // Shutdown overflow services
         await this.overflowRedirectService?.shutdown()
@@ -259,7 +325,16 @@ export class ErrorTrackingConsumer {
             throw error
         } finally {
             // Flush scheduled work and invocation results to prevent memory accumulation
-            await Promise.all([this.promiseScheduler.waitForAll(), this.deps.hogTransformer.processInvocationResults()])
+            await Promise.all([
+                this.promiseScheduler.waitForAll(),
+                this.deps.hogTransformer.processInvocationResults(),
+                // Best-effort: failures here must not break ingestion.
+                this.rateLimiterAppMetricsAggregator?.flush().catch((error) => {
+                    logger.error('⚠️', `${this.name} - failed to flush rate limiter app metrics`, {
+                        error: error instanceof Error ? error.message : String(error),
+                    })
+                }),
+            ])
         }
     }
 }

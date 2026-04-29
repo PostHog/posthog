@@ -156,6 +156,17 @@ describe('ErrorTrackingConsumer', () => {
             statefulOverflowRedisTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
             statefulOverflowLocalCacheTTLSeconds: hub.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
             pipeline: hub.INGESTION_PIPELINE ?? 'error_tracking',
+            rateLimiterEnabled: hub.ERROR_TRACKING_RATE_LIMITER_ENABLED,
+            rateLimiterReportingMode: hub.ERROR_TRACKING_RATE_LIMITER_REPORTING_MODE,
+            rateLimiterRedisHost: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_HOST,
+            rateLimiterRedisPort: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
+            rateLimiterRedisTls: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
+            rateLimiterBucketSize: hub.ERROR_TRACKING_RATE_LIMITER_BUCKET_SIZE,
+            rateLimiterRefillRate: hub.ERROR_TRACKING_RATE_LIMITER_REFILL_RATE,
+            rateLimiterTtlSeconds: hub.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
+            fallbackRedisUrl: hub.REDIS_URL,
+            rateLimiterRedisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,
+            rateLimiterRedisPoolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         }
         // Create and store the mock so tests can configure it
         mockHogTransformer = createMockHogTransformer()
@@ -181,6 +192,12 @@ describe('ErrorTrackingConsumer', () => {
                     'test'
                 ),
                 tophog: new SingleIngestionOutput('tophog', 'clickhouse_tophog_test', mockProducer, 'test'),
+                app_metrics: new SingleIngestionOutput(
+                    'app_metrics',
+                    'clickhouse_app_metrics2_test',
+                    mockProducer,
+                    'test'
+                ),
             }),
             teamManager: hub.teamManager,
             hogTransformer: mockHogTransformer,

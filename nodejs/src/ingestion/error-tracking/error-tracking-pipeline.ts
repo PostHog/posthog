@@ -1,5 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
+import { KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
@@ -7,6 +9,7 @@ import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
 import {
+    AppMetricsOutput,
     DlqOutput,
     EVENTS_OUTPUT,
     EventOutput,
@@ -37,6 +40,7 @@ import { OverflowRedirectService } from '../utils/overflow-redirect/overflow-red
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
 import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
+import { createKeyedRateLimiterStep } from './keyed-rate-limiter-step'
 import { createFetchPersonBatchStep } from './person-properties-step'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
 
@@ -52,7 +56,7 @@ export interface ErrorTrackingPipelineInput {
 export type ErrorTrackingPipelineOutput = void
 
 export type ErrorTrackingOutputs = IngestionOutputs<
-    EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput
+    EventOutput | IngestionWarningsOutput | DlqOutput | OverflowOutput | TophogOutput | AppMetricsOutput
 >
 
 export interface ErrorTrackingPipelineConfig {
@@ -70,6 +74,12 @@ export interface ErrorTrackingPipelineConfig {
     overflowRedirectService?: OverflowRedirectService
     /** Service for refreshing TTLs on overflow lane events. */
     overflowLaneTTLRefreshService?: OverflowRedirectService
+    /** Optional generic rate limiter — when undefined the step is a no-op. */
+    rateLimiter?: KeyedRateLimiterService
+    /** When true, the rate limiter computes/tracks decisions but never drops. */
+    rateLimiterReportingMode: boolean
+    /** Optional aggregator for emitting rate-limit outcomes to app_metrics2. */
+    rateLimiterAppMetricsAggregator?: AppMetricsAggregator
     /** TopHog registry for metrics. */
     topHog: TopHogRegistry
 }
@@ -115,6 +125,9 @@ export function createErrorTrackingPipeline(
         overflowEnabled,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
+        rateLimiter,
+        rateLimiterReportingMode,
+        rateLimiterAppMetricsAggregator,
         topHog,
     } = config
 
@@ -177,6 +190,19 @@ export function createErrorTrackingPipeline(
                                     )
                                     // Refresh TTLs for overflow lane events (keeps Redis flags alive)
                                     .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
+                                    // High-level rate limit by team_id (initially) — runs before Cymbal so we
+                                    // skip symbolication for events we'd drop. No-op if `rateLimiter` is
+                                    // undefined; in reporting mode never drops, only tracks outcomes.
+                                    .pipeBatch(
+                                        createKeyedRateLimiterStep({
+                                            rateLimiter,
+                                            appMetricsAggregator: rateLimiterAppMetricsAggregator,
+                                            appSource: 'exceptions',
+                                            getKey: (input) => `${input.team.id}:exceptions:global`,
+                                            getTeamId: (input) => input.team.id,
+                                            reportingMode: rateLimiterReportingMode,
+                                        })
+                                    )
                                     // Process through Cymbal as a batch (before enrichment - Cymbal only
                                     // needs raw exception data, not person/geoip/group data).
                                     // Retry on transient failures (5xx, timeout, network errors).
