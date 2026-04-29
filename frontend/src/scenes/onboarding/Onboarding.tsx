@@ -420,7 +420,9 @@ const WorkflowsOnboarding = (): JSX.Element => {
 const LogsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={LogsSDKInstructions} listeningForName="log" />
+            {/* Logs arrive via OTLP — there is no team property that signals first log ingestion,
+                so we pass teamPropertyToVerify="id" (always truthy) to skip the realtime check. */}
+            <OnboardingInstallStep sdkInstructionMap={LogsSDKInstructions} teamPropertyToVerify="id" />
         </OnboardingWrapper>
     )
 }
