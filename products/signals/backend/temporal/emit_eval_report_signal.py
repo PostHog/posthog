@@ -35,7 +35,13 @@ logger = structlog.get_logger(__name__)
 
 @dataclass
 class EmitEvalReportSignalInputs:
-    """Strongly typed inputs for the eval report signal workflow and activity."""
+    """Strongly typed inputs for the eval report signal workflow and activity.
+
+    Intentionally lightweight — `content` is fetched from `EvaluationReportRun` inside
+    the activity rather than passed through the workflow → child → activity chain so
+    we stay well under Temporal's ~2 MiB per-payload limit (a dense report with many
+    citations/sections can easily push past the 256 KiB conservative threshold).
+    """
 
     team_id: int
     evaluation_id: str
@@ -47,10 +53,6 @@ class EmitEvalReportSignalInputs:
     report_run_id: str
     period_start: str
     period_end: str
-
-    # Full report content dict (serialized EvalReportContent). Includes title,
-    # sections[], citations[], metrics{}. Shape matches StoreReportRunInput.content.
-    content: dict[str, Any]
 
 
 class EvalReportSignalSummary(BaseModel):
@@ -100,7 +102,7 @@ Keep total output under 4000 tokens — be concise.
 Respond with a JSON object containing "title", "description", and "significance" fields. Return ONLY valid JSON, no other text. The first token of output must be {"""
 
 
-def _build_eval_report_signal_prompt(inputs: EmitEvalReportSignalInputs) -> str:
+def _build_eval_report_signal_prompt(inputs: EmitEvalReportSignalInputs, content: dict[str, Any]) -> str:
     """Serialize the inputs into a compact prompt for the summarizer.
 
     Passes the full report content as JSON so the LLM has access to titles,
@@ -114,13 +116,15 @@ def _build_eval_report_signal_prompt(inputs: EmitEvalReportSignalInputs) -> str:
     if inputs.evaluation_prompt:
         parts.append(f"\nEVALUATION PROMPT (judge criteria):\n{inputs.evaluation_prompt}")
     parts.append(f"\nREPORT PERIOD: {inputs.period_start} → {inputs.period_end}")
-    parts.append(f"\nREPORT CONTENT (JSON):\n{json.dumps(inputs.content, default=str)}")
+    parts.append(f"\nREPORT CONTENT (JSON):\n{json.dumps(content, default=str)}")
     return "\n".join(parts)
 
 
-async def summarize_report_for_signal(inputs: EmitEvalReportSignalInputs) -> EvalReportSignalSummary:
+async def summarize_report_for_signal(
+    inputs: EmitEvalReportSignalInputs, content: dict[str, Any]
+) -> EvalReportSignalSummary:
     """Use the signals LLM to produce a signal-sized summary of a report run."""
-    user_prompt = _build_eval_report_signal_prompt(inputs)
+    user_prompt = _build_eval_report_signal_prompt(inputs, content)
 
     def validate(text: str) -> EvalReportSignalSummary:
         data = json.loads(text)
@@ -173,7 +177,14 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
     if not organization.is_ai_data_processing_approved:
         return
 
-    summary = await summarize_report_for_signal(inputs)
+    def _fetch_report_content() -> dict[str, Any]:
+        from products.llm_analytics.backend.models.evaluation_reports import EvaluationReportRun
+
+        return EvaluationReportRun.objects.values_list("content", flat=True).get(id=inputs.report_run_id)
+
+    content = await database_sync_to_async(_fetch_report_content, thread_sensitive=False)()
+
+    summary = await summarize_report_for_signal(inputs, content)
 
     from products.signals.backend.api import emit_signal
 

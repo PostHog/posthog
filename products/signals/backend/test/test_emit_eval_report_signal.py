@@ -37,6 +37,27 @@ async def ateam(aorganization):
     await sync_to_async(team.delete)()
 
 
+def _make_content() -> dict:
+    return {
+        "title": "Pass rate dropped 14pp on the cost-cap eval",
+        "sections": [
+            {"title": "Summary", "content": "Pass rate dropped from 86% to 72%."},
+            {"title": "Patterns", "content": "Failures concentrated on gpt-5-mini."},
+        ],
+        "citations": [
+            {"generation_id": "gen-1", "reason": "Example high-cost failure"},
+        ],
+        "metrics": {
+            "total_runs": 1024,
+            "pass_count": 737,
+            "fail_count": 283,
+            "na_count": 4,
+            "pass_rate": 72.25,
+            "previous_pass_rate": 86.12,
+        },
+    }
+
+
 def _make_inputs(team_id: int, evaluation_id: str = "eval-123") -> EmitEvalReportSignalInputs:
     return EmitEvalReportSignalInputs(
         team_id=team_id,
@@ -48,38 +69,20 @@ def _make_inputs(team_id: int, evaluation_id: str = "eval-123") -> EmitEvalRepor
         report_run_id="run-xyz",
         period_start="2026-04-01T00:00:00+00:00",
         period_end="2026-04-02T00:00:00+00:00",
-        content={
-            "title": "Pass rate dropped 14pp on the cost-cap eval",
-            "sections": [
-                {"title": "Summary", "content": "Pass rate dropped from 86% to 72%."},
-                {"title": "Patterns", "content": "Failures concentrated on gpt-5-mini."},
-            ],
-            "citations": [
-                {"generation_id": "gen-1", "reason": "Example high-cost failure"},
-            ],
-            "metrics": {
-                "total_runs": 1024,
-                "pass_count": 737,
-                "fail_count": 283,
-                "na_count": 4,
-                "pass_rate": 72.25,
-                "previous_pass_rate": 86.12,
-            },
-        },
     )
 
 
 class TestBuildEvalReportSignalPrompt:
     def test_includes_evaluation_metadata(self):
         inputs = _make_inputs(team_id=1)
-        prompt = _build_eval_report_signal_prompt(inputs)
+        prompt = _build_eval_report_signal_prompt(inputs, _make_content())
         assert "Cost cap check" in prompt
         assert "Flag generations above the cost cap" in prompt
         assert "Return true if cost > 0.05" in prompt
 
     def test_includes_period_and_content(self):
         inputs = _make_inputs(team_id=1)
-        prompt = _build_eval_report_signal_prompt(inputs)
+        prompt = _build_eval_report_signal_prompt(inputs, _make_content())
         assert "2026-04-01T00:00:00+00:00" in prompt
         assert "2026-04-02T00:00:00+00:00" in prompt
         # Report title and a section body should both appear since we dump the full content
@@ -90,7 +93,7 @@ class TestBuildEvalReportSignalPrompt:
         inputs = _make_inputs(team_id=1)
         inputs.evaluation_description = ""
         inputs.evaluation_prompt = ""
-        prompt = _build_eval_report_signal_prompt(inputs)
+        prompt = _build_eval_report_signal_prompt(inputs, _make_content())
         # Header label should only appear when the value is present
         assert "EVALUATION DESCRIPTION" not in prompt
         assert "EVALUATION PROMPT" not in prompt
@@ -180,8 +183,12 @@ class TestEmitEvalReportSignalActivity:
                 new_callable=AsyncMock,
                 return_value=summary,
             ),
+            patch(
+                "products.llm_analytics.backend.models.evaluation_reports.EvaluationReportRun.objects.values_list"
+            ) as mock_values_list,
             patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
         ):
+            mock_values_list.return_value.get.return_value = _make_content()
             await emit_eval_report_signal_activity(inputs)
 
         mock_emit.assert_called_once()
@@ -221,7 +228,56 @@ class TestEmitEvalReportSignalActivity:
                 new_callable=AsyncMock,
                 return_value=summary,
             ),
+            patch(
+                "products.llm_analytics.backend.models.evaluation_reports.EvaluationReportRun.objects.values_list"
+            ) as mock_values_list,
             patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit,
         ):
+            mock_values_list.return_value.get.return_value = _make_content()
             await emit_eval_report_signal_activity(inputs)
         mock_emit.assert_called_once()
+
+
+class TestEvalReportSignalSchemaContract:
+    """Lock the (source_product, source_type) -> variant mapping that emit_signal validates against.
+
+    Mocking emit_signal in activity tests hides schema mismatches — the original review
+    cycle caught one only because the bots ran static checks. This exercises the same
+    dispatch path emit_signal uses (`_SIGNAL_VARIANT_LOOKUP`) so any drift between the
+    schema source and the activity's payload shape will fail in unit tests.
+    """
+
+    def test_evaluation_report_variant_is_registered(self):
+        from products.signals.backend.api import _SIGNAL_VARIANT_LOOKUP
+
+        variant = _SIGNAL_VARIANT_LOOKUP.get(("llm_analytics", "evaluation_report"))
+        assert variant is not None, (
+            "No SignalInput variant for (llm_analytics, evaluation_report). "
+            "Did the schema source drift? Re-run `pnpm run schema:build`."
+        )
+
+    def test_activity_payload_validates_against_variant(self):
+        """Construct the exact emit_signal kwargs the activity sends and validate them."""
+        from products.signals.backend.api import _SIGNAL_VARIANT_LOOKUP
+
+        variant = _SIGNAL_VARIANT_LOOKUP[("llm_analytics", "evaluation_report")]
+        payload = {
+            "source_product": "llm_analytics",
+            "source_type": "evaluation_report",
+            "source_id": "eval-123:report:run-xyz",
+            "description": "Pass rate fell 14pp; failures concentrated on gpt-5-mini.",
+            "weight": 0.75,
+            "extra": {
+                "evaluation_id": "eval-123",
+                "evaluation_name": "Cost cap check",
+                "evaluation_description": "Flag generations above the cost cap",
+                "report_id": "report-abc",
+                "report_run_id": "run-xyz",
+                "period_start": "2026-04-01T00:00:00+00:00",
+                "period_end": "2026-04-02T00:00:00+00:00",
+            },
+        }
+        # Will raise ValidationError if the schema source drifts from the activity's
+        # payload shape — including extra-key forbidden, missing required keys, or
+        # source_type literal mismatch.
+        variant.model_validate(payload)

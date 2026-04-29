@@ -9,6 +9,7 @@ from django.conf import settings
 import temporalio.workflow
 from structlog import get_logger
 from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.eval_reports.activities import (
@@ -227,7 +228,6 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
                         report_run_id=store_result.report_run_id,
                         period_start=agent_result.period_start,
                         period_end=agent_result.period_end,
-                        content=agent_result.content,
                     ),
                     id=f"emit-eval-report-signal-{context.team_id}-{context.evaluation_id}-{store_result.report_run_id}",
                     task_queue=settings.LLMA_TASK_QUEUE,
@@ -235,9 +235,11 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     execution_timeout=timedelta(minutes=5),
                 )
-            except Exception:
-                temporalio.workflow.logger.exception(
-                    "Failed to start eval report signal workflow",
+            except WorkflowAlreadyStartedError:
+                # Same parent workflow replayed/retried with the same report_run_id.
+                # Safe to skip — the previous run is already handling emission.
+                temporalio.workflow.logger.info(
+                    "Eval report signal workflow already started for this run",
                     evaluation_id=context.evaluation_id,
                     team_id=context.team_id,
                     report_run_id=store_result.report_run_id,
