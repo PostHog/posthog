@@ -147,7 +147,7 @@ export const useIssueQueryContext = (): QueryContext => {
                 <>
                     Error tracking is wired up but no <code>$exception</code> events have arrived. Backend exceptions
                     need their own SDK setup – see the{' '}
-                    <Link to="https://posthog.com/docs/error-tracking/installation" targetBlank>
+                    <Link to="https://posthog.com/docs/error-tracking/installation" target="_blank">
                         installation guide
                     </Link>{' '}
                     for Python, Node.js, Ruby, and other server SDKs.
