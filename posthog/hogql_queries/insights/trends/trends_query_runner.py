@@ -1100,11 +1100,16 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             breakdown_key = breakdown_value[0] if isinstance(breakdown_value, list) else breakdown_value
 
-            columns = dict(table_or_view.columns)
+            columns = table_or_view.columns
+            if not isinstance(columns, dict):
+                return False
+
             if breakdown_key not in columns:
                 return False
 
-            field_type = columns[breakdown_key]["clickhouse"]
+            field_type = self._data_warehouse_column_clickhouse_type(columns[breakdown_key])
+            if field_type is None:
+                return False
 
             if field_type.startswith("Nullable("):
                 field_type = field_type.replace("Nullable(", "")[:-1]
@@ -1117,6 +1122,17 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             breakdown_type,
             breakdown_group_type_index,
         )
+
+    def _data_warehouse_column_clickhouse_type(self, column: object) -> str | None:
+        if isinstance(column, str):
+            return column
+
+        if isinstance(column, dict):
+            clickhouse_type = column.get("clickhouse")
+            if isinstance(clickhouse_type, str):
+                return clickhouse_type
+
+        return None
 
     def _is_breakdown_field_boolean(
         self,
