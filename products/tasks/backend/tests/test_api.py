@@ -3454,68 +3454,59 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # cross-task `resume_from_run_id` is silently dropped.
         self.assertEqual([r.id for r in chain], [run_on_b.id])
 
+    @parameterized.expand(
+        [
+            (
+                "chained_returns_ancestors_first",
+                True,  # has_ancestor
+                {"a": '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}\n'},
+                '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}\n',
+                ['{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}',
+                 '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}'],
+            ),
+            (
+                "unchained_returns_only_own_log",
+                False,
+                {},
+                '{"hello":"world"}\n',
+                ['{"hello":"world"}'],
+            ),
+            (
+                "skips_missing_ancestor_logs",
+                True,
+                {"a": None},
+                '{"only":"b"}\n',
+                ['{"only":"b"}'],
+            ),
+        ]
+    )
     @patch("posthog.storage.object_storage.read")
-    def test_logs_endpoint_returns_chain_concatenated_oldest_first(self, mock_read):
-        """When a run is part of a resume chain, /logs returns ancestors first.
-
-        This means a checkpoint event emitted on Run A is still discoverable by
-        the agent resuming Run B even if B never wrote a file (and so never
-        emitted its own checkpoint).
-        """
+    def test_logs_endpoint_walks_resume_chain(
+        self,
+        _name: str,
+        has_ancestor: bool,
+        ancestor_logs: dict[str, str | None],
+        own_log: str,
+        expected_lines: list[str],
+        mock_read,
+    ):
         task = self.create_task()
-        run_a = TaskRun.objects.create(task=task, team=self.team)
-        run_b = TaskRun.objects.create(
-            task=task, team=self.team, state={"resume_from_run_id": str(run_a.id)}
-        )
-
-        a_line = '{"notification":{"method":"_posthog/git_checkpoint","params":{"checkpointId":"ckpt-A"}}}'
-        b_line = '{"notification":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message"}}}}'
+        ancestor = TaskRun.objects.create(task=task, team=self.team) if has_ancestor else None
+        target_state = {"resume_from_run_id": str(ancestor.id)} if ancestor else {}
+        target = TaskRun.objects.create(task=task, team=self.team, state=target_state)
 
         def fake_read(path: str, missing_ok: bool = False) -> str | None:
-            if path == run_a.log_url:
-                return a_line + "\n"
-            if path == run_b.log_url:
-                return b_line + "\n"
+            if ancestor and path == ancestor.log_url:
+                return ancestor_logs.get("a")
+            if path == target.log_url:
+                return own_log
             return None
 
         mock_read.side_effect = fake_read
 
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run_b.id}/logs/")
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        body = response.content.decode("utf-8").splitlines()
-        self.assertEqual(body, [a_line, b_line])
-
-    @patch("posthog.storage.object_storage.read")
-    def test_logs_endpoint_unchained_returns_only_own_log(self, mock_read):
-        task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team)
-        mock_read.return_value = '{"hello":"world"}\n'
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/logs/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content.decode("utf-8").strip(), '{"hello":"world"}')
-        mock_read.assert_called_once_with(run.log_url, missing_ok=True)
-
-    @patch("posthog.storage.object_storage.read")
-    def test_logs_endpoint_skips_missing_ancestor_logs(self, mock_read):
-        """An ancestor with no log file (e.g. never started) is silently skipped."""
-        task = self.create_task()
-        run_a = TaskRun.objects.create(task=task, team=self.team)
-        run_b = TaskRun.objects.create(
-            task=task, team=self.team, state={"resume_from_run_id": str(run_a.id)}
-        )
-
-        def fake_read(path: str, missing_ok: bool = False) -> str | None:
-            if path == run_b.log_url:
-                return '{"only":"b"}\n'
-            return None  # ancestor missing
-
-        mock_read.side_effect = fake_read
-
-        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run_b.id}/logs/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content.decode("utf-8").strip(), '{"only":"b"}')
+        self.assertEqual(response.content.decode("utf-8").splitlines(), expected_lines)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_returns_jwt(self):

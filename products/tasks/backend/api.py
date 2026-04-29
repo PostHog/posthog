@@ -6,7 +6,7 @@ import logging
 import builtins
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Any, List, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.core.cache import cache

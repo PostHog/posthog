@@ -268,22 +268,17 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
 
         activity.logger.info(
             "resume_decision",
-            run_id=ctx.run_id,
-            use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
-            state_snapshot_external_id=run_state.snapshot_external_id,
-            effective_snapshot_external_id=resume_snapshot_external_id,
-            handoff_resumed=run_state.handoff_resumed,
-            resume_from_run_id=run_state.resume_from_run_id,
-            posthog_resume_run_id_set="POSTHOG_RESUME_RUN_ID" in environment_variables,
-            used_snapshot=used_snapshot,
+            extra={
+                "run_id": ctx.run_id,
+                "use_modal_resume_snapshots": settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+                "state_snapshot_external_id": run_state.snapshot_external_id,
+                "effective_snapshot_external_id": resume_snapshot_external_id,
+                "handoff_resumed": run_state.handoff_resumed,
+                "resume_from_run_id": run_state.resume_from_run_id,
+                "posthog_resume_run_id_set": "POSTHOG_RESUME_RUN_ID" in environment_variables,
+                "used_snapshot": used_snapshot,
+            },
         )
-        if run_state.snapshot_external_id and not settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS:
-            emit_agent_log(
-                ctx.run_id,
-                "debug",
-                f"Ignoring snapshot_external_id={run_state.snapshot_external_id} (TASKS_USE_MODAL_RESUME_SNAPSHOTS=false); "
-                "resume will use git-checkpoint flow",
-            )
         if run_state.handoff_resumed or run_state.resume_from_run_id:
             emit_agent_log(
                 ctx.run_id,

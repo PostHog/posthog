@@ -50,6 +50,7 @@ def _build_context(
     github_integration_id: int | None,
     repository: str | None = "posthog/posthog-js",
     state: dict | None = None,
+    use_modal_resume_snapshots: bool = True,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -63,6 +64,7 @@ def _build_context(
         create_pr=True,
         state=state or {},
         _branch="feature-branch",
+        use_modal_resume_snapshots=use_modal_resume_snapshots,
     )
 
 
@@ -512,13 +514,16 @@ class TestProcessTaskWorkflowUnit:
 
         Disabling the Modal-snapshot flag (e.g. for EU compliance) must skip the
         snapshot creation activity in the workflow's finally block, regardless of
-        mode.
+        mode. The flag value is set on the context (captured at workflow start)
+        so a mid-run flip can't introduce replay nondeterminism.
         """
-        monkeypatch.setattr(settings, "TASKS_USE_MODAL_RESUME_SNAPSHOTS", use_modal_resume_snapshots)
-
         workflow = ProcessTaskWorkflow()
         get_task_processing_context_mock = AsyncMock(
-            return_value=_build_context(github_integration_id=123, state={"mode": mode})
+            return_value=_build_context(
+                github_integration_id=123,
+                state={"mode": mode},
+                use_modal_resume_snapshots=use_modal_resume_snapshots,
+            )
         )
         update_task_run_status_mock = AsyncMock()
         track_workflow_event_mock = AsyncMock()

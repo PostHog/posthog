@@ -88,7 +88,7 @@ INACTIVITY_TIMEOUT = timedelta(minutes=5)
 # for local testing (e.g. `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` to force a fast
 # shutdown for resume-flow testing). When overridden, the CI follow-up floor
 # below is bypassed so the timer actually fires that fast.
-INACTIVITY_TIMEOUT = timedelta(seconds=int(getattr(settings, "TASKS_INACTIVITY_TIMEOUT_SECONDS", 0) or 300))
+INACTIVITY_TIMEOUT = timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS or 300)
 >>>>>>> Current commit: resume from last checkpoint
 CI_FOLLOW_UP_DELAY = timedelta(minutes=15)
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
@@ -237,13 +237,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         # When a CI follow-up is scheduled, ensure the inactivity timer can't
         # race ahead of it — otherwise the short inactivity window would always
-        # fire first and CI fixes would be silently skipped. The
-        # TASKS_INACTIVITY_TIMEOUT_SECONDS override bypasses this floor so
-        # local testing of the shutdown/resume flow is fast.
-        inactivity_override_active = bool(getattr(settings, "TASKS_INACTIVITY_TIMEOUT_SECONDS", 0))
+        # fire first and CI fixes would be silently skipped. A short
+        # TASKS_INACTIVITY_TIMEOUT_SECONDS override (used for local testing of
+        # the shutdown/resume flow) is allowed to bypass this floor; the
+        # default (no override set) and any sufficiently large override still
+        # respect it, so a misconfigured env var can't fire before CI.
+        ci_follow_up_floor = CI_FOLLOW_UP_DELAY + timedelta(minutes=1)
+        testing_override_active = bool(settings.TASKS_INACTIVITY_TIMEOUT_SECONDS) and (
+            INACTIVITY_TIMEOUT < ci_follow_up_floor
+        )
         inactivity_timeout = (
-            max(INACTIVITY_TIMEOUT, CI_FOLLOW_UP_DELAY + timedelta(minutes=1))
-            if ci_follow_up_scheduled and not inactivity_override_active
+            max(INACTIVITY_TIMEOUT, ci_follow_up_floor)
+            if ci_follow_up_scheduled and not testing_override_active
             else INACTIVITY_TIMEOUT
         )
         possible_events: list[asyncio.Task[TaskEvent]] = [
@@ -557,10 +562,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 # Create a resume snapshot for interactive sandboxes before cleanup.
                 # Skipped when TASKS_USE_MODAL_RESUME_SNAPSHOTS is off — resume then
                 # relies on the agent server's git-checkpoint mechanism instead.
+                # The flag is read from the context (captured at workflow start)
+                # rather than from settings directly so a mid-run flip doesn't
+                # cause replay nondeterminism.
                 if (
                     self._context
                     and self._context.mode == "interactive"
-                    and settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS
+                    and self._context.use_modal_resume_snapshots
                 ):
                     await self._create_resume_snapshot(cleanup_sandbox_id)
 

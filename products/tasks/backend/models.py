@@ -674,17 +674,30 @@ class TaskRun(models.Model):
         Returns runs ordered oldest-ancestor → ... → parent → this. Bounded
         depth and a seen-set guard against cycles. The walk is scoped to this
         task — a stale cross-task `resume_from_run_id` is silently dropped.
+
+        Loads sibling runs in a single query and walks in-memory so chain depth
+        doesn't translate to per-hop database round trips.
         """
         chain: list[TaskRun] = [self]
+        if max_depth <= 0:
+            return chain
+
+        siblings_by_id: dict[str, TaskRun] = {str(run.id): run for run in self.task.runs.all()}
         seen: set[str] = {str(self.id)}
         current: TaskRun | None = self
         depth = 0
         while current is not None and depth < max_depth:
-            prior_id = (current.state or {}).get("resume_from_run_id")
-            if not prior_id or prior_id in seen:
+            prior_id_raw = (current.state or {}).get("resume_from_run_id")
+            if not prior_id_raw:
+                break
+            try:
+                prior_id = str(uuid.UUID(str(prior_id_raw)))
+            except (ValueError, TypeError):
+                break
+            if prior_id in seen:
                 break
             seen.add(prior_id)
-            current = self.task.runs.filter(id=prior_id).first()
+            current = siblings_by_id.get(prior_id)
             if current is None:
                 break
             chain.append(current)
