@@ -17,6 +17,13 @@ import { isShortId } from '@/tools/insights/utils'
 import type { Schemas } from './generated.js'
 import { globalRateLimiter } from './rate-limiter.js'
 
+// Maps query kinds to the productKey value used by `_infer_query_tags` on the Python
+// side. Values mirror the frontend `ProductKey` enum (e.g. `session_replay`, not
+// `replay`) so attribution stays consistent with queries originating from the web app.
+// `HogQLQuery` is intentionally omitted — those land via the raw query-run path and
+// fall through to the `product=mcp` backend default. New product-specific query kinds
+// must be added here; an unmapped kind silently attributes to MCP rather than the
+// owning product.
 const QUERY_KIND_TO_PRODUCT_KEY: Record<string, string> = {
     TrendsQuery: 'product_analytics',
     AssistantTrendsQuery: 'product_analytics',
@@ -50,7 +57,13 @@ function injectProductKey(query: Record<string, unknown>): Record<string, unknow
     if (!productKey) {
         return query
     }
-    const existingTags = (query.tags as Record<string, unknown> | undefined) ?? {}
+    const rawTags = query.tags
+    if (rawTags !== undefined && (typeof rawTags !== 'object' || rawTags === null || Array.isArray(rawTags))) {
+        // Preserve unexpected shapes (arrays, primitives) untouched rather than spreading
+        // them into an object and silently losing fields.
+        return query
+    }
+    const existingTags = (rawTags as Record<string, unknown> | undefined) ?? {}
     if (existingTags.productKey) {
         return query
     }
@@ -727,7 +740,8 @@ export class ApiClient {
                             )
 
                             return result.success ? result.data : null
-                        } catch {
+                        } catch (error) {
+                            console.error('Failed to fetch primary metric result', error)
                             return null
                         }
                     })
@@ -757,7 +771,8 @@ export class ApiClient {
                             )
 
                             return result.success ? result.data : null
-                        } catch {
+                        } catch (error) {
+                            console.error('Failed to fetch secondary metric result', error)
                             return null
                         }
                     })

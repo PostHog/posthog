@@ -226,6 +226,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 # via query-run). Product-specific tools inject tags.productKey so that
                 # _infer_query_tags returns a non-empty dict above. source=mcp is already set
                 # by the CHQueries middleware for all MCP requests.
+                # Note: this header is client-supplied and not authenticated. Impact is
+                # attribution-only — a spoofed value can pollute `product=mcp` metrics but
+                # cannot bypass authorization.
                 inferred_tags = {"product": Product.MCP, "feature": Feature.QUERY}
             if inferred_tags:
                 tag_queries(**inferred_tags)
