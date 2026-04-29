@@ -57,10 +57,14 @@ export function SnapshotStatRow({
                             {counts[s.value].toLocaleString()}
                         </div>
                         <div className="flex items-center gap-1.5 text-xs font-semibold mt-1">
-                            <span
-                                className="w-2 h-2 rounded-full shrink-0"
-                                style={{ backgroundColor: COLOR_BY_PRESET[s.value] }}
-                            />
+                            {s.value !== 'all' && (
+                                <>
+                                    <span
+                                        className="w-2 h-2 rounded-full shrink-0"
+                                        style={{ backgroundColor: COLOR_BY_PRESET[s.value] }}
+                                    />
+                                </>
+                            )}
                             <span className="truncate">{s.label}</span>
                             {s.value === 'tolerated_drift' && frequentlyToleratedCount > 0 && (
                                 <span className="ml-auto bg-primary-3000-button-bg text-primary-3000 text-[10px] font-semibold rounded px-1.5 py-0.5 shrink-0">

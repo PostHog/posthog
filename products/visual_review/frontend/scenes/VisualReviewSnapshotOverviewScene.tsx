@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
-import { Grid } from 'react-window'
 
-import { LemonBanner, LemonInput, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { RepoSwitcher } from '../components/RepoSwitcher'
 import { SnapshotCard } from '../components/SnapshotCard'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
 import { SnapshotStatRow } from '../components/SnapshotStatRow'
@@ -27,18 +27,17 @@ export const scene: SceneExport = {
     }),
 }
 
-// Width is the smallest column we'll allow before snapping to a fewer-column
-// layout — keeps cards readable on tablet. Height is set so that the 140px
-// thumbnail box + 60px metadata strip + borders fit comfortably.
+// Smallest column we'll allow before snapping to a fewer-column layout —
+// keeps cards readable on tablet. CSS Grid handles the responsive packing
+// via `auto-fill, minmax(220px, 1fr)`.
 const CARD_MIN_WIDTH = 220
-const CARD_HEIGHT = 210
-const CARD_GAP = 12
 
 export function VisualReviewSnapshotOverviewScene(): JSX.Element {
     const {
         overview,
         overviewLoading,
         repo,
+        repoId,
         filteredEntries,
         statCounts,
         frequentlyToleratedCount,
@@ -51,24 +50,6 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
     const { setStatPreset, toggleType, toggleArea, toggleStability, setTheme, setSearch, clearAllFilters } = useActions(
         visualReviewSnapshotOverviewSceneLogic
     )
-
-    const { ref: gridContainerRef, width: gridWidth = 0 } = useResizeObserver<HTMLDivElement>()
-    const { columnCount, columnWidth } = useMemo(() => {
-        if (gridWidth <= 0) {
-            return { columnCount: 1, columnWidth: CARD_MIN_WIDTH }
-        }
-        const cols = Math.max(1, Math.floor((gridWidth + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP)))
-        // Gaps live inside each cell's padding (not as separate spacers between
-        // cells), so columnWidth must consume the full container width — no
-        // gap subtraction. Subtracting it leaves a ~(cols-1) × gap dead band
-        // on the right edge.
-        const cw = Math.floor(gridWidth / cols)
-        return { columnCount: cols, columnWidth: cw }
-    }, [gridWidth])
-
-    const rowCount = Math.ceil(filteredEntries.length / columnCount)
-
-    const repoId = repo?.id ?? ''
 
     // Theme is never neutral (always Light or Dark), so we don't count it
     // toward `isFiltered` — picking a side is the default state.
@@ -84,8 +65,16 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
             <SceneTitleSection
                 name={repo?.repo_full_name ?? 'Visual review'}
                 resourceType={{ type: 'visual_review' }}
+                actions={
+                    <div className="flex gap-2 items-center">
+                        <RepoSwitcher repoId={repoId} activeTab="snapshots" />
+                        <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
+                            Settings
+                        </LemonButton>
+                    </div>
+                }
             />
-            <VisualReviewTabs activeKey="snapshots" repoId={repo?.id ?? ''} />
+            <VisualReviewTabs activeKey="snapshots" repoId={repoId} />
 
             <SnapshotStatRow
                 counts={statCounts}
@@ -149,9 +138,12 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                     }}
                 />
 
-                <div ref={gridContainerRef} className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0">
                     {overviewLoading && !overview ? (
-                        <div className="grid grid-cols-3 lg:grid-cols-5 xl:grid-cols-7 gap-3">
+                        <div
+                            className="grid gap-3"
+                            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))` }}
+                        >
                             {Array.from({ length: 14 }).map((_, i) => (
                                 <LemonSkeleton key={i} className="h-52 w-full" />
                             ))}
@@ -169,45 +161,24 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                                 </button>
                             )}
                         </div>
-                    ) : gridWidth > 0 ? (
-                        <Grid
-                            cellComponent={({
-                                columnIndex,
-                                rowIndex,
-                                style,
-                            }: {
-                                columnIndex: number
-                                rowIndex: number
-                                style: React.CSSProperties
-                            }) => {
-                                const entry = filteredEntries[rowIndex * columnCount + columnIndex]
-                                if (!entry) {
-                                    return <div style={style} />
-                                }
-                                return (
-                                    <div
-                                        style={{
-                                            ...style,
-                                            paddingRight: columnIndex < columnCount - 1 ? CARD_GAP : 0,
-                                            paddingBottom: CARD_GAP,
-                                        }}
-                                    >
-                                        <SnapshotCard
-                                            repoId={repoId}
-                                            entry={entry}
-                                            thumbnailBasePath={thumbnailBasePath}
-                                        />
-                                    </div>
-                                )
-                            }}
-                            cellProps={{}}
-                            columnCount={columnCount}
-                            columnWidth={columnWidth + (columnWidth < CARD_MIN_WIDTH ? 0 : 0)}
-                            rowCount={rowCount}
-                            rowHeight={CARD_HEIGHT + CARD_GAP}
-                            defaultHeight={Math.min(900, rowCount * (CARD_HEIGHT + CARD_GAP))}
-                        />
-                    ) : null}
+                    ) : (
+                        // Plain CSS grid — no internal scroll, page handles
+                        // scrolling. Lazy-loaded thumbnails keep network cost
+                        // low even at the 5000-entry cap.
+                        <div
+                            className="grid gap-3"
+                            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))` }}
+                        >
+                            {filteredEntries.map((entry) => (
+                                <SnapshotCard
+                                    key={`${entry.run_type}::${entry.identifier}`}
+                                    repoId={repoId}
+                                    entry={entry}
+                                    thumbnailBasePath={thumbnailBasePath}
+                                />
+                            ))}
+                        </div>
+                    )}
 
                     {filteredEntries.length > 0 && (
                         <div className="text-xs text-muted mt-3">
@@ -217,29 +188,6 @@ export function VisualReviewSnapshotOverviewScene(): JSX.Element {
                         </div>
                     )}
                 </div>
-            </div>
-
-            {/* Tag legend at the bottom for first-time clarity. */}
-            <div className="flex items-center gap-3 text-[11px] text-muted">
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--success)' }} />
-                    Clean
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--primary-3000)' }} />
-                    Tolerated
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--warning-dark)' }} />
-                    Changed
-                </span>
-                <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-sm" style={{ background: 'var(--danger)' }} />
-                    Quarantined
-                </span>
-                <LemonTag size="small" type="default" className="ml-auto">
-                    Sparkline shows last 30 days
-                </LemonTag>
             </div>
         </SceneContent>
     )

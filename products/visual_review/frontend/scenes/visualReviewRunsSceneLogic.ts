@@ -5,8 +5,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb } from '~/types'
 
-import { visualReviewReposRetrieve, visualReviewRunsCountsRetrieve, visualReviewRunsList } from '../generated/api'
+import { visualReviewRunsCountsRetrieve, visualReviewRunsList } from '../generated/api'
 import type { PaginatedRunListApi, RepoApi, ReviewStateCountsApi } from '../generated/api.schemas'
+import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 import type { visualReviewRunsSceneLogicType } from './visualReviewRunsSceneLogicType'
 
 export type ReviewState = 'needs_review' | 'clean' | 'processing' | 'stale'
@@ -22,8 +23,13 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
     props({} as VisualReviewRunsSceneLogicProps),
     key((props) => props.repoId),
 
-    connect(() => ({
-        values: [teamLogic, ['currentProjectId']],
+    connect((props: VisualReviewRunsSceneLogicProps) => ({
+        values: [
+            teamLogic,
+            ['currentProjectId'],
+            visualReviewRepoLogic({ repoId: props.repoId }),
+            ['repo', 'repoFullName'],
+        ],
     })),
 
     actions({
@@ -70,40 +76,28 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
                 },
             },
         ],
-        repo: [
-            null as RepoApi | null,
-            {
-                loadRepo: async () => {
-                    return await visualReviewReposRetrieve(String(values.currentProjectId), props.repoId)
-                },
-            },
-        ],
     })),
 
     selectors({
+        repoId: [() => [(_, p) => p.repoId], (repoId: string): string => repoId],
         runs: [
             (s) => [s.runsResponse],
             (runsResponse: PaginatedRunListApi): PaginatedRunListApi['results'] => runsResponse.results,
         ],
         runsLoading: [(s) => [s.runsResponseLoading], (loading: boolean): boolean => loading],
         totalCount: [(s) => [s.runsResponse], (runsResponse: PaginatedRunListApi): number => runsResponse.count ?? 0],
-        repoFullName: [
-            (s) => [s.repo],
-            (repo: RepoApi | null): string | undefined => repo?.repo_full_name || undefined,
-        ],
+        // Only one scene-level crumb — the project crumb is prepended
+        // automatically. With two scene crumbs the SceneTitleSection back
+        // button kicks in (it shows when total breadcrumbs > 2), and
+        // clicking back lands on /visual_review which immediately redirects
+        // straight here, so the back arrow does nothing useful.
         breadcrumbs: [
             (s) => [s.repo],
             (repo: RepoApi | null): Breadcrumb[] => [
                 {
-                    key: 'visual_review',
-                    name: 'Visual review',
-                    path: '/visual_review',
-                },
-                {
                     key: ['visual_review_repo', repo?.id ?? 'unknown'],
-                    name: repo?.repo_full_name ?? '…',
+                    name: repo?.repo_full_name ?? 'Visual review',
                 },
-                { key: 'visual_review_runs', name: 'Runs' },
             ],
         ],
     }),
@@ -120,6 +114,5 @@ export const visualReviewRunsSceneLogic = kea<visualReviewRunsSceneLogicType>([
     afterMount(({ actions }) => {
         actions.loadRuns()
         actions.loadCounts()
-        actions.loadRepo()
     }),
 ])

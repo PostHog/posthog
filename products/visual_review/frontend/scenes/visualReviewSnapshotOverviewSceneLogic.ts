@@ -8,9 +8,10 @@ import { Breadcrumb } from '~/types'
 
 import type { FacetBucket, FacetGroups, FacetSelection } from '../components/SnapshotFacetSidebar'
 import type { StatPreset } from '../components/SnapshotStatRow'
-import { visualReviewReposBaselinesRetrieve, visualReviewReposRetrieve } from '../generated/api'
-import type { BaselineEntryApi, BaselineOverviewApi, RepoApi } from '../generated/api.schemas'
+import { visualReviewReposBaselinesRetrieve } from '../generated/api'
+import type { BaselineEntryApi, BaselineOverviewApi } from '../generated/api.schemas'
 import { parseArea, parseTheme, runTypeLabel } from '../lib/parseIdentifier'
+import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 import type { visualReviewSnapshotOverviewSceneLogicType } from './visualReviewSnapshotOverviewSceneLogicType'
 
 export interface VisualReviewSnapshotOverviewSceneLogicProps {
@@ -108,8 +109,8 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewSnapshotOverviewSceneLogic']),
     props({} as VisualReviewSnapshotOverviewSceneLogicProps),
     key((props) => props.repoId),
-    connect(() => ({
-        values: [teamLogic, ['currentProjectId']],
+    connect((props: VisualReviewSnapshotOverviewSceneLogicProps) => ({
+        values: [teamLogic, ['currentProjectId'], visualReviewRepoLogic({ repoId: props.repoId }), ['repo']],
     })),
     actions({
         setStatPreset: (preset: StatPreset) => ({ preset }),
@@ -150,14 +151,6 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         ],
     }),
     loaders(({ props, values }) => ({
-        repo: [
-            null as RepoApi | null,
-            {
-                loadRepo: async () => {
-                    return visualReviewReposRetrieve(String(values.currentProjectId), props.repoId)
-                },
-            },
-        ],
         overview: [
             null as BaselineOverviewApi | null,
             {
@@ -168,6 +161,7 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         ],
     })),
     selectors({
+        repoId: [() => [(_, p) => p.repoId], (repoId: string): string => repoId],
         entries: [(s) => [s.overview], (overview): BaselineEntryApi[] => overview?.entries ?? []],
         // Pre-compute parsed area + theme + typeKey + stability tags for each
         // entry so subsequent filter passes don't re-derive on every keystroke.
@@ -347,13 +341,13 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
             (projectId, repoId): string | null =>
                 projectId ? `/api/projects/${projectId}/visual_review/repos/${repoId}/thumbnails` : null,
         ],
+        // Single scene crumb — see runs scene for why we collapse to one.
         breadcrumbs: [
             (s) => [s.repo],
             (repo): Breadcrumb[] => [
-                { key: 'visual_review', name: 'Visual review', path: '/visual_review' },
                 {
-                    key: ['visual_review_snapshots', repo?.id ?? 'unknown'],
-                    name: 'Snapshots',
+                    key: ['visual_review_repo', repo?.id ?? 'unknown'],
+                    name: repo?.repo_full_name ?? 'Visual review',
                 },
             ],
         ],
@@ -432,7 +426,6 @@ export const visualReviewSnapshotOverviewSceneLogic = kea<visualReviewSnapshotOv
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadRepo()
         actions.loadOverview()
     }),
 ])

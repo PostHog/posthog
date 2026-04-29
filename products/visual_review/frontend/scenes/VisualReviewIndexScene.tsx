@@ -1,10 +1,9 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -18,20 +17,20 @@ export const scene: SceneExport = {
     logic: visualReviewIndexSceneLogic,
 }
 
+// /visual_review forwards straight to the first repo's Runs page once the
+// repo list lands. There is no picker page — the in-header repo switcher
+// covers the multi-repo case. Only the empty state and the brief loader
+// state ever paint.
 export function VisualReviewIndexScene(): JSX.Element {
     const { repos, reposLoading } = useValues(visualReviewIndexSceneLogic)
-    const { loadRepos } = useActions(visualReviewIndexSceneLogic)
 
-    // Once the repo list arrives: forward immediately if there's exactly one,
-    // otherwise render a picker. The afterMount hook handles the case where
-    // repos were already loaded; this effect handles first load.
     useEffect(() => {
-        if (!reposLoading && repos.length === 1) {
+        if (!reposLoading && repos.length >= 1) {
             router.actions.replace(urls.visualReviewRepoRuns(repos[0].id))
         }
     }, [reposLoading, repos])
 
-    if (reposLoading) {
+    if (reposLoading || repos.length >= 1) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Visual review" resourceType={{ type: 'visual_review' }} />
@@ -40,49 +39,17 @@ export function VisualReviewIndexScene(): JSX.Element {
         )
     }
 
-    if (repos.length === 0) {
-        return (
-            <SceneContent>
-                <SceneTitleSection name="Visual review" resourceType={{ type: 'visual_review' }} />
-                <div className="max-w-2xl">
-                    <p className="text-muted">
-                        No visual review repos yet. Connect one from{' '}
-                        <Link to={urls.visualReviewSettings()}>Settings</Link> to get started.
-                    </p>
-                    <LemonButton type="primary" to={urls.visualReviewSettings()}>
-                        Open settings
-                    </LemonButton>
-                </div>
-            </SceneContent>
-        )
-    }
-
-    // Multi-repo case — render a small picker. The single-repo case is
-    // already on its way to the workspace via the effect above; this branch
-    // shouldn't render in practice for that case.
     return (
         <SceneContent>
-            <SceneTitleSection
-                name="Visual review"
-                resourceType={{ type: 'visual_review' }}
-                actions={
-                    <LemonButton type="secondary" onClick={loadRepos} loading={reposLoading}>
-                        Refresh
-                    </LemonButton>
-                }
-            />
-            <div className="flex flex-col gap-2 max-w-2xl">
-                <h3 className="m-0 text-base">Pick a repo</h3>
-                {repos.map((repo) => (
-                    <Link
-                        key={repo.id}
-                        to={urls.visualReviewRepoRuns(repo.id)}
-                        className="flex items-center justify-between border border-border rounded p-3 bg-bg-light hover:border-primary transition-colors"
-                    >
-                        <span className="font-mono text-sm">{repo.repo_full_name}</span>
-                        <span className="text-xs text-muted">connected {dayjs(repo.created_at).fromNow()}</span>
-                    </Link>
-                ))}
+            <SceneTitleSection name="Visual review" resourceType={{ type: 'visual_review' }} />
+            <div className="max-w-2xl">
+                <p className="text-muted">
+                    No visual review repos yet. Connect one from <Link to={urls.visualReviewSettings()}>Settings</Link>{' '}
+                    to get started.
+                </p>
+                <LemonButton type="primary" to={urls.visualReviewSettings()}>
+                    Open settings
+                </LemonButton>
             </div>
         </SceneContent>
     )
