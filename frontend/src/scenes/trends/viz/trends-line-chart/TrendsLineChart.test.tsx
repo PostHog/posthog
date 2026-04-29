@@ -281,7 +281,25 @@ describe('TrendsLineChart', () => {
     })
 
     describe('tooltip pin lifecycle', () => {
-        it('unpins when Escape is pressed', async () => {
+        it.each([
+            {
+                trigger: 'Escape key press',
+                unpin: async () => {
+                    fireEvent.keyDown(document, { key: 'Escape' })
+                },
+            },
+            {
+                trigger: 'click outside the chart',
+                unpin: async () => {
+                    // The chart attaches its outside-click listener via setTimeout(0); flush
+                    // first so the listener actually intercepts the click.
+                    await new Promise((resolve) => setTimeout(resolve, 5))
+                    const outside = document.body.appendChild(document.createElement('div'))
+                    fireEvent.click(outside)
+                    outside.remove()
+                },
+            },
+        ])('unpins on $trigger', async ({ unpin }) => {
             renderInsight({
                 query: buildTrendsQuery({
                     series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
@@ -293,38 +311,11 @@ describe('TrendsLineChart', () => {
             await chart.clickAtIndex(2)
             expect(chart.getTooltip()).toBeInTheDocument()
 
-            fireEvent.keyDown(document, { key: 'Escape' })
+            await unpin()
 
             await waitFor(() => {
                 expect(chart.getTooltip()).not.toBeInTheDocument()
             })
-        })
-
-        it('unpins when clicking outside the chart', async () => {
-            renderInsight({
-                query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
-                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-                }),
-                featureFlags: HOG_CHARTS_FLAG,
-            })
-
-            await chart.clickAtIndex(2)
-            expect(chart.getTooltip()).toBeInTheDocument()
-
-            // The chart attaches its outside-click listener via setTimeout(0); flush
-            // the microtask queue first so the listener actually intercepts the click.
-            await new Promise((resolve) => setTimeout(resolve, 5))
-
-            const outsideTarget = document.body.appendChild(document.createElement('div'))
-            try {
-                fireEvent.click(outsideTarget)
-                await waitFor(() => {
-                    expect(chart.getTooltip()).not.toBeInTheDocument()
-                })
-            } finally {
-                outsideTarget.remove()
-            }
         })
     })
 

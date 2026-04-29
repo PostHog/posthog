@@ -233,12 +233,11 @@ export interface ActorsLookupQuery {
     day?: string | number | null
 }
 
-let nextAnnotationId = 1
-
-/** Build a RawAnnotationType for use in setupInsightMocks({ annotations }). */
+/** Build a RawAnnotationType for use in setupInsightMocks({ annotations }).
+ *  Generates a random id so identifiers don't carry deterministic state across tests. */
 export function buildAnnotation(overrides: Partial<RawAnnotationType> = {}): RawAnnotationType {
     return {
-        id: nextAnnotationId++,
+        id: Math.floor(Math.random() * 1_000_000),
         scope: AnnotationScope.Project,
         content: 'Hedgehog spotted',
         date_marker: '2024-06-12T12:00:00Z',
