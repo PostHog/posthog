@@ -132,7 +132,7 @@ def _filter_existing_fields(
                 ):
                     continue
                 existing_choices = existing_translation.get("choices")
-                if overwrite or not isinstance(existing_choices, list) or len(existing_choices) != len(source_choices):
+                if overwrite or not isinstance(existing_choices, list):
                     question_translation[field] = value
                     generated_paths.extend(
                         f"questions.{question_index}.translations.{target_language}.choices.{choice_index}"
@@ -140,17 +140,28 @@ def _filter_existing_fields(
                     )
                     continue
 
-                choices = list(existing_choices)
+                choices = list(value) if len(existing_choices) != len(source_choices) else list(existing_choices)
                 choice_paths = []
                 for choice_index, translated_choice in enumerate(value):
+                    if choice_index >= len(existing_choices):
+                        choice_paths.append(
+                            f"questions.{question_index}.translations.{target_language}.choices.{choice_index}"
+                        )
+                        continue
+
                     if _should_replace(existing_choices[choice_index], source_choices[choice_index], overwrite):
                         choices[choice_index] = translated_choice
                         choice_paths.append(
                             f"questions.{question_index}.translations.{target_language}.choices.{choice_index}"
                         )
+                    else:
+                        choices[choice_index] = existing_choices[choice_index]
+
                 if choice_paths:
                     question_translation[field] = choices
                     generated_paths.extend(choice_paths)
+                elif len(existing_choices) != len(choices):
+                    question_translation[field] = choices
                 continue
 
             if value != "" and _should_replace(existing_translation.get(field), question.get(field), overwrite):

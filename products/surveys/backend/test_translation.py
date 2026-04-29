@@ -75,6 +75,64 @@ def test_generate_survey_translation_preserves_manual_translations(mock_generate
 
 
 @patch("products.surveys.backend.translation.generate_structured_output")
+def test_generate_survey_translation_preserves_manual_choice_translations_after_choice_count_change(
+    mock_generate_structured_output: Mock,
+) -> None:
+    mock_generate_structured_output.return_value = (
+        SurveyTranslationResponse.model_validate(
+            {
+                "questions": [
+                    {
+                        "id": "question-1",
+                        "choices": ["Analitica", "Encuestas", "Comentarios de clientes"],
+                    }
+                ]
+            }
+        ),
+        "trace-2",
+    )
+    survey = {
+        "name": "Customer feedback",
+        "type": "popover",
+        "questions": [
+            {
+                "id": "question-1",
+                "question": "Why did you sign up?",
+                "choices": ["Analytics", "Surveys", "Customer feedback"],
+                "translations": {
+                    "es": {
+                        "choices": ["Manual analytics", "Surveys"],
+                    }
+                },
+            }
+        ],
+    }
+
+    _translations, questions, generated_paths, trace_id = generate_survey_translation(
+        survey=survey,
+        target_language="es",
+        source_language="en",
+        overwrite=False,
+    )
+
+    assert questions == [
+        {
+            "id": "question-1",
+            "translations": {
+                "es": {
+                    "choices": ["Manual analytics", "Encuestas", "Comentarios de clientes"],
+                }
+            },
+        }
+    ]
+    assert generated_paths == [
+        "questions.0.translations.es.choices.1",
+        "questions.0.translations.es.choices.2",
+    ]
+    assert trace_id == "trace-2"
+
+
+@patch("products.surveys.backend.translation.generate_structured_output")
 def test_generate_survey_translation_matches_questions_without_ids(mock_generate_structured_output: Mock) -> None:
     mock_generate_structured_output.return_value = (
         SurveyTranslationResponse.model_validate(
