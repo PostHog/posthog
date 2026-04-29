@@ -186,8 +186,8 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     original_filename=uploaded.name or "unnamed",
                 )
             )
-        except FileParseError as exc:
-            raise exceptions.ValidationError({"file": str(exc)})
+        except FileParseError:
+            raise exceptions.ValidationError({"file": "Unable to parse the uploaded file."})
         except QuotaExceededError:
             raise exceptions.Throttled(detail="Knowledge source quota exceeded for this project.")
         return Response(KnowledgeSourceSerializer(instance=dto).data, status=status.HTTP_201_CREATED)
