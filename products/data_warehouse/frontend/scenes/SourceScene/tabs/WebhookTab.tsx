@@ -12,6 +12,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { WebhookInfo } from '~/types'
 
 import {
+    WebhookCreateResult,
     WebhookRefreshButton,
     WebhookSetupForm,
     WebhookStatusTags,
@@ -199,7 +200,7 @@ function WebhookRecreateSection({
     sourceName: string
     sourceConfig: any
     webhookCreating: boolean
-    createWebhookResult: { success: boolean; webhook_url: string; error?: string } | null
+    createWebhookResult: WebhookCreateResult | null
     onCreateWebhook: () => void
 }): JSX.Element {
     return (
