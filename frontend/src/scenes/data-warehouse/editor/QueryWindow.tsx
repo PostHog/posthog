@@ -29,6 +29,7 @@ import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
 import { OutputPane } from './OutputPane'
+import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -154,6 +155,7 @@ export function QueryWindow({
                     <QueryVariablesMenu
                         disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                     />
+                    <QueryFiltersMenu />
                     {editingView ? (
                         <LemonButton
                             type="secondary"
@@ -246,7 +248,7 @@ export function QueryWindow({
                 }}
             />
 
-            <InternalQueryWindow />
+            <InternalQueryWindow tabId={tabId} />
         </div>
     )
 }
@@ -365,14 +367,14 @@ function RunButton(): JSX.Element {
     )
 }
 
-const InternalQueryWindow = memo(function InternalQueryWindow(): JSX.Element | null {
+const InternalQueryWindow = memo(function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
     const { finishedLoading } = useValues(sqlEditorLogic)
 
     if (finishedLoading) {
         return null
     }
 
-    return <OutputPane />
+    return <OutputPane tabId={tabId} />
 })
 
 function CollapsedConnectionSelector({

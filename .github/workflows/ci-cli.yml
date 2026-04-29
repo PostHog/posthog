@@ -7,6 +7,10 @@ on:
             - 'cli/**'
             - '.github/workflows/ci-cli.yml'
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
     tests:
         name: Run tests

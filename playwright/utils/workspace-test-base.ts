@@ -16,9 +16,10 @@ import { test as coreTest } from './playwright-test-core'
  * Use this for most tests where you want to manually create workspaces
  */
 export const test = coreTest.extend<{ playwrightSetup: PlaywrightSetup; workspaceSetup: PlaywrightSetup }>({
-    playwrightSetup: async ({ request, baseURL }, use) => {
-        const playwrightSetup = createPlaywrightSetup(request, baseURL)
+    playwrightSetup: async ({ baseURL }, use) => {
+        const playwrightSetup = createPlaywrightSetup(baseURL)
         await use(playwrightSetup)
+        await playwrightSetup.dispose()
     },
 })
 

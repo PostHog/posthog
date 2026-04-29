@@ -36,7 +36,12 @@ from posthog.hogql.functions.traffic_type import (
 )
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_field_by_name, lookup_table_by_name
+from posthog.hogql.resolver_utils import (
+    expand_hogqlx_query,
+    lookup_field_by_name,
+    lookup_table_by_name,
+    suggest_field_names,
+)
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -1674,6 +1679,8 @@ class Resolver(CloningVisitor):
                     )
                 return ast.Constant(value=value, type=global_type)
 
+            suggestions = suggest_field_names(scope, name, self.context)
+            suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             if self.dialect == "clickhouse":
                 # To debug, add a breakpoint() here and print self.context.database
                 #
@@ -1683,13 +1690,13 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-                raise QueryError(f"Unable to resolve field: {name}")
+                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}")
             else:
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
                     start=node.start,
                     end=node.end,
-                    message=f"Unable to resolve field: {name}",
+                    message=f"Unable to resolve field: {name}{suggestion_suffix}",
                 )
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.

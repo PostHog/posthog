@@ -42,74 +42,85 @@ export const createExampleEvent = (
     workflowName?: string | null,
     eventName: string = '$pageview',
     email: string = 'example@posthog.com'
-): CyclotronJobInvocationGlobals => ({
-    event: {
-        uuid: uuid(),
-        distinct_id: uuid(),
-        timestamp: dayjs().toISOString(),
-        elements_chain: '',
-        url: `${window.location.origin}/project/${teamId || 1}/events/`,
-        event: eventName,
-        properties: {
-            $current_url: window.location.href.split('#')[0],
-            $browser: 'Chrome',
-            this_is_an_example_event: true,
+): CyclotronJobInvocationGlobals => {
+    const resolvedTeamId = teamId || 1
+    const projectUrl = `${window.location.origin}/project/${resolvedTeamId}`
+    const eventUuid = uuid()
+    const eventTimestamp = dayjs().toISOString()
+    return {
+        event: {
+            uuid: eventUuid,
+            distinct_id: uuid(),
+            timestamp: eventTimestamp,
+            elements_chain: '',
+            url: `${projectUrl}/events/${encodeURIComponent(eventUuid)}/${encodeURIComponent(eventTimestamp)}`,
+            event: eventName,
+            properties: {
+                $current_url: window.location.href.split('#')[0],
+                $browser: 'Chrome',
+                this_is_an_example_event: true,
+            },
         },
-    },
-    person: {
-        id: uuid(),
-        properties: {
-            email,
+        person: {
+            id: uuid(),
+            properties: {
+                email,
+            },
+            name: 'Example person',
+            url: `${window.location.origin}/person/${uuid()}`,
         },
-        name: 'Example person',
-        url: `${window.location.origin}/person/${uuid()}`,
-    },
-    groups: {},
-    project: {
-        id: teamId || 1,
-        name: 'Default project',
-        url: `${window.location.origin}/project/${teamId || 1}`,
-    },
-    source: {
-        name: workflowName ?? 'Unnamed',
-        url: window.location.href.split('#')[0],
-    },
-})
+        groups: {},
+        project: {
+            id: resolvedTeamId,
+            name: 'Default project',
+            url: projectUrl,
+        },
+        source: {
+            name: workflowName ?? 'Unnamed',
+            url: window.location.href.split('#')[0],
+        },
+    }
+}
 
 export const createGlobalsFromResponse = (
     event: any,
     person: any,
     teamId: number,
     workflowName?: string | null
-): CyclotronJobInvocationGlobals => ({
-    event: {
-        uuid: event.uuid,
-        distinct_id: event.distinct_id,
-        timestamp: event.timestamp,
-        elements_chain: event.elements_chain || '',
-        url: event.url || '',
-        event: event.event,
-        properties: event.properties,
-    },
-    person: person
-        ? {
-              id: person.id,
-              properties: person.properties,
-              name: person.name || 'Unknown person',
-              url: `${window.location.origin}/person/${person.id}`,
-          }
-        : undefined,
-    groups: {},
-    project: {
-        id: teamId,
-        name: 'Default project',
-        url: `${window.location.origin}/project/${teamId}`,
-    },
-    source: {
-        name: workflowName ?? 'Unnamed',
-        url: window.location.href.split('#')[0],
-    },
-})
+): CyclotronJobInvocationGlobals => {
+    const projectUrl = `${window.location.origin}/project/${teamId}`
+    return {
+        event: {
+            uuid: event.uuid,
+            distinct_id: event.distinct_id,
+            timestamp: event.timestamp,
+            elements_chain: event.elements_chain || '',
+            url:
+                event.url ||
+                `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(event.timestamp)}`,
+            event: event.event,
+            properties: event.properties,
+        },
+        person: person
+            ? {
+                  id: person.id,
+                  properties: person.properties,
+                  name: person.name || 'Unknown person',
+                  url: `${window.location.origin}/person/${person.id}`,
+              }
+            : undefined,
+        groups: {},
+        project: {
+            id: teamId,
+            name: 'Default project',
+            url: projectUrl,
+        },
+        source: {
+            name: workflowName ?? 'Unnamed',
+            url: window.location.href.split('#')[0],
+        },
+    }
+}
 
 export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'hogflows', 'actions', 'workflowTestLogic', key]),

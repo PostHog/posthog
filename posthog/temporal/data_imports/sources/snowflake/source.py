@@ -58,6 +58,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -65,6 +66,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="snowflake_sample_data",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="warehouse",
@@ -72,6 +74,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="COMPUTE_WAREHOUSE",
+                        secret=False,
                     ),
                     # the validation for these options happens in validate_credentials
                     SourceFieldSelectConfig(
@@ -92,6 +95,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="User1",
+                                            secret=False,
                                         ),
                                         SourceFieldInputConfig(
                                             name="password",
@@ -99,6 +103,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.PASSWORD,
                                             required=False,
                                             placeholder="",
+                                            secret=True,
                                         ),
                                     ],
                                 ),
@@ -115,6 +120,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="User1",
+                                            secret=False,
                                         ),
                                         SourceFieldInputConfig(
                                             name="private_key",
@@ -122,6 +128,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.TEXTAREA,
                                             required=False,
                                             placeholder="",
+                                            secret=True,
                                         ),
                                         SourceFieldInputConfig(
                                             name="passphrase",
@@ -129,6 +136,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                                             type=SourceFieldInputConfigType.PASSWORD,
                                             required=False,
                                             placeholder="",
+                                            secret=True,
                                         ),
                                     ],
                                 ),
@@ -141,6 +149,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="ACCOUNTADMIN",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -148,6 +157,7 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="public",
+                        secret=False,
                     ),
                 ],
             ),
