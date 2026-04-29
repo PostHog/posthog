@@ -1140,24 +1140,28 @@ class SessionRecordingViewSet(
         if not all(isinstance(sid, str) for sid in session_ids):
             raise exceptions.ValidationError("session_ids must contain only strings")
 
+        include_outcomes = bool(request.data.get("include_outcomes"))
+
         results = SessionReplayEvents().batch_exists(session_ids, self.team)
         payload: dict[str, Any] = {"results": results}
 
-        if request.data.get("include_outcomes"):
+        if include_outcomes:
             outcomes: dict[str, dict] = {}
             try:
                 from ee.models.session_summaries import SingleSessionSummary
             except ImportError:
-                payload["outcomes"] = outcomes
+                # Distinguishes OSS deploys (expected) from EE refactors that break the import (silent feature
+                # degradation otherwise).
+                logger.warning("session_summaries module not importable; returning empty outcomes")
             else:
                 bulk_outcomes = SingleSessionSummary.objects.get_outcomes_bulk(self.team.id, session_ids)
                 for session_id, outcome in bulk_outcomes.items():
                     if outcome and outcome.get("description"):
                         outcomes[session_id] = {"description": outcome["description"]}
-                payload["outcomes"] = outcomes
+            payload["outcomes"] = outcomes
 
         response = Response(payload)
-        if request.data.get("include_outcomes"):
+        if include_outcomes:
             response["Cache-Control"] = "private, max-age=60"
         return response
 

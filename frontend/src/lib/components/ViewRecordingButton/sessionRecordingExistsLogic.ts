@@ -103,6 +103,7 @@ export const sessionRecordingExistsLogic = kea<sessionRecordingExistsLogicType>(
 
             const remainingSlots = Math.max(0, 100 - toCheck.length)
             const outcomeOnlyToFetch = outcomeOnlyIds.slice(0, remainingSlots)
+            const outcomeOnlySet = new Set(outcomeOnlyToFetch)
 
             const sessionIds = [...toCheck, ...outcomeOnlyToFetch]
             if (sessionIds.length === 0) {
@@ -135,7 +136,7 @@ export const sessionRecordingExistsLogic = kea<sessionRecordingExistsLogicType>(
                 if (includeOutcomes) {
                     const outcomeUpdates: Record<string, StoredOutcome> = {}
                     for (const sessionId of sessionIds) {
-                        if (!wantedOutcomes[sessionId] && !outcomeOnlyToFetch.includes(sessionId)) {
+                        if (!wantedOutcomes[sessionId] && !outcomeOnlySet.has(sessionId)) {
                             continue
                         }
                         outcomeUpdates[sessionId] = response.outcomes?.[sessionId] ?? null
@@ -153,7 +154,7 @@ export const sessionRecordingExistsLogic = kea<sessionRecordingExistsLogicType>(
                 if (includeOutcomes) {
                     const failedOutcomes: Record<string, StoredOutcome> = {}
                     for (const sessionId of sessionIds) {
-                        if (wantedOutcomes[sessionId] || outcomeOnlyToFetch.includes(sessionId)) {
+                        if (wantedOutcomes[sessionId] || outcomeOnlySet.has(sessionId)) {
                             failedOutcomes[sessionId] = 'error'
                         }
                     }

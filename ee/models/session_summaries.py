@@ -185,8 +185,12 @@ class SingleSessionSummaryManager(models.Manager["SingleSessionSummary"]):
     ) -> dict[str, dict | None]:
         """Latest persisted session_outcome dict per session_id, scoped to team.
 
-        Sessions with no matching summary are omitted. Sessions whose summary exists but has no
-        outcome stored map to None.
+        Callers use the dict's keys to know which sessions were summarised (regardless of
+        outcome presence) and the values to read the outcome itself. Sessions whose latest
+        summary's `extra_summary_context` does not match the requested context are silently
+        dropped (the post-`distinct` filter picks the latest row per session, so an older
+        matching summary is also discarded if a newer non-matching one exists). Sessions
+        whose summary exists but has no outcome stored map to None.
         """
         queryset = self.filter(team_id=team_id, session_id__in=session_ids)
         if extra_summary_context is not None:
