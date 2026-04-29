@@ -2935,6 +2935,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         cache.decorationGeneration = (cache.decorationGeneration ?? 0) + 1
 
         cache.createdModels?.forEach((m: editor.ITextModel) => {
+            // Null the back-reference BEFORE disposing. A disposed Monaco
+            // model still lives in the JS heap until GC reclaims it; if
+            // `(model as any).codeEditorLogic` is still set, the captured
+            // codeEditorLogic BuiltLogic — and through its `props.onError`
+            // closure, the entire `sqlEditorLogic` connection graph —
+            // stays reachable. `CodeEditor.tsx#disposeTrackedModels` only
+            // clears the back-reference on models that aren't already
+            // disposed, so unless we null it here first, every per-tab
+            // model leaks a full graph each cycle.
+            ;(m as any).codeEditorLogic = undefined
             try {
                 m.dispose()
             } catch {}
