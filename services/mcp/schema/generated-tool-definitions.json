@@ -2310,6 +2310,156 @@
         },
         "requires_ai_consent": true
     },
+    "llm-analytics-review-queue-items-create": {
+        "description": "Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if the trace already has an active review or is already pending in any review queue.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create review queue item",
+        "title": "Create review queue item",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llm-analytics-review-queue-items-destroy": {
+        "description": "Remove a pending trace review assignment from review queues. This soft-deletes the queue item so the trace can be queued again later if needed.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete review queue item",
+        "title": "Delete review queue item",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llm-analytics-review-queue-items-list": {
+        "description": "List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id, trace_id__in, search, and ordering so agents can find traces that are still queued for review.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List review queue items",
+        "title": "List review queue items",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llm-analytics-review-queue-items-partial-update": {
+        "description": "Move a pending trace review assignment to a different review queue by updating queue_id. Fails if the trace has already been reviewed and can no longer stay queued.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update review queue item",
+        "title": "Update review queue item",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llm-analytics-review-queue-items-retrieve": {
+        "description": "Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and timestamps for the pending review task.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get review queue item",
+        "title": "Get review queue item",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llm-analytics-review-queues-create": {
+        "description": "Create a review queue for routing traces that still need review. Queue names must be unique among active queues in the current project.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create review queue",
+        "title": "Create review queue",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llm-analytics-review-queues-destroy": {
+        "description": "Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments that still belong to it.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete review queue",
+        "title": "Delete review queue",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llm-analytics-review-queues-list": {
+        "description": "List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and timestamps. Supports queue-name search and ordering.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List review queues",
+        "title": "List review queues",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llm-analytics-review-queues-partial-update": {
+        "description": "Rename an existing review queue. The updated name must stay unique among active queues in the project.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update review queue",
+        "title": "Update review queue",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llm-analytics-review-queues-retrieve": {
+        "description": "Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get review queue",
+        "title": "Get review queue",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "llm-analytics-sentiment-create": {
         "description": "Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list of trace or generation IDs and an analysis_level (\"trace\" or \"generation\"). Returns per-ID sentiment labels with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute. Rate-limited.",
         "category": "LLM analytics",
@@ -2340,6 +2490,81 @@
             "readOnlyHint": false
         },
         "requires_ai_consent": true
+    },
+    "llm-analytics-trace-reviews-create": {
+        "description": "Save a trace review. Supports an optional comment, an optional scores array, and an optional queue_id to clear a matching pending review-queue item after the review is saved.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Create trace review",
+        "title": "Create trace review",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llm-analytics-trace-reviews-destroy": {
+        "description": "Delete a trace review by ID. This soft-deletes the review so the same trace can be reviewed again later if needed.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Delete trace review",
+        "title": "Delete trace review",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llm-analytics-trace-reviews-list": {
+        "description": "List saved trace reviews. Supports filtering by trace_id, definition_id, search, and ordering. Returns comments, scores, reviewers, and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "List trace reviews",
+        "title": "List trace reviews",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llm-analytics-trace-reviews-partial-update": {
+        "description": "Update a trace review. Pass comment and/or the full desired scores array. You can also pass queue_id to clear only a matching pending queue item after the review is saved.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Update trace review",
+        "title": "Update trace review",
+        "required_scopes": ["llm_analytics:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llm-analytics-trace-reviews-retrieve": {
+        "description": "Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and timestamps.",
+        "category": "LLM analytics",
+        "feature": "llm_analytics",
+        "summary": "Get trace review",
+        "title": "Get trace review",
+        "required_scopes": ["llm_analytics:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     },
     "logs-alerts-create": {
         "description": "Create a threshold-based alert on log streams. The alert periodically counts log entries matching the given filters and fires when the count crosses the threshold. Maximum 20 alerts per project.",
