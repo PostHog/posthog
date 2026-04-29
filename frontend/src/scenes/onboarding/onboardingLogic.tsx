@@ -414,14 +414,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 values.sessionSecondaryProductKeys.includes(ProductKey.LOGS)
             ) {
                 return [
-                    urls.onboarding({
-                        productKey: ProductKey.LOGS,
-                        stepKey: OnboardingStepKey.INSTALL,
-                        from: values.productKey ?? undefined,
-                    }),
-                    // Preserve secondary param so the modal still shows Logs instructions
-                    // if the user navigates back to the primary product install step.
-                    { secondary: router.values.searchParams.secondary },
+                    `/onboarding/${ProductKey.LOGS}`,
+                    {
+                        step: OnboardingStepKey.INSTALL,
+                        secondary: router.values.searchParams.secondary,
+                        from: values.productKey,
+                    },
                 ]
             }
             if (nextStep) {
@@ -445,11 +443,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // another product's install step, navigate back to it.
             if (values.fromProductKey) {
                 return [
-                    urls.onboarding({
-                        productKey: values.fromProductKey,
-                        stepKey: OnboardingStepKey.INSTALL,
+                    `/onboarding/${values.fromProductKey}`,
+                    {
+                        step: OnboardingStepKey.INSTALL,
                         secondary: router.values.searchParams.secondary,
-                    }),
+                    },
                 ]
             }
             return [`/onboarding/${values.productKey}`, router.values.searchParams]
