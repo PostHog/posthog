@@ -22,15 +22,17 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
 
+import { WebAnalyticsDomainSelector } from '../WebAnalyticsFilters'
 import { BreakdownLiveCard } from './BreakdownLiveCard'
 import { getBrowserLogo } from './browserLogos'
+import { LiveBotTrafficCard } from './LiveBotTrafficCard'
 import { CONTENT_CARD_SPAN, LiveContentCardId, LiveStatCardId } from './liveCards'
 import { LiveChartCard } from './LiveChartCard'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
 import { LiveTopReferrersTable } from './LiveTopReferrersTable'
 import { liveWebAnalyticsLayoutLogic } from './liveWebAnalyticsLayoutLogic'
-import { UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
+import { BotEventsPerMinuteChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 import { BrowserBreakdownItem, CountryBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
@@ -120,11 +122,17 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
         totalPageviews,
         totalUniqueVisitors,
         totalBrowsers,
+        botBreakdown,
+        totalBotEvents,
+        liveUserCount,
+        selectedHost,
         isLoading,
         recentEvents,
     } = useValues(liveWebAnalyticsMetricsLogic)
     const { pauseStream, resumeStream } = useActions(liveWebAnalyticsMetricsLogic)
-    const { liveUserCount } = useValues(liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS }))
+    const { liveUserCount: allDomainsLiveUserCount } = useValues(
+        liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS })
+    )
     const { pauseStream: pauseLiveCount, resumeStream: resumeLiveCount } = useActions(
         liveUserCountLogic({ pollIntervalMs: STATS_POLL_INTERVAL_MS })
     )
@@ -147,6 +155,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
     }, [isVisible, resumeStream, pauseStream, resumeLiveCount, pauseLiveCount])
 
     const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
+    const displayedLiveUserCount = selectedHost ? liveUserCount : allDomainsLiveUserCount
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -157,7 +166,13 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
     const renderStatCard = (id: LiveStatCardId): JSX.Element => {
         switch (id) {
             case 'users_online':
-                return <LiveStatCard label="Users online" value={liveUserCount} />
+                return (
+                    <LiveStatCard
+                        label="Users online"
+                        value={displayedLiveUserCount}
+                        isLoading={selectedHost ? isLoading : undefined}
+                    />
+                )
             case 'unique_visitors':
                 return <LiveStatCard label="Unique visitors" value={totalUniqueVisitors} isLoading={isLoading} />
             case 'pageviews':
@@ -174,7 +189,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         subtitle={timezone}
                         subtitleTooltip="Metrics are shown in your local timezone"
                         isLoading={isLoading}
-                        contentClassName="h-64 md:h-80"
                     >
                         <UsersPerMinuteChart data={chartData} />
                     </LiveChartCard>
@@ -225,6 +239,33 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         renderIcon={renderCountryIcon}
                         emptyMessage="No country data"
                         statLabel="unique visitors"
+                        isLoading={isLoading}
+                    />
+                )
+            case 'bot_events_chart':
+                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+                    return null
+                }
+                return (
+                    <LiveChartCard
+                        title="Bot requests per minute"
+                        subtitle={timezone}
+                        subtitleTooltip="Metrics are shown in your local timezone"
+                        isLoading={isLoading}
+                        contentClassName="h-64 md:h-80"
+                    >
+                        <BotEventsPerMinuteChart data={chartData} />
+                    </LiveChartCard>
+                )
+            case 'bot_traffic':
+                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]) {
+                    return null
+                }
+                return (
+                    <LiveBotTrafficCard
+                        data={botBreakdown}
+                        totalBotEvents={totalBotEvents}
+                        totalEvents={totalPageviews}
                         isLoading={isLoading}
                     />
                 )
@@ -279,6 +320,12 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             >
                 The Web Analytics live dashboard is in alpha. We'd love to hear what you think!
             </LemonBanner>
+
+            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_DOMAIN_FILTER] && (
+                <div className="mb-4">
+                    <WebAnalyticsDomainSelector />
+                </div>
+            )}
 
             {canEditLayout && (
                 <div className="flex items-center justify-end gap-2 mb-2">

@@ -80,6 +80,24 @@ export class CyclotronJobQueue {
             this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.consumerBatchSize, this.config)
         }
 
+        // Without this, writes to postgres-v2 silently no-op via optional chaining,
+        // causing stall-reset loops and duplicate execution at the consumer side.
+        if (!this.jobQueuePostgresV2) {
+            const missingV2TargetError = (configKey: string): Error =>
+                new Error(
+                    `${configKey} routes to postgres-v2 but CYCLOTRON_NODE_DATABASE_URL is not configured. ` +
+                        `Set CYCLOTRON_NODE_DATABASE_URL (via psql.cyclotron in charts) or change the mapping to not target postgres-v2.`
+                )
+            if (routingReferencesV2(this.producerMapping)) {
+                throw missingV2TargetError('CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING')
+            }
+            for (const perTeamRouting of Object.values(this.producerTeamMapping)) {
+                if (routingReferencesV2(perTeamRouting)) {
+                    throw missingV2TargetError('CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING')
+                }
+            }
+        }
+
         logger.info('🔄', 'CyclotronJobQueue initialized', {
             producerMapping: this.producerMapping,
             producerTeamMapping: this.producerTeamMapping,
@@ -392,6 +410,10 @@ export class CyclotronJobQueue {
 
         await Promise.all(promises)
     }
+}
+
+export function routingReferencesV2(routing: CyclotronJobQueueRouting): boolean {
+    return Object.values(routing).some((entries) => entries.some((e) => e.target === 'postgres-v2'))
 }
 
 /**

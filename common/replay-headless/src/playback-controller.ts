@@ -16,13 +16,13 @@ export class PlaybackController {
         private replayer: Replayer,
         private segments: RecordingSegment[],
         private firstTimestamp: number,
-        private options: { skipInactivity?: boolean; endTimestamp?: number },
+        private options: { skipInactivity?: boolean; endOffsetS?: number },
         private bridge: HostBridge
     ) {
         this.replayer.on('finish', () => this.stop())
 
-        if (this.options.endTimestamp) {
-            const endTs = this.options.endTimestamp
+        if (this.options.endOffsetS != null) {
+            const endTs = this.firstTimestamp + this.options.endOffsetS * 1000
             this.replayer.on('event-cast', (event: eventWithTime) => {
                 if (event.timestamp >= endTs) {
                     this.replayer.pause()

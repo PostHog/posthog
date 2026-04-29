@@ -724,7 +724,7 @@ export class HogExecutorService {
             if (typeof body === 'string') {
                 try {
                     body = parseJSON(body)
-                } catch (e) {
+                } catch {
                     // Pass through the error
                 }
             }

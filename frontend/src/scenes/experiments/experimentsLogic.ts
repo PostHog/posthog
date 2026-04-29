@@ -149,8 +149,6 @@ export function getExperimentStatusLabel(status: ExperimentStatus, isPaused: boo
         case ExperimentStatus.Stopped:
             return 'Complete'
     }
-
-    return 'Draft'
 }
 
 export function getExperimentStatusColor(status: ExperimentStatus, isPaused: boolean = false): LemonTagType {
@@ -166,8 +164,6 @@ export function getExperimentStatusColor(status: ExperimentStatus, isPaused: boo
         case ExperimentStatus.Stopped:
             return 'completion'
     }
-
-    return 'default'
 }
 
 function normalizeExperimentFilterStatus(status: string | undefined): ExperimentStatus | 'all' {
@@ -301,6 +297,15 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 archiveExperiment: async (id: number) => {
                     await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/archive`)
                     lemonToast.info('Experiment archived')
+                    return {
+                        ...values.experiments,
+                        results: values.experiments.results.filter((experiment) => experiment.id !== id),
+                        count: values.experiments.count - 1,
+                    }
+                },
+                unarchiveExperiment: async (id: number) => {
+                    await api.create(`api/projects/${values.currentProjectId}/experiments/${id}/unarchive`)
+                    lemonToast.info('Experiment unarchived')
                     return {
                         ...values.experiments,
                         results: values.experiments.results.filter((experiment) => experiment.id !== id),

@@ -44,6 +44,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="input placeholder",
+                        secret=False,
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="switch_group",
@@ -59,6 +60,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
+                                    secret=False,
                                 ),
                                 SourceFieldInputConfig(
                                     name="input_field_2",
@@ -66,6 +68,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
+                                    secret=False,
                                 ),
                             ],
                         ),
@@ -98,6 +101,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_1 placeholder",
+                                            secret=False,
                                         ),
                                     ],
                                 ),
@@ -114,6 +118,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_2 placeholder",
+                                            secret=False,
                                         ),
                                     ],
                                 ),
@@ -149,6 +154,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="input placeholder",
+                        secret=False,
                     ),
                 ],
             ),
@@ -171,6 +177,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="input placeholder",
+                        secret=False,
                     ),
                 ],
             ),
@@ -192,6 +199,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="input placeholder",
+                        secret=False,
                     ),
                 ],
             ),
@@ -221,6 +229,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
+                                    secret=False,
                                 ),
                             ],
                         ),
@@ -328,6 +337,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_1 placeholder",
+                                            secret=False,
                                         ),
                                     ],
                                 ),
@@ -344,6 +354,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=True,
                                             placeholder="option_2 placeholder",
+                                            secret=False,
                                         ),
                                     ],
                                 ),
@@ -416,6 +427,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="12345",
+                        secret=False,
                     ),
                 ],
             ),
@@ -438,6 +450,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,
                         placeholder="90",
+                        secret=False,
                     ),
                 ],
             ),
@@ -447,6 +460,39 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         assert (
             "optional_int_value: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)"
             in output
+        )
+
+    def test_optional_fields_are_sorted_after_required_fields(self):
+        config = SourceConfig(
+            name=SchemaExternalDataSourceType.STRIPE,
+            iconPath="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="optional_value",
+                        label="optional value",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="optional",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="required_value",
+                        label="required value",
+                        type=SourceFieldInputConfigType.NUMBER,
+                        required=True,
+                        placeholder="123",
+                        secret=False,
+                    ),
+                ],
+            ),
+        )
+
+        output = self._run({ExternalDataSourceType.STRIPE: config})
+
+        assert output.index("required_value: int = config.value(converter=int)") < output.index(
+            "optional_value: str | None = None"
         )
 
     def test_source_config_nested_class(self):
@@ -470,6 +516,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
+                                    secret=False,
                                 ),
                                 SourceFieldInputConfig(
                                     name="input_field_2",
@@ -477,6 +524,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
                                     type=SourceFieldInputConfigType.TEXT,
                                     required=False,
                                     placeholder="input placeholder",
+                                    secret=False,
                                 ),
                             ],
                         ),

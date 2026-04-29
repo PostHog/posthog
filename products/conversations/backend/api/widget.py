@@ -47,7 +47,6 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
-from products.conversations.backend.events import capture_ticket_created
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.identity import verify_identity_hash
@@ -95,7 +94,7 @@ class WidgetMessageView(APIView):
     def post(self, request: Request) -> Response:
         """Handle incoming message from widget."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -211,12 +210,6 @@ class WidgetMessageView(APIView):
             )
 
             try:
-                capture_ticket_created(ticket)
-            except Exception as e:
-                # Don't let analytics failures break the widget
-                capture_exception(e, {"ticket_id": str(ticket.id)})
-
-            try:
                 report_team_action(team, "support ticket created", {"channel_source": ticket.channel_source})
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
@@ -272,7 +265,7 @@ class WidgetMessagesView(APIView):
     def get(self, request: Request, ticket_id: str) -> Response:
         """Get messages for a ticket."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -402,7 +395,7 @@ class WidgetTicketsView(APIView):
     def get(self, request: Request) -> Response:
         """List tickets for a widget_session_id."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -492,7 +485,7 @@ class WidgetMarkReadView(APIView):
     def post(self, request: Request, ticket_id: str) -> Response:
         """Mark ticket messages as read by customer."""
 
-        team: Team | None = request.auth  # type: ignore[assignment]
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         if not team:
             return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
 

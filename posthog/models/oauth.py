@@ -53,12 +53,12 @@ class OAuthApplication(AbstractApplication):
     # NOTE: By default an application should be linked to the organization that created it.
     # It can be null if the organization that created it is deleted, or it was created outside of an organization (e.g. using dynamic client registration)
     # Only admins of the organization should have permission to edit the application.
-    organization: "Organization | None" = models.ForeignKey(  # type: ignore[assignment]
+    organization: "Organization | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True, related_name="oauth_applications"
     )
 
     # NOTE: The user that created the application. It should not be used to check for access to the application, since the user might have left the organization.
-    user: "User | None" = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
     logo_uri: models.URLField = models.URLField(
         max_length=2048, null=True, blank=True, help_text="URL to the client's logo image"
@@ -148,6 +148,14 @@ class OAuthApplication(AbstractApplication):
     provisioning_rate_limit_resource_creates: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for resource creates (per hour)"
     )
+    provisioning_skip_existing_user_consent: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="Skip user consent when linking existing accounts. Only enable for fully trusted partners.",
+    )
+    provisioning_can_issue_deep_links: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="Allow this app to issue deep links that mint full web sessions. Only enable for fully trusted partners.",
+    )
 
     @property
     def is_provisioning_partner(self) -> bool:
@@ -159,13 +167,13 @@ class OAuthApplication(AbstractApplication):
         swappable = "OAUTH2_PROVIDER_APPLICATION_MODEL"
         constraints = [
             models.CheckConstraint(
-                check=models.Q(skip_authorization=False),
+                condition=models.Q(skip_authorization=False),
                 name="enforce_skip_authorization_false",
             ),
             # Note: We do not support HS256 since we don't want to store the client secret in plaintext
-            models.CheckConstraint(check=models.Q(algorithm="RS256"), name="enforce_rs256_algorithm"),
+            models.CheckConstraint(condition=models.Q(algorithm="RS256"), name="enforce_rs256_algorithm"),
             models.CheckConstraint(
-                check=models.Q(authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE),
+                condition=models.Q(authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE),
                 name="enforce_supported_grant_types",
             ),
         ]
@@ -252,7 +260,7 @@ class OAuthAccessToken(AbstractAccessToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         blank=True,
@@ -272,7 +280,7 @@ class OAuthIDToken(AbstractIDToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         blank=True,
@@ -289,7 +297,7 @@ class OAuthRefreshToken(AbstractRefreshToken):
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="oauth_refresh_tokens",
@@ -308,14 +316,14 @@ class OAuthGrant(AbstractGrant):
         # Note: We do not support plaintext code challenge methods since they are not secure
         constraints = [
             models.CheckConstraint(
-                check=models.Q(code_challenge_method=AbstractGrant.CODE_CHALLENGE_S256),
+                condition=models.Q(code_challenge_method=AbstractGrant.CODE_CHALLENGE_S256),
                 name="enforce_supported_code_challenge_method",
             )
         ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
-    user: "User" = models.ForeignKey(  # type: ignore[assignment]
+    user: "User" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
         "posthog.User",
         on_delete=models.CASCADE,
         related_name="oauth_grants",

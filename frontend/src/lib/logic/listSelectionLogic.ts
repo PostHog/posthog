@@ -1,6 +1,21 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
+import { projectLogic } from 'scenes/projectLogic'
+
+import { tagsModel } from '~/models/tagsModel'
 
 import type { listSelectionLogicType } from './listSelectionLogicType'
+
+export type BulkTagAction = 'add' | 'remove' | 'set'
+
+export interface BulkUpdateTagsResult {
+    updated: Array<{ id: number; tags: string[] }>
+    skipped: Array<{ id: number; reason: string }>
+}
 
 export type BulkTaggableResource = 'feature_flags' | 'dashboards' | 'insights'
 
@@ -36,6 +51,10 @@ export const listSelectionLogic = kea<listSelectionLogicType>([
     props({} as ListSelectionLogicProps),
     key(({ resource }) => resource),
 
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId']],
+    })),
+
     actions({
         setSelectedIds: (ids: number[]) => ({ ids }),
         toggleSelection: (id: number, index: number, allPageItems: PageItem[]) => ({ id, index, allPageItems }),
@@ -43,6 +62,10 @@ export const listSelectionLogic = kea<listSelectionLogicType>([
         clearSelection: true,
         setShiftKeyHeld: (shiftKeyHeld: boolean) => ({ shiftKeyHeld }),
         setPreviouslyCheckedIndex: (index: number | null) => ({ index }),
+        showBulkTagsPopover: true,
+        hideBulkTagsPopover: true,
+        setPopoverTagAction: (tagAction: BulkTagAction) => ({ tagAction }),
+        setPopoverSelectedTags: (tags: string[]) => ({ tags }),
     }),
 
     reducers({
@@ -66,7 +89,44 @@ export const listSelectionLogic = kea<listSelectionLogicType>([
                 clearSelection: () => null,
             },
         ],
+        bulkTagsPopoverVisible: [
+            false as boolean,
+            {
+                showBulkTagsPopover: () => true,
+                hideBulkTagsPopover: () => false,
+                clearSelection: () => false,
+            },
+        ],
+        popoverTagAction: [
+            'add' as BulkTagAction,
+            {
+                setPopoverTagAction: (_, { tagAction }) => tagAction,
+                hideBulkTagsPopover: () => 'add',
+            },
+        ],
+        popoverSelectedTags: [
+            [] as string[],
+            {
+                setPopoverSelectedTags: (_, { tags }) => tags,
+                hideBulkTagsPopover: () => [],
+            },
+        ],
     }),
+
+    loaders(({ values, props: logicProps }) => ({
+        bulkUpdateTagsResponse: [
+            null as BulkUpdateTagsResult | null,
+            {
+                bulkUpdateTags: async ({ action, tags }: { action: BulkTagAction; tags: string[] }) => {
+                    const response = await api.create(
+                        `api/projects/${values.currentProjectId}/${logicProps.resource}/bulk_update_tags/`,
+                        { ids: values.selectedIds, action, tags }
+                    )
+                    return response as BulkUpdateTagsResult
+                },
+            },
+        ],
+    })),
 
     selectors({
         selectedCount: [(s) => [s.selectedIds], (ids: number[]) => ids.length],
@@ -74,6 +134,10 @@ export const listSelectionLogic = kea<listSelectionLogicType>([
     }),
 
     listeners(({ values, actions }) => ({
+        showBulkTagsPopover: () => {
+            tagsModel.actions.loadTags()
+        },
+
         toggleSelection: ({ id, index, allPageItems }) => {
             const { selectedIds, shiftKeyHeld, previouslyCheckedIndex } = values
 
@@ -116,6 +180,26 @@ export const listSelectionLogic = kea<listSelectionLogicType>([
             } else {
                 actions.setSelectedIds([...new Set([...selectedIds, ...editableIds])])
             }
+        },
+
+        bulkUpdateTagsSuccess: ({ bulkUpdateTagsResponse }) => {
+            if (bulkUpdateTagsResponse) {
+                const { updated, skipped } = bulkUpdateTagsResponse
+                if (skipped.length === 0) {
+                    lemonToast.success(`Updated tags on ${updated.length} item${updated.length !== 1 ? 's' : ''}`)
+                } else {
+                    lemonToast.warning(
+                        `Updated tags on ${updated.length} item${updated.length !== 1 ? 's' : ''}. ${skipped.length} skipped due to permissions.`
+                    )
+                }
+                actions.hideBulkTagsPopover()
+                actions.clearSelection()
+                tagsModel.actions.loadTags()
+            }
+        },
+
+        bulkUpdateTagsFailure: () => {
+            lemonToast.error('Failed to update tags')
         },
     })),
 

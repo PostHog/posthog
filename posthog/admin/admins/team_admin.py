@@ -11,6 +11,7 @@ from urllib import parse
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.files.uploadedfile import UploadedFile
+from django.forms import ModelForm, ValidationError
 from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
@@ -55,7 +56,24 @@ class ReplayActivityContext(ActivityContextBase):
     reason: str
 
 
+class TeamAdminForm(ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["test_account_filters"].required = False
+        self.fields["test_account_filters"].help_text = "list: Default value is an empty `[]`"
+
+    def clean_test_account_filters(self):
+        value = self.cleaned_data.get("test_account_filters")
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValidationError("test_account_filters must be a JSON list (e.g. `[]`).")
+        return value
+
+
 class TeamAdmin(admin.ModelAdmin):
+    form = TeamAdminForm
+
     list_display = (
         "id",
         "name",
@@ -84,7 +102,6 @@ class TeamAdmin(admin.ModelAdmin):
         "organization",
         "project",
         "primary_dashboard",
-        "test_account_filters",
         "created_at",
         "updated_at",
         "internal_properties",
@@ -130,7 +147,6 @@ class TeamAdmin(admin.ModelAdmin):
                     "timezone",
                     "week_start_day",
                     "base_currency",
-                    "slack_incoming_webhook",
                     "primary_dashboard",
                 ],
             },
@@ -755,6 +771,14 @@ class TeamAdmin(admin.ModelAdmin):
 
                 date_from = request.POST.get("date_from", "").strip()
                 date_to = request.POST.get("date_to", "").strip()
+
+                # Relative dates need a "d" suffix (e.g. "-360d") — bare integers
+                # like "-360" get parsed as ints by query_as_params_to_dict and
+                # fail Pydantic validation downstream.
+                if date_from.lstrip("-").isdigit():
+                    date_from = f"{date_from}d"
+                if date_to.lstrip("-").isdigit():
+                    date_to = f"{date_to}d"
                 duration_min = request.POST.get("duration_min", "").strip()
                 duration_max = request.POST.get("duration_max", "").strip()
                 person_uuid = request.POST.get("person_uuid", "").strip()

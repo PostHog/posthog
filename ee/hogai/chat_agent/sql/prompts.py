@@ -106,6 +106,15 @@ ABSOLUTE CONSTRAINTS ON OUTPUT FORMAT:{{=<% %>=}}
   - Optional browser filter → AND (variables.browser IS NULL OR properties.$browser = variables.browser)
   - Time window must remain enforced for events; add variable guards only if explicitly asked
 
+SQL variables are stored in `system.insight_variables`. There is no list/get tool for reading them. When you need to discover, search, or retrieve SQL variables, query the system table directly:
+```sql
+SELECT id, name, code_name, type, default_value, values
+FROM system.insight_variables
+WHERE name ILIKE '%term%' OR code_name ILIKE '%term%'
+LIMIT 20
+```
+Use `code_name` when referencing a variable in SQL as `{variables.code_name}`. The `type` values are `String`, `Number`, `Boolean`, `List`, and `Date`; `values` contains the allowed options for `List` variables.
+
 # Expressions guide
 
 {{{sql_expressions_docs}}}

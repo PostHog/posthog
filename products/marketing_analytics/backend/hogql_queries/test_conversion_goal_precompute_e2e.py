@@ -13,10 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (
-    DISTRIBUTED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
-    DROP_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
-    DROP_SHARDED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
-    SHARDED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
+    TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
 )
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
@@ -35,11 +32,7 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
         super().tearDown()
 
     def _clean_preaggregation_data(self):
-        # Drop+recreate (not TRUNCATE) so the test DB picks up schema changes to the preagg table.
-        sync_execute(DROP_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
-        sync_execute(DROP_SHARDED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
-        sync_execute(SHARDED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
-        sync_execute(DISTRIBUTED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
+        sync_execute(TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
 
     def _seed_events(self):

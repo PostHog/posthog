@@ -1,3 +1,5 @@
+import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
+
 import { DateTime } from 'luxon'
 
 import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../../../../src/config/kafka-topics'
@@ -53,11 +55,11 @@ describe('PostgresPersonRepository', () => {
             throw new Error('Failed to create person')
         }
         const personOutputs = new IngestionOutputs({
-            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
             [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
                 PERSON_DISTINCT_IDS_OUTPUT,
                 KAFKA_PERSON_DISTINCT_ID,
-                hub.kafkaProducer,
+                mockProducer,
                 'test'
             ),
         })
@@ -392,11 +394,11 @@ describe('PostgresPersonRepository', () => {
             const kafkaMessages = result.messages
 
             const personOutputs = new IngestionOutputs({
-                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
                 [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
                     PERSON_DISTINCT_IDS_OUTPUT,
                     KAFKA_PERSON_DISTINCT_ID,
-                    hub.kafkaProducer,
+                    mockProducer,
                     'test'
                 ),
             })
@@ -1729,11 +1731,11 @@ describe('PostgresPersonRepository', () => {
             const targetPerson = result2.person
 
             const personOutputs = new IngestionOutputs({
-                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, hub.kafkaProducer, 'test'),
+                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
                 [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
                     PERSON_DISTINCT_IDS_OUTPUT,
                     KAFKA_PERSON_DISTINCT_ID,
-                    hub.kafkaProducer,
+                    mockProducer,
                     'test'
                 ),
             })
@@ -2348,7 +2350,7 @@ describe('PostgresPersonRepository', () => {
                         uuid,
                         { distinctId: 'test-metrics' }
                     )
-                } catch (error) {}
+                } catch {}
 
                 expect(mockInc).toHaveBeenCalledWith({
                     violation_type: 'create_person_size_violation',
@@ -2385,7 +2387,7 @@ describe('PostgresPersonRepository', () => {
                 try {
                     await oversizedRepository.updatePerson(person, createPersonUpdateFields(person, oversizedUpdate))
                     expect(mockInc).toHaveBeenCalledWith({ result: 'success' })
-                } catch (error) {}
+                } catch {}
 
                 mockPersonPropertiesSize.mockRestore()
                 metrics.oversizedPersonPropertiesTrimmedCounter.inc = originalInc

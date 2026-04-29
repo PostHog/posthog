@@ -640,7 +640,6 @@ class Database(BaseModel):
                 if _should_include_connection_table(
                     warehouse_table,
                     connection_id=cast(str, self._connection_id),
-                    view_names=set(views),
                 )
             ]
         allowed_warehouse_table_names = set(warehouse_table_names) if self._is_direct_query() else None
@@ -853,6 +852,7 @@ class Database(BaseModel):
                         id=connection_id,
                         access_method=ExternalDataSource.AccessMethod.DIRECT,
                     )
+                    .select_related(None)
                     .only("connection_metadata")
                     .first()
                 )
@@ -990,14 +990,11 @@ class Database(BaseModel):
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
         warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
-        view_names: set[str] = set()
-
         with timings.measure("data_warehouse_saved_query"):
             if database._is_direct_query():
                 queryset = DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True)
                 if not is_managed_viewset_enabled:
                     queryset = queryset.filter(managed_viewset__isnull=True)
-                view_names = set(queryset.values_list("name", flat=True))
             else:
                 with timings.measure("select"):
                     queryset = (
@@ -1020,7 +1017,6 @@ class Database(BaseModel):
                             ),
                             table_conflict_mode="ignore",
                         )
-                view_names = set(views.resolve_all_table_names())
 
         with timings.measure("endpoint_saved_query"):
             if not database._is_direct_query():
@@ -1078,11 +1074,19 @@ class Database(BaseModel):
                     return self.parent_table.to_printed_clickhouse(context)
 
             with timings.measure("select"):
-                tables: list[DataWarehouseTable] = list(
+                tables_query = (
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
                     .select_related("credential", "external_data_source")
                 )
+                if database._is_direct_query():
+                    tables_query = tables_query.filter(external_data_source_id=database._connection_id)
+                else:
+                    tables_query = tables_query.exclude(
+                        external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT
+                    )
+
+                tables: list[DataWarehouseTable] = list(tables_query)
                 _preload_active_external_data_schemas(tables)
                 if database._is_direct_query():
                     tables = [
@@ -1091,15 +1095,9 @@ class Database(BaseModel):
                         if _should_include_connection_table(
                             table,
                             connection_id=cast(str, database._connection_id),
-                            view_names=view_names,
                         )
                     ]
             for table in tables:
-                # Skip adding data warehouse tables that are materialized from views
-                # We can detect that because they have the exact same name as the view
-                if table.name in view_names:
-                    continue
-
                 if (
                     not database._is_direct_query()
                     and table.external_data_source
@@ -1166,7 +1164,7 @@ class Database(BaseModel):
 
             if "." in warehouse_modifier.table_name:
                 table_chain = warehouse_modifier.table_name.split(".")
-                if table_chain[0] not in root_node.children:
+                if not root_node.has_child(table_chain):
                     return root_node
 
                 _table = root_node.get_child(table_chain).get()
@@ -1242,36 +1240,33 @@ class Database(BaseModel):
             with timings.measure("data_warehouse_event_modifiers"):
                 for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
                     with timings.measure(f"data_warehouse_event_modifier_{warehouse_modifier.table_name}"):
-                        # TODO: add all field mappings
-                        is_view = views.has_child([warehouse_modifier.table_name])
-
-                        if is_view:
-                            views = define_mappings(
-                                views,
-                                lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                                .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                                .latest("created_at"),
+                        # Apply mappings to every matching namespace. A saved query and a warehouse table can share a
+                        # name, and the final database may resolve that name to the table even if a view exists too.
+                        views = define_mappings(
+                            views,
+                            lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                            .latest("created_at"),
+                        )
+                        warehouse_tables = define_mappings(
+                            warehouse_tables,
+                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
+                            .filter(
+                                team_id=team.pk,
+                                name=warehouse_tables_dot_notation_mapping[warehouse_modifier.table_name]
+                                if warehouse_modifier.table_name in warehouse_tables_dot_notation_mapping
+                                else warehouse_modifier.table_name,
                             )
-                        else:
-                            warehouse_tables = define_mappings(
-                                warehouse_tables,
-                                lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                                .filter(
-                                    team_id=team.pk,
-                                    name=warehouse_tables_dot_notation_mapping[warehouse_modifier.table_name]
-                                    if warehouse_modifier.table_name in warehouse_tables_dot_notation_mapping
-                                    else warehouse_modifier.table_name,
-                                )
-                                .select_related("credential", "external_data_source")
-                                .latest("created_at"),
-                            )
-                            self_managed_warehouse_tables = define_mappings(
-                                self_managed_warehouse_tables,
-                                lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                                .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                                .select_related("credential", "external_data_source")
-                                .latest("created_at"),
-                            )
+                            .select_related("credential", "external_data_source")
+                            .latest("created_at"),
+                        )
+                        self_managed_warehouse_tables = define_mappings(
+                            self_managed_warehouse_tables,
+                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
+                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                            .select_related("credential", "external_data_source")
+                            .latest("created_at"),
+                        )
 
         database._add_warehouse_tables(warehouse_tables)
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
@@ -1548,6 +1543,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
     with timings.measure("traffic_type_virtual_fields"):
         from posthog.hogql.database.schema.traffic_type import (
             create_bot_name_field,
+            create_bot_operator_field,
             create_is_bot_field,
             create_traffic_category_field,
             create_traffic_type_field,
@@ -1558,6 +1554,7 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
             ("$virt_traffic_type", create_traffic_type_field),
             ("$virt_traffic_category", create_traffic_category_field),
             ("$virt_bot_name", create_bot_name_field),
+            ("$virt_bot_operator", create_bot_operator_field),
         ]:
             events_table.fields[field_name] = factory_fn(name=field_name)
 
@@ -1664,16 +1661,12 @@ def _should_include_connection_table(
     warehouse_table: DataWarehouseTable,
     *,
     connection_id: str,
-    view_names: set[str],
 ) -> bool:
     source = warehouse_table.external_data_source
     if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
         return False
 
     if str(warehouse_table.external_data_source_id) != connection_id:
-        return False
-
-    if warehouse_table.name in view_names:
         return False
 
     schemas = _get_active_external_data_schemas(warehouse_table)

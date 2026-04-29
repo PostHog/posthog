@@ -21,10 +21,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (
-    DISTRIBUTED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
-    DROP_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
-    DROP_SHARDED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
-    SHARDED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
+    TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Action
@@ -34,14 +31,6 @@ from products.analytics_platform.backend.models.preaggregation_job import Preagg
 from .conversion_goal_processor import ConversionGoalProcessor
 from .conversion_goals_aggregator import ConversionGoalsAggregator
 from .marketing_analytics_config import MarketingAnalyticsConfig
-
-
-def _recreate_preagg_table() -> None:
-    """Drop+recreate the preagg table so the test DB picks up schema changes."""
-    sync_execute(DROP_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
-    sync_execute(DROP_SHARDED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
-    sync_execute(SHARDED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
-    sync_execute(DISTRIBUTED_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
 
 
 def _deterministic_job_uuid_factory():
@@ -79,7 +68,7 @@ def _normalize_job_uuids(hogql: str) -> str:
 class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        _recreate_preagg_table()
+        sync_execute(TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
         # Force deterministic job_ids so the precompute snapshots are stable in CI.
         self._job_uuid_patcher = patch.object(

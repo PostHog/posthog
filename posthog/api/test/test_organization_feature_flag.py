@@ -1,11 +1,20 @@
 from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    flush_persons_and_events,
+    snapshot_postgres_queries,
+)
 from unittest.mock import ANY, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import FeatureFlag
@@ -63,6 +72,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
                 "filters": flag.get_filters(),
                 "created_at": flag.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
                 "active": flag.active,
+                "evaluations_7d": 0,
             }
             for flag in [self.feature_flag_1, self.feature_flag_2]
         ]
@@ -452,6 +462,51 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             response.json()["failed"][0]["error_message"],
             "[ErrorDetail(string='Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag.', code='invalid')]",
         )
+
+    @parameterized.expand(
+        [
+            # disable_copied_flag, pre_existing_target, expected_active
+            ("disable_true_new", True, False, False),
+            ("disable_true_existing", True, True, False),
+            ("disable_false_new", False, False, True),
+            ("disable_omitted_new", None, False, True),
+        ]
+    )
+    def test_copy_feature_flag_disable_copied_flag(
+        self, _name, disable_copied_flag, pre_existing_target, expected_active
+    ):
+        assert self.feature_flag_to_copy.active is True
+
+        if pre_existing_target:
+            FeatureFlag.objects.create(
+                team=self.team_2,
+                created_by=self.user,
+                key=self.feature_flag_to_copy.key,
+                active=True,
+                filters={"groups": [{"rollout_percentage": 10}]},
+            )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data: dict[str, Any] = {
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
+            "target_project_ids": [self.team_2.id],
+        }
+        if disable_copied_flag is not None:
+            data["disable_copied_flag"] = disable_copied_flag
+
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+        self.assertEqual(response.json()["success"][0]["active"], expected_active)
+
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_to_copy.key, team=self.team_2)
+        self.assertEqual(copied_flag.active, expected_active)
+
+        # Source flag must remain untouched
+        self.feature_flag_to_copy.refresh_from_db()
+        self.assertTrue(self.feature_flag_to_copy.active)
 
     def test_copy_feature_flag_missing_fields(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -1266,3 +1321,59 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
                 team=target_team,
             )
             self.assertEqual(target_schedules.count(), 1)
+
+
+class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.other_team = self.organization.teams.create(name="Other")
+        FeatureFlag.objects.create(team=self.team, key="shared_flag", created_by=self.user, active=True)
+        FeatureFlag.objects.create(team=self.other_team, key="shared_flag", created_by=self.user, active=False)
+
+    def _url(self, key: str) -> str:
+        return f"/api/organizations/{self.organization.id}/feature_flags/{key}/"
+
+    def test_response_includes_evaluations_field(self):
+        response = self.client.get(self._url("shared_flag"))
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert len(body) == 2
+        for entry in body:
+            assert "evaluations_7d" in entry
+
+    def test_evaluation_counts_match_events(self):
+        _create_event(
+            team=self.team,
+            distinct_id="u1",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "shared_flag", "$feature_flag_response": True},
+        )
+        _create_event(
+            team=self.team,
+            distinct_id="u2",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "shared_flag", "$feature_flag_response": True},
+        )
+        _create_event(
+            team=self.other_team,
+            distinct_id="u3",
+            event="$feature_flag_called",
+            properties={"$feature_flag": "shared_flag", "$feature_flag_response": False},
+        )
+        flush_persons_and_events()
+
+        body = self.client.get(self._url("shared_flag")).json()
+        by_team = {entry["team_id"]: entry["evaluations_7d"] for entry in body}
+
+        assert by_team[self.team.id] == 2
+        assert by_team[self.other_team.id] == 1
+
+    def test_clickhouse_failure_returns_null_evaluations(self):
+        with patch(
+            "posthog.api.organization_feature_flag.get_cached_evaluations_7d_by_team",
+            return_value=None,
+        ):
+            body = self.client.get(self._url("shared_flag")).json()
+        for entry in body:
+            assert entry["evaluations_7d"] is None
