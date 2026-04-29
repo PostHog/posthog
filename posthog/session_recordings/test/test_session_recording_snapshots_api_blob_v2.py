@@ -3,7 +3,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
-from rest_framework import exceptions as drf_exceptions, status
+from rest_framework import exceptions, status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorCannotScheduleTask
@@ -1027,7 +1027,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
-        side_effect=drf_exceptions.APIException(),
+        side_effect=exceptions.APIException(),
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     def test_bare_api_exception_returns_structured_500(
