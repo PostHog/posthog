@@ -248,3 +248,87 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         meta = LongRunningIssuesRecommendation().compute(self.team)
 
         self.assertEqual(meta["issues"], [])
+
+    def test_long_running_enrich_overrides_status_with_live_value(self):
+        issue = self._create_issue(created_at=timezone.now() - timedelta(days=60), name="Boom")
+        meta = {"issues": [{"id": str(issue.id), "name": "Boom", "status": ErrorTrackingIssue.Status.ACTIVE}]}
+        ErrorTrackingIssue.objects.filter(id=issue.id).update(status=ErrorTrackingIssue.Status.SUPPRESSED)
+
+        enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
+
+        self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.SUPPRESSED)
+
+    def test_long_running_enrich_with_empty_issues_returns_unchanged(self):
+        meta: dict = {"issues": []}
+
+        enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
+
+        self.assertEqual(enriched, {"issues": []})
+
+    def test_long_running_enrich_keeps_cached_status_when_issue_missing(self):
+        meta = {"issues": [{"id": str(uuid4()), "name": "Gone", "status": ErrorTrackingIssue.Status.ACTIVE}]}
+
+        enriched = LongRunningIssuesRecommendation().enrich(self.team, meta)
+
+        self.assertEqual(enriched["issues"][0]["status"], ErrorTrackingIssue.Status.ACTIVE)
+
+    def test_long_running_is_completed_when_no_issues(self):
+        self.assertTrue(LongRunningIssuesRecommendation().is_completed({"issues": []}))
+
+    def test_long_running_is_completed_false_when_issues_present(self):
+        meta = {"issues": [{"id": "x"}]}
+        self.assertFalse(LongRunningIssuesRecommendation().is_completed(meta))
+
+    def test_alerts_is_completed_when_all_enabled(self):
+        self.assertTrue(AlertsRecommendation().is_completed(MOCK_ALERTS_META_UPDATED))
+
+    def test_alerts_is_completed_false_when_any_disabled(self):
+        partial = {
+            "alerts": [
+                {"key": "error-tracking-issue-created", "enabled": True},
+                {"key": "error-tracking-issue-reopened", "enabled": False},
+                {"key": "error-tracking-issue-spiking", "enabled": True},
+            ]
+        }
+        self.assertFalse(AlertsRecommendation().is_completed(partial))
+
+    def test_alerts_is_completed_false_when_empty(self):
+        self.assertFalse(AlertsRecommendation().is_completed({"alerts": []}))
+
+    @patch(
+        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        return_value={"issues": []},
+    )
+    @patch(
+        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        return_value=MOCK_ALERTS_META,
+    )
+    def test_refresh_with_force_false_does_not_recompute(self, mock_alerts, mock_long_running):
+        response = self._list()
+        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "long_running_issues")
+        mock_long_running.reset_mock()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/recommendations/{rec_id}/refresh/?force=false"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_long_running.assert_not_called()
+
+    @patch(
+        "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute",
+        return_value={"issues": []},
+    )
+    @patch(
+        "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute",
+        return_value=MOCK_ALERTS_META,
+    )
+    def test_refresh_with_force_true_recomputes(self, mock_alerts, mock_long_running):
+        response = self._list()
+        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "long_running_issues")
+        mock_long_running.reset_mock()
+
+        response = self._refresh(rec_id)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_long_running.assert_called_once()

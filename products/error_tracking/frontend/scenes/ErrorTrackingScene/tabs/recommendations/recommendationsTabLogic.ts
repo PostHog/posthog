@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -7,6 +7,14 @@ import { HogFunctionSubTemplateIdType } from '~/types'
 
 import type { recommendationsTabLogicType } from './recommendationsTabLogicType'
 import type { AlertsRecommendation, ErrorTrackingRecommendation, LongRunningIssuesRecommendation } from './types'
+
+export const isAlertsRecommendation = (
+    recommendation: ErrorTrackingRecommendation
+): recommendation is AlertsRecommendation => recommendation.type === 'alerts'
+
+export const isLongRunningIssuesRecommendation = (
+    recommendation: ErrorTrackingRecommendation
+): recommendation is LongRunningIssuesRecommendation => recommendation.type === 'long_running_issues'
 
 export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
     path(['products', 'error_tracking', 'scenes', 'ErrorTrackingScene', 'tabs', 'recommendations', 'logic']),
@@ -38,6 +46,24 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
                         actions.setRecommendationRefreshing(id, false)
                     }
                 },
+                suppressIssue: async ({ issueId }: { issueId: string }) => {
+                    await api.errorTracking.updateIssue(issueId, { status: 'suppressed' })
+                    const longRunning = values.recommendations.find(isLongRunningIssuesRecommendation)
+                    if (!longRunning) {
+                        return values.recommendations
+                    }
+                    const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
+                    return values.recommendations.map((r) => (r.id === updated.id ? updated : r))
+                },
+                activateIssue: async ({ issueId }: { issueId: string }) => {
+                    await api.errorTracking.updateIssue(issueId, { status: 'active' })
+                    const longRunning = values.recommendations.find(isLongRunningIssuesRecommendation)
+                    if (!longRunning) {
+                        return values.recommendations
+                    }
+                    const updated = await api.errorTracking.refreshRecommendation(longRunning.id, { force: false })
+                    return values.recommendations.map((r) => (r.id === updated.id ? updated : r))
+                },
             },
         ],
     })),
@@ -46,8 +72,6 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         toggleDismissedExpanded: true,
         toggleCompletedExpanded: true,
         setOpenAlertTriggerKey: (triggerKey: HogFunctionSubTemplateIdType | null) => ({ triggerKey }),
-        suppressIssue: (issueId: string) => ({ issueId }),
-        activateIssue: (issueId: string) => ({ issueId }),
         setRecommendationRefreshing: (id: string, refreshing: boolean) => ({ id, refreshing }),
     }),
 
@@ -83,17 +107,6 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
-        suppressIssue: async ({ issueId }) => {
-            await api.errorTracking.updateIssue(issueId, { status: 'suppressed' })
-            actions.loadRecommendations()
-        },
-        activateIssue: async ({ issueId }) => {
-            await api.errorTracking.updateIssue(issueId, { status: 'active' })
-            actions.loadRecommendations()
-        },
-    })),
-
     selectors({
         activeRecommendations: [
             (s) => [s.recommendations],
@@ -119,11 +132,3 @@ export const recommendationsTabLogic = kea<recommendationsTabLogicType>([
         actions.loadRecommendations()
     }),
 ])
-
-export const isAlertsRecommendation = (
-    recommendation: ErrorTrackingRecommendation
-): recommendation is AlertsRecommendation => recommendation.type === 'alerts'
-
-export const isLongRunningIssuesRecommendation = (
-    recommendation: ErrorTrackingRecommendation
-): recommendation is LongRunningIssuesRecommendation => recommendation.type === 'long_running_issues'

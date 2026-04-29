@@ -71,7 +71,7 @@ export function LongRunningIssuesRecommendationCard({
                                         onClick={(e) => {
                                             e.preventDefault()
                                             e.stopPropagation()
-                                            suppressIssue(issue.id)
+                                            suppressIssue({ issueId: issue.id })
                                         }}
                                     >
                                         Suppress
@@ -83,7 +83,7 @@ export function LongRunningIssuesRecommendationCard({
                                         onClick={(e) => {
                                             e.preventDefault()
                                             e.stopPropagation()
-                                            activateIssue(issue.id)
+                                            activateIssue({ issueId: issue.id })
                                         }}
                                     >
                                         Undo

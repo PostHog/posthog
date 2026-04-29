@@ -10,7 +10,6 @@ export interface ErrorTrackingRecommendation<TMeta extends Record<string, unknow
     completed: boolean
     computed_at: string | null
     dismissed_at: string | null
-    next_refresh_at: string | null
     created_at: string
     updated_at: string
 }

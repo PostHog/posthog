@@ -25,7 +25,6 @@ logger = structlog.get_logger(__name__)
 
 
 class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
-    next_refresh_at = serializers.SerializerMethodField()
     meta = serializers.SerializerMethodField()
     completed = serializers.SerializerMethodField()
 
@@ -38,17 +37,10 @@ class ErrorTrackingRecommendationSerializer(serializers.ModelSerializer):
             "completed",
             "computed_at",
             "dismissed_at",
-            "next_refresh_at",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
-
-    def get_next_refresh_at(self, obj: ErrorTrackingRecommendation) -> str | None:
-        rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
-        if not rec or rec.refresh_interval is None or not obj.computed_at:
-            return None
-        return (obj.computed_at + rec.refresh_interval).isoformat()
 
     def _enriched_meta(self, obj: ErrorTrackingRecommendation) -> dict:
         rec = RECOMMENDATIONS_BY_TYPE.get(obj.type)
@@ -113,11 +105,6 @@ def _compute_if_stale(team_id: int, team: Team) -> None:
             )
 
 
-def _cleanup_orphan_rows(team_id: int) -> None:
-    valid_types = {r.type for r in RECOMMENDATIONS}
-    ErrorTrackingRecommendation.objects.filter(team_id=team_id).exclude(type__in=valid_types).delete()
-
-
 @extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingRecommendationViewSet(
     TeamAndOrgViewSetMixin,
@@ -135,7 +122,6 @@ class ErrorTrackingRecommendationViewSet(
 
     @override
     def list(self, request: Request, *args, **kwargs) -> Response:
-        _cleanup_orphan_rows(self.team.id)
         _compute_if_stale(self.team.id, self.team)
         return super().list(request, *args, **kwargs)
 
@@ -146,9 +132,11 @@ class ErrorTrackingRecommendationViewSet(
         rec = RECOMMENDATIONS_BY_TYPE.get(recommendation.type)
         if not rec:
             return Response({"detail": "Unknown recommendation type."}, status=status.HTTP_400_BAD_REQUEST)
-        recommendation.meta = rec.compute(self.team)
-        recommendation.computed_at = timezone.now()
-        recommendation.save(update_fields=["meta", "computed_at", "updated_at"])
+        force = request.query_params.get("force", "true").lower() != "false"
+        if force:
+            recommendation.meta = rec.compute(self.team)
+            recommendation.computed_at = timezone.now()
+            recommendation.save(update_fields=["meta", "computed_at", "updated_at"])
         return Response(ErrorTrackingRecommendationSerializer(recommendation).data, status=status.HTTP_200_OK)
 
     @extend_schema(request=None, responses=ErrorTrackingRecommendationSerializer)

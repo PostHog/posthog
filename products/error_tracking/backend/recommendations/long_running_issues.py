@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.schema import HogQLFilters, ProductKey
 
+from posthog.hogql import ast
+
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
 
@@ -28,7 +30,7 @@ class LongRunningIssuesRecommendation(Recommendation):
         )
 
         response = execute_hogql_query(
-            query=f"""
+            query="""
                 SELECT
                     issue_id,
                     any(issue_name) AS name,
@@ -41,13 +43,14 @@ class LongRunningIssuesRecommendation(Recommendation):
                 AND issue_id IS NOT NULL
                 AND issue_status = 'active'
                 AND issue_first_seen < now() - INTERVAL 7 DAY
-                AND {{filters}}
+                AND {filters}
                 GROUP BY issue_id
                 ORDER BY first_seen ASC
-                LIMIT {ISSUE_LIMIT}
+                LIMIT {limit}
             """,
             team=team,
             filters=HogQLFilters(filterTestAccounts=True),
+            placeholders={"limit": ast.Constant(value=ISSUE_LIMIT)},
         )
 
         return {
