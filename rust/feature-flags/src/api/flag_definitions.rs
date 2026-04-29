@@ -390,6 +390,7 @@ fn flag_service(state: &AppState) -> FlagService {
         state.database_pools.non_persons_reader.clone(),
         state.team_hypercache_reader.clone(),
         state.flags_hypercache_reader.clone(),
+        state.flag_definitions_cache.clone(),
         state.team_negative_cache.clone(),
         *state.config.skip_pg_team_fallback,
     )
