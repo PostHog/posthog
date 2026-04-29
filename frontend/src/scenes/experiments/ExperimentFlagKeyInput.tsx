@@ -67,9 +67,10 @@ export function ExperimentFlagKeyInput({
                     </div>
                 )}
                 {isExistingFlag &&
-                    (getExperimentStatus(sourceExperiment) === ExperimentStatus.Running ? (
+                    (getExperimentStatus(sourceExperiment) === ExperimentStatus.Running ||
+                    getExperimentStatus(sourceExperiment) === ExperimentStatus.Paused ? (
                         <LemonBanner type="warning" className="mt-2">
-                            This experiment is still running. Reusing its flag in a new experiment will cause data
+                            This experiment has not ended yet. Reusing its flag in a new experiment will cause data
                             contamination, since both will count the same exposures and events. To re-run this
                             experiment, use {resetAnalysisLink} instead.
                         </LemonBanner>
