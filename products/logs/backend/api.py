@@ -151,6 +151,11 @@ class _LogPropertyFilterSerializer(serializers.Serializer):
 
 class _LogsAttributesQuerySerializer(serializers.Serializer):
     search = serializers.CharField(required=False, help_text="Search filter for attribute names")
+    search_values = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.",
+    )
     attribute_type = serializers.ChoiceField(
         choices=["log", "resource"],
         required=False,
@@ -441,6 +446,15 @@ class _LogAttributeEntrySerializer(serializers.Serializer):
     propertyFilterType = serializers.CharField(
         help_text='Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering.',
     )
+    matchedOn = serializers.ChoiceField(
+        choices=["key", "value"],
+        help_text='How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.',
+    )
+    matchedValue = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text='Sample matching value — only set when matchedOn is "value".',
+    )
 
 
 class _LogsAttributesResponseSerializer(serializers.Serializer):
@@ -718,6 +732,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         search = request.GET.get("search", "")
+        search_values = request.GET.get("search_values", "false").lower() == "true"
         limit = request.GET.get("limit", 100)
         offset = request.GET.get("offset", 0)
 
@@ -756,6 +771,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             dateRange=dateRange,
             attributeType=attributeType,
             search=search,
+            searchValues=search_values,
             limit=limit,
             offset=offset,
             serviceNames=serviceNames,
@@ -765,7 +781,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         runner = LogAttributesQueryRunner(team=self.team, query=query)
 
         result = runner.calculate()
-        return Response({"results": result.results, "count": result.count}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "results": [r.model_dump(exclude_none=True) for r in result.results],
+                "count": result.count,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(parameters=[_LogsValuesQuerySerializer], responses={200: _LogsValuesResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])

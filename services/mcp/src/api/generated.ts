@@ -19366,7 +19366,26 @@ export namespace Schemas {
       LogAttributesQuery: 'LogAttributesQuery',
     } as const;
 
-    export type LogAttributesQueryResponseResultsItem = { [key: string]: unknown };
+    export type MatchedOn = typeof MatchedOn[keyof typeof MatchedOn];
+
+
+    export const MatchedOn = {
+      Key: 'key',
+      Value: 'value',
+    } as const;
+
+    export interface LogAttributeResult {
+      /** Whether this row matched the search by attribute key or by attribute value. */
+      matchedOn: MatchedOn;
+      /**
+       * Sample value that matched the search — only set when matchedOn is 'value'.
+       * @nullable
+       */
+      matchedValue?: string | null;
+      name: string;
+      /** Either 'log_attribute' or 'log_resource_attribute'. */
+      propertyFilterType: string;
+    }
 
     export interface LogAttributesQueryResponse {
       count: number;
@@ -19386,7 +19405,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: LogAttributesQueryResponseResultsItem[];
+      results: LogAttributeResult[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -19408,6 +19427,11 @@ export namespace Schemas {
       response?: LogAttributesQueryResponse | null;
       /** @nullable */
       search?: string | null;
+      /**
+       * When true, the search query also matches attribute values (not just keys).
+       * @nullable
+       */
+      searchValues?: boolean | null;
       /** @nullable */
       serviceNames?: string[] | null;
       /** @nullable */
@@ -21615,6 +21639,18 @@ export namespace Schemas {
     export interface MarkToleratedInput {
       snapshot_id: string;
     }
+
+    /**
+     * * `key` - key
+    * `value` - value
+     */
+    export type MatchedOnEnum = typeof MatchedOnEnum[keyof typeof MatchedOnEnum];
+
+
+    export const MatchedOnEnum = {
+      Key: 'key',
+      Value: 'value',
+    } as const;
 
     /**
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
@@ -34419,8 +34455,6 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative76ResultsItem = { [key: string]: unknown };
-
     export interface QueryResponseAlternative76 {
       count: number;
       /**
@@ -34439,7 +34473,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative76ResultsItem[];
+      results: LogAttributeResult[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -36934,6 +36968,16 @@ export namespace Schemas {
       name: string;
       /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
       propertyFilterType: string;
+      /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+
+    * `key` - key
+    * `value` - value */
+      matchedOn: MatchedOnEnum;
+      /**
+       * Sample matching value — only set when matchedOn is "value".
+       * @nullable
+       */
+      matchedValue?: string | null;
     }
 
     export interface _LogAttributeValue {
@@ -38875,6 +38919,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean;
     /**
      * Filter attributes to those appearing in logs from these services.
      */
@@ -43206,6 +43254,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean;
     /**
      * Filter attributes to those appearing in logs from these services.
      */
