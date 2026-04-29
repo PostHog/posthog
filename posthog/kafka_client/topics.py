@@ -5,7 +5,6 @@ from posthog.settings.kafka import KAFKA_PREFIX
 from posthog.settings.utils import get_from_env
 
 KAFKA_EVENTS_JSON = f"{KAFKA_PREFIX}clickhouse_events_json{SUFFIX}"
-KAFKA_EXCEPTIONS_INGESTION = f"{KAFKA_PREFIX}exceptions_ingestion{SUFFIX}"
 KAFKA_EVENTS_PLUGIN_INGESTION = get_from_env(
     "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"
 )

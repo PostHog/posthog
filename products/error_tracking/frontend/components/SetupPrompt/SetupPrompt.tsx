@@ -45,8 +45,8 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
         <ProductIntroduction
             productName="Error tracking"
             thingName="issue"
-            titleOverride="You haven't captured any exceptions"
-            description="To start capturing exceptions you need to enable exception autocapture. Exception autocapture only applies to the JS SDK. Installation for other platforms are described in the docs."
+            titleOverride="You haven't captured any exceptions yet"
+            description="If you haven't installed an SDK yet, follow the docs for your platform. JS users can also flip on exception autocapture below — non-JS SDKs (Python, Node, etc.) capture exceptions through SDK config and don't need this toggle. If your SDK is already configured but events aren't showing up, check the self-hosted ingestion troubleshooting guide."
             isEmpty={true}
             productKey={ProductKey.ERROR_TRACKING}
             className={className}
@@ -63,7 +63,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
                             updateCurrentTeam({ autocapture_exceptions_opt_in: true })
                         }}
                     >
-                        Enable exception autocapture
+                        Enable JS exception autocapture
                     </LemonButton>
                     <LemonButton
                         targetBlank
@@ -77,6 +77,13 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
                         }}
                     >
                         Read the docs
+                    </LemonButton>
+                    <LemonButton
+                        targetBlank
+                        sideIcon={<IconExternal className="w-5 h-5" />}
+                        to="https://posthog.com/docs/self-host/troubleshooting"
+                    >
+                        Self-hosted troubleshooting
                     </LemonButton>
                 </>
             }

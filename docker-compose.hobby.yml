@@ -231,10 +231,14 @@ services:
         logging: *default-logging
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # Reach the cymbal container by service name; the in-process default of
+            # http://localhost:3302 is unreachable across compose containers.
+            ERROR_TRACKING_CYMBAL_BASE_URL: 'http://cymbal:3302'
         depends_on:
             - db
             - redis7
             - kafka
+            - cymbal
 
     ingestion-logs:
         extends:
@@ -404,6 +408,11 @@ services:
             file: docker-compose.base.yml
             service: capture
         logging: *default-logging
+        environment:
+            # $exception events must land in the topic the nodejs
+            # ingestion-error-tracking consumer reads; capture's rust default
+            # (`error_tracking_events`) leaves the events stranded on hobby.
+            KAFKA_ERROR_TRACKING_TOPIC: 'ingestion-errortracking-main'
 
     replay-capture:
         build:
@@ -484,7 +493,7 @@ services:
                 echo "Kafka broker is accepting requests, creating topics..."
                 # Create topics needed by rust services
                 # Note: $$ escapes $ for docker-compose variable substitution
-                for topic in clickhouse_events_json; do
+                for topic in clickhouse_events_json ingestion-errortracking-main; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created successfully"
                     else
