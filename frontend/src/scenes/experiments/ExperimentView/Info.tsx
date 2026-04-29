@@ -78,6 +78,11 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
 
     return (
         <>
+            {/* `overflow-hidden` is intentionally NOT set on this grid or the column 2
+                wrapper below — the "Changes detected" hint in ExperimentReloadAction is
+                absolutely positioned just below the refresh button (`top-full`) and was
+                being clipped by parent overflow boundaries. Don't reintroduce it here
+                without finding another way to render that hint. */}
             <div className="grid gap-2 grid-cols-1 min-[1100px]:grid-cols-[1fr_1fr]">
                 {/* Column 1 */}
                 <div className="flex flex-col gap-0 overflow-hidden min-w-0">

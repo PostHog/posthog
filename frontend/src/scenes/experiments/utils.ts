@@ -884,8 +884,10 @@ export function getOrderedMetricsWithResults(
     experiment: Experiment,
     primaryMetricsResults: CachedNewExperimentQueryResponse[],
     primaryMetricsResultsErrors: any[],
+    primaryMetricsResultsUuids: string[],
     secondaryMetricsResults: CachedNewExperimentQueryResponse[],
     secondaryMetricsResultsErrors: any[],
+    secondaryMetricsResultsUuids: string[],
     isSecondary: boolean
 ): Array<{
     metric: ExperimentMetric
@@ -897,8 +899,14 @@ export function getOrderedMetricsWithResults(
     const metricType = isSecondary ? 'secondary' : 'primary'
     const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
     const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
+    // Captured at fetch time — `resultMetricUuids[i]` is the uuid the result/error
+    // at position `i` was computed for. The current metrics list may have shifted
+    // since (e.g. user added or removed a metric without a refetch), so look up
+    // results by uuid rather than by position to avoid attributing stale slot
+    // data to a different metric.
+    const resultMetricUuids = isSecondary ? secondaryMetricsResultsUuids : primaryMetricsResultsUuids
 
-    // Build enriched metrics in original order (same order as results arrays)
+    // Build enriched metrics in original order
     const regularMetrics = isSecondary
         ? ((experiment.metrics_secondary || []) as ExperimentMetric[])
         : ((experiment.metrics || []) as ExperimentMetric[])
@@ -919,28 +927,24 @@ export function getOrderedMetricsWithResults(
 
     const allMetrics = [...regularMetrics, ...enrichedSharedMetrics]
 
-    // Create UUID maps in one pass
-    const resultsMap = new Map()
-    const errorsMap = new Map()
+    // Build uuid -> result/error maps from the fetch-time uuid array. A metric
+    // that wasn't part of the last fetch (newly added) won't appear here, so
+    // `resultsMap.get(uuid)` returns undefined for it — the UI shows a pending
+    // state until the user refreshes.
+    const resultsByUuid = new Map<string, any>()
+    const errorsByUuid = new Map<string, any>()
+    resultMetricUuids.forEach((uuid, index) => {
+        if (uuid) {
+            resultsByUuid.set(uuid, results[index])
+            errorsByUuid.set(uuid, errors[index])
+        }
+    })
+
     const metricsMap = new Map()
     const originalIndexMap = new Map()
-
     allMetrics.forEach((metric: any, index) => {
         const uuid = metric.uuid || metric.query?.uuid
         if (uuid) {
-            // The results/errors arrays are position-indexed and outlive the
-            // metrics they were computed for — when the user adds or removes a
-            // metric without refetching, the entry at `index` may belong to a
-            // metric that no longer exists. `_metric_uuid` is stamped on each
-            // entry at fetch time; treat the entry as stale (drop it) if its
-            // uuid doesn't match the current metric. Falsy entries (no result
-            // yet, no error) pass through unchanged.
-            const result = results[index] as any
-            const error = errors[index] as any
-            const resultIsStale = result && result._metric_uuid !== uuid
-            const errorIsStale = error && error._metric_uuid !== uuid
-            resultsMap.set(uuid, resultIsStale ? undefined : result)
-            errorsMap.set(uuid, errorIsStale ? undefined : error)
             metricsMap.set(uuid, metric)
             originalIndexMap.set(uuid, index) // Track original position for retry
         }
@@ -956,8 +960,8 @@ export function getOrderedMetricsWithResults(
         .filter(Boolean)
         .map((metric: ExperimentMetric, index: number) => ({
             metric,
-            result: resultsMap.get(metric.uuid),
-            error: errorsMap.get(metric.uuid),
+            result: resultsByUuid.get(metric.uuid as string),
+            error: errorsByUuid.get(metric.uuid as string),
             displayIndex: index,
             metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))

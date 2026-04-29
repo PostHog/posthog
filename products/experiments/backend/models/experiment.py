@@ -123,6 +123,16 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             kwargs["update_fields"] = [*list(kwargs["update_fields"]), "status"]
         super().save(*args, **kwargs)
 
+    def bump_config_updated_at(self) -> None:
+        """Mark the experiment's config as just-modified.
+
+        Call this from any code path that mutates a field affecting query
+        results — adding/changing metrics, exposure criteria, parameters,
+        launching, ending, etc. The frontend compares this timestamp with
+        the cached result ``last_refresh`` to flag stale results in the UI.
+        """
+        self.config_updated_at = timezone.now()
+
     @property
     def is_launched(self) -> bool:
         return self.start_date is not None

@@ -450,13 +450,9 @@ const loadMetrics = async ({
                             legacyResults[originalIndex] = {
                                 ...typedResponse,
                                 fakeInsightId: Math.random().toString(36).substring(2, 15),
-                                _metric_uuid: metric.uuid,
                             } as CachedLegacyExperimentQueryResponse & { fakeInsightId: string }
                         } else if (isNewExperimentResponse(typedResponse)) {
-                            // Tag with the metric uuid so callers can detect when the
-                            // results array is stale relative to the current metrics
-                            // (e.g. after a metric was added or removed without a refetch).
-                            results[originalIndex] = Object.assign(typedResponse, { _metric_uuid: metric.uuid })
+                            results[originalIndex] = typedResponse
                         }
                     }
                 } else {
@@ -464,7 +460,6 @@ const loadMetrics = async ({
                     legacyResults[originalIndex] = {
                         ...response,
                         fakeInsightId: Math.random().toString(36).substring(2, 15),
-                        _metric_uuid: metric.uuid,
                     } as (CachedExperimentTrendsQueryResponse | CachedExperimentFunnelsQueryResponse) & {
                         fakeInsightId: string
                     }
@@ -514,7 +509,6 @@ const loadMetrics = async ({
                     code: errorCode,
                     queryId,
                     timestamp: Date.now(),
-                    _metric_uuid: metric.uuid,
                 }
                 onSetErrors(currentErrors)
 
@@ -831,10 +825,16 @@ export const experimentLogic = kea<experimentLogicType>([
         setPrimaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
         loadPrimaryMetricsResults: (refresh?: boolean, refreshId?: string) => ({ refresh, refreshId }),
         setPrimaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
+        // The metric uuids that the *current* primary results array was computed for, in
+        // index order. Stored alongside the results so callers can detect when the array
+        // is stale relative to the current metrics list (e.g. after a metric was added
+        // or removed without a refetch).
+        setPrimaryMetricsResultsUuids: (uuids: string[]) => ({ uuids }),
         retryPrimaryMetric: (index: number) => ({ index }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         loadSecondaryMetricsResults: (refresh?: boolean, refreshId?: string) => ({ refresh, refreshId }),
         setSecondaryMetricsResultsErrors: (errors: any[]) => ({ errors }),
+        setSecondaryMetricsResultsUuids: (uuids: string[]) => ({ uuids }),
         retrySecondaryMetric: (index: number) => ({ index }),
         setSecondaryMetricsResultsLoading: (loading: boolean) => ({ loading }),
         setLegacySecondaryMetricsResults: (
@@ -1235,6 +1235,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 clearMetricsResults: () => [],
             },
         ],
+        primaryMetricsResultsUuids: [
+            [] as string[],
+            {
+                setPrimaryMetricsResultsUuids: (_, { uuids }) => uuids,
+                loadPrimaryMetricsResults: () => [],
+                loadExperiment: () => [],
+                clearMetricsResults: () => [],
+            },
+        ],
         // SECONDARY METRICS
         legacySecondaryMetricsResults: [
             [] as (
@@ -1267,6 +1276,15 @@ export const experimentLogic = kea<experimentLogicType>([
             [] as any[],
             {
                 setSecondaryMetricsResultsErrors: (_, { errors }) => errors,
+                loadSecondaryMetricsResults: () => [],
+                loadExperiment: () => [],
+                clearMetricsResults: () => [],
+            },
+        ],
+        secondaryMetricsResultsUuids: [
+            [] as string[],
+            {
+                setSecondaryMetricsResultsUuids: (_, { uuids }) => uuids,
                 loadSecondaryMetricsResults: () => [],
                 loadExperiment: () => [],
                 clearMetricsResults: () => [],
@@ -2075,6 +2093,7 @@ export const experimentLogic = kea<experimentLogicType>([
             )
 
             const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
+            actions.setPrimaryMetricsResultsUuids(metrics.map((m: any) => m.uuid || m.query?.uuid || ''))
 
             const resolvedRefreshId = refreshId || generateRefreshId()
             const summary = await loadMetrics({
@@ -2115,6 +2134,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'secondary'
             )
             const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
+            actions.setSecondaryMetricsResultsUuids(secondaryMetrics.map((m: any) => m.uuid || m.query?.uuid || ''))
 
             const resolvedRefreshId = refreshId || generateRefreshId()
             const summary = await loadMetrics({
@@ -2985,23 +3005,29 @@ export const experimentLogic = kea<experimentLogicType>([
                 s.experiment,
                 s.primaryMetricsResults,
                 s.primaryMetricsResultsErrors,
+                s.primaryMetricsResultsUuids,
                 s.secondaryMetricsResults,
                 s.secondaryMetricsResultsErrors,
+                s.secondaryMetricsResultsUuids,
             ],
             (
                 experiment,
                 primaryMetricsResults,
                 primaryMetricsResultsErrors,
+                primaryMetricsResultsUuids,
                 secondaryMetricsResults,
-                secondaryMetricsResultsErrors
+                secondaryMetricsResultsErrors,
+                secondaryMetricsResultsUuids
             ) =>
                 (isSecondary: boolean) =>
                     getOrderedMetricsWithResults(
                         experiment,
                         primaryMetricsResults,
                         primaryMetricsResultsErrors,
+                        primaryMetricsResultsUuids,
                         secondaryMetricsResults,
                         secondaryMetricsResultsErrors,
+                        secondaryMetricsResultsUuids,
                         isSecondary
                     ),
         ],

@@ -931,7 +931,7 @@ class ExperimentService:
         feature_flag.active = True
         feature_flag.save()
 
-        experiment.config_updated_at = timezone.now()
+        experiment.bump_config_updated_at()
         experiment.save()
 
         self._report_experiment_launched(experiment, request=request)
@@ -1120,7 +1120,7 @@ class ExperimentService:
         experiment.end_date = timezone.now()
         experiment.conclusion = conclusion
         experiment.conclusion_comment = conclusion_comment
-        experiment.config_updated_at = timezone.now()
+        experiment.bump_config_updated_at()
         experiment.save()
 
         self._report_experiment_ended(experiment, request=request)
@@ -1207,7 +1207,7 @@ class ExperimentService:
         experiment.archived = False
         experiment.conclusion = None
         experiment.conclusion_comment = None
-        experiment.config_updated_at = timezone.now()
+        experiment.bump_config_updated_at()
 
         experiment.save()
 
@@ -1308,7 +1308,7 @@ class ExperimentService:
         was_running = experiment.is_running
         if was_running:
             experiment.end_date = timezone.now()
-            experiment.config_updated_at = timezone.now()
+            experiment.bump_config_updated_at()
         if conclusion is not None:
             experiment.conclusion = conclusion
         if conclusion_comment is not None:
@@ -1551,8 +1551,11 @@ class ExperimentService:
         for attr, value in update_data.items():
             setattr(experiment, attr, value)
 
+        # `saved_metrics_ids` is popped from update_data above (it lives in a
+        # M2M table, not on the experiment row), so it is checked separately
+        # here rather than added to CONFIG_FIELDS.
         if update_saved_metrics or CONFIG_FIELDS.intersection(update_data.keys()):
-            experiment.config_updated_at = timezone.now()
+            experiment.bump_config_updated_at()
 
         experiment.save()
 

@@ -999,8 +999,8 @@ describe('getOrderedMetricsWithResults', () => {
         secondary_metrics_ordered_uuids: [],
     } as unknown as Experiment
 
-    const mockResult = (uuid: string, data: Record<string, any> = {}): CachedNewExperimentQueryResponse =>
-        ({ ...data, _metric_uuid: uuid }) as unknown as CachedNewExperimentQueryResponse
+    const mockResult = (data: Record<string, any> = {}): CachedNewExperimentQueryResponse =>
+        data as unknown as CachedNewExperimentQueryResponse
 
     describe('inline metrics', () => {
         it('returns inline metrics with their results and errors', () => {
@@ -1017,14 +1017,14 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: ['metric-1'],
             }
 
-            const results = [mockResult('metric-1', { result: 'data1' })]
+            const results = [mockResult({ result: 'data1' })]
             const errors = [null]
 
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+            const ordered = getOrderedMetricsWithResults(experiment, results, errors, ['metric-1'], [], [], [], false)
 
             expect(ordered).toHaveLength(1)
             expect(ordered[0].metric.uuid).toBe('metric-1')
-            expect(ordered[0].result).toEqual({ result: 'data1', _metric_uuid: 'metric-1' })
+            expect(ordered[0].result).toEqual({ result: 'data1' })
             expect(ordered[0].error).toBeNull()
         })
 
@@ -1048,10 +1048,19 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: ['metric-2', 'metric-1'],
             }
 
-            const results = [mockResult('metric-1', { result: 'data1' }), mockResult('metric-2', { result: 'data2' })]
+            const results = [mockResult({ result: 'data1' }), mockResult({ result: 'data2' })]
             const errors = [null, null]
 
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+            const ordered = getOrderedMetricsWithResults(
+                experiment,
+                results,
+                errors,
+                ['metric-1', 'metric-2'],
+                [],
+                [],
+                [],
+                false
+            )
 
             expect(ordered).toHaveLength(2)
             expect(ordered[0].metric.uuid).toBe('metric-2')
@@ -1081,10 +1090,19 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: ['shared-uuid'],
             }
 
-            const results = [mockResult('shared-uuid', { result: 'shared-data' })]
+            const results = [mockResult({ result: 'shared-data' })]
             const errors = [null]
 
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+            const ordered = getOrderedMetricsWithResults(
+                experiment,
+                results,
+                errors,
+                ['shared-uuid'],
+                [],
+                [],
+                [],
+                false
+            )
 
             expect(ordered).toHaveLength(1)
             expect(ordered[0].metric.uuid).toBe('shared-uuid')
@@ -1120,10 +1138,19 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: ['shared-uuid'],
             }
 
-            const results = [mockResult('shared-uuid', { result: 'shared-data' })]
+            const results = [mockResult({ result: 'shared-data' })]
             const errors = [null]
 
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+            const ordered = getOrderedMetricsWithResults(
+                experiment,
+                results,
+                errors,
+                ['shared-uuid'],
+                [],
+                [],
+                [],
+                false
+            )
 
             expect(ordered).toHaveLength(1)
             expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual(breakdowns)
@@ -1154,10 +1181,19 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: ['shared-uuid'],
             }
 
-            const results = [mockResult('shared-uuid', { result: 'shared-data' })]
+            const results = [mockResult({ result: 'shared-data' })]
             const errors = [null]
 
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+            const ordered = getOrderedMetricsWithResults(
+                experiment,
+                results,
+                errors,
+                ['shared-uuid'],
+                [],
+                [],
+                [],
+                false
+            )
 
             expect(ordered).toHaveLength(1)
             expect(ordered[0].metric.breakdownFilter).toEqual({
@@ -1197,23 +1233,27 @@ describe('getOrderedMetricsWithResults', () => {
                 secondary_metrics_ordered_uuids: ['secondary-uuid'],
             }
 
-            const primaryResults = [mockResult('primary-uuid', { result: 'primary-data' })]
-            const secondaryResults = [mockResult('secondary-uuid', { result: 'secondary-data' })]
+            const primaryResults = [mockResult({ result: 'primary-data' })]
+            const secondaryResults = [mockResult({ result: 'secondary-data' })]
 
             const primaryOrdered = getOrderedMetricsWithResults(
                 experiment,
                 primaryResults,
                 [null],
+                ['primary-uuid'],
                 secondaryResults,
                 [null],
+                ['secondary-uuid'],
                 false
             )
             const secondaryOrdered = getOrderedMetricsWithResults(
                 experiment,
                 primaryResults,
                 [null],
+                ['primary-uuid'],
                 secondaryResults,
                 [null],
+                ['secondary-uuid'],
                 true
             )
 
@@ -1253,13 +1293,19 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: ['shared-1', 'inline-1'],
             }
 
-            const results = [
-                mockResult('inline-1', { result: 'inline-data' }),
-                mockResult('shared-1', { result: 'shared-data' }),
-            ]
+            const results = [mockResult({ result: 'inline-data' }), mockResult({ result: 'shared-data' })]
             const errors = [null, null]
 
-            const ordered = getOrderedMetricsWithResults(experiment, results, errors, [], [], false)
+            const ordered = getOrderedMetricsWithResults(
+                experiment,
+                results,
+                errors,
+                ['inline-1', 'shared-1'],
+                [],
+                [],
+                [],
+                false
+            )
 
             expect(ordered).toHaveLength(2)
             expect(ordered[0].metric.uuid).toBe('shared-1')
@@ -1276,7 +1322,7 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: [],
             }
 
-            const ordered = getOrderedMetricsWithResults(experiment, [], [], [], [], false)
+            const ordered = getOrderedMetricsWithResults(experiment, [], [], [], [], [], [], false)
 
             expect(ordered).toEqual([])
         })
@@ -1303,7 +1349,16 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: ['shared-uuid'],
             }
 
-            const ordered = getOrderedMetricsWithResults(experiment, [mockResult('shared-uuid')], [null], [], [], false)
+            const ordered = getOrderedMetricsWithResults(
+                experiment,
+                [mockResult()],
+                [null],
+                ['shared-uuid'],
+                [],
+                [],
+                [],
+                false
+            )
 
             expect(ordered).toHaveLength(1)
             expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual([])
@@ -1328,7 +1383,16 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: ['shared-uuid'],
             }
 
-            const ordered = getOrderedMetricsWithResults(experiment, [mockResult('shared-uuid')], [null], [], [], false)
+            const ordered = getOrderedMetricsWithResults(
+                experiment,
+                [mockResult()],
+                [null],
+                ['shared-uuid'],
+                [],
+                [],
+                [],
+                false
+            )
 
             expect(ordered).toHaveLength(1)
             expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual([])
@@ -1348,7 +1412,16 @@ describe('getOrderedMetricsWithResults', () => {
                 primary_metrics_ordered_uuids: ['metric-1'],
             }
 
-            const ordered = getOrderedMetricsWithResults(experiment, [mockResult('metric-1')], [null], [], [], false)
+            const ordered = getOrderedMetricsWithResults(
+                experiment,
+                [mockResult()],
+                [null],
+                ['metric-1'],
+                [],
+                [],
+                [],
+                false
+            )
 
             expect(ordered[0].metricIndex).toBe(0)
         })
