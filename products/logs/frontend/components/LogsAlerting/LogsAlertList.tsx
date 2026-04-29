@@ -255,6 +255,8 @@ export function LogsAlertList(): JSX.Element {
                 loading={alertsLoading}
                 emptyState="No alerts configured yet."
                 size="small"
+                pagination={{ pageSize: 30 }}
+                nouns={['alert', 'alerts']}
             />
         </div>
     )
