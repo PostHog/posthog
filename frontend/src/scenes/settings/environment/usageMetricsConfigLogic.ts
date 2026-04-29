@@ -55,6 +55,63 @@ export function getMetricSource(filters: UsageMetricFormData['filters']): UsageM
     return 'events'
 }
 
+/**
+ * Render the saved filters in the standard FilterType shape that ActionFilter expects.
+ * DW metrics get hoisted into a single `data_warehouse` entry; events metrics pass through.
+ */
+export function savedFiltersToActionFilterValue(filters: UsageMetricFormData['filters']): FilterType {
+    if (getMetricSource(filters) === 'data_warehouse') {
+        const dw = filters as UsageMetricFiltersDataWarehouse
+        return {
+            data_warehouse: [
+                {
+                    type: 'data_warehouse',
+                    id: dw.table_name ?? '',
+                    name: dw.table_name ?? '',
+                    table_name: dw.table_name ?? '',
+                    timestamp_field: dw.timestamp_field,
+                    key_field: dw.key_field,
+                },
+            ],
+        } as FilterType
+    }
+    return (filters ?? {}) as FilterType
+}
+
+/**
+ * Translate ActionFilter's FilterType payload back into our saved shape (events shape or DW shape).
+ * If both branches are populated (the user just added an entry of the opposite type), resolve by
+ * switching to whichever side just received the new entry — using `prevSource` as the reference.
+ */
+export function actionFilterValueToSavedFilters(
+    payload: FilterType,
+    prevSource: UsageMetricSource
+): UsageMetricFormData['filters'] {
+    const dwEntries = (payload.data_warehouse ?? []) as Array<Record<string, any>>
+    const eventEntries = payload.events ?? []
+    const actionEntries = payload.actions ?? []
+
+    const switchedToDw = prevSource === 'events' && dwEntries.length > 0
+    const onlyDw = dwEntries.length > 0 && eventEntries.length === 0 && actionEntries.length === 0
+
+    if (onlyDw || switchedToDw) {
+        const dw = dwEntries[0] ?? {}
+        return {
+            source: 'data_warehouse',
+            table_name: dw.table_name ?? dw.name ?? null,
+            timestamp_field: dw.timestamp_field ?? null,
+            key_field: dw.key_field ?? null,
+        }
+    }
+
+    return {
+        events: eventEntries,
+        actions: actionEntries,
+        properties: payload.properties ?? [],
+        filter_test_accounts: payload.filter_test_accounts,
+    } as FilterType
+}
+
 // Hardcoded to 0 — the backend model is coupled to groups but will be refactored to be group-agnostic
 const GROUP_TYPE_INDEX = 0
 
