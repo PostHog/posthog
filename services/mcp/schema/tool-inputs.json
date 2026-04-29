@@ -367,29 +367,20 @@
             },
             "required": ["name", "feature_flag_key"]
         },
-        "ExperimentDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "experimentId": {
-                    "type": "number",
-                    "description": "The ID of the experiment to delete"
-                }
-            },
-            "required": ["experimentId"]
-        },
         "ExperimentResultsGetSchema": {
             "type": "object",
             "properties": {
-                "experimentId": {
+                "id": {
                     "type": "number",
                     "description": "The ID of the experiment to get comprehensive results for"
                 },
                 "refresh": {
-                    "type": "boolean",
-                    "description": "Force refresh of results instead of using cached values"
+                    "default": false,
+                    "description": "Force refresh of results instead of using cached values. Defaults to false.",
+                    "type": "boolean"
                 }
             },
-            "required": ["experimentId", "refresh"]
+            "required": ["id"]
         },
         "ExperimentUpdateInputSchema": {
             "type": "object",

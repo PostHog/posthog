@@ -2,8 +2,7 @@ import React, { useMemo } from 'react'
 
 import { Chart } from 'lib/Chart'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { useChart } from 'lib/hog-charts/core/chart-context'
-import { computeVisibleXLabels } from 'lib/hog-charts/overlays/AxisLabels'
+import { computeVisibleXLabels, useChart } from 'lib/hog-charts'
 
 interface AnnotationsLayerProps {
     /** Numeric insight id used by the annotations logic. Pass `'new'` for unsaved insights. */

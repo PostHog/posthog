@@ -15,6 +15,9 @@ SESSION_LOOKBACK_MINUTES = 30
 
 MAX_SESSIONS_PER_TEAM = 10
 
+# Stops the redispatch loop on recordings the rasterizer can't process.
+STUCK_RASTERIZE_THRESHOLD = 3
+
 CH_QUERY_MAX_EXECUTION_SECONDS = 180
 
 # Must exceed FIND_ACTIVITY_TIMEOUT + child-start fan-out. Children are

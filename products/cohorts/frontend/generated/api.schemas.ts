@@ -82,6 +82,8 @@ export interface BehavioralFilterApi {
     event_filters?: (EventPropFilterApi | HogQLFilterApi)[] | null
     /** @nullable */
     explicit_datetime?: string | null
+    /** @nullable */
+    explicit_datetime_to?: string | null
 }
 
 export type CohortFilterApiType = (typeof CohortFilterApiType)[keyof typeof CohortFilterApiType]

@@ -14,20 +14,21 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
-    SimpleSource,
+    ResumableSource,
 )
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import TIKTOK_ADS_CONFIG
-from posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads import tiktok_ads_source
+from posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads import TikTokAdsResumeConfig, tiktok_ads_source
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
+class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConfig], OAuthMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TIKTOKADS
@@ -50,6 +51,7 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="Your TikTok Ads advertiser ID",
+                        secret=False,
                     ),
                     SourceFieldOauthConfig(
                         name="tiktok_integration_id",
@@ -101,7 +103,15 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
 
-    def source_for_pipeline(self, config: TikTokAdsSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TikTokAdsResumeConfig]:
+        return ResumableSourceManager[TikTokAdsResumeConfig](inputs, TikTokAdsResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: TikTokAdsSourceConfig,
+        resumable_source_manager: ResumableSourceManager[TikTokAdsResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.tiktok_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -113,6 +123,7 @@ class TikTokAdsSource(SimpleSource[TikTokAdsSourceConfig], OAuthMixin):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             access_token=integration.access_token,
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

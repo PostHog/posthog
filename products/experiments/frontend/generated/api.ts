@@ -17,6 +17,7 @@ import type {
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentsListParams,
+    ExperimentsTimeseriesResultsRetrieveParams,
     PaginatedExperimentHoldoutListApi,
     PaginatedExperimentListApi,
     PaginatedExperimentSavedMetricListApi,
@@ -695,18 +696,56 @@ This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate d
 on serializer methods and converts them into proper HTTP 409 Conflict responses with
 change request details.
  */
-export const getExperimentsTimeseriesResultsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/experiments/${id}/timeseries_results/`
+export const getExperimentsTimeseriesResultsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: ExperimentsTimeseriesResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/timeseries_results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/timeseries_results/`
 }
 
 export const experimentsTimeseriesResultsRetrieve = async (
     projectId: string,
     id: number,
+    params: ExperimentsTimeseriesResultsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id), {
+    return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * Unarchive an archived experiment.
+
+Restores the experiment to the default list view. Returns 400 if the
+experiment is not currently archived.
+ */
+export const getExperimentsUnarchiveCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/unarchive/`
+}
+
+export const experimentsUnarchiveCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsUnarchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

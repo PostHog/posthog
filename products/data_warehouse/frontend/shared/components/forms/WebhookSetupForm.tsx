@@ -16,7 +16,7 @@ import { sourceFieldToElement } from './SourceForm'
 interface WebhookSetupFormProps {
     sourceName: string
     sourceConfig?: SourceConfig | null
-    webhookTables?: { name: string }[]
+    webhookTables?: { name: string; label?: string | null }[]
     webhookResult?: { success: boolean; webhook_url: string; error?: string } | null
     webhookCreating: boolean
     onCreateWebhook: () => void
@@ -47,7 +47,7 @@ export function WebhookSetupForm({
                 <p className="font-semibold text-sm mb-1">Tables using webhook sync:</p>
                 <ul className="list-disc list-inside text-sm">
                     {webhookTables.map((t) => (
-                        <li key={t.name}>{t.name}</li>
+                        <li key={t.name}>{t.label || t.name}</li>
                     ))}
                 </ul>
             </div>
