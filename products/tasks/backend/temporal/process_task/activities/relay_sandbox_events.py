@@ -314,7 +314,7 @@ async def _relay_loop(
                 )
                 await asyncio.sleep(min(reconnect_count * 2, 10))
 
-            except (httpx.ConnectError, httpx.RemoteProtocolError) as e:
+            except (httpx.TransportError, httpx_sse.SSEError) as e:
                 reconnect_count += 1
                 logger.warning(
                     "relay_sandbox_events_connection_error",

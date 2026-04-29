@@ -150,6 +150,7 @@ class SessionMomentsLLMAnalyzer:
                 created_by=self.user,
                 created_at=created_at,
                 expires_after=expires_after,
+                is_system=True,
             )
             # Generate a video through Temporal workflow
             client = await async_connect()

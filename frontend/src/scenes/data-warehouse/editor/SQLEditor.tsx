@@ -32,17 +32,25 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import { ViewLinkModal } from '../ViewLinkModal'
 import { editorSizingLogic } from './editorSizingLogic'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
+import { OutputPane } from './OutputPane'
 import { outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 
+export enum SQLEditorPanel {
+    Full = 'full',
+    Query = 'query',
+    Output = 'output',
+}
+
 interface SQLEditorProps {
     tabId?: string
     mode?: SQLEditorMode
     showDatabaseTree?: boolean
     defaultShowDatabaseTree?: boolean
+    panel?: SQLEditorPanel
 }
 
 export function SQLEditor({
@@ -50,6 +58,7 @@ export function SQLEditor({
     mode = SQLEditorMode.FullScene,
     showDatabaseTree,
     defaultShowDatabaseTree = true,
+    panel = SQLEditorPanel.Full,
 }: SQLEditorProps): JSX.Element {
     const ref = useRef(null)
     const navigatorRef = useRef(null)
@@ -59,6 +68,10 @@ export function SQLEditor({
     const [hasShownDatabaseTree, setHasShownDatabaseTree] = useState(defaultShowDatabaseTree)
 
     const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
+    const showQueryPanel = panel !== SQLEditorPanel.Output
+    const showOutputPanel = panel !== SQLEditorPanel.Query
+    const showSceneTitle = panel === SQLEditorPanel.Full
+    const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree
 
     const editorSizingLogicProps = useMemo(
         () => ({
@@ -164,41 +177,49 @@ export function SQLEditor({
     }
 
     return (
-        <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
-            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
-                    <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                        <BindLogic logic={variablesLogic} props={variablesLogicProps}>
-                            <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                                <BindLogic logic={outputPaneLogic} props={{ tabId }}>
-                                    <BindLogic logic={sqlEditorLogic} props={{ tabId, mode, monaco, editor }}>
-                                        <VariablesQuerySync />
+        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+            <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
+                <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                    <BindLogic logic={variablesLogic} props={variablesLogicProps}>
+                        <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                            <BindLogic logic={outputPaneLogic} props={{ tabId }}>
+                                <BindLogic logic={sqlEditorLogic} props={{ tabId, mode, monaco, editor }}>
+                                    <VariablesQuerySync />
+                                    {panel === SQLEditorPanel.Output ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                                            <SQLEditorSceneTitle />
-                                            <div className="flex min-h-0 flex-1">
-                                                {shouldShowDatabaseTree && (
-                                                    <DatabaseTree databaseTreeRef={databaseTreeRef} />
-                                                )}
-                                                <div
-                                                    data-attr="editor-scene"
-                                                    className="EditorScene flex min-h-0 grow flex-row overflow-hidden"
-                                                    ref={ref}
-                                                >
-                                                    <QueryWindow
-                                                        mode={mode}
-                                                        tabId={tabId || ''}
-                                                        showDatabaseTree={shouldShowDatabaseTree}
-                                                        onShowDatabaseTree={() => setHasShownDatabaseTree(true)}
-                                                        onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
-                                                            setMonacoAndEditor([nextMonaco, nextEditor])
-                                                        }
-                                                    />
+                                            <OutputPane tabId={tabId || ''} />
+                                        </div>
+                                    ) : (
+                                        <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
+                                            <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                                                {showSceneTitle ? <SQLEditorSceneTitle /> : null}
+                                                <div className="flex min-h-0 flex-1">
+                                                    {showDatabaseTreePanel && (
+                                                        <DatabaseTree databaseTreeRef={databaseTreeRef} />
+                                                    )}
+                                                    <div
+                                                        data-attr="editor-scene"
+                                                        className="EditorScene flex min-h-0 grow flex-row overflow-hidden"
+                                                        ref={ref}
+                                                    >
+                                                        <QueryWindow
+                                                            mode={mode}
+                                                            tabId={tabId || ''}
+                                                            showDatabaseTree={showDatabaseTreePanel}
+                                                            onShowDatabaseTree={() => setHasShownDatabaseTree(true)}
+                                                            showQueryPanel={showQueryPanel}
+                                                            showOutputPanel={showOutputPanel}
+                                                            onSetMonacoAndEditor={(nextMonaco, nextEditor) =>
+                                                                setMonacoAndEditor([nextMonaco, nextEditor])
+                                                            }
+                                                        />
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                        <MaterializationModal tabId={tabId || ''} />
-                                        {!mode || mode === SQLEditorMode.FullScene ? <ViewLinkModal /> : null}
-                                    </BindLogic>
+                                        </BindLogic>
+                                    )}
+                                    <MaterializationModal tabId={tabId || ''} />
+                                    {!mode || mode === SQLEditorMode.FullScene ? <ViewLinkModal /> : null}
                                 </BindLogic>
                             </BindLogic>
                         </BindLogic>

@@ -52,6 +52,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _normalize_function_names,
     filter_postgres_incremental_fields,
     get_foreign_keys,
+    get_leading_index_columns,
     get_postgres_row_count,
     get_schemas,
 )
@@ -121,6 +122,18 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Cannot build decimal array from values",
+            "ValueError: Cannot build decimal array from values",
+        ],
+    )
+    def test_unrepresentable_decimal_values_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
 
     def test_validate_credentials_for_access_method_requires_schema_for_warehouse_imports(self, source):
         config = source.parse_config(
@@ -1039,6 +1052,67 @@ class TestGetPrimaryKeys:
 
             result = _get_primary_keys(cast(Any, dj_cursor), "public", "test_partitioned_inconsistent_pk", logger)
             assert result is None
+
+
+class TestGetLeadingIndexColumns:
+    """Unit tests for the leading-index-column helper used to flag unindexed
+    incremental fields in the source-setup wizard. The helper queries
+    ``pg_index``/``pg_attribute``; we mock the cursor to verify that:
+    - rows are bucketed by table
+    - tables in the input list with no rows return empty sets (so the UI
+      warning fires for tables without any indexes)
+    - empty input is short-circuited
+    """
+
+    def _mock_connection(self, fetched_rows: list[tuple[str, str]]):
+        cursor = mock.MagicMock()
+        cursor.__iter__.return_value = iter(fetched_rows)
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+
+        connection = mock.MagicMock()
+        connection.cursor.return_value = cursor_context
+        return connection, cursor
+
+    def test_groups_columns_by_table(self):
+        connection, _ = self._mock_connection(
+            [
+                ("orders", "created_at"),
+                ("orders", "id"),
+                ("users", "id"),
+            ]
+        )
+        result = get_leading_index_columns(connection, "public", ["orders", "users", "logs"])
+        assert result == {
+            "orders": {"created_at", "id"},
+            "users": {"id"},
+        }
+        assert "logs" not in result  # caller distinguishes "no index" via missing key
+
+    def test_returns_empty_dict_for_empty_input(self):
+        # No connection cursor should be opened when there are no tables.
+        connection = mock.MagicMock()
+        result = get_leading_index_columns(connection, "public", [])
+        assert result == {}
+        connection.cursor.assert_not_called()
+
+    def test_returns_none_when_query_raises(self):
+        # Permission errors on system catalogs (rare, but possible with
+        # restricted roles) must not leak out — the caller defaults to
+        # `is_indexed=True` and skips the warning when discovery fails.
+        connection = mock.MagicMock()
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = Exception("permission denied for table pg_index")
+
+        cursor_context = mock.MagicMock()
+        cursor_context.__enter__.return_value = cursor
+        cursor_context.__exit__.return_value = None
+        connection.cursor.return_value = cursor_context
+
+        result = get_leading_index_columns(connection, "public", ["orders"])
+        assert result is None
 
 
 class TestHasDuplicatePrimaryKeys:

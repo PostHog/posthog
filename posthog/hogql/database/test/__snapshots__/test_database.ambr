@@ -6268,6 +6268,142 @@
           "row_count": null,
           "type": "system"
       },
+      "system.review_queue_items": {
+          "fields": {
+              "trace_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "trace_id",
+                  "id": null,
+                  "name": "trace_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted_at",
+                  "id": null,
+                  "name": "deleted_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.review_queue_items",
+          "name": "system.review_queue_items",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.review_queues": {
+          "fields": {
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted_at",
+                  "id": null,
+                  "name": "deleted_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.review_queues",
+          "name": "system.review_queues",
+          "row_count": null,
+          "type": "system"
+      },
       "system.session_recording_playlists": {
           "fields": {
               "id": {
@@ -7517,6 +7653,182 @@
           },
           "id": "system.teams",
           "name": "system.teams",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.trace_review_scores": {
+          "fields": {
+              "definition_version_number": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "definition_version_number",
+                  "id": null,
+                  "name": "definition_version_number",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "definition_config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "definition_config",
+                  "id": null,
+                  "name": "definition_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "categorical_values": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "categorical_values",
+                  "id": null,
+                  "name": "categorical_values",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
+              },
+              "numeric_value": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "numeric_value",
+                  "id": null,
+                  "name": "numeric_value",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "decimal"
+              },
+              "boolean_value": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "boolean_value",
+                  "id": null,
+                  "name": "boolean_value",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.trace_review_scores",
+          "name": "system.trace_review_scores",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.trace_reviews": {
+          "fields": {
+              "trace_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "trace_id",
+                  "id": null,
+                  "name": "trace_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "reviewed_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "reviewed_by_id",
+                  "id": null,
+                  "name": "reviewed_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "comment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "comment",
+                  "id": null,
+                  "name": "comment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted_at",
+                  "id": null,
+                  "name": "deleted_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.trace_reviews",
+          "name": "system.trace_reviews",
           "row_count": null,
           "type": "system"
       },
@@ -12924,6 +13236,142 @@
           "row_count": null,
           "type": "system"
       },
+      "system.review_queue_items": {
+          "fields": {
+              "trace_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "trace_id",
+                  "id": null,
+                  "name": "trace_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted_at",
+                  "id": null,
+                  "name": "deleted_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.review_queue_items",
+          "name": "system.review_queue_items",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.review_queues": {
+          "fields": {
+              "name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted_at",
+                  "id": null,
+                  "name": "deleted_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.review_queues",
+          "name": "system.review_queues",
+          "row_count": null,
+          "type": "system"
+      },
       "system.session_recording_playlists": {
           "fields": {
               "id": {
@@ -14173,6 +14621,182 @@
           },
           "id": "system.teams",
           "name": "system.teams",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.trace_review_scores": {
+          "fields": {
+              "definition_version_number": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "definition_version_number",
+                  "id": null,
+                  "name": "definition_version_number",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "definition_config": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "definition_config",
+                  "id": null,
+                  "name": "definition_config",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "categorical_values": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "categorical_values",
+                  "id": null,
+                  "name": "categorical_values",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
+              },
+              "numeric_value": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "numeric_value",
+                  "id": null,
+                  "name": "numeric_value",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "decimal"
+              },
+              "boolean_value": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "boolean_value",
+                  "id": null,
+                  "name": "boolean_value",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.trace_review_scores",
+          "name": "system.trace_review_scores",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.trace_reviews": {
+          "fields": {
+              "trace_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "trace_id",
+                  "id": null,
+                  "name": "trace_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "reviewed_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "reviewed_by_id",
+                  "id": null,
+                  "name": "reviewed_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "comment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "comment",
+                  "id": null,
+                  "name": "comment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "deleted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted_at",
+                  "id": null,
+                  "name": "deleted_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.trace_reviews",
+          "name": "system.trace_reviews",
           "row_count": null,
           "type": "system"
       },

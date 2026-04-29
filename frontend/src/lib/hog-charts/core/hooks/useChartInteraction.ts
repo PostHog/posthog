@@ -101,6 +101,33 @@ export function useChartInteraction<Meta = unknown>({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [series, labels, scales, dimensions])
 
+    // Dismiss the tooltip on scroll — pinned or not — since the anchor moves
+    // with the page and a stale tooltip is worse than no tooltip.
+    const tooltipShown = tooltipCtx !== null
+    useEffect(() => {
+        if (!tooltipShown) {
+            return
+        }
+        const handleScroll = (e: Event): void => {
+            // Allow scrolling inside the tooltip itself (long pinned content)
+            // or the chart wrapper (a nested legend) without dismissing.
+            const target = e.target
+            if (target instanceof Element) {
+                if (target.closest('[data-hog-charts-tooltip]')) {
+                    return
+                }
+                if (wrapperRef.current?.contains(target)) {
+                    return
+                }
+            }
+            clearTooltip()
+        }
+        window.addEventListener('scroll', handleScroll, { passive: true, capture: true })
+        return () => {
+            window.removeEventListener('scroll', handleScroll, true)
+        }
+    }, [tooltipShown, wrapperRef, clearTooltip])
+
     // Dismiss listeners for pinned tooltip
     useEffect(() => {
         if (!isPinned) {
@@ -124,34 +151,16 @@ export function useChartInteraction<Meta = unknown>({
             }
         }
 
-        const handleScroll = (e: Event): void => {
-            // Ignore scrolls that originate inside the tooltip itself or inside
-            // the chart wrapper — users should be able to scroll long pinned
-            // content (or a nested legend) without dismissing the tooltip.
-            const target = e.target
-            if (target instanceof Element) {
-                if (target.closest('[data-hog-charts-tooltip]')) {
-                    return
-                }
-                if (wrapperRef.current?.contains(target)) {
-                    return
-                }
-            }
-            clearTooltip()
-        }
-
         // Delay click listener so the pinning click doesn't immediately unpin
         const timer = setTimeout(() => {
             document.addEventListener('click', handleClickOutside, { passive: true })
         }, 0)
         document.addEventListener('keydown', handleKeyDown, { passive: true })
-        window.addEventListener('scroll', handleScroll, { passive: true, capture: true })
 
         return () => {
             clearTimeout(timer)
             document.removeEventListener('click', handleClickOutside)
             document.removeEventListener('keydown', handleKeyDown)
-            window.removeEventListener('scroll', handleScroll, true)
         }
     }, [isPinned, wrapperRef, clearTooltip])
 

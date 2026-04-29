@@ -194,7 +194,6 @@ export enum AvailableFeature {
     AUTOCAPTURE = 'autocapture',
     DATA_VISUALIZATION = 'data_visualization',
     PRODUCT_ANALYTICS_SQL_QUERIES = 'product_analytics_sql_queries',
-    PRODUCT_ANALYTICS_AI = 'product_analytics_ai',
     TWOFA_ENFORCEMENT = '2fa_enforcement',
     AUDIT_LOGS = 'audit_logs',
     APPROVALS = 'approvals',
@@ -5804,6 +5803,7 @@ export interface IncrementalField {
     field: string // the actual database field name
     field_type: IncrementalFieldType // the actual database field type
     nullable?: boolean // whether the field allows null values
+    is_indexed?: boolean // leading column of an index/clustering/sort/partition key on the source
 }
 
 export interface ExternalDataSourceSyncSchema {
