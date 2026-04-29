@@ -119,9 +119,16 @@ class TestLoadUrlsFile:
         urls = cli._load_urls_file(str(path))
         assert urls == ["https://example.com/about"]
 
-    def test_empty_grouped_raises(self, tmp_path):
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            [],
+            {"base_url": "https://example.com"},
+        ],
+    )
+    def test_empty_payload_raises(self, tmp_path, payload):
         path = tmp_path / "urls.json"
-        path.write_text(json.dumps({"base_url": "https://example.com"}))
+        path.write_text(json.dumps(payload))
         with pytest.raises(ValueError, match="No URLs found"):
             cli._load_urls_file(str(path))
 

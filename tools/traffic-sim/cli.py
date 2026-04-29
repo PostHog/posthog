@@ -653,6 +653,8 @@ def _load_urls_file(path: str) -> list[str]:
     with open(path) as f:
         data = json.load(f)
     if isinstance(data, list):
+        if not data:
+            raise ValueError(f"No URLs found in {path}")
         return data
     base = (data.get("base_url") or "").rstrip("/")
     urls: list[str] = []
