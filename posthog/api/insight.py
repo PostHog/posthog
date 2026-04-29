@@ -1411,7 +1411,7 @@ class InsightViewSet(
                     queryset = queryset.filter(
                         legacy_filter
                         | Q(query__isnull=False)
-                        & Q(query__kind=schema.NodeKind.INSIGHT_VIZ_NODE)
+                        & Q(query__kind__in=WRAPPER_NODE_KINDS)
                         & Q(query__source__kind=legacy_to_hogql_mapping[insight])
                     )
                 else:
