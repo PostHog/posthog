@@ -771,9 +771,10 @@ def _fix_pydantic_schema_for_openapi(schema):
                     schema.update(single)
                 schema["nullable"] = True
             else:
-                fixed = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
-                # Any branch carrying a $ref must be isolated in its own allOf wrapper too.
-                schema["anyOf"] = [{"allOf": [s]} if "$ref" in s else s for s in fixed]
+                # Inside an ``anyOf`` array, a bare ``{"$ref": "..."}`` entry is legal — the
+                # sibling-restriction only applies when ``$ref`` shares a JSON object with
+                # other keys, which it doesn't here.
+                schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
                 schema["nullable"] = True
         elif non_null_schemas:
             if len(non_null_schemas) == 1:
@@ -820,6 +821,33 @@ def _fix_pydantic_schema_for_openapi(schema):
     if "$ref" in schema and len(schema) > 1:
         ref_value = schema.pop("$ref")
         schema["allOf"] = [{"$ref": ref_value}]
+
+    # If the resulting schema has ref-only combinators (``allOf``/``oneOf``/``anyOf`` whose
+    # entries are all just $refs) plus numeric bounds but no ``type``, the bounds are
+    # meaningless — vacuum's ``oas-schema-check`` rightly flags them. drf-spectacular emits
+    # this for ``IntegerChoices`` fields (it includes the integer field bounds alongside the
+    # enum ref) and for nullable enums (``oneOf: [{$ref Enum}, {$ref NullEnum}]``). The ref'd
+    # components already encode the allowed values, so the field-level bounds are redundant.
+    if "type" not in schema:
+        ref_only_combinators = [
+            schema[k]
+            for k in ("allOf", "oneOf", "anyOf")
+            if isinstance(schema.get(k), list) and all(isinstance(s, dict) and "$ref" in s for s in schema[k])
+        ]
+        if ref_only_combinators:
+            for vestigial in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"):
+                schema.pop(vestigial, None)
+
+    # Collapse single-entry ``allOf`` when there's nothing else worth wrapping for. Once we've
+    # stripped vestigial siblings above, ``{"allOf": [{"$ref": "..."}]}`` reduces to just the
+    # ref — vacuum's ``no-unnecessary-combinator`` rightly flags the longer form.
+    if (
+        list(schema.keys()) == ["allOf"]
+        and isinstance(schema["allOf"], list)
+        and len(schema["allOf"]) == 1
+        and isinstance(schema["allOf"][0], dict)
+    ):
+        return schema["allOf"][0]
 
     return schema
 
@@ -979,6 +1007,21 @@ def custom_postprocessing_hook(result, generator, request, public):
         result["components"]["schemas"] = {
             name: _fix_pydantic_schema_for_openapi(schema) for name, schema in result["components"]["schemas"].items()
         }
+
+    # Also fix parameter and requestBody schemas at the operation level — same shape issues
+    # surface there (single-entry allOf wrappers, $ref siblings, etc.) but the components-only
+    # walk above misses them.
+    for path_methods in paths.values():
+        for definition in path_methods.values():
+            for parameter in definition.get("parameters", []):
+                if isinstance(parameter, dict) and isinstance(parameter.get("schema"), dict):
+                    parameter["schema"] = _fix_pydantic_schema_for_openapi(parameter["schema"])
+            request_body = definition.get("requestBody")
+            if isinstance(request_body, dict):
+                content = request_body.get("content", {})
+                for media_type in content.values():
+                    if isinstance(media_type, dict) and isinstance(media_type.get("schema"), dict):
+                        media_type["schema"] = _fix_pydantic_schema_for_openapi(media_type["schema"])
 
     return {
         **result,

@@ -1289,6 +1289,16 @@ export const EventsNodeApiKind = {
     EventsNode: 'EventsNode',
 } as const
 
+export const EventsNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -1333,16 +1343,7 @@ export interface EventsNodeApi {
     kind?: EventsNodeApiKind
     /** @nullable */
     limit?: number | null
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof EventsNodeApiMath)[keyof typeof EventsNodeApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -1405,6 +1406,16 @@ export const ActionsNodeApiKind = {
     ActionsNode: 'ActionsNode',
 } as const
 
+export const ActionsNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -1443,16 +1454,7 @@ export interface ActionsNodeApi {
         | null
     id: number
     kind?: ActionsNodeApiKind
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof ActionsNodeApiMath)[keyof typeof ActionsNodeApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -1510,6 +1512,16 @@ export const DataWarehouseNodeApiKind = {
     DataWarehouseNode: 'DataWarehouseNode',
 } as const
 
+export const DataWarehouseNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -1552,16 +1564,7 @@ export interface DataWarehouseNodeApi {
     id: string
     id_field: string
     kind?: DataWarehouseNodeApiKind
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof DataWarehouseNodeApiMath)[keyof typeof DataWarehouseNodeApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -1615,6 +1618,16 @@ export interface DataWarehouseNodeApi {
     version?: number | null
 }
 
+export const GroupNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -1654,16 +1667,7 @@ export interface GroupNodeApi {
     kind?: GroupNodeApiKind
     /** @nullable */
     limit?: number | null
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof GroupNodeApiMath)[keyof typeof GroupNodeApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -2037,6 +2041,16 @@ export const FunnelExclusionEventsNodeApiKind = {
     EventsNode: 'EventsNode',
 } as const
 
+export const FunnelExclusionEventsNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -2083,16 +2097,7 @@ export interface FunnelExclusionEventsNodeApi {
     kind?: FunnelExclusionEventsNodeApiKind
     /** @nullable */
     limit?: number | null
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof FunnelExclusionEventsNodeApiMath)[keyof typeof FunnelExclusionEventsNodeApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -2156,6 +2161,16 @@ export const FunnelExclusionActionsNodeApiKind = {
     ActionsNode: 'ActionsNode',
 } as const
 
+export const FunnelExclusionActionsNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -2196,16 +2211,7 @@ export interface FunnelExclusionActionsNodeApi {
     funnelToStep: number
     id: number
     kind?: FunnelExclusionActionsNodeApiKind
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof FunnelExclusionActionsNodeApiMath)[keyof typeof FunnelExclusionActionsNodeApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -2401,6 +2407,16 @@ export const FunnelsDataWarehouseNodeApiKind = {
     FunnelsDataWarehouseNode: 'FunnelsDataWarehouseNode',
 } as const
 
+export const FunnelsDataWarehouseNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -2443,16 +2459,7 @@ export interface FunnelsDataWarehouseNodeApi {
     id: string
     id_field: string
     kind?: FunnelsDataWarehouseNodeApiKind
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof FunnelsDataWarehouseNodeApiMath)[keyof typeof FunnelsDataWarehouseNodeApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -3268,6 +3275,16 @@ export const LifecycleDataWarehouseNodeApiKind = {
     LifecycleDataWarehouseNode: 'LifecycleDataWarehouseNode',
 } as const
 
+export const LifecycleDataWarehouseNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -3308,16 +3325,7 @@ export interface LifecycleDataWarehouseNodeApi {
         | null
     id: string
     kind?: LifecycleDataWarehouseNodeApiKind
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof LifecycleDataWarehouseNodeApiMath)[keyof typeof LifecycleDataWarehouseNodeApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -5735,6 +5743,16 @@ export const ExperimentDataWarehouseNodeApiKind = {
     ExperimentDataWarehouseNode: 'ExperimentDataWarehouseNode',
 } as const
 
+export const ExperimentDataWarehouseNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -5774,16 +5792,7 @@ export interface ExperimentDataWarehouseNodeApi {
           )[]
         | null
     kind?: ExperimentDataWarehouseNodeApiKind
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof ExperimentDataWarehouseNodeApiMath)[keyof typeof ExperimentDataWarehouseNodeApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -7638,6 +7647,16 @@ export const ConversionGoalFilter1ApiKind = {
     EventsNode: 'EventsNode',
 } as const
 
+export const ConversionGoalFilter1ApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -7686,16 +7705,7 @@ export interface ConversionGoalFilter1Api {
     kind?: ConversionGoalFilter1ApiKind
     /** @nullable */
     limit?: number | null
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof ConversionGoalFilter1ApiMath)[keyof typeof ConversionGoalFilter1ApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -7760,6 +7770,16 @@ export const ConversionGoalFilter2ApiKind = {
     ActionsNode: 'ActionsNode',
 } as const
 
+export const ConversionGoalFilter2ApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -7802,16 +7822,7 @@ export interface ConversionGoalFilter2Api {
         | null
     id: number
     kind?: ConversionGoalFilter2ApiKind
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof ConversionGoalFilter2ApiMath)[keyof typeof ConversionGoalFilter2ApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null
@@ -7871,6 +7882,16 @@ export const ConversionGoalFilter3ApiKind = {
     DataWarehouseNode: 'DataWarehouseNode',
 } as const
 
+export const ConversionGoalFilter3ApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
 /**
  * @nullable
  */
@@ -7917,16 +7938,7 @@ export interface ConversionGoalFilter3Api {
     id: string
     id_field: string
     kind?: ConversionGoalFilter3ApiKind
-    math?:
-        | BaseMathTypeApi
-        | FunnelMathTypeApi
-        | PropertyMathTypeApi
-        | CountPerActorMathTypeApi
-        | ExperimentMetricMathTypeApi
-        | CalendarHeatmapMathTypeApi
-        | 'unique_group'
-        | 'hogql'
-        | null
+    math?: (typeof ConversionGoalFilter3ApiMath)[keyof typeof ConversionGoalFilter3ApiMath] | null
     math_group_type_index?: MathGroupTypeIndexApi | null
     /** @nullable */
     math_hogql?: string | null

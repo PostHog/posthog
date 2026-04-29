@@ -647,6 +647,83 @@ export namespace Schemas {
       ActionsNode: 'ActionsNode',
     } as const;
 
+    export type BaseMathType = typeof BaseMathType[keyof typeof BaseMathType];
+
+
+    export const BaseMathType = {
+      Total: 'total',
+      Dau: 'dau',
+      WeeklyActive: 'weekly_active',
+      MonthlyActive: 'monthly_active',
+      UniqueSession: 'unique_session',
+      FirstTimeForUser: 'first_time_for_user',
+      FirstMatchingEventForUser: 'first_matching_event_for_user',
+    } as const;
+
+    export type FunnelMathType = typeof FunnelMathType[keyof typeof FunnelMathType];
+
+
+    export const FunnelMathType = {
+      Total: 'total',
+      FirstTimeForUser: 'first_time_for_user',
+      FirstTimeForUserWithFilters: 'first_time_for_user_with_filters',
+    } as const;
+
+    export type PropertyMathType = typeof PropertyMathType[keyof typeof PropertyMathType];
+
+
+    export const PropertyMathType = {
+      Avg: 'avg',
+      Sum: 'sum',
+      Min: 'min',
+      Max: 'max',
+      Median: 'median',
+      P75: 'p75',
+      P90: 'p90',
+      P95: 'p95',
+      P99: 'p99',
+    } as const;
+
+    export type CountPerActorMathType = typeof CountPerActorMathType[keyof typeof CountPerActorMathType];
+
+
+    export const CountPerActorMathType = {
+      AvgCountPerActor: 'avg_count_per_actor',
+      MinCountPerActor: 'min_count_per_actor',
+      MaxCountPerActor: 'max_count_per_actor',
+      MedianCountPerActor: 'median_count_per_actor',
+      P75CountPerActor: 'p75_count_per_actor',
+      P90CountPerActor: 'p90_count_per_actor',
+      P95CountPerActor: 'p95_count_per_actor',
+      P99CountPerActor: 'p99_count_per_actor',
+    } as const;
+
+    export type ExperimentMetricMathType = typeof ExperimentMetricMathType[keyof typeof ExperimentMetricMathType];
+
+
+    export const ExperimentMetricMathType = {
+      Total: 'total',
+      Sum: 'sum',
+      UniqueSession: 'unique_session',
+      Min: 'min',
+      Max: 'max',
+      Avg: 'avg',
+      Dau: 'dau',
+      UniqueGroup: 'unique_group',
+      Hogql: 'hogql',
+    } as const;
+
+    export type CalendarHeatmapMathType = typeof CalendarHeatmapMathType[keyof typeof CalendarHeatmapMathType];
+
+
+    export const CalendarHeatmapMathType = {
+      Total: 'total',
+      Dau: 'dau',
+    } as const;
+
+    export const ActionsNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -1076,80 +1153,6 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
-    export type BaseMathType = typeof BaseMathType[keyof typeof BaseMathType];
-
-
-    export const BaseMathType = {
-      Total: 'total',
-      Dau: 'dau',
-      WeeklyActive: 'weekly_active',
-      MonthlyActive: 'monthly_active',
-      UniqueSession: 'unique_session',
-      FirstTimeForUser: 'first_time_for_user',
-      FirstMatchingEventForUser: 'first_matching_event_for_user',
-    } as const;
-
-    export type FunnelMathType = typeof FunnelMathType[keyof typeof FunnelMathType];
-
-
-    export const FunnelMathType = {
-      Total: 'total',
-      FirstTimeForUser: 'first_time_for_user',
-      FirstTimeForUserWithFilters: 'first_time_for_user_with_filters',
-    } as const;
-
-    export type PropertyMathType = typeof PropertyMathType[keyof typeof PropertyMathType];
-
-
-    export const PropertyMathType = {
-      Avg: 'avg',
-      Sum: 'sum',
-      Min: 'min',
-      Max: 'max',
-      Median: 'median',
-      P75: 'p75',
-      P90: 'p90',
-      P95: 'p95',
-      P99: 'p99',
-    } as const;
-
-    export type CountPerActorMathType = typeof CountPerActorMathType[keyof typeof CountPerActorMathType];
-
-
-    export const CountPerActorMathType = {
-      AvgCountPerActor: 'avg_count_per_actor',
-      MinCountPerActor: 'min_count_per_actor',
-      MaxCountPerActor: 'max_count_per_actor',
-      MedianCountPerActor: 'median_count_per_actor',
-      P75CountPerActor: 'p75_count_per_actor',
-      P90CountPerActor: 'p90_count_per_actor',
-      P95CountPerActor: 'p95_count_per_actor',
-      P99CountPerActor: 'p99_count_per_actor',
-    } as const;
-
-    export type ExperimentMetricMathType = typeof ExperimentMetricMathType[keyof typeof ExperimentMetricMathType];
-
-
-    export const ExperimentMetricMathType = {
-      Total: 'total',
-      Sum: 'sum',
-      UniqueSession: 'unique_session',
-      Min: 'min',
-      Max: 'max',
-      Avg: 'avg',
-      Dau: 'dau',
-      UniqueGroup: 'unique_group',
-      Hogql: 'hogql',
-    } as const;
-
-    export type CalendarHeatmapMathType = typeof CalendarHeatmapMathType[keyof typeof CalendarHeatmapMathType];
-
-
-    export const CalendarHeatmapMathType = {
-      Total: 'total',
-      Dau: 'dau',
-    } as const;
-
     export type MathGroupTypeIndex = typeof MathGroupTypeIndex[keyof typeof MathGroupTypeIndex];
 
 
@@ -1335,7 +1338,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: number;
       kind?: ActionsNodeKind;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof ActionsNodeMath[keyof typeof ActionsNodeMath]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -2086,6 +2089,9 @@ export namespace Schemas {
       EventsNode: 'EventsNode',
     } as const;
 
+    export const EventsNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -2107,7 +2113,7 @@ export namespace Schemas {
       kind?: EventsNodeKind;
       /** @nullable */
       limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof EventsNodeMath[keyof typeof EventsNodeMath]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -2148,6 +2154,9 @@ export namespace Schemas {
       DataWarehouseNode: 'DataWarehouseNode',
     } as const;
 
+    export const DataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -2167,7 +2176,7 @@ export namespace Schemas {
       id: string;
       id_field: string;
       kind?: DataWarehouseNodeKind;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof DataWarehouseNodeMath[keyof typeof DataWarehouseNodeMath]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -2198,6 +2207,9 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export const GroupNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -2214,7 +2226,7 @@ export namespace Schemas {
       kind?: GroupNodeKind;
       /** @nullable */
       limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof GroupNodeMath[keyof typeof GroupNodeMath]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -2527,6 +2539,9 @@ export namespace Schemas {
       EventsNode: 'EventsNode',
     } as const;
 
+    export const FunnelExclusionEventsNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -2550,7 +2565,7 @@ export namespace Schemas {
       kind?: FunnelExclusionEventsNodeKind;
       /** @nullable */
       limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof FunnelExclusionEventsNodeMath[keyof typeof FunnelExclusionEventsNodeMath]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -2591,6 +2606,9 @@ export namespace Schemas {
       ActionsNode: 'ActionsNode',
     } as const;
 
+    export const FunnelExclusionActionsNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -2608,7 +2626,7 @@ export namespace Schemas {
       funnelToStep: number;
       id: number;
       kind?: FunnelExclusionActionsNodeKind;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof FunnelExclusionActionsNodeMath[keyof typeof FunnelExclusionActionsNodeMath]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -2786,6 +2804,9 @@ export namespace Schemas {
       FunnelsDataWarehouseNode: 'FunnelsDataWarehouseNode',
     } as const;
 
+    export const FunnelsDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -2805,7 +2826,7 @@ export namespace Schemas {
       id: string;
       id_field: string;
       kind?: FunnelsDataWarehouseNodeKind;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof FunnelsDataWarehouseNodeMath[keyof typeof FunnelsDataWarehouseNodeMath]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -3493,6 +3514,9 @@ export namespace Schemas {
       LifecycleDataWarehouseNode: 'LifecycleDataWarehouseNode',
     } as const;
 
+    export const LifecycleDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -3510,7 +3534,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: string;
       kind?: LifecycleDataWarehouseNodeKind;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof LifecycleDataWarehouseNodeMath[keyof typeof LifecycleDataWarehouseNodeMath]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -4146,6 +4170,9 @@ export namespace Schemas {
       ExperimentDataWarehouseNode: 'ExperimentDataWarehouseNode',
     } as const;
 
+    export const ExperimentDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -4162,7 +4189,7 @@ export namespace Schemas {
        */
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       kind?: ExperimentDataWarehouseNodeKind;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof ExperimentDataWarehouseNodeMath[keyof typeof ExperimentDataWarehouseNodeMath]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -8465,6 +8492,9 @@ export namespace Schemas {
       EventsNode: 'EventsNode',
     } as const;
 
+    export const ConversionGoalFilter1Math = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -8490,7 +8520,7 @@ export namespace Schemas {
       kind?: ConversionGoalFilter1Kind;
       /** @nullable */
       limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof ConversionGoalFilter1Math[keyof typeof ConversionGoalFilter1Math]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -8532,6 +8562,9 @@ export namespace Schemas {
       ActionsNode: 'ActionsNode',
     } as const;
 
+    export const ConversionGoalFilter2Math = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -8551,7 +8584,7 @@ export namespace Schemas {
       fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       id: number;
       kind?: ConversionGoalFilter2Kind;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof ConversionGoalFilter2Math[keyof typeof ConversionGoalFilter2Math]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -8588,6 +8621,9 @@ export namespace Schemas {
       DataWarehouseNode: 'DataWarehouseNode',
     } as const;
 
+    export const ConversionGoalFilter3Math = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
     /**
      * @nullable
      */
@@ -8611,7 +8647,7 @@ export namespace Schemas {
       id: string;
       id_field: string;
       kind?: ConversionGoalFilter3Kind;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
+      math?: typeof ConversionGoalFilter3Math[keyof typeof ConversionGoalFilter3Math]  | null;
       math_group_type_index?: MathGroupTypeIndex | null;
       /** @nullable */
       math_hogql?: string | null;
@@ -9154,10 +9190,6 @@ export namespace Schemas {
        */
       data_color_theme_id?: number | null;
       tags?: unknown[];
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       restriction_level?: RestrictionLevelEnum;
       readonly effective_restriction_level: EffectivePrivilegeLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
@@ -9239,10 +9271,6 @@ export namespace Schemas {
       readonly id: string;
       readonly dashboard_id: number;
       readonly user: UserBasic;
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       level: RestrictionLevelEnum;
       readonly added_at: string;
       readonly updated_at: string;
@@ -22204,10 +22232,6 @@ export namespace Schemas {
       /** @maxLength 30 */
       first_name?: string;
       readonly emailing_attempt_made: boolean;
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       level?: OrganizationMembershipLevelEnum;
       /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
       readonly is_expired: boolean;
@@ -22225,10 +22249,6 @@ export namespace Schemas {
     export interface OrganizationMember {
       readonly id: string;
       readonly user: UserBasic;
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       level?: OrganizationMembershipLevelEnum;
       readonly joined_at: string;
       readonly updated_at: string;
@@ -26053,10 +26073,6 @@ export namespace Schemas {
        */
       data_color_theme_id?: number | null;
       tags?: unknown[];
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       restriction_level?: RestrictionLevelEnum;
       readonly effective_restriction_level?: EffectivePrivilegeLevelEnum;
       readonly effective_privilege_level?: EffectivePrivilegeLevelEnum;
@@ -28073,10 +28089,6 @@ export namespace Schemas {
     export interface PatchedOrganizationMember {
       readonly id?: string;
       readonly user?: UserBasic;
-      /**
-       * @minimum 0
-       * @maximum 32767
-       */
       level?: OrganizationMembershipLevelEnum;
       readonly joined_at?: string;
       readonly updated_at?: string;
@@ -28957,14 +28969,10 @@ export namespace Schemas {
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
       access_control?: boolean;
-      /**
-       * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+      /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
     * `0` - Sunday
-    * `1` - Monday
-       * @minimum -32768
-       * @maximum 32767
-       */
+    * `1` - Monday */
       week_start_day?: WeekStartDayEnum | NullEnum | null;
       /**
        * ID of the dashboard shown as the project's default landing dashboard.
@@ -30360,10 +30368,6 @@ export namespace Schemas {
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
-      /**
-       * @minimum -32768
-       * @maximum 32767
-       */
       week_start_day?: WeekStartDayEnum | NullEnum | null;
       /** @nullable */
       primary_dashboard?: number | null;
@@ -30371,10 +30375,6 @@ export namespace Schemas {
       live_events_columns?: string[] | null;
       /** @nullable */
       recording_domains?: (string | null)[] | null;
-      /**
-       * @minimum -32768
-       * @maximum 32767
-       */
       cookieless_server_hash_mode?: CookielessServerHashModeEnum | NullEnum | null;
       /** @nullable */
       human_friendly_comparison_periods?: boolean | null;
@@ -31641,14 +31641,10 @@ export namespace Schemas {
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
       access_control?: boolean;
-      /**
-       * First day of the week for date range filters. 0 = Sunday, 1 = Monday.
+      /** First day of the week for date range filters. 0 = Sunday, 1 = Monday.
 
     * `0` - Sunday
-    * `1` - Monday
-       * @minimum -32768
-       * @maximum 32767
-       */
+    * `1` - Monday */
       week_start_day?: WeekStartDayEnum | NullEnum | null;
       /**
        * ID of the dashboard shown as the project's default landing dashboard.
@@ -36405,10 +36401,6 @@ export namespace Schemas {
       session_recording_retention_period?: SessionRecordingRetentionPeriodEnum;
       session_replay_config?: unknown | null;
       survey_config?: unknown | null;
-      /**
-       * @minimum -32768
-       * @maximum 32767
-       */
       week_start_day?: WeekStartDayEnum | NullEnum | null;
       /** @nullable */
       primary_dashboard?: number | null;
@@ -36416,10 +36408,6 @@ export namespace Schemas {
       live_events_columns?: string[] | null;
       /** @nullable */
       recording_domains?: (string | null)[] | null;
-      /**
-       * @minimum -32768
-       * @maximum 32767
-       */
       cookieless_server_hash_mode?: CookielessServerHashModeEnum | NullEnum | null;
       /** @nullable */
       human_friendly_comparison_periods?: boolean | null;
