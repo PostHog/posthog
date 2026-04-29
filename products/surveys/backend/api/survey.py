@@ -9,7 +9,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Min
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
@@ -31,7 +31,6 @@ from drf_spectacular.utils import (
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
-from prometheus_client import Counter
 from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -47,13 +46,12 @@ from posthog.api.feature_flag import (
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action, get_token
+from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
-from posthog.exceptions import generate_exception_response
 from posthog.models import Action
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -65,13 +63,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
-from products.surveys.backend.models import (
-    MAX_ITERATION_COUNT,
-    Survey,
-    SurveyResponseArchive,
-    ensure_question_ids,
-    surveys_hypercache,
-)
+from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
 from products.surveys.backend.util import (
     SurveyEventName,
@@ -136,19 +128,6 @@ if "replica" in settings.DATABASES:
     READ_DB_FOR_SURVEYS = "replica"
 else:
     READ_DB_FOR_SURVEYS = "default"
-
-
-COUNTER_SURVEYS_API_USE_REMOTE_CONFIG = Counter(
-    "posthog_surveys_api_use_remote_config",
-    "Number of times the surveys API has been used with remote config",
-    labelnames=["result"],
-)
-
-COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON = Counter(
-    "posthog_surveys_api_remote_config_comparison",
-    "Comparison of surveys response equality",
-    labelnames=["result"],
-)
 
 
 class EventStats(TypedDict):
@@ -2741,81 +2720,6 @@ def get_surveys_response(team: Team):
         "surveys": surveys,
         "survey_config": serialized_survey_config.get("survey_config", None),
     }
-
-
-@csrf_exempt
-def surveys(request: Request):
-    token = get_token(None, request)
-    if request.method == "OPTIONS":
-        return cors_response(request, HttpResponse(""))
-
-    if not token:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "surveys",
-                "Project token not provided. You can find your project token in your PostHog project settings.",
-                type="authentication_error",
-                code="missing_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
-
-    hypercache_response = None
-    response = None
-
-    if settings.SURVEYS_API_USE_HYPERCACHE_TOKENS and (
-        "*" in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS or token in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS
-    ):
-        try:
-            hypercache_response = surveys_hypercache.get_from_cache(token)
-            if not hypercache_response:
-                raise Exception("No hypercache response found")
-
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
-            response = hypercache_response
-
-        except Team.DoesNotExist:
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
-            pass
-        except Exception as e:
-            capture_exception(e)
-            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="error").inc()
-            pass  # For now fallback
-
-    # If we didn't get a hypercache response or we are comparing then load the normal response to compare
-    if not hypercache_response or settings.SURVEYS_API_USE_REMOTE_CONFIG_COMPARE:
-        team = Team.objects.get_team_from_cache_or_token(token)
-        if team is None:
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "surveys",
-                    "Project token invalid. You can find your project token in your PostHog project settings.",
-                    type="authentication_error",
-                    code="invalid_api_key",
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                ),
-            )
-        response = get_surveys_response(team)
-
-        if hypercache_response:
-            # Do the comparison here
-            try:
-                if hypercache_response == response:
-                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="same").inc()
-                else:
-                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="different").inc()
-                    logger.warning(
-                        "SurveyHypercacheResponseDifferentFromAPIResponse",
-                        hypercache_response=hypercache_response,
-                        response=response,
-                    )
-
-            except Exception as e:
-                capture_exception(e)
-
-    return cors_response(request, JsonResponse(response))
 
 
 @csrf_exempt

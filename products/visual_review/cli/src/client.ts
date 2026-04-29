@@ -36,7 +36,8 @@ export interface ClientConfig {
 export class VisualReviewApiError extends Error {
     constructor(
         public status: number,
-        responseText: string
+        responseText: string,
+        public retryAfter?: number
     ) {
         super(`API error ${status}: ${responseText}`)
         this.name = 'VisualReviewApiError'
@@ -76,7 +77,9 @@ export class VisualReviewClient {
 
         if (!response.ok) {
             const text = await response.text()
-            throw new VisualReviewApiError(response.status, text)
+            const retryAfterHeader = response.headers.get('Retry-After')
+            const retryAfter = retryAfterHeader ? parseInt(retryAfterHeader, 10) || undefined : undefined
+            throw new VisualReviewApiError(response.status, text, retryAfter)
         }
 
         return response.json() as Promise<T>

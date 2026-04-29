@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "language": {
+            "default": "hogQL",
+            "description": "Language to validate. Defaults to 'hogQL' (full SELECT statements). Use 'hogQLExpr' for a bare expression, 'hog' or 'hogTemplate' for Hog source.",
+            "enum": ["hogQL", "hogQLExpr", "hog", "hogTemplate"],
+            "type": "string"
+        },
+        "query": {
+            "description": "The HogQL (ClickHouse-flavored SQL) query to validate. Parsed and type-checked without executing, so there is no ClickHouse cost.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

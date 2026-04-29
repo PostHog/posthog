@@ -594,6 +594,52 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIn("trace1", result_ids)
         self.assertIn("trace3", result_ids)
 
+    def test_trailing_buffer_does_not_swallow_window_traces(self):
+        # Regression: when more traces exist in the +10 min trailing capture
+        # buffer than the page size, the trace_ids subquery's `ORDER BY
+        # min(timestamp) DESC LIMIT N` used to pick exclusively buffer traces,
+        # which were then dropped by the overlap post-filter — producing an
+        # empty page even though the user window contained valid traces.
+        _create_person(distinct_ids=["person1"], team=self.team)
+
+        for i in range(5):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"in_window_{i}",
+                timestamp=datetime(2024, 12, 1, 10, 10 * i),
+            )
+
+        # 6 traces in (date_to, date_to + 10 min] — all newer than the in-window
+        # ones, so a naive `ORDER BY min(timestamp) DESC LIMIT 5` would pick them.
+        for i in range(6):
+            _create_ai_generation_event(
+                distinct_id="person1",
+                team=self.team,
+                trace_id=f"buffer_{i}",
+                timestamp=datetime(2024, 12, 1, 11, 1 + i),
+            )
+
+        response = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(
+                limit=4,  # pagination_limit = 4 + 0 + 1 = 5; smaller than the buffer count
+                dateRange=DateRange(
+                    date_from="2024-12-01T10:00:00Z",
+                    date_to="2024-12-01T11:00:00Z",
+                ),
+            ),
+        ).calculate()
+
+        result_ids = [t.id for t in response.results]
+        self.assertEqual(
+            len(response.results),
+            5,
+            f"expected 5 in-window traces; got {len(response.results)}: {result_ids}",
+        )
+        for rid in result_ids:
+            self.assertTrue(rid.startswith("in_window_"), f"unexpected trace id {rid} in results")
+
     def test_overlap_semantics_trace_started_before_window(self):
         _create_person(distinct_ids=["person1"], team=self.team)
 
