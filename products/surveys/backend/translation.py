@@ -66,14 +66,19 @@ def _questions_source(survey: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(questions, list):
         return []
 
-    return [
-        {
-            **question,
-            "id": question.get("id") or f"{DRAFT_TRANSLATION_QUESTION_ID_PREFIX}{index}",
-        }
-        for index, question in enumerate(questions)
-        if isinstance(question, dict)
-    ]
+    source_questions: list[dict[str, Any]] = []
+    for index, question in enumerate(questions):
+        if not isinstance(question, dict):
+            continue
+
+        source_questions.append(
+            {
+                **question,
+                "id": question.get("id") or f"{DRAFT_TRANSLATION_QUESTION_ID_PREFIX}{index}",
+            }
+        )
+
+    return source_questions
 
 
 def _is_missing(value: Any) -> bool:
