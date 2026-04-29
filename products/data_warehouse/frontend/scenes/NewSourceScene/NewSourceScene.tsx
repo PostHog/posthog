@@ -485,7 +485,7 @@ function WebhookSetupStep(): JSX.Element {
 
     const webhookTables = databaseSchema
         .filter((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync)
-        .map((s) => ({ name: s.table }))
+        .map((s) => ({ name: s.table, label: s.label }))
 
     return (
         <WebhookSetupForm

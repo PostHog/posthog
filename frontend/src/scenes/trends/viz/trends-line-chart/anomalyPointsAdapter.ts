@@ -1,6 +1,6 @@
 import type { AnomalyPoint } from 'lib/components/Alerts/types'
 
-import type { IndexedTrendResult } from '../types'
+import type { IndexedTrendResult } from '../../types'
 
 export interface AnomalyMarker {
     /** Index along the x-axis (into the chart's `labels` array). */

@@ -485,6 +485,13 @@ describe('sqlEditorLogic', () => {
                 expected: ChartDisplayType.BoldNumber,
             },
             {
+                name: 'saves visualization when both outputs are selected',
+                outputTab: OutputTab.Both,
+                sourceQueryDisplay: ChartDisplayType.Auto,
+                effectiveVisualizationType: ChartDisplayType.BoldNumber,
+                expected: ChartDisplayType.BoldNumber,
+            },
+            {
                 name: 'falls back to line graph when there is no effective visualization',
                 outputTab: OutputTab.Visualization,
                 sourceQueryDisplay: ChartDisplayType.Auto,
@@ -772,6 +779,24 @@ describe('sqlEditorLogic', () => {
 
             expect(router.values.hashParams.q).toEqual('SELECT 1')
             expect(router.values.hashParams.output_tab).toEqual(OutputTab.Visualization)
+        })
+
+        it('uses both as the hash output tab when split view is selected', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            logic.actions.setActiveTab(OutputTab.Both)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(router.values.hashParams.q).toEqual('SELECT 1')
+            expect(router.values.hashParams.output_tab).toEqual(OutputTab.Both)
         })
     })
 

@@ -90,7 +90,6 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'openid',
     'profile',
     'email',
-    'introspection',
     'alert:read',
     'alert:write',
     'annotation:read',

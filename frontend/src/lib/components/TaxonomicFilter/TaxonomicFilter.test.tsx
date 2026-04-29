@@ -1071,4 +1071,83 @@ describe('TaxonomicFilter', () => {
             }
         )
     })
+
+    describe('log attribute value-match indicator', () => {
+        const mockLogAttributes = {
+            results: [
+                { name: 'service.name', propertyFilterType: 'log_resource_attribute', matchedOn: 'key' },
+                { name: 'k8s.pod.name', propertyFilterType: 'log_resource_attribute', matchedOn: 'key' },
+                {
+                    name: 'k8s.deployment.name',
+                    propertyFilterType: 'log_resource_attribute',
+                    matchedOn: 'value',
+                    matchedValue: 'argo-rollouts-dashboard',
+                },
+            ],
+            count: 3,
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/projects/:team/actions': { results: [] },
+                    '/api/environments/:team/logs/attributes': mockLogAttributes,
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+        })
+
+        it('renders the value-match indicator only on rows matched by value', async () => {
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.LogResourceAttributes] })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'argo')
+
+            await waitFor(() => {
+                expect(screen.getByText('k8s.deployment.name')).toBeInTheDocument()
+            })
+
+            const indicators = screen.queryAllByLabelText('Matched on value')
+            expect(indicators).toHaveLength(1)
+            const indicator = indicators[0]
+            // Badge shows the (possibly truncated) matched value
+            expect(indicator.textContent).toContain('argo-rollouts-dashboard')
+            const row = indicator.closest('.taxonomic-list-row, [data-attr*="prop-filter"]') ?? indicator.parentElement
+            expect(row?.textContent).toContain('k8s.deployment.name')
+            expect(row?.textContent).not.toContain('service.name')
+        })
+
+        it('orders key matches above value matches in the rendered list', async () => {
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.LogResourceAttributes] })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'argo')
+
+            await waitFor(() => {
+                expect(screen.getAllByText('service.name').length).toBeGreaterThan(0)
+            })
+
+            // Anchor on the row data-attr so we ignore tooltips / titles that duplicate the text.
+            const rowText = (name: string): string =>
+                Array.from(document.querySelectorAll('[data-attr^="prop-filter-log_resource_attributes-"]'))
+                    .find((el) => el.textContent?.includes(name))
+                    ?.getAttribute('data-attr') ?? ''
+
+            const serviceIdx = rowText('service.name')
+            const podIdx = rowText('k8s.pod.name')
+            const deploymentIdx = rowText('k8s.deployment.name')
+            expect(serviceIdx).not.toBe('')
+            expect(podIdx).not.toBe('')
+            expect(deploymentIdx).not.toBe('')
+            // data-attr ends with the row index; key matches (0,1) come before value matches (2)
+            expect(parseInt(serviceIdx.split('-').pop() as string)).toBeLessThan(
+                parseInt(deploymentIdx.split('-').pop() as string)
+            )
+            expect(parseInt(podIdx.split('-').pop() as string)).toBeLessThan(
+                parseInt(deploymentIdx.split('-').pop() as string)
+            )
+        })
+    })
 })
