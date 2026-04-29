@@ -329,9 +329,13 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.ManifestStaticFilesStorage",
+        "BACKEND": "posthog.static_files_storage.NonStrictManifestStaticFilesStorage",
     },
 }
+# Honoured by whitenoise's CompressedManifestStaticFilesStorage subclasses if
+# we ever switch to one — kept aligned with the storage class above so the
+# behaviour is consistent regardless of which backend is configured.
+WHITENOISE_MANIFEST_STRICT = False
 
 
 def static_varies_origin(headers, path, url):
