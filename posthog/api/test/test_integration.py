@@ -1510,6 +1510,66 @@ class TestStripeIntegrationOAuthTokens:
             assert call.kwargs["params"]["scope"] == {"type": "account"}
             assert call.kwargs["options"] == {"stripe_account": "acct_789"}
 
+    @patch("posthog.models.integration.StripeClient")
+    @patch("posthog.models.integration.settings")
+    def test_write_posthog_secrets_uses_sandbox_secret_when_flag_set(self, mock_settings, MockStripeClient):
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
+        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = "sk_test_sandbox"
+        MockStripeClient.return_value = MagicMock()
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            config={"is_sandbox": True},
+            sensitive_config={},
+            integration_id="acct_sandbox_1",
+            created_by=self.user,
+        )
+        StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
+
+        MockStripeClient.assert_called_once_with("sk_test_sandbox")
+
+    @patch("posthog.models.integration.StripeClient")
+    @patch("posthog.models.integration.settings")
+    def test_clear_posthog_secrets_uses_sandbox_secret_when_flag_set(self, mock_settings, MockStripeClient):
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = None
+        mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
+        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = "sk_test_sandbox"
+        MockStripeClient.return_value = MagicMock()
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            config={"is_sandbox": True},
+            sensitive_config={},
+            integration_id="acct_sandbox_2",
+            created_by=self.user,
+        )
+        StripeIntegration(integration).clear_posthog_secrets()
+
+        MockStripeClient.assert_called_once_with("sk_test_sandbox")
+
+    @patch("posthog.models.integration.StripeClient")
+    @patch("posthog.models.integration.settings")
+    def test_write_posthog_secrets_uses_live_secret_when_flag_missing(self, mock_settings, MockStripeClient):
+        mock_settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID = self.oauth_app.client_id
+        mock_settings.STRIPE_APP_SECRET_KEY = "sk_live"
+        mock_settings.STRIPE_APP_SANDBOX_SECRET_KEY = "sk_test_sandbox"
+        MockStripeClient.return_value = MagicMock()
+
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="stripe",
+            config={},
+            sensitive_config={},
+            integration_id="acct_legacy",
+            created_by=self.user,
+        )
+        StripeIntegration(integration).write_posthog_secrets(self.team.pk, self.user)
+
+        MockStripeClient.assert_called_once_with("sk_live")
+
 
 def _make_github_branches_response(names: list[str], has_next: bool = False) -> MagicMock:
     """Build a mock requests.Response for the GitHub branches API."""

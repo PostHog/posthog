@@ -694,6 +694,16 @@ class OauthIntegration:
                         "grant_type": "authorization_code",
                     },
                 )
+                if res.status_code == 200:
+                    # Use the sandbox config for downstream API calls (account name lookup)
+                    # and persist the flag so refresh / write_posthog_secrets / clear_posthog_secrets
+                    # pick the sandbox secret without retrying.
+                    oauth_config = sandbox_oauth_config
+                    stripe_is_sandbox = True
+                else:
+                    stripe_is_sandbox = False
+            else:
+                stripe_is_sandbox = False
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
@@ -889,6 +899,12 @@ class OauthIntegration:
             # Default to 1 hour for Salesforce if not provided (conservative)
             config["expires_in"] = 3600
 
+        if kind == "stripe":
+            # Persisted so downstream Stripe API calls (refresh_access_token,
+            # StripeIntegration.write_posthog_secrets / clear_posthog_secrets)
+            # pick the right developer secret without error-driven retries.
+            config["is_sandbox"] = stripe_is_sandbox
+
         config["refreshed_at"] = int(time.time())
 
         integration, created = Integration.objects.update_or_create(
@@ -934,7 +950,8 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        oauth_config = self.oauth_config_for_kind(self.integration.kind)
+        is_sandbox = bool(self.integration.config.get("is_sandbox")) if self.integration.kind == "stripe" else False
+        oauth_config = self.oauth_config_for_kind(self.integration.kind, is_sandbox=is_sandbox)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
@@ -3058,6 +3075,17 @@ class StripeIntegration:
             raise ValueError(f"Expected stripe integration, got {integration.kind}")
         self.integration = integration
 
+    @property
+    def is_sandbox(self) -> bool:
+        return bool(self.integration.config.get("is_sandbox"))
+
+    def _stripe_client(self) -> StripeClient:
+        # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the
+        # Apps Secret Store and account-scoped API calls must authenticate with the matching
+        # developer secret. Older live integrations have no flag set and default to live.
+        secret_key = settings.STRIPE_APP_SANDBOX_SECRET_KEY if self.is_sandbox else settings.STRIPE_APP_SECRET_KEY
+        return StripeClient(secret_key)
+
     def write_posthog_secrets(self, team_id: int, created_by: "User") -> None:
         """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
 
@@ -3099,7 +3127,7 @@ class StripeIntegration:
             "posthog_oauth_client_id": oauth_app.client_id,
         }
 
-        client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
+        client = self._stripe_client()
 
         for name, payload in secrets.items():
             try:
@@ -3112,12 +3140,13 @@ class StripeIntegration:
                     options={"stripe_account": stripe_user_id},
                 )
             except Exception as e:
-                capture_exception(e)
-                logger.warning(
-                    "Failed to write secret to Stripe",
-                    secret_name=name,
-                    stripe_user_id=stripe_user_id,
-                    error=str(e),
+                capture_exception(
+                    e,
+                    {
+                        "secret_name": name,
+                        "stripe_user_id": stripe_user_id,
+                        "is_sandbox": self.is_sandbox,
+                    },
                 )
 
     def clear_posthog_secrets(self) -> None:
@@ -3126,7 +3155,7 @@ class StripeIntegration:
         if not stripe_user_id:
             raise ValueError("Missing stripe_user_id on integration")
 
-        client = StripeClient(settings.STRIPE_APP_SECRET_KEY)
+        client = self._stripe_client()
 
         for name in (
             "posthog_region",
@@ -3144,12 +3173,13 @@ class StripeIntegration:
                     options={"stripe_account": stripe_user_id},
                 )
             except Exception as e:
-                capture_exception(e)
-                logger.warning(
-                    "Failed to clear secret from Stripe",
-                    secret_name=name,
-                    stripe_user_id=stripe_user_id,
-                    error=str(e),
+                capture_exception(
+                    e,
+                    {
+                        "secret_name": name,
+                        "stripe_user_id": stripe_user_id,
+                        "is_sandbox": self.is_sandbox,
+                    },
                 )
 
         self._destroy_posthog_oauth_tokens()
