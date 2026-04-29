@@ -1172,10 +1172,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         overwrite,
                         survey: values.survey,
                     })
-                    const translations = { ...(values.survey.translations ?? {}) }
+                    const translations = { ...values.survey.translations }
                     for (const [language, translationPatch] of Object.entries(result.translations)) {
                         translations[language] = {
-                            ...(translations[language] ?? {}),
+                            ...translations[language],
                             ...translationPatch,
                         }
                     }
@@ -1185,10 +1185,10 @@ export const surveyLogic = kea<surveyLogicType>([
                         if (!patch) {
                             return question
                         }
-                        const questionTranslations = { ...(question.translations ?? {}) }
+                        const questionTranslations = { ...question.translations }
                         for (const [language, translationPatch] of Object.entries(patch.translations)) {
                             questionTranslations[language] = {
-                                ...(questionTranslations[language] ?? {}),
+                                ...questionTranslations[language],
                                 ...translationPatch,
                             }
                         }

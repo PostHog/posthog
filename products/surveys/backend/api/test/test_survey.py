@@ -137,7 +137,7 @@ class TestSurvey(APIBaseTest):
         assert questions[0]["translations"]["fr"]["question"] == "Êtes-vous satisfait?"
         assert questions[1]["translations"]["es"]["choices"] == ["Analítica", "Feature Flags"]
 
-    @override_settings(GEMINI_API_KEY="test-key")
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
     def test_generate_translations_returns_draft_patch(self, mock_generate_survey_translation):
         self.organization.is_ai_data_processing_approved = True
@@ -172,7 +172,7 @@ class TestSurvey(APIBaseTest):
             format="json",
         )
 
-        assert response.status_code == status.HTTP_200_OK
+        assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["translations"]["pt-BR"]["name"] == "Feedback do cliente"
         assert response.json()["generated_field_paths"] == [
             "translations.pt-BR.name",
@@ -180,7 +180,7 @@ class TestSurvey(APIBaseTest):
         ]
         assert mock_generate_survey_translation.call_args.kwargs["survey"]["name"] == "Draft feedback"
 
-    @override_settings(GEMINI_API_KEY="test-key")
+    @override_settings(CLOUD_DEPLOYMENT="US", GEMINI_API_KEY="test-key")
     @patch("products.surveys.backend.api.survey.generate_survey_translation")
     def test_generate_translations_requires_ai_data_processing_approval(self, mock_generate_survey_translation):
         self.organization.is_ai_data_processing_approved = False
