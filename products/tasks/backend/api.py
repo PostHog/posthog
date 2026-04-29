@@ -217,7 +217,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @validated_request(
         request_serializer=TaskSummariesRequestSerializer,
         responses={
-            200: OpenApiResponse(response=TaskSummarySerializer, description="Summary fields for the requested tasks"),
+            200: OpenApiResponse(
+                response=TaskSummarySerializer(many=True),
+                description="Summary fields for the requested tasks",
+            ),
         },
         summary="Fetch task summaries by ID",
         description=(

@@ -761,8 +761,8 @@ class TaskSummariesRequestSerializer(serializers.Serializer):
 
 
 class TaskRunSummarySerializer(serializers.Serializer):
-    status = serializers.CharField(allow_null=True)
-    environment = serializers.CharField(allow_null=True)
+    status = serializers.ChoiceField(choices=TaskRun.Status.choices, allow_null=True)
+    environment = serializers.ChoiceField(choices=TaskRun.Environment.choices, allow_null=True)
 
 
 class TaskSummarySerializer(serializers.ModelSerializer):
