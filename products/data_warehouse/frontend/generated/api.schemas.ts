@@ -547,6 +547,7 @@ export interface PatchedExternalDataSchemaApi {
  * `Convex` - Convex
  * `ClickHouse` - ClickHouse
  * `Plain` - Plain
+ * `Resend` - Resend
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -695,6 +696,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Convex: 'Convex',
     ClickHouse: 'ClickHouse',
     Plain: 'Plain',
+    Resend: 'Resend',
 } as const
 
 /**
@@ -928,7 +930,8 @@ export interface ExternalDataSourceCreateApi {
 * `BuildBetter` - BuildBetter
 * `Convex` - Convex
 * `ClickHouse` - ClickHouse
-* `Plain` - Plain */
+* `Plain` - Plain
+* `Resend` - Resend */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -1214,7 +1217,8 @@ export interface DatabaseSchemaRequestApi {
 * `BuildBetter` - BuildBetter
 * `Convex` - Convex
 * `ClickHouse` - ClickHouse
-* `Plain` - Plain */
+* `Plain` - Plain
+* `Resend` - Resend */
     source_type: ExternalDataSourceTypeEnumApi
 }
 

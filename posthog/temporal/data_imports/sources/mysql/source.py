@@ -53,6 +53,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="localhost",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -60,6 +61,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="3306",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -67,6 +69,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="mysql",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="user",
@@ -74,6 +77,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="mysql",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -81,6 +85,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -88,6 +93,7 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="public",
+                        secret=False,
                     ),
                     SourceFieldSelectConfig(
                         name="using_ssl",
@@ -114,6 +120,11 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
             "ProgrammingError: (1146": None,  # Table not found error
             "OperationalError: (1356": None,  # View not found error
             "Bad handshake": None,
+            # Raised from the shared `_decimal_array_from_values` fallback in
+            # `pipelines/pipeline/utils.py` when a numeric/decimal value exceeds Delta Lake's
+            # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
+            # won't help.
+            "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
         }
 
     def get_schemas(

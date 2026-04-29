@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from '../interaction'
+import {
+    buildLabelPositions,
+    buildPointClickData,
+    buildTooltipContext,
+    findNearestIndexFromPositions,
+    isInPlotArea,
+} from '../interaction'
 import type { ChartDimensions, ChartScales, PointClickData, ResolveValueFn, Series, TooltipContext } from '../types'
 
 const defaultResolveValue: ResolveValueFn = (series, dataIndex) => series.data[dataIndex] ?? 0
@@ -56,6 +62,9 @@ export function useChartInteraction<Meta = unknown>({
 
     const isPinned = tooltipCtx?.isPinned ?? false
 
+    // Precompute the (x, index) lookup table once per (labels, scales.x) change.
+    const labelPositions = useMemo(() => (scales ? buildLabelPositions(labels, scales.x) : []), [labels, scales])
+
     // Rebuild or clear the pinned tooltip when its underlying inputs change.
     // Without this, the pin keeps stale values at stale pixel positions after the
     // parent updates series/labels/scales/dimensions. resolveValue is read live via a
@@ -99,8 +108,12 @@ export function useChartInteraction<Meta = unknown>({
         }
 
         const handleClickOutside = (e: MouseEvent): void => {
+            const target = e.target
+            if (target instanceof Element && target.closest('[data-hog-charts-tooltip]')) {
+                return
+            }
             const wrapper = wrapperRef.current
-            if (wrapper && !wrapper.contains(e.target as Node)) {
+            if (wrapper && !wrapper.contains(target as Node)) {
                 clearTooltip()
             }
         }
@@ -157,7 +170,7 @@ export function useChartInteraction<Meta = unknown>({
                 return
             }
 
-            const index = findNearestIndex(mouseX, labels, scales.x)
+            const index = findNearestIndexFromPositions(mouseX, labelPositions)
             setHoverIndex(index)
 
             if (index >= 0 && showTooltip) {
@@ -177,7 +190,18 @@ export function useChartInteraction<Meta = unknown>({
                 )
             }
         },
-        [scales, dimensions, labels, series, showTooltip, resolveValue, canvasRef, isPinned, clearTooltip]
+        [
+            scales,
+            dimensions,
+            labels,
+            series,
+            showTooltip,
+            resolveValue,
+            canvasRef,
+            isPinned,
+            clearTooltip,
+            labelPositions,
+        ]
     )
 
     const onMouseLeave = useCallback(() => {

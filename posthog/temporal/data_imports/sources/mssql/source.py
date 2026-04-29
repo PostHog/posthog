@@ -45,6 +45,11 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
             "Adaptive Server connection failed": None,
             "Login failed for user": None,
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
+            # Raised from the shared `_decimal_array_from_values` fallback in
+            # `pipelines/pipeline/utils.py` when a numeric/decimal/money value exceeds Delta
+            # Lake's decimal budget (precision > 76 or scale > 32). Fixed source-data shape —
+            # retrying won't help.
+            "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
         }
 
     @property
@@ -64,6 +69,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="localhost",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -71,6 +77,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="1433",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -78,9 +85,15 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="msdb",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
-                        name="user", label="User", type=SourceFieldInputConfigType.TEXT, required=True, placeholder="sa"
+                        name="user",
+                        label="User",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="sa",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -88,6 +101,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="schema",
@@ -95,6 +109,7 @@ class MSSQLSource(SimpleSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="dbo",
+                        secret=False,
                     ),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
