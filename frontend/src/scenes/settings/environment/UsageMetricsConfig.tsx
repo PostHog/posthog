@@ -262,7 +262,7 @@ function UsageMetricsForm(): JSX.Element {
                                         setFilters={(payload) => {
                                             onChange(actionFilterValueToSavedFilters(payload, source))
                                         }}
-                                        typeKey="plugin-filters"
+                                        typeKey="usage-metric-filters"
                                         mathAvailability={MathAvailability.None}
                                         hideRename
                                         hideDuplicate
@@ -284,9 +284,9 @@ function UsageMetricsForm(): JSX.Element {
                                             type: EntityTypes.EVENTS,
                                         }}
                                         buttonCopy={
-                                            source === 'data_warehouse'
-                                                ? 'Add data warehouse table'
-                                                : 'Add event or data warehouse table'
+                                            (actionFilterValue?.events ?? []).length > 0
+                                                ? 'Add event'
+                                                : 'Match event or data warehouse table'
                                         }
                                     />
                                     {source === 'events' && (
