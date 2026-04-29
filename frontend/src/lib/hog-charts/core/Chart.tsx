@@ -2,9 +2,9 @@ import * as d3 from 'd3'
 import React, { useCallback, useMemo, useRef } from 'react'
 
 import { AxisLabels, measureLabelWidth } from '../overlays/AxisLabels'
-import { Crosshair } from '../overlays/Crosshair'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
+import { drawCrosshair } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { ChartErrorBoundary } from './ChartErrorBoundary'
@@ -203,6 +203,23 @@ export function Chart<Meta = unknown>({
         resolveValue,
     })
 
+    // Compose the chart-type's drawHover with a crosshair pass so per-mousemove
+    // hover indication stays entirely on the canvas — DOM-based overlays would
+    // force per-event style invalidation/layout that scales badly with chart
+    // content size. Crosshair drawn first so highlight rings render on top.
+    const composedDrawHover = useCallback(
+        (args: ChartDrawArgs) => {
+            if (showCrosshair && theme.crosshairColor && args.hoverIndex >= 0) {
+                const x = args.scales.x(args.labels[args.hoverIndex])
+                if (x != null && isFinite(x)) {
+                    drawCrosshair(args.ctx, args.dimensions, x, theme.crosshairColor)
+                }
+            }
+            drawHover(args)
+        },
+        [drawHover, showCrosshair, theme.crosshairColor]
+    )
+
     useChartDraw({
         ctx,
         overlayCtx,
@@ -213,7 +230,7 @@ export function Chart<Meta = unknown>({
         hoverIndex,
         theme,
         drawStatic,
-        drawHover,
+        drawHover: composedDrawHover,
     })
 
     const cursorStyle = hoverIndex >= 0 && onPointClick ? 'pointer' : 'default'
@@ -305,8 +322,6 @@ export function Chart<Meta = unknown>({
                                     hideYAxis={hideYAxis}
                                     axisColor={theme.axisColor}
                                 />
-
-                                {showCrosshair && <Crosshair color={theme.crosshairColor} />}
 
                                 {children}
 

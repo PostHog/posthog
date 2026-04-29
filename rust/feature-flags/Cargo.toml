@@ -49,7 +49,7 @@ common-s3 = { path = "../common/s3", optional = true }
 common-alloc = { path = "../common/alloc" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 strum = { version = "0.28", features = ["derive"] }
-health = { path = "../common/health" }
+lifecycle = { path = "../common/lifecycle" }
 common-metrics = { path = "../common/metrics" }
 common-geoip = { path = "../common/geoip" }
 tower = { workspace = true }
@@ -89,4 +89,5 @@ reqwest = { workspace = true }
 futures = "0.3.30"
 test-case = "3.3.1"
 tokio = { workspace = true, features = ["test-util"] }
+tokio-util = { workspace = true }
 metrics-util = { workspace = true }

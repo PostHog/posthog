@@ -8267,9 +8267,9 @@ export namespace Schemas {
       _create_static_person_ids?: string[];
     }
 
-    export type CohortPersonResultProperties = {[key: string]: unknown};
+    export type CohortPersonResultProperties = { [key: string]: unknown };
 
-    export type CohortPersonResultMatchedRecordingsItem = {[key: string]: unknown};
+    export type CohortPersonResultMatchedRecordingsItem = { [key: string]: unknown };
 
     /**
      * * `person` - person

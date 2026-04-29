@@ -420,12 +420,6 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub billing_limiter_cache_ttl_secs: u64,
 
-    // Health check registration interval (seconds)
-    // - Should be less than your orchestrator's liveness probe timeout
-    // - Common values: 10-30 for Kubernetes environments
-    #[envconfig(default = "30")]
-    pub health_check_interval_secs: u64,
-
     // OpenTelemetry exporter timeout (seconds)
     // - Increase if OTEL endpoint is slow or remote
     // - Decrease to fail fast and avoid blocking
@@ -829,7 +823,6 @@ impl Config {
             cohort_cache_monitor_interval_secs: 30,
             db_pool_warn_utilization: 0.8,
             billing_limiter_cache_ttl_secs: 5,
-            health_check_interval_secs: 30,
             otel_export_timeout_secs: 3,
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
