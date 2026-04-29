@@ -150,6 +150,7 @@ class SummarizeSessionsTool(MaxTool):
             team=self._team,
             tracking_id=tracking_id,
             summary_source="chat",
+            summary_origin="chat",
             summary_type=summary_type,
             session_ids=session_ids,
         )
@@ -176,6 +177,7 @@ class SummarizeSessionsTool(MaxTool):
                 team=self._team,
                 tracking_id=tracking_id,
                 summary_source="chat",
+                summary_origin="chat",
                 summary_type=summary_type,
                 session_ids=session_ids,
                 success=False,
@@ -188,6 +190,7 @@ class SummarizeSessionsTool(MaxTool):
             team=self._team,
             tracking_id=tracking_id,
             summary_source="chat",
+            summary_origin="chat",
             summary_type=summary_type,
             session_ids=session_ids,
             success=True,
