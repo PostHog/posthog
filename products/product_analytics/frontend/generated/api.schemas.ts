@@ -2635,6 +2635,7 @@ export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[key
 export const AggregationPropertyTypeApi = {
     Event: 'event',
     Person: 'person',
+    DataWarehouse: 'data_warehouse',
 } as const
 
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
@@ -2773,7 +2774,7 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
-    /** The type of property to aggregate on (event or person). Defaults to event. */
+    /** The type of property to aggregate on (event, person, or data_warehouse). Defaults to event. */
     aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
