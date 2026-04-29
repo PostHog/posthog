@@ -1,6 +1,6 @@
 {
     "name": "@posthog/nodejs",
-    "version": "1.10.6",
+    "version": "1.10.5",
     "description": "PostHog Node.js services",
     "license": "MIT",
     "author": "PostHog <hey@posthog.com>",
