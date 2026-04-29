@@ -277,6 +277,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
             <LemonModal
                 isOpen={isCreateModalOpen}
                 onClose={closeCreateModal}
+                width={800}
                 title="Add to business knowledge"
                 footer={
                     <>
