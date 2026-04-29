@@ -27,7 +27,6 @@ import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { BotDetail } from 'scenes/web-analytics/BotDetail'
 import {
     ProductTab,
     QueryTile,
@@ -424,7 +423,7 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
 }
 
 const MainContent = (): JSX.Element => {
-    const { productTab, botDetailName } = useValues(webAnalyticsLogic)
+    const { productTab } = useValues(webAnalyticsLogic)
 
     if (productTab === ProductTab.PAGE_REPORTS) {
         return <PageReports />
@@ -436,10 +435,6 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.LIVE) {
         return <LiveWebAnalyticsMetrics />
-    }
-
-    if (productTab === ProductTab.BOT_ANALYTICS && botDetailName) {
-        return <BotDetail />
     }
 
     if (productTab === ProductTab.BOT_ANALYTICS) {

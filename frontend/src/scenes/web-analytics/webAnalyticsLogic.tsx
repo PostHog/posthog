@@ -214,7 +214,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setBotTrafficFilter: (botTrafficFilter: BotTrafficFilter) => ({ botTrafficFilter }),
         setBotTrendsTab: (tab: string) => ({ tab }),
-        setBotDetailName: (botDetailName: string | null) => ({ botDetailName }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setIncludeHostPath: (includeHostPath: boolean) => ({ includeHostPath }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -443,13 +442,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 persistConfig,
                 {
                     setBotTrendsTab: (_, { tab }) => tab,
-                },
-            ],
-            botDetailName: [
-                null as string | null,
-                {
-                    setBotDetailName: (_, { botDetailName }) => botDetailName,
-                    setProductTab: () => null,
                 },
             ],
             shouldStripQueryParams: [
@@ -2389,6 +2381,7 @@ LIMIT 50`,
                                         properties: botFilters,
                                         filterTestAccounts,
                                     },
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 },
                                 showActions: false,
                                 embedded: true,
@@ -2408,24 +2401,34 @@ LIMIT 50`,
                                 full: true,
                                 kind: NodeKind.DataTableNode,
                                 source: {
-                                    kind: NodeKind.WebStatsTableQuery,
-                                    breakdownBy: WebStatsBreakdown.Page,
-                                    properties: botFilters,
-                                    dateRange,
-                                    sampling,
-                                    limit: 10,
-                                    orderBy: tablesOrderBy ?? undefined,
-                                    filterTestAccounts,
-                                    doPathCleaning: isPathCleaningEnabled,
+                                    kind: NodeKind.HogQLQuery,
+                                    query: `SELECT
+    properties.$pathname AS "Path",
+    count(DISTINCT \`$virt_bot_name\`) AS "Crawlers",
+    count() AS "Requests",
+    max(timestamp) AS "Last seen"
+FROM events
+WHERE \`$virt_is_bot\` = true
+    AND \`$virt_bot_name\` != ''
+    AND event IN (${BOT_ANALYTICS_EVENTS.map((e) => `'${e}'`).join(', ')})
+    AND properties.$pathname IS NOT NULL
+    AND {filters}
+GROUP BY "Path"
+ORDER BY "Requests" DESC
+LIMIT 50`,
+                                    filters: {
+                                        dateRange,
+                                        properties: botFilters,
+                                        filterTestAccounts,
+                                    },
                                     tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                 },
-                                columns: ['breakdown_value', 'visitors', 'views'],
-                                embedded: true,
                                 showActions: false,
+                                embedded: true,
                             },
                             insightProps: createInsightProps(TileId.BOT_PATHS, 'table'),
-                            canOpenModal: true,
-                            canOpenInsight: true,
+                            canOpenModal: false,
+                            canOpenInsight: false,
                         },
                     ]
                     return botTiles.filter(isNotNil)
@@ -2722,13 +2725,6 @@ LIMIT 50`,
             '/web/page-reports': toAction,
             '/web/bots': (_, searchParams) => {
                 toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
-                actions.setBotDetailName(null)
-            },
-            '/web/bots/:botName': (params, searchParams) => {
-                toAction({ productTab: ProductTab.BOT_ANALYTICS }, searchParams)
-                if (params.botName) {
-                    actions.setBotDetailName(decodeURIComponent(params.botName))
-                }
             },
             '/web/:productTab': toAction,
         }

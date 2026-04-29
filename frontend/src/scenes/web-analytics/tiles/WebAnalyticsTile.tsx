@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
@@ -1224,6 +1223,9 @@ const HogQLTableTile = ({
     insightProps: InsightLogicProps
     tileId: TileId
 }): JSX.Element => {
+    const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
+    const { rawWebAnalyticsFilters } = useValues(webAnalyticsFilterLogic)
+
     const context = useMemo((): QueryContext => {
         if (tileId === TileId.BOT_CRAWLERS) {
             return {
@@ -1237,13 +1239,28 @@ const HogQLTableTile = ({
                     }
                     return {
                         className: 'cursor-pointer',
-                        onClick: () => router.actions.push(urls.webAnalyticsBotDetail(botName)),
+                        // Match BotPropertySelect's single-select pattern (WebAnalyticsFilters.tsx)
+                        // so the picked crawler shows up in the toolbar dropdown.
+                        onClick: () => {
+                            const otherFilters = rawWebAnalyticsFilters.filter(
+                                (f) => !('key' in f && f.key === '$virt_bot_name')
+                            )
+                            setWebAnalyticsFilters([
+                                ...otherFilters,
+                                {
+                                    key: '$virt_bot_name',
+                                    value: [botName],
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Event,
+                                },
+                            ])
+                        },
                     }
                 },
             }
         }
         return { ...webAnalyticsDataTableQueryContext, insightProps }
-    }, [insightProps, tileId])
+    }, [insightProps, tileId, rawWebAnalyticsFilters, setWebAnalyticsFilters])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
