@@ -526,8 +526,8 @@ const botAnalyticsTab = (
             label: (
                 <div className="flex items-center gap-1">
                     Bot analytics
-                    <LemonTag type="warning" className="uppercase">
-                        Beta
+                    <LemonTag type="highlight" className="uppercase">
+                        Alpha
                     </LemonTag>
                 </div>
             ),
@@ -651,8 +651,8 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     link: '/web/page-reports',
                 },
                 ...liveTab(featureFlags),
-                ...healthTab(featureFlags),
                 ...botAnalyticsTab(featureFlags),
+                ...healthTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"
