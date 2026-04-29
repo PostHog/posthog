@@ -2,6 +2,7 @@ import logging
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
 
@@ -190,16 +191,15 @@ class SignalReport(UUIDModel):
         Raises InvalidStatusTransition if the transition is not allowed.
         Does NOT call .save().
         """
-        from django.utils import timezone
-
         S = self.Status
         updated_fields: set[str] = set()
 
         match (self.status, new_status):
             # Pipeline transitions
             # - POTENTIAL -> CANDIDATE when the report is selected for summary generation
-            # - READY -> CANDIDATE to update the report with new signals context (every N signals)
-            case (S.POTENTIAL | S.READY, S.CANDIDATE):
+            # - READY | RESOLVED -> CANDIDATE when new matching signals reopen the report for
+            #   summary / agentic research (READY: every signal; resolved: recurrence of the issue)
+            case (S.POTENTIAL | S.READY | S.RESOLVED, S.CANDIDATE):
                 self.promoted_at = timezone.now()
                 updated_fields.add("promoted_at")
 
