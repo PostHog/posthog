@@ -13,13 +13,13 @@ if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
 from posthog.temporal.common.client import async_connect
 
-from products.tasks.backend.services.custom_prompt_executor import extract_json_from_text
-from products.tasks.backend.services.custom_prompt_runner import (
+from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
     _create_task_and_trigger,
     _poll_for_turn,
+    extract_json_from_text,
 )
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 

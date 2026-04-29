@@ -47,7 +47,7 @@ GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS = 60 * 60
 SYNC_LOCK_KEY_PREFIX = "github_full_cache_sync"
 SYNC_LOCK_TTL_SECONDS = 60 * 15
 SYNC_LOCK_HEARTBEAT_INTERVAL_SECONDS = 60
-SYNC_LOCK_POLL_INTERVAL_SECONDS = 5
+SYNC_LOCK_POLL_INTERVAL_SECONDS = 1
 # Hard cap on follower wait. While the lock key exists, the leader heartbeated within the last
 # TTL window, so we wait; if the leader crashes, the TTL expires and the next acquire promotes us.
 SYNC_LOCK_MAX_WAIT_SECONDS = 60 * 20

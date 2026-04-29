@@ -11,12 +11,12 @@ from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
-from products.tasks.backend.services.custom_prompt_runner import (
+from products.tasks.backend.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     _poll_for_turn,
 )
+from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,
@@ -45,7 +45,7 @@ class TestPollForTurnEmptyEndTurn:
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch(
-                "products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS",
+                "products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS",
                 0,
             ),
         ):
@@ -85,7 +85,7 @@ class TestPollForTurnEmptyEndTurn:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             last_message, _, total_lines, _ = await _poll_for_turn(fake_task_run, skip_lines=skip)
@@ -114,7 +114,7 @@ class TestPollForTurnEmptyEndTurn:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             last_message, _, total_lines, printed_lines = await _poll_for_turn(
@@ -247,7 +247,7 @@ class TestMultiTurnSessionRetry:
         with (
             patch("posthog.storage.object_storage.read", side_effect=current_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
         ):
             result = await session.send_followup("please respond", _Resp, label="priority")
 

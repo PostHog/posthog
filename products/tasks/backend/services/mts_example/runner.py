@@ -11,8 +11,8 @@ from products.signals.backend.report_generation.research import (
     ReportResearchOutput,
     SignalFinding,
 )
+from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, OutputFn
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, OutputFn
 from products.tasks.backend.services.mts_example.prompts import (
     build_actionability_prompt,
     build_discovery_prompt,
