@@ -6490,6 +6490,8 @@ export namespace Schemas {
       tolerate_count_90d: number;
       is_quarantined: boolean;
       last_run_at: string;
+      /** @nullable */
+      recent_diff_avg: number | null;
     }
 
     export type BaselineTotalsByRunType = {[key: string]: number};
@@ -44612,6 +44614,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by repo UUID
+     */
+    repo_id?: string;
     /**
      * Filter by review state
      */
