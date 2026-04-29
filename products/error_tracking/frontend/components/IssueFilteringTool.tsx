@@ -10,7 +10,7 @@ import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './IssueFilters/consts'
-import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
+import { isValidDateRange, issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 
 function updateFilterGroup(
@@ -88,7 +88,7 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
         if (update.searchQuery) {
             setSearchQuery(update.searchQuery)
         }
-        if (update.dateRange) {
+        if (update.dateRange && isValidDateRange(update.dateRange)) {
             setDateRange(update.dateRange)
         }
         if (update.filterTestAccounts !== undefined) {

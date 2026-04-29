@@ -21,6 +21,17 @@ export const DEFAULT_FILTER_GROUP = {
 export const DEFAULT_TEST_ACCOUNT = false
 const DEFAULT_SEARCH_QUERY = ''
 
+// Pydantic rejects malformed `dateRange` values like the URL string `?dateRange=7d`.
+// Only accept plain objects whose `date_from` is a string (date_to is allowed to be null).
+export function isValidDateRange(value: unknown): value is DateRange {
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value) &&
+        typeof (value as DateRange).date_from === 'string'
+    )
+}
+
 export interface IssueFiltersLogicProps {
     logicKey: string
 }
@@ -57,7 +68,7 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
         dateRange: [
             DEFAULT_DATE_RANGE as DateRange,
             {
-                setDateRange: (_, { dateRange }) => dateRange,
+                setDateRange: (_, { dateRange }) => (isValidDateRange(dateRange) ? dateRange : DEFAULT_DATE_RANGE),
             },
         ],
         filterGroup: [
@@ -150,7 +161,7 @@ export function updateFilterSearchParams(params: Params, values: IssueFilterValu
 }
 
 export const triggerFilterActions = (params: Params, values: any, actions: IssueFilterActions): void => {
-    const dateRange = params.dateRange ?? DEFAULT_DATE_RANGE
+    const dateRange = isValidDateRange(params.dateRange) ? params.dateRange : DEFAULT_DATE_RANGE
     if (!equal(dateRange, values.dateRange)) {
         actions.setDateRange(dateRange)
     }

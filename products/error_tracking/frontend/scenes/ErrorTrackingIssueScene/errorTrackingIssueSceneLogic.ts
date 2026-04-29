@@ -32,6 +32,7 @@ import { ActivityScope, Breadcrumb, IntegrationType, UniversalFiltersGroup } fro
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import {
     DEFAULT_DATE_RANGE,
+    isValidDateRange,
     issueFiltersLogic,
     triggerFilterActions,
     updateFilterSearchParams,
@@ -210,10 +211,14 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         },
         initialEvent: {
             loadInitialEvent: async ({ timestamp }) => {
+                const dateRange = getNarrowDateRange(timestamp)
+                if (!dateRange) {
+                    return null
+                }
                 const response = await api.query(
                     errorTrackingIssueQuery({
                         issueId: props.id,
-                        dateRange: getNarrowDateRange(timestamp),
+                        dateRange,
                         filterTestAccounts: false,
                         withAggregations: false,
                         withFirstEvent: false,
@@ -439,11 +444,15 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             updateStatus: ({ status }) => actions.updateIssueStatus(props.id, status),
             selectEvent: ({ event }) => {
                 if (event) {
+                    // Normalize to a Z-terminated UTC ISO string so the URL never carries a literal `+`,
+                    // which would otherwise round-trip back as a space and produce an Invalid Date.
+                    const parsed = dayjs(event.timestamp)
+                    const safeTimestamp = parsed.isValid() ? parsed.toISOString() : event.timestamp
                     router.actions.replace(
                         router.values.currentLocation.pathname,
                         {
                             ...router.values.searchParams,
-                            timestamp: event.timestamp,
+                            timestamp: safeTimestamp,
                         },
                         router.values.hashParams
                     )
@@ -480,7 +489,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         return {
             '**/error_tracking/:id': (_, params) => {
                 if (values.listDateRange == null) {
-                    actions.setListDateRange(params.dateRange ?? DEFAULT_DATE_RANGE)
+                    actions.setListDateRange(isValidDateRange(params.dateRange) ? params.dateRange : DEFAULT_DATE_RANGE)
                 }
                 triggerFilterActions(params, values, actions)
                 const tab = params.tab as ErrorTrackingIssueSceneCategory | undefined
@@ -514,8 +523,11 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 ])
 
-function getNarrowDateRange(timestamp: Dayjs | string): DateRange {
+export function getNarrowDateRange(timestamp: Dayjs | string): DateRange | null {
     const firstSeen = dayjs(timestamp)
+    if (!firstSeen.isValid()) {
+        return null
+    }
     return {
         date_from: firstSeen.subtract(1, 'hour').toISOString(),
         date_to: firstSeen.add(1, 'hour').toISOString(),

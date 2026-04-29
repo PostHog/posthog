@@ -7,6 +7,7 @@ import { Params } from 'scenes/sceneTypes'
 import { DateRange } from '~/queries/schema/schema-general'
 
 import { syncSearchParams, updateSearchParams } from '../../utils'
+import { isValidDateRange } from '../IssueFilters/issueFiltersLogic'
 import type { breakdownFiltersLogicType } from './breakdownFiltersLogicType'
 import { DEFAULT_DATE_RANGE, DEFAULT_TEST_ACCOUNT } from './consts'
 
@@ -51,7 +52,7 @@ export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
 
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, params: Params): void => {
-            const dateRange = params.dateRange ?? DEFAULT_DATE_RANGE
+            const dateRange = isValidDateRange(params.dateRange) ? params.dateRange : DEFAULT_DATE_RANGE
             if (!equal(dateRange, values.dateRange)) {
                 actions.setDateRange(dateRange)
             }
