@@ -27,7 +27,7 @@ const tracingSpansQueryCreate = (): ToolBase<typeof TracingSpansQueryCreateSchem
             }
             const result = await context.api.request<unknown>({
                 method: 'POST',
-                path: `/api/environments/${projectId}/tracing/spans/query/`,
+                path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/query/`,
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
@@ -51,7 +51,7 @@ const tracingSpansTraceCreate = (): ToolBase<typeof TracingSpansTraceCreateSchem
             }
             const result = await context.api.request<unknown>({
                 method: 'POST',
-                path: `/api/environments/${projectId}/tracing/spans/trace/${params.trace_id}/`,
+                path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
@@ -68,7 +68,7 @@ const tracingSpansServiceNamesRetrieve = (): ToolBase<typeof TracingSpansService
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/environments/${projectId}/tracing/spans/service-names/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/service-names/`,
             query: {
                 dateRange: params.dateRange,
                 search: params.search,
@@ -88,7 +88,7 @@ const tracingSpansAttributesRetrieve = (): ToolBase<typeof TracingSpansAttribute
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/environments/${projectId}/tracing/spans/attributes/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/attributes/`,
             query: {
                 attribute_type: params.attribute_type,
                 limit: params.limit,
@@ -110,7 +110,7 @@ const tracingSpansValuesRetrieve = (): ToolBase<typeof TracingSpansValuesRetriev
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/environments/${projectId}/tracing/spans/values/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/values/`,
             query: {
                 attribute_type: params.attribute_type,
                 key: params.key,

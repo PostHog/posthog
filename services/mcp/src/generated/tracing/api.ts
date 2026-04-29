@@ -62,7 +62,7 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                         .string()
                         .nullish()
                         .describe(
-                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                            'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.'
                         ),
                     date_to: zod
                         .string()
@@ -171,7 +171,7 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
                 .string()
                 .nullish()
                 .describe(
-                    'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.'
+                    'Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.'
                 ),
             date_to: zod
                 .string()

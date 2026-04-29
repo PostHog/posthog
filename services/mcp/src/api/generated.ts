@@ -37075,110 +37075,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `span` - span
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute
-     */
-    export type _SpanPropertyFilterTypeEnum = typeof _SpanPropertyFilterTypeEnum[keyof typeof _SpanPropertyFilterTypeEnum];
-
-
-    export const _SpanPropertyFilterTypeEnum = {
-      Span: 'span',
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
-    /**
-     * * `exact` - exact
-    * `is_not` - is_not
-    * `icontains` - icontains
-    * `not_icontains` - not_icontains
-    * `regex` - regex
-    * `not_regex` - not_regex
-    * `gt` - gt
-    * `lt` - lt
-    * `is_set` - is_set
-    * `is_not_set` - is_not_set
-     */
-    export type _SpanPropertyFilterOperatorEnum = typeof _SpanPropertyFilterOperatorEnum[keyof typeof _SpanPropertyFilterOperatorEnum];
-
-
-    export const _SpanPropertyFilterOperatorEnum = {
-      Exact: 'exact',
-      IsNot: 'is_not',
-      Icontains: 'icontains',
-      NotIcontains: 'not_icontains',
-      Regex: 'regex',
-      NotRegex: 'not_regex',
-      Gt: 'gt',
-      Lt: 'lt',
-      IsSet: 'is_set',
-      IsNotSet: 'is_not_set',
-    } as const;
-
-    export interface _SpanPropertyFilter {
-      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
-      key: string;
-      /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
-
-    * `span` - span
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute */
-      type: _SpanPropertyFilterTypeEnum;
-      /** Comparison operator.
-
-    * `exact` - exact
-    * `is_not` - is_not
-    * `icontains` - icontains
-    * `not_icontains` - not_icontains
-    * `regex` - regex
-    * `not_regex` - not_regex
-    * `gt` - gt
-    * `lt` - lt
-    * `is_set` - is_set
-    * `is_not_set` - is_not_set */
-      operator: _SpanPropertyFilterOperatorEnum;
-      /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
-      value?: unknown | null;
-    }
-
-    export interface _TracingQueryBody {
-      /** Date range for the query. Defaults to last hour. */
-      dateRange?: _DateRange;
-      /** Filter by service names. */
-      serviceNames?: string[];
-      /** Filter by HTTP status codes. */
-      statusCodes?: number[];
-      /** Order results by timestamp. Defaults to latest.
-
-    * `latest` - latest
-    * `earliest` - earliest */
-      orderBy?: OrderByEnum;
-      /** Property filters for the query. */
-      filterGroup?: _SpanPropertyFilter[];
-      /** Filter to a specific trace ID (hex string). */
-      traceId?: string;
-      /** Max results (1-1000). Defaults to 100. */
-      limit?: number;
-      /** Pagination cursor from previous response. */
-      after?: string;
-      /** Filter to root spans only. Defaults to true. */
-      rootSpans?: boolean;
-      /** Number of child spans to prefetch per trace (1-100). */
-      prefetchSpans?: number;
-    }
-
-    export interface _TracingQueryRequest {
-      /** The tracing spans query to execute. */
-      query: _TracingQueryBody;
-    }
-
-    export interface _TracingTraceRequest {
-      /** Date range for the query. Defaults to last 24 hours. */
-      dateRange?: _DateRange;
-    }
-
-    /*
      * The parsed query that was executed, echoed back for confirmation.
      */
     export type _LogsQueryResponseQuery = {[key: string]: unknown};
@@ -37287,9 +37183,126 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    /**
+     * * `span` - span
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
+     */
+    export type _SpanPropertyFilterTypeEnum = typeof _SpanPropertyFilterTypeEnum[keyof typeof _SpanPropertyFilterTypeEnum];
+
+
+    export const _SpanPropertyFilterTypeEnum = {
+      Span: 'span',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    /**
+     * * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `gt` - gt
+    * `lt` - lt
+    * `is_set` - is_set
+    * `is_not_set` - is_not_set
+     */
+    export type _SpanPropertyFilterOperatorEnum = typeof _SpanPropertyFilterOperatorEnum[keyof typeof _SpanPropertyFilterOperatorEnum];
+
+
+    export const _SpanPropertyFilterOperatorEnum = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Lt: 'lt',
+      IsSet: 'is_set',
+      IsNotSet: 'is_not_set',
+    } as const;
+
+    export interface _SpanPropertyFilter {
+      /** Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method"). */
+      key: string;
+      /** "span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.
+
+    * `span` - span
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute */
+      type: _SpanPropertyFilterTypeEnum;
+      /** Comparison operator.
+
+    * `exact` - exact
+    * `is_not` - is_not
+    * `icontains` - icontains
+    * `not_icontains` - not_icontains
+    * `regex` - regex
+    * `not_regex` - not_regex
+    * `gt` - gt
+    * `lt` - lt
+    * `is_set` - is_set
+    * `is_not_set` - is_not_set */
+      operator: _SpanPropertyFilterOperatorEnum;
+      /** Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators. */
+      value?: unknown | null;
+    }
+
     export interface _SymbolSetDownloadResponse {
       /** Presigned URL to download the source map file */
       url: string;
+    }
+
+    export interface _TracingDateRange {
+      /**
+       * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.
+       * @nullable
+       */
+      date_from?: string | null;
+      /**
+       * End of the date range. Same format as date_from. Omit or null for "now".
+       * @nullable
+       */
+      date_to?: string | null;
+    }
+
+    export interface _TracingQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by HTTP status codes. */
+      statusCodes?: number[];
+      /** Order results by timestamp. Defaults to latest.
+
+    * `latest` - latest
+    * `earliest` - earliest */
+      orderBy?: OrderByEnum;
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+      /** Filter to a specific trace ID (hex string). */
+      traceId?: string;
+      /** Max results (1-1000). Defaults to 100. */
+      limit?: number;
+      /** Pagination cursor from previous response. */
+      after?: string;
+      /** Filter to root spans only. Defaults to true. */
+      rootSpans?: boolean;
+      /** Number of child spans to prefetch per trace (1-100). */
+      prefetchSpans?: number;
+    }
+
+    export interface _TracingQueryRequest {
+      /** The tracing spans query to execute. */
+      query: _TracingQueryBody;
+    }
+
+    export interface _TracingTraceRequest {
+      /** Date range for the query. Defaults to last 24 hours. */
+      dateRange?: _TracingDateRange;
     }
 
     export type EnvironmentsAlertsListParams = {
@@ -40427,6 +40440,27 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SubscriptionsDeliveriesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Return only deliveries in this run status (starting, completed, failed, or skipped).
+     */
+    status?: SubscriptionsDeliveriesListStatus;
+    };
+
+    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
+
+
+    export const SubscriptionsDeliveriesListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Starting: 'starting',
+    } as const;
+
     export type TracingSpansAttributesRetrieveParams = {
     /**
      * Type of attributes: "span" for span attributes, "resource" for resource attributes.
@@ -40513,27 +40547,6 @@ export namespace Schemas {
     export const TracingSpansValuesRetrieveAttributeType = {
       Span: 'span',
       Resource: 'resource',
-    } as const;
-
-    export type SubscriptionsDeliveriesListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Return only deliveries in this run status (starting, completed, failed, or skipped).
-     */
-    status?: SubscriptionsDeliveriesListStatus;
-    };
-
-    export type SubscriptionsDeliveriesListStatus = typeof SubscriptionsDeliveriesListStatus[keyof typeof SubscriptionsDeliveriesListStatus];
-
-
-    export const SubscriptionsDeliveriesListStatus = {
-      Completed: 'completed',
-      Failed: 'failed',
-      Skipped: 'skipped',
-      Starting: 'starting',
     } as const;
 
     export type UserInterviewsListParams = {

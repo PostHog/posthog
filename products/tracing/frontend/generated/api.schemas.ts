@@ -7,9 +7,9 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface _DateRangeApi {
+export interface _TracingDateRangeApi {
     /**
-     * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.
+     * Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.
      * @nullable
      */
     date_from?: string | null
@@ -101,7 +101,7 @@ export interface _SpanPropertyFilterApi {
 
 export interface _TracingQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
-    dateRange?: _DateRangeApi
+    dateRange?: _TracingDateRangeApi
     /** Filter by service names. */
     serviceNames?: string[]
     /** Filter by HTTP status codes. */
@@ -132,7 +132,7 @@ export interface _TracingQueryRequestApi {
 
 export interface _TracingTraceRequestApi {
     /** Date range for the query. Defaults to last 24 hours. */
-    dateRange?: _DateRangeApi
+    dateRange?: _TracingDateRangeApi
 }
 
 export type TracingSpansAttributesRetrieveParams = {
