@@ -6,6 +6,7 @@ import { useEffect, useMemo } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -190,6 +191,7 @@ const Component = ({
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
     const { canvasFiltersOverride } = useValues(notebookLogic)
+    const isNotebookSqlEditorEnabled = useFeatureFlag('NOTEBOOK_SQL_EDITOR')
 
     const insightLogicProps = {
         dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
@@ -259,7 +261,7 @@ const Component = ({
         return null
     }
 
-    if (getSqlEditorSourceQuery(query)) {
+    if (isNotebookSqlEditorEnabled && getSqlEditorSourceQuery(query)) {
         return (
             <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
                 <NotebookSQLEditorOutput attributes={attributes} updateAttributes={updateAttributes} />
@@ -317,6 +319,7 @@ export const Settings = ({
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { notebookLogic } = useValues(nodeLogic)
     const { canvasFiltersOverride } = useValues(notebookLogic)
+    const isNotebookSqlEditorEnabled = useFeatureFlag('NOTEBOOK_SQL_EDITOR')
 
     const modifiedQuery = useMemo(() => {
         const modifiedQuery = { ...query, full: false }
@@ -377,7 +380,7 @@ export const Settings = ({
         }
     }
 
-    const isSqlEditorQuery = !!getSqlEditorSourceQuery(query)
+    const isSqlEditorQuery = isNotebookSqlEditorEnabled && !!getSqlEditorSourceQuery(query)
 
     return isSavedInsightNode(attributes.query) ? (
         <div className="p-3 deprecated-space-y-2">
