@@ -15399,10 +15399,12 @@ export namespace Schemas {
       new_issue_ids: string[];
     }
 
+    export type ErrorTrackingRecommendationMeta = {[key: string]: unknown};
+
     export interface ErrorTrackingRecommendation {
       readonly id: string;
       readonly type: string;
-      readonly meta: unknown;
+      readonly meta: ErrorTrackingRecommendationMeta;
       /** @nullable */
       readonly computed_at: string | null;
       /** @nullable */

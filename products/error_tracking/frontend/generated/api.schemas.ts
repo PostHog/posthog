@@ -803,10 +803,12 @@ export interface ErrorTrackingIssueSplitResponseApi {
     new_issue_ids: string[]
 }
 
+export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
+
 export interface ErrorTrackingRecommendationApi {
     readonly id: string
     readonly type: string
-    readonly meta: unknown
+    readonly meta: ErrorTrackingRecommendationApiMeta
     /** @nullable */
     readonly computed_at: string | null
     /** @nullable */
