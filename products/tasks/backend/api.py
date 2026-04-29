@@ -12,6 +12,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import F, OuterRef, Q, Subquery
+from django.db.models.functions import JSONObject
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 
@@ -254,13 +255,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def summaries(self, request, **kwargs):
         ids = request.validated_data["ids"]
-        latest_run = TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id")
+        latest_run = (
+            TaskRun.objects.filter(task=OuterRef("pk"))
+            .order_by("-created_at", "-id")
+            .annotate(_data=JSONObject(status="status", environment="environment"))
+        )
         tasks = (
             Task.objects.filter(team=self.team, deleted=False, id__in=ids)
-            .annotate(
-                _latest_run_status=Subquery(latest_run.values("status")[:1]),
-                _latest_run_environment=Subquery(latest_run.values("environment")[:1]),
-            )
+            .annotate(_latest_run=Subquery(latest_run.values("_data")[:1]))
             .order_by("-created_at", "id")
         )
         page = self.paginate_queryset(tasks)

@@ -778,10 +778,7 @@ class TaskSummarySerializer(serializers.ModelSerializer):
 
     @extend_schema_field(TaskRunSummarySerializer(allow_null=True))
     def get_latest_run(self, obj):
-        status = getattr(obj, "_latest_run_status", None)
-        if status is None:
-            return None
-        return {"status": status, "environment": getattr(obj, "_latest_run_environment", None)}
+        return getattr(obj, "_latest_run", None)
 
 
 class TaskListQuerySerializer(serializers.Serializer):
