@@ -386,6 +386,69 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
+    def test_retention_revenue_retention_data_warehouse(self):
+        person_ids = self._create_people()
+        charges_table = self._create_data_warehouse_table(
+            filename="warehouse_charges.csv",
+            table_name="warehouse_charges",
+            header=["id", "person_id", "amount", "charged_at"],
+            rows=[
+                # Day 0 cohort: user-1 ($50), user-2 ($100), user-4 ($200)
+                [1, person_ids["user-1"], 50, "2025-01-01 09:00:00"],
+                [2, person_ids["user-2"], 100, "2025-01-01 10:00:00"],
+                [3, person_ids["user-4"], 200, "2025-01-01 11:00:00"],
+                # Day 1 returns: user-1 ($20); new cohort: user-3 ($60)
+                [4, person_ids["user-1"], 20, "2025-01-02 09:00:00"],
+                [5, person_ids["user-3"], 60, "2025-01-02 10:00:00"],
+                # Day 2 returns: user-1 ($30), user-2 ($40)
+                [6, person_ids["user-1"], 30, "2025-01-03 09:00:00"],
+                [7, person_ids["user-2"], 40, "2025-01-03 10:00:00"],
+                # Day 3 returns: user-3 ($70)
+                [8, person_ids["user-3"], 70, "2025-01-04 09:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "amount": "Float64",
+                "charged_at": "DateTime64(3, 'UTC')",
+            },
+        )
+
+        charges_entity = {
+            "id": charges_table,
+            "name": charges_table,
+            "type": "data_warehouse",
+            "table_name": charges_table,
+            "aggregation_target_field": "person_id",
+            "timestamp_field": "charged_at",
+        }
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "targetEntity": charges_entity,
+                    "returningEntity": charges_entity,
+                    "aggregationType": "sum",
+                    "aggregationProperty": "amount",
+                    "aggregationPropertyType": "data_warehouse",
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad([[3, 1, 2, 0], [1, 1, 1], [1, 1], [1]]),
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "aggregation_value"),
+            pad([[350, 20, 70, 0], [60, 0, 70], [70, 0], [0]]),
+        )
+
+    @snapshot_clickhouse_queries
     def test_retention_data_warehouse_and_events(self):
         person_ids = self._create_people()
         signups_table_name = self._create_data_warehouse_table(

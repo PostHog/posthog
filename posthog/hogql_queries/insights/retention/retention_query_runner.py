@@ -133,30 +133,49 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         return (DisallowCumulativeWith24HourWindows(), DisallowUnsupportedDataWarehouseSettings())
 
     @cached_property
-    def property_aggregation_expr(self) -> ast.Expr | None:
-        if (
-            self.query.retentionFilter.aggregationType in [AggregationType.SUM, AggregationType.AVG]
-            and self.query.retentionFilter.aggregationProperty
-        ):
-            prop_name = self.query.retentionFilter.aggregationProperty
-            if self.query.retentionFilter.aggregationPropertyType == "person":
-                # person.properties resolves via the HogQL person join on the events table
-                chain = cast(list[str | int], ["person", "properties", prop_name])
-            else:
-                chain = cast(list[str | int], ["events", "properties", prop_name])
-            property_field = ast.Field(chain=chain)
-            return ast.Call(
-                name="ifNull",
-                args=[
-                    ast.Call(name="toFloat", args=[property_field]),
-                    ast.Constant(value=0.0),
-                ],
-            )
-        return None
+    def has_property_aggregation(self) -> bool:
+        return self.query.retentionFilter.aggregationType in [AggregationType.SUM, AggregationType.AVG] and bool(
+            self.query.retentionFilter.aggregationProperty
+        )
+
+    def property_aggregation_expr_for(self, entity: RetentionEntity) -> ast.Expr | None:
+        """
+        Resolve the property to aggregate on for a given retention entity.
+
+        For event-typed entities the property lives at events.properties.<name>; for person-typed
+        properties it resolves through the events->person join; and for data_warehouse-typed
+        properties the column lives directly on the warehouse table referenced by the surrounding
+        subquery's FROM. This mirrors how trends resolves math_property differently for
+        DataWarehouseNode vs EventsNode (see AggregationOperations._get_math_chain).
+        """
+        if not self.has_property_aggregation:
+            return None
+
+        prop_name = self.query.retentionFilter.aggregationProperty
+        assert prop_name is not None
+        property_type = self.query.retentionFilter.aggregationPropertyType
+        if property_type == "person":
+            chain: list[str | int] = ["person", "properties", prop_name]
+        elif property_type == "data_warehouse":
+            # Bare column on the surrounding warehouse table. When this side of the union is not
+            # a DWH entity (e.g. mixed events + warehouse with type="data_warehouse"), the column
+            # won't exist and ifNull(toFloat(...), 0.0) makes that side contribute 0.
+            chain = [prop_name] if entity.type == EntityType.DATA_WAREHOUSE else ["events", "properties", prop_name]
+        else:
+            chain = ["events", "properties", prop_name]
+        property_field = ast.Field(chain=cast(list[str | int], chain))
+        return ast.Call(
+            name="ifNull",
+            args=[
+                ast.Call(name="toFloat", args=[property_field]),
+                ast.Constant(value=0.0),
+            ],
+        )
 
     @cached_property
-    def has_property_aggregation(self) -> bool:
-        return self.property_aggregation_expr is not None
+    def property_aggregation_expr(self) -> ast.Expr | None:
+        """Default-side resolution for legacy events callers (uses the start entity)."""
+        return self.property_aggregation_expr_for(self.start_event)
 
     @cached_property
     def group_type_index(self) -> int | None:

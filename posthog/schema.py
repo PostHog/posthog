@@ -609,6 +609,7 @@ class AssistantRecordingPropertyFilter4(BaseModel):
 class AggregationPropertyType(StrEnum):
     EVENT = "event"
     PERSON = "person"
+    DATA_WAREHOUSE = "data_warehouse"
 
 
 class AggregationType(StrEnum):
@@ -9678,7 +9679,7 @@ class AssistantRetentionFilter(BaseModel):
     )
     aggregationPropertyType: AggregationPropertyType | None = Field(
         default=AggregationPropertyType.EVENT,
-        description=("The type of property to aggregate on (event or person). Defaults to event."),
+        description=("The type of property to aggregate on (event, person, or data_warehouse). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,
@@ -17362,7 +17363,7 @@ class RetentionFilter(BaseModel):
     )
     aggregationPropertyType: AggregationPropertyType | None = Field(
         default=AggregationPropertyType.EVENT,
-        description=("The type of property to aggregate on (event or person). Defaults to event."),
+        description=("The type of property to aggregate on (event, person, or data_warehouse). Defaults to event."),
     )
     aggregationType: AggregationType | None = Field(
         default=AggregationType.COUNT,

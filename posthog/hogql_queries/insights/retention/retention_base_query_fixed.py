@@ -40,7 +40,10 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
         is_valid_start_interval = self._is_valid_start_interval_expr()
-        intervals_from_base_expr, _ = self._get_intervals_from_base_exprs()
+        has_property_aggregation = self.runner.has_property_aggregation
+        intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs(
+            has_property_aggregation_aliases=has_property_aggregation
+        )
 
         start_event_query = self._build_dwh_retention_event_query(
             entity=self.start_event,
@@ -55,18 +58,61 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         retention_events = ast.SelectSetQuery.create_from_queries([start_event_query, return_event_query], "UNION ALL")
 
-        base_query = ast.SelectQuery(
-            select=[
-                ast.Alias(alias="actor_id", expr=ast.Field(chain=["actor_id"])),
+        select_fields: list[ast.Expr] = [
+            ast.Alias(alias="actor_id", expr=ast.Field(chain=["actor_id"])),
+        ]
+
+        if has_property_aggregation:
+            # When aggregating on a property, the unioned subquery returns arrays of 3-tuples
+            # (interval_start, value, actual_timestamp) under start_event_timestamps /
+            # return_event_timestamps. Expose them under _start_event_data / _return_event_data
+            # so the reduction logic in _get_intervals_from_base_exprs (which already references
+            # those aliases for the legacy events path) keeps working unchanged. The outer
+            # start_event_timestamps / return_event_timestamps then become flat timestamp arrays
+            # extracted from the tuples, which is the shape `_is_valid_start_interval_expr` and
+            # `_is_first_interval_after_start_event_expr` expect.
+            select_fields.append(
+                ast.Alias(
+                    alias="_start_event_data",
+                    expr=parse_expr("arrayFlatten(groupArray(start_event_timestamps))"),
+                )
+            )
+            select_fields.append(
+                ast.Alias(
+                    alias="_return_event_data",
+                    expr=parse_expr("arrayFlatten(groupArray(return_event_timestamps))"),
+                )
+            )
+            select_fields.append(
+                ast.Alias(
+                    alias="start_event_timestamps",
+                    expr=parse_expr("arrayMap(x -> x.1, _start_event_data)"),
+                )
+            )
+            select_fields.append(
+                ast.Alias(
+                    alias="return_event_timestamps",
+                    expr=parse_expr("arrayMap(x -> x.1, _return_event_data)"),
+                )
+            )
+        else:
+            select_fields.append(
                 ast.Alias(
                     alias="start_event_timestamps",
                     expr=parse_expr("arrayFlatten(groupArray(start_event_timestamps))"),
-                ),
+                )
+            )
+            select_fields.append(
                 ast.Alias(
                     alias="return_event_timestamps",
                     expr=parse_expr("arrayFlatten(groupArray(return_event_timestamps))"),
-                ),
-                self._date_range_alias(),
+                )
+            )
+
+        select_fields.append(self._date_range_alias())
+
+        select_fields.extend(
+            [
                 ast.Alias(
                     alias="start_interval_index",
                     expr=parse_expr(
@@ -91,7 +137,14 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     ),
                 ),
                 ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
-            ],
+            ]
+        )
+
+        if retention_value_expr is not None:
+            select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
+
+        base_query = ast.SelectQuery(
+            select=select_fields,
             select_from=ast.JoinExpr(table=retention_events, alias="retention_events"),
             group_by=[ast.Field(chain=["actor_id"])],
             having=ast.And(
@@ -139,29 +192,54 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=timestamp_field)
         entity_expr = self._get_dwh_retention_entity_expr(entity=entity, legacy_entity_expr=legacy_entity_expr)
 
+        property_aggregation_expr = (
+            self.runner.property_aggregation_expr_for(entity) if self.runner.has_property_aggregation else None
+        )
+
         if query_kind == "start":
-            timestamps_expr = parse_expr(
-                """
-                arraySort(
-                    groupUniqArrayIf(
-                        {start_of_interval_sql},
+            if property_aggregation_expr is not None:
+                # 3-tuple form to mirror the legacy events aggregation path:
+                # (interval_start, property_value, actual_timestamp)
+                timestamps_expr = parse_expr(
+                    """
+                    groupArrayIf(
+                        ({start_of_interval_sql}, {property_aggregation_expr}, {timestamp_field}),
                         {entity_expr} and
                         {filter_timestamp}
                     )
+                    """,
+                    {
+                        "start_of_interval_sql": start_of_interval_sql,
+                        "property_aggregation_expr": property_aggregation_expr,
+                        "timestamp_field": timestamp_field,
+                        "entity_expr": entity_expr,
+                        "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
+                    },
                 )
-                """,
-                {
-                    "start_of_interval_sql": start_of_interval_sql,
-                    "entity_expr": entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
-                },
-            )
+            else:
+                timestamps_expr = parse_expr(
+                    """
+                    arraySort(
+                        groupUniqArrayIf(
+                            {start_of_interval_sql},
+                            {entity_expr} and
+                            {filter_timestamp}
+                        )
+                    )
+                    """,
+                    {
+                        "start_of_interval_sql": start_of_interval_sql,
+                        "entity_expr": entity_expr,
+                        "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
+                    },
+                )
         else:
             timestamps_expr = self._get_return_event_timestamps_expr(
                 minimum_occurrences=self.minimum_occurrences,
                 start_of_interval_sql=start_of_interval_sql,
                 return_entity_expr=entity_expr,
                 timestamp_field=timestamp_field,
+                property_aggregation_expr=property_aggregation_expr,
             )
 
         table_name = entity.table_name if entity_is_dwh else "events"
@@ -630,23 +708,34 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_of_interval_sql: ast.Expr,
         return_entity_expr: ast.Expr,
         timestamp_field: ast.Expr | None = None,
+        property_aggregation_expr: ast.Expr | None = None,
     ) -> ast.Expr:
-        if self.property_aggregation_expr:
+        # Resolve a sane default for the timestamp field used inside the tuple and the filter.
+        # Legacy events callers pass nothing and get events.timestamp.
+        effective_timestamp_field = timestamp_field or ast.Field(chain=["events", "timestamp"])
+
+        # Default to the runner-level (start-side) aggregation expression for legacy events callers
+        # so behaviour is unchanged. DWH callers pass an entity-specific expression.
+        if property_aggregation_expr is None and self.property_aggregation_expr:
+            property_aggregation_expr = self.runner.property_aggregation_expr_for(self.return_event)
+
+        if property_aggregation_expr is not None:
             # Collect 3-tuples of (interval_start, value, actual_timestamp) for return events.
             # actual_timestamp is needed to filter same-interval return events that happen after the start event.
             return parse_expr(
                 """
                 groupArrayIf(
-                    ({start_of_interval_timestamp}, {property_aggregation_expr}, events.timestamp),
+                    ({start_of_interval_timestamp}, {property_aggregation_expr}, {timestamp_field}),
                     {returning_entity_expr} and
                     {filter_timestamp}
                 )
                 """,
                 {
                     "start_of_interval_timestamp": start_of_interval_sql,
-                    "property_aggregation_expr": self.property_aggregation_expr,
+                    "property_aggregation_expr": property_aggregation_expr,
+                    "timestamp_field": effective_timestamp_field,
                     "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter(),
+                    "filter_timestamp": self.events_timestamp_filter(field=effective_timestamp_field),
                 },
             )
 
