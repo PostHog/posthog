@@ -1261,7 +1261,16 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             # Delete events table if requested (dangerous - loses all data)
             if config.delete_tables:
                 context.log.warning("delete_tables=True: Deleting events table...")
-                conn.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.events")
+                try:
+                    conn.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.events")
+                except Exception:
+                    context.log.exception(f"Failed to drop events table for team_id={team_id}")
+                    logger.exception(
+                        "duckling_events_table_drop_failed",
+                        team_id=team_id,
+                        bucket=catalog.bucket,
+                    )
+                    raise
 
             # Create events table if it doesn't exist
             if config.create_tables_if_missing:
@@ -1415,7 +1424,16 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             # Delete persons table if requested (dangerous - loses all data)
             if config.delete_tables:
                 context.log.warning("delete_tables=True: Deleting persons table...")
-                conn.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.persons")
+                try:
+                    conn.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.persons")
+                except Exception:
+                    context.log.exception(f"Failed to drop persons table for team_id={team_id}")
+                    logger.exception(
+                        "duckling_persons_table_drop_failed",
+                        team_id=team_id,
+                        bucket=catalog.bucket,
+                    )
+                    raise
 
             # Create persons table if it doesn't exist
             if config.create_tables_if_missing:
