@@ -12,8 +12,21 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { PROPERTY_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
-import { DatabaseSchemaField } from '~/queries/schema/schema-general'
+import { DatabaseSchemaField, RetentionFilter } from '~/queries/schema/schema-general'
 import { PropertyMathType } from '~/types'
+
+const aggregationTypeToTaxonomicType = {
+    event: TaxonomicFilterGroupType.EventProperties,
+    person: TaxonomicFilterGroupType.PersonProperties,
+    data_warehouse: TaxonomicFilterGroupType.DataWarehouseProperties,
+} satisfies Record<NonNullable<RetentionFilter['aggregationPropertyType']>, TaxonomicFilterGroupType>
+
+const taxonomicTypeToAggregationTypeMap = Object.fromEntries(
+    Object.entries(aggregationTypeToTaxonomicType).map(([aggregationType, taxonomicType]) => [
+        taxonomicType,
+        aggregationType,
+    ])
+) as Record<TaxonomicFilterGroupType, RetentionFilter['aggregationPropertyType']>
 
 export function RetentionAggregationSelector(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -35,12 +48,7 @@ export function RetentionAggregationSelector(): JSX.Element {
         ? Object.values(dataWarehouseTablesMap[dwhTableName]?.fields ?? {})
         : []
 
-    const propertyGroupType =
-        aggregationPropertyType === 'person'
-            ? TaxonomicFilterGroupType.PersonProperties
-            : aggregationPropertyType === 'data_warehouse'
-              ? TaxonomicFilterGroupType.DataWarehouseProperties
-              : TaxonomicFilterGroupType.EventProperties
+    const propertyGroupType = aggregationTypeToTaxonomicType[aggregationPropertyType]
     const groupTypes = isReturningDwh
         ? [TaxonomicFilterGroupType.DataWarehouseProperties]
         : [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]
@@ -136,15 +144,10 @@ export function RetentionAggregationSelector(): JSX.Element {
                     showNumericalPropsOnly={true}
                     value={aggregationProperty || ''}
                     onChange={(val, groupType) => {
-                        const newType =
-                            groupType === TaxonomicFilterGroupType.DataWarehouseProperties
-                                ? 'data_warehouse'
-                                : groupType === TaxonomicFilterGroupType.PersonProperties
-                                  ? 'person'
-                                  : 'event'
+                        const aggregationType = taxonomicTypeToAggregationTypeMap[groupType]
                         updateInsightFilter({
                             aggregationProperty: val,
-                            aggregationPropertyType: newType,
+                            aggregationPropertyType: aggregationType,
                         })
                     }}
                     placeholder="Select property"
@@ -175,17 +178,7 @@ export function RetentionAggregationSelector(): JSX.Element {
                             }
                             placement="right"
                         >
-                            <PropertyKeyInfo
-                                value={currentValue}
-                                disablePopover
-                                type={
-                                    aggregationPropertyType === 'person'
-                                        ? TaxonomicFilterGroupType.PersonProperties
-                                        : aggregationPropertyType === 'data_warehouse'
-                                          ? TaxonomicFilterGroupType.DataWarehouseProperties
-                                          : TaxonomicFilterGroupType.EventProperties
-                                }
-                            />
+                            <PropertyKeyInfo value={currentValue} disablePopover type={propertyGroupType} />
                         </Tooltip>
                     )}
                 />
