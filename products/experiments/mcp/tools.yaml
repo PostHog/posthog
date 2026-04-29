@@ -252,9 +252,9 @@ tools:
             the finding-experiments skill for guidance on searching by name, status, recency, or description.
 
 
-            Supports filtering by status ("draft", "running", "paused", "stopped", "complete" which maps to stopped,
-            or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search
-            on name. Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and
+            Supports filtering by status ("draft", "running", "paused", "stopped", "complete" which maps to stopped, or
+            "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, and free-text search on
+            name. Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and
             "status"). Returns paginated results with each experiment's status, dates, feature flag key, and metrics
             summary. Use the returned ID for get/update/lifecycle tools.
         param_overrides:
