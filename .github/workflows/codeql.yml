@@ -46,41 +46,39 @@ jobs:
                         - '**/*.hh'
                         - '**/*.hxx'
 
+            # Keep a CodeQL PR check present while only adding low-volume extractors
+            # when the PR touches their inputs. Pushes and schedules still run all languages.
             - name: Select languages
               id: matrix
-              shell: bash
+              shell: python3 {0}
               env:
+                  EVENT_NAME: ${{ github.event_name }}
                   ACTIONS_CHANGED: ${{ steps.filter.outputs.actions || 'false' }}
                   GO_CHANGED: ${{ steps.filter.outputs.go || 'false' }}
                   C_CPP_CHANGED: ${{ steps.filter.outputs.c_cpp || 'false' }}
               run: |
-                  # Keep a CodeQL PR check present while only adding low-volume extractors
-                  # when the PR touches their inputs. Pushes and schedules still run all languages.
-                  full_matrix='{"include":[{"language":"actions","build-mode":"none"},{"language":"c-cpp","build-mode":"none"},{"language":"go","build-mode":"autobuild"},{"language":"javascript-typescript","build-mode":"none"},{"language":"python","build-mode":"none"}]}'
+                  import json, os
 
-                  if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
-                      echo "matrix=$full_matrix" >> "$GITHUB_OUTPUT"
-                      echo "Selected CodeQL matrix: $full_matrix"
-                      exit 0
-                  fi
+                  always = [
+                      {"language": "javascript-typescript", "build-mode": "none"},
+                      {"language": "python", "build-mode": "none"},
+                  ]
+                  conditional = [
+                      ("ACTIONS_CHANGED", {"language": "actions", "build-mode": "none"}),
+                      ("GO_CHANGED", {"language": "go", "build-mode": "autobuild"}),
+                      ("C_CPP_CHANGED", {"language": "c-cpp", "build-mode": "none"}),
+                  ]
 
-                  matrix='{"include":[{"language":"javascript-typescript","build-mode":"none"},{"language":"python","build-mode":"none"}'
+                  is_pr = os.environ["EVENT_NAME"] == "pull_request"
+                  include = list(always)
+                  for env_key, entry in conditional:
+                      if not is_pr or os.environ[env_key] == "true":
+                          include.append(entry)
 
-                  if [[ "$ACTIONS_CHANGED" == "true" ]]; then
-                      matrix="${matrix}"',{"language":"actions","build-mode":"none"}'
-                  fi
-
-                  if [[ "$GO_CHANGED" == "true" ]]; then
-                      matrix="${matrix}"',{"language":"go","build-mode":"autobuild"}'
-                  fi
-
-                  if [[ "$C_CPP_CHANGED" == "true" ]]; then
-                      matrix="${matrix}"',{"language":"c-cpp","build-mode":"none"}'
-                  fi
-
-                  matrix="${matrix}"']}'
-                  echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-                  echo "Selected CodeQL matrix: $matrix"
+                  matrix = {"include": include}
+                  with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                      f.write(f"matrix={json.dumps(matrix)}\n")
+                  print(f"Selected CodeQL matrix: {json.dumps(matrix)}")
 
     analyze:
         name: Analyze (${{ matrix.language }})
