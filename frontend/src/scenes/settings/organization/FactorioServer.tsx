@@ -19,7 +19,6 @@ function rot13(input: string): string {
 }
 
 const OBFUSCATED_ADDRESS = '0.17.672.708:73155'
-const OBFUSCATED_USERNAME = 'ratvarre'
 const OBFUSCATED_PASSWORD = 'cebqhpgnhgbabzl'
 
 export function FactorioServer(): JSX.Element | null {
@@ -40,12 +39,6 @@ export function FactorioServer(): JSX.Element | null {
                     <label className="font-semibold">Server address</label>
                     <CodeSnippet compact thing="server address">
                         {rot13(OBFUSCATED_ADDRESS)}
-                    </CodeSnippet>
-                </div>
-                <div>
-                    <label className="font-semibold">Username</label>
-                    <CodeSnippet compact thing="username">
-                        {rot13(OBFUSCATED_USERNAME)}
                     </CodeSnippet>
                 </div>
                 <div>
