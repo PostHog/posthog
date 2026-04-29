@@ -839,17 +839,16 @@ export const hasUnsupportedBreakdownForDataWarehouseTrends = (
         return false
     }
 
-    const supportedSingleTypes = new Set(['data_warehouse', 'hogql'])
-    const supportedMultiTypes = new Set(['data_warehouse', 'hogql'])
+    const supportedTypes = new Set(['data_warehouse', 'hogql'])
 
     if (breakdownFilter.breakdowns?.length) {
-        return breakdownFilter.breakdowns.some((b) => !b.type || !supportedMultiTypes.has(b.type))
+        return breakdownFilter.breakdowns.some((b) => !b.type || !supportedTypes.has(b.type))
     }
 
     return !!(
         !breakdownFilter.breakdown ||
         Array.isArray(breakdownFilter.breakdown) ||
         !breakdownFilter.breakdown_type ||
-        !supportedSingleTypes.has(breakdownFilter.breakdown_type)
+        !supportedTypes.has(breakdownFilter.breakdown_type)
     )
 }

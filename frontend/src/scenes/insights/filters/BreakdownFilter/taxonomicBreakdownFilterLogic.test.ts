@@ -311,30 +311,22 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
-        it('multiple data warehouse breakdowns are allowed', async () => {
-            logic = taxonomicBreakdownFilterLogic(
-                makeProps({
-                    breakdownFilter: {
-                        breakdown_type: 'data_warehouse',
-                        breakdown: 'prop',
-                    },
-                })
-            )
-            logic.mount()
-            await expectLogic(logic).toMatchValues({
-                addBreakdownDisabledReason: null,
-            })
-
-            logic = taxonomicBreakdownFilterLogic(
-                makeProps({
-                    breakdownFilter: {
-                        breakdowns: [
-                            { type: 'data_warehouse', property: 'prop1' },
-                            { type: 'data_warehouse', property: 'prop2' },
-                        ],
-                    },
-                })
-            )
+        it.each([
+            [
+                'legacy single data warehouse breakdown',
+                { breakdown_type: 'data_warehouse', breakdown: 'prop' } as const,
+            ],
+            [
+                'multi data warehouse breakdowns',
+                {
+                    breakdowns: [
+                        { type: 'data_warehouse', property: 'prop1' },
+                        { type: 'data_warehouse', property: 'prop2' },
+                    ],
+                } as const,
+            ],
+        ])('multiple data warehouse breakdowns are allowed: %s', async (_label, breakdownFilter) => {
+            logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter }))
             logic.mount()
             await expectLogic(logic).toMatchValues({
                 addBreakdownDisabledReason: null,
