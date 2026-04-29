@@ -114,6 +114,51 @@ async def flush_kafka_batch_async(
     return successful_count
 
 
+def _escape_clickhouse_string_literal(value: str) -> str:
+    """Escape a value for inclusion in a single-quoted ClickHouse string literal.
+
+    ClickHouse string literals use C-style escapes, so backslashes must be
+    escaped first and single quotes after.
+    """
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _build_properties_clause(person_properties: list[str]) -> tuple[str, dict[str, str]]:
+    """Build the SELECT clause that extracts the requested person properties.
+
+    Returns the clause SQL fragment and a mapping from generated alias to the
+    original property key.
+    """
+    property_alias_mapping: dict[str, str] = {}
+
+    escaped_properties: list[str] = []
+    for prop in person_properties:
+        identifier_escaped = prop.replace("`", "``")
+        literal_escaped = _escape_clickhouse_string_literal(identifier_escaped)
+        escaped_properties.append(f"`{literal_escaped}` String")
+
+    tuple_definition = ",\n        ".join(escaped_properties)
+
+    property_selects: list[str] = []
+    for i, prop in enumerate(person_properties):
+        safe_alias = f"prop_{i}"
+        string_escaped_prop = _escape_clickhouse_string_literal(prop)
+        property_selects.append(f"tupleElement(p, '{string_escaped_prop}') as `{safe_alias}`")
+        property_alias_mapping[safe_alias] = prop
+
+    tuple_selects = ",\n                ".join(property_selects)
+
+    properties_clause = f"""JSONExtract(
+                properties,
+                'Tuple(
+        {tuple_definition}
+                )'
+            ) AS p,
+                {tuple_selects}"""
+
+    return properties_clause, property_alias_mapping
+
+
 def get_person_properties_backfill_success_metric():
     """Counter for successful person properties backfills."""
     return temporalio.activity.metric_meter().create_counter(
@@ -457,37 +502,10 @@ async def backfill_precalculated_person_properties_activity(
 
         # Build optimized query to only fetch needed person properties
         MAX_OPTIMIZED_PROPERTIES = 100  # Safety limit to avoid query complexity issues
-        property_alias_mapping = {}
+        property_alias_mapping: dict[str, str] = {}
 
         if person_properties and len(person_properties) <= MAX_OPTIMIZED_PROPERTIES:
-            # Build a single JSONExtract with tuple structure for all properties
-            escaped_properties = []
-            for prop in person_properties:
-                # Use backtick escaping for identifier names in tuple definition
-                escaped_prop = prop.replace("`", "``")
-                escaped_properties.append(f"`{escaped_prop}` String")
-
-            tuple_definition = ",\n        ".join(escaped_properties)
-
-            # Build the select statements for tupleElement extractions
-            property_selects = []
-            for i, prop in enumerate(person_properties):
-                safe_alias = f"prop_{i}"  # Use safe numeric aliases
-                # Escape single quotes for string literal in tupleElement
-                string_escaped_prop = prop.replace("'", "''")
-                property_selects.append(f"tupleElement(p, '{string_escaped_prop}') as `{safe_alias}`")
-                property_alias_mapping[safe_alias] = prop
-
-            tuple_selects = ",\n                ".join(property_selects)
-
-            properties_clause = f"""JSONExtract(
-                properties,
-                'Tuple(
-        {tuple_definition}
-                )'
-            ) AS p,
-                {tuple_selects}"""
-
+            properties_clause, property_alias_mapping = _build_properties_clause(person_properties)
             logger.info(
                 f"Optimized query: using single JSONExtract with tuple structure for {len(person_properties)} properties"
             )

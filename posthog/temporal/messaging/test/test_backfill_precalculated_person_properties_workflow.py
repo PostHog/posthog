@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
+    _build_properties_clause,
     backfill_precalculated_person_properties_activity,
     evaluate_combined_filters_sync,
     flush_kafka_batch_async,
@@ -372,3 +373,36 @@ class TestEvaluateCombinedFiltersSync:
             assert call_args[0][0] == "HogVM evaluation returned non-dict result"
         else:
             mock_logger.warning.assert_not_called()
+
+
+class TestBuildPropertiesClause:
+    """Tests for the property clause builder."""
+
+    def test_simple_property_keys(self):
+        clause, mapping = _build_properties_clause(["$browser", "email"])
+        assert mapping == {"prop_0": "$browser", "prop_1": "email"}
+        assert "`$browser` String" in clause
+        assert "`email` String" in clause
+        assert "tupleElement(p, '$browser') as `prop_0`" in clause
+        assert "tupleElement(p, 'email') as `prop_1`" in clause
+
+    def test_single_quote_in_tuple_definition_is_escaped(self):
+        clause, _ = _build_properties_clause(["prop'name"])
+        tuple_section = clause.split("'Tuple(", 1)[1].split(")'", 1)[0]
+        assert "'" not in tuple_section.replace("\\'", "")
+
+    def test_backslash_in_tupleelement_is_escaped(self):
+        clause, _ = _build_properties_clause(["trailing\\"])
+        assert "tupleElement(p, 'trailing\\\\') as `prop_0`" in clause
+
+    def test_backtick_in_property_is_doubled(self):
+        clause, mapping = _build_properties_clause(["weird`name"])
+        assert mapping == {"prop_0": "weird`name"}
+        assert "`weird``name` String" in clause
+
+    def test_combined_special_characters(self):
+        prop = "a\\b'c`d"
+        clause, mapping = _build_properties_clause([prop])
+        assert mapping == {"prop_0": prop}
+        assert "`a\\\\b\\'c``d` String" in clause
+        assert "tupleElement(p, 'a\\\\b\\'c`d') as `prop_0`" in clause
