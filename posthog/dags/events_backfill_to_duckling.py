@@ -84,16 +84,6 @@ DUCKLAKE_ALIAS = "ducklake"
 DUCKGRES_CONNECT_TIMEOUT = 10  # seconds
 DUCKGRES_STATEMENT_TIMEOUT_MS = 300_000  # 5 minutes
 
-# Retry duckgres operations on transient connection/network failures.
-# Duckgres handles transaction conflicts server-side (retryOnConflict, max 5
-# attempts with jitter), so this decorator targets only connection-level errors.
-_retry_duckgres_connection = retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=30),
-    retry=retry_if_exception_type((psycopg.OperationalError, psycopg.InterfaceError)),
-    reraise=True,
-)
-
 
 @retry(
     stop=stop_after_attempt(3),
@@ -539,7 +529,6 @@ def _set_table_partitioning(
         return False
 
 
-@_retry_duckgres_connection
 def ensure_events_table_exists(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -595,7 +584,6 @@ def ensure_events_table_exists(
     return True
 
 
-@_retry_duckgres_connection
 def ensure_persons_table_exists(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -651,7 +639,6 @@ def ensure_persons_table_exists(
     return True
 
 
-@_retry_duckgres_connection
 def validate_duckling_schema(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -697,7 +684,6 @@ def validate_duckling_schema(
     )
 
 
-@_retry_duckgres_connection
 def validate_duckling_persons_schema(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -966,7 +952,6 @@ def export_events_to_duckling_s3(
         raise
 
 
-@_retry_duckgres_connection
 def register_file_with_duckling(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -979,9 +964,8 @@ def register_file_with_duckling(
     Cross-account S3 access is configured server-side on the duckling's duckgres
     via IRSA, so the DAG only needs a pgwire connection.
 
-    DuckLake transaction conflicts are retried server-side by duckgres. Transient
-    connection/network failures are retried by the `_retry_duckgres_connection`
-    decorator (max 3 attempts with exponential backoff).
+    DuckLake transaction conflicts are retried server-side by duckgres. Connection
+    retries live in the caller — this helper operates on a connection it doesn't own.
 
     Args:
         context: Dagster asset execution context.
@@ -1004,12 +988,21 @@ def register_file_with_duckling(
     alias = DUCKLAKE_ALIAS
 
     context.log.info(f"Registering file with DuckLake: {s3_path}")
-    conn.execute(
-        psql.SQL("CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog')").format(
-            psql.Literal(alias),
-            psql.Literal(s3_path),
+    try:
+        conn.execute(
+            psql.SQL("CALL ducklake_add_data_files({}, 'events', {}, schema => 'posthog')").format(
+                psql.Literal(alias),
+                psql.Literal(s3_path),
+            )
         )
-    )
+    except Exception:
+        context.log.exception(f"Failed to register file {s3_path}")
+        logger.exception(
+            "duckling_file_registration_failed",
+            s3_path=s3_path,
+            team_id=catalog.team_id,
+        )
+        raise
 
     context.log.info(f"Successfully registered: {s3_path}")
     logger.info("duckling_file_registered", s3_path=s3_path, team_id=catalog.team_id)
@@ -1166,7 +1159,6 @@ def export_persons_full_to_duckling_s3(
         raise
 
 
-@_retry_duckgres_connection
 def register_persons_file_with_duckling(
     context: AssetExecutionContext,
     catalog: DuckLakeCatalog,
@@ -1176,9 +1168,8 @@ def register_persons_file_with_duckling(
 ) -> bool:
     """Register an exported persons Parquet file with the duckling's DuckLake catalog.
 
-    DuckLake transaction conflicts are retried server-side by duckgres. Transient
-    connection/network failures are retried by the `_retry_duckgres_connection`
-    decorator (max 3 attempts with exponential backoff).
+    DuckLake transaction conflicts are retried server-side by duckgres. Connection
+    retries live in the caller — this helper operates on a connection it doesn't own.
     """
     if config.skip_ducklake_registration:
         context.log.info("Skipping DuckLake registration (skip_ducklake_registration=True)")
@@ -1191,12 +1182,21 @@ def register_persons_file_with_duckling(
     alias = DUCKLAKE_ALIAS
 
     context.log.info(f"Registering persons file with DuckLake: {s3_path}")
-    conn.execute(
-        psql.SQL("CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog')").format(
-            psql.Literal(alias),
-            psql.Literal(s3_path),
+    try:
+        conn.execute(
+            psql.SQL("CALL ducklake_add_data_files({}, 'persons', {}, schema => 'posthog')").format(
+                psql.Literal(alias),
+                psql.Literal(s3_path),
+            )
         )
-    )
+    except Exception:
+        context.log.exception(f"Failed to register persons file {s3_path}")
+        logger.exception(
+            "duckling_persons_file_registration_failed",
+            s3_path=s3_path,
+            team_id=catalog.team_id,
+        )
+        raise
 
     context.log.info(f"Successfully registered persons: {s3_path}")
     logger.info(
@@ -1252,23 +1252,26 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         f"Backfill ready for team_id={team_id}: duckgres={server.host}:{server.port}, bucket={catalog.bucket}"
     )
 
-    # Use a single connection for all metadata operations to reduce churn
-    conn = _connect_duckgres(catalog)
+    # Open one duckgres connection for all metadata operations, but skip it
+    # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
+    should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
+    conn: psycopg.Connection[Any] | None = _connect_duckgres(catalog) if should_use_duckgres else None
     try:
-        # Delete events table if requested (dangerous - loses all data)
-        if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
-            context.log.warning("delete_tables=True: Deleting events table...")
-            conn.execute(f"DROP TABLE {DUCKLAKE_ALIAS}.posthog.events")
+        if conn is not None:
+            # Delete events table if requested (dangerous - loses all data)
+            if config.delete_tables:
+                context.log.warning("delete_tables=True: Deleting events table...")
+                conn.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.events")
 
-        # Create events table if it doesn't exist
-        if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
-            context.log.info("Ensuring events table exists in duckling catalog...")
-            ensure_events_table_exists(context, catalog, conn)
+            # Create events table if it doesn't exist
+            if config.create_tables_if_missing:
+                context.log.info("Ensuring events table exists in duckling catalog...")
+                ensure_events_table_exists(context, catalog, conn)
 
-        # Validate schema before starting export (skip if dry_run or skip_ducklake_registration)
-        if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
-            context.log.info("Validating duckling schema compatibility...")
-            validate_duckling_schema(context, catalog, conn)
+            # Validate schema before starting export
+            if not config.skip_schema_validation:
+                context.log.info("Validating duckling schema compatibility...")
+                validate_duckling_schema(context, catalog, conn)
 
         # Prepare ClickHouse settings
         merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
@@ -1291,7 +1294,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             context.log.info(f"Processing date {date_str}...")
 
             # Delete existing DuckLake data for this partition before re-processing
-            if config.cleanup_existing_partition_data and not config.dry_run and not config.skip_ducklake_registration:
+            if conn is not None and config.cleanup_existing_partition_data:
                 delete_events_partition_data(context, catalog, team_id, partition_date, conn=conn)
 
             def do_export(client: Client, date: datetime = partition_date) -> str | None:
@@ -1317,7 +1320,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             if s3_path:
                 total_exported += 1
                 s3_paths.append(s3_path)
-                if register_file_with_duckling(context, catalog, s3_path, config, conn):
+                if conn is not None and register_file_with_duckling(context, catalog, s3_path, config, conn):
                     total_registered += 1
 
         context.add_output_metadata(
@@ -1344,7 +1347,8 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         )
 
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 @asset(
@@ -1402,22 +1406,25 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
         f"Backfill ready for team_id={team_id}: duckgres={server.host}:{server.port}, bucket={catalog.bucket}"
     )
 
-    # Use a single connection for all metadata operations to reduce churn
-    conn = _connect_duckgres(catalog)
+    # Open one duckgres connection for all metadata operations, but skip it
+    # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
+    should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
+    conn: psycopg.Connection[Any] | None = _connect_duckgres(catalog) if should_use_duckgres else None
     try:
-        # Delete persons table if requested (dangerous - loses all data)
-        if config.delete_tables and not config.dry_run and not config.skip_ducklake_registration:
-            context.log.warning("delete_tables=True: Deleting persons table...")
-            conn.execute(f"DROP TABLE {DUCKLAKE_ALIAS}.posthog.persons")
+        if conn is not None:
+            # Delete persons table if requested (dangerous - loses all data)
+            if config.delete_tables:
+                context.log.warning("delete_tables=True: Deleting persons table...")
+                conn.execute(f"DROP TABLE IF EXISTS {DUCKLAKE_ALIAS}.posthog.persons")
 
-        # Create persons table if it doesn't exist
-        if config.create_tables_if_missing and not config.dry_run and not config.skip_ducklake_registration:
-            context.log.info("Ensuring persons table exists in duckling catalog...")
-            ensure_persons_table_exists(context, catalog, conn)
+            # Create persons table if it doesn't exist
+            if config.create_tables_if_missing:
+                context.log.info("Ensuring persons table exists in duckling catalog...")
+                ensure_persons_table_exists(context, catalog, conn)
 
-        if not config.dry_run and not config.skip_ducklake_registration and not config.skip_schema_validation:
-            context.log.info("Validating duckling persons schema compatibility...")
-            validate_duckling_persons_schema(context, catalog, conn)
+            if not config.skip_schema_validation:
+                context.log.info("Validating duckling persons schema compatibility...")
+                validate_duckling_persons_schema(context, catalog, conn)
 
         merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
         merged_settings.update(settings_with_log_comment(context))
@@ -1434,7 +1441,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             context.log.info(f"Full export mode: exporting all persons for team_id={team_id}")
 
             # Delete all existing persons data for this team before full re-export
-            if config.cleanup_existing_partition_data and not config.dry_run and not config.skip_ducklake_registration:
+            if conn is not None and config.cleanup_existing_partition_data:
                 delete_persons_partition_data(context, catalog, team_id, partition_date=None, conn=conn)
 
             def do_full_export(client: Client) -> str | None:
@@ -1457,7 +1464,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
             files_exported = 1 if s3_path else 0
             files_registered = 0
-            if s3_path:
+            if s3_path and conn is not None:
                 if register_persons_file_with_duckling(context, catalog, s3_path, config, conn):
                     files_registered = 1
 
@@ -1493,11 +1500,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                 context.log.info(f"Processing persons for date {date_str}...")
 
                 # Delete existing DuckLake data for this partition before re-processing
-                if (
-                    config.cleanup_existing_partition_data
-                    and not config.dry_run
-                    and not config.skip_ducklake_registration
-                ):
+                if conn is not None and config.cleanup_existing_partition_data:
                     delete_persons_partition_data(context, catalog, team_id, partition_date, conn=conn)
 
                 def do_export(client: Client, date: datetime = partition_date) -> str | None:
@@ -1521,7 +1524,9 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
                 if s3_path:
                     total_exported += 1
-                    if register_persons_file_with_duckling(context, catalog, s3_path, config, conn):
+                    if conn is not None and register_persons_file_with_duckling(
+                        context, catalog, s3_path, config, conn
+                    ):
                         total_registered += 1
 
             context.add_output_metadata(
@@ -1550,7 +1555,8 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             )
 
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 @sensor(

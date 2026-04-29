@@ -366,62 +366,45 @@ class TestDeleteErrorHandling:
     """Verify the exception contract for delete_*_partition_data.
 
     Missing-table errors must be swallowed (return 0) so first-run partitions
-    don't fail. Operational/connection errors must propagate so the
-    `_retry_duckgres_connection` decorator can retry transient failures.
+    don't fail. Operational/connection errors must propagate so caller-level
+    retry/handling can deal with transient failures.
     """
 
+    @parameterized.expand(
+        [
+            ("events", "delete_events_partition_data", datetime(2024, 1, 1)),
+            ("persons_daily", "delete_persons_partition_data", datetime(2024, 1, 1)),
+            ("persons_full", "delete_persons_partition_data", None),
+        ]
+    )
     @patch("posthog.dags.events_backfill_to_duckling.logger")
-    def test_delete_events_handles_missing_table(self, mock_logger):
-        from posthog.dags.events_backfill_to_duckling import delete_events_partition_data
+    def test_handles_missing_table(self, _label, fn_name, partition_date, mock_logger):
+        from posthog.dags import events_backfill_to_duckling as mod
 
+        delete_fn = getattr(mod, fn_name)
         mock_conn = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value.execute.side_effect = psycopg.errors.UndefinedTable()
 
-        count = delete_events_partition_data(MagicMock(), MagicMock(), 12345, datetime(2024, 1, 1), conn=mock_conn)
+        count = delete_fn(MagicMock(), MagicMock(), 12345, partition_date, conn=mock_conn)
 
         assert count == 0
         assert mock_logger.exception.call_count == 0
 
-    def test_delete_events_bubbles_operational_error(self):
-        from posthog.dags.events_backfill_to_duckling import delete_events_partition_data
+    @parameterized.expand(
+        [
+            ("events", "delete_events_partition_data"),
+            ("persons", "delete_persons_partition_data"),
+        ]
+    )
+    def test_bubbles_operational_error(self, _label, fn_name):
+        from posthog.dags import events_backfill_to_duckling as mod
 
+        delete_fn = getattr(mod, fn_name)
         mock_conn = MagicMock()
         mock_conn.cursor.return_value.__enter__.return_value.execute.side_effect = psycopg.OperationalError("timeout")
 
         with pytest.raises(psycopg.OperationalError):
-            delete_events_partition_data(MagicMock(), MagicMock(), 12345, datetime(2024, 1, 1), conn=mock_conn)
-
-    @patch("posthog.dags.events_backfill_to_duckling.logger")
-    def test_delete_persons_handles_missing_table(self, mock_logger):
-        from posthog.dags.events_backfill_to_duckling import delete_persons_partition_data
-
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value.execute.side_effect = psycopg.errors.UndefinedTable()
-
-        count = delete_persons_partition_data(MagicMock(), MagicMock(), 12345, datetime(2024, 1, 1), conn=mock_conn)
-
-        assert count == 0
-        assert mock_logger.exception.call_count == 0
-
-    def test_delete_persons_handles_missing_table_full_export(self):
-        """Full-export path (partition_date=None) must also tolerate a missing table."""
-        from posthog.dags.events_backfill_to_duckling import delete_persons_partition_data
-
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value.execute.side_effect = psycopg.errors.UndefinedTable()
-
-        count = delete_persons_partition_data(MagicMock(), MagicMock(), 12345, partition_date=None, conn=mock_conn)
-
-        assert count == 0
-
-    def test_delete_persons_bubbles_operational_error(self):
-        from posthog.dags.events_backfill_to_duckling import delete_persons_partition_data
-
-        mock_conn = MagicMock()
-        mock_conn.cursor.return_value.__enter__.return_value.execute.side_effect = psycopg.OperationalError("timeout")
-
-        with pytest.raises(psycopg.OperationalError):
-            delete_persons_partition_data(MagicMock(), MagicMock(), 12345, datetime(2024, 1, 1), conn=mock_conn)
+            delete_fn(MagicMock(), MagicMock(), 12345, datetime(2024, 1, 1), conn=mock_conn)
 
 
 class TestDeleteRangePredicate:
