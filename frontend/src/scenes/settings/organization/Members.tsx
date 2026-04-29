@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSwitch, LemonTabs } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -30,6 +32,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationMemberType } from '~/types'
+
+import { GuestsTab } from './GuestsTab'
 
 function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.Element {
     const { user } = useValues(userLogic)
@@ -184,7 +188,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     )
 }
 
-export function Members(): JSX.Element | null {
+function MembersContent(): JSX.Element | null {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
     const { downloadMembersListDisabledReason } = useValues(membersExportLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -416,5 +420,25 @@ export function Members(): JSX.Element | null {
                 </>
             )}
         </>
+    )
+}
+
+export function Members(): JSX.Element | null {
+    const guestModeEnabled = useFeatureFlag('GUEST_MODE')
+    const [activeTab, setActiveTab] = useState<'members' | 'guests'>('members')
+
+    if (!guestModeEnabled) {
+        return <MembersContent />
+    }
+
+    return (
+        <LemonTabs
+            activeKey={activeTab}
+            onChange={(key) => setActiveTab(key)}
+            tabs={[
+                { key: 'members', label: 'Members', content: <MembersContent /> },
+                { key: 'guests', label: 'Guests', content: <GuestsTab /> },
+            ]}
+        />
     )
 }

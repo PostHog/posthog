@@ -5,6 +5,7 @@ import { ReactNode, useCallback, useEffect, useRef } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
+import { guestSceneLogic } from 'scenes/guest/guestSceneLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
@@ -20,6 +21,7 @@ import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { SceneTabs } from '../scenes/SceneTabs'
 import { MinimalNavigation } from './components/MinimalNavigation'
+import { GuestMinimalLayout } from './GuestMinimalLayout'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
@@ -33,6 +35,7 @@ export function Navigation({
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(maxGlobalLogic)
+    const { isGuest } = useValues(guestSceneLogic)
     const { theme } = useValues(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
@@ -83,6 +86,10 @@ export function Navigation({
             setMainContentRect(mainRef.current.getBoundingClientRect())
         }
     }, [mainRef, setMainContentRef, setMainContentRect])
+
+    if (isGuest) {
+        return <GuestMinimalLayout>{children}</GuestMinimalLayout>
+    }
 
     if (mode !== 'full') {
         return (

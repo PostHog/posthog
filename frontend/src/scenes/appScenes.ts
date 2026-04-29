@@ -49,6 +49,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.GroupsNew]: () => import('./groups/GroupsNew'),
     [Scene.Groups]: () => import('./groups/Groups'),
+    [Scene.Guest]: () => import('./guest/GuestLandingScene'),
     [Scene.Heatmaps]: () => import('./heatmaps/scenes/heatmaps/HeatmapsScene'),
     [Scene.Inbox]: () => import('./inbox/InboxScene'),
     [Scene.HeatmapNew]: () => import('./heatmaps/scenes/heatmap/HeatmapNewScene'),

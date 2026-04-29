@@ -315,6 +315,18 @@ export interface SceneDashboardChoice {
     dashboard: number | DashboardBasicType
 }
 
+export interface GuestGrant {
+    team_id: number
+    team_name?: string
+    resource: 'notebook'
+    /** Primary-key form of the resource id (what the AC table stores). */
+    resource_id_pk: string
+    /** URL-form of the resource id — notebook short_id. */
+    resource_id_url: string
+    resource_name?: string
+    access_level: 'viewer' | 'editor'
+}
+
 export type UserTheme = 'light' | 'dark' | 'system'
 export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 
@@ -352,6 +364,8 @@ export interface UserType extends UserBaseType {
     passkeys_enabled_for_2fa?: boolean
     is_organization_first_user?: boolean
     pending_invites?: PendingInviteForCurrentUser[]
+    is_guest_in_current_project?: boolean
+    guest_grants?: GuestGrant[]
 }
 
 export interface PendingInviteForCurrentUser {
