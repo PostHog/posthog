@@ -1921,15 +1921,16 @@ export namespace Schemas {
 
 
     export const MultipleBreakdownType = {
-      Cohort: 'cohort',
       Person: 'person',
       Event: 'event',
       EventMetadata: 'event_metadata',
       Group: 'group',
       Session: 'session',
       Hogql: 'hogql',
-      DataWarehousePersonProperty: 'data_warehouse_person_property',
+      Cohort: 'cohort',
       RevenueAnalytics: 'revenue_analytics',
+      DataWarehouse: 'data_warehouse',
+      DataWarehousePersonProperty: 'data_warehouse_person_property',
     } as const;
 
     export interface Breakdown {
@@ -4440,6 +4441,12 @@ export namespace Schemas {
 
     export interface ExperimentStatsBaseValidated {
       /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_product?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
+      /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
       denominator_sum_squares?: number | null;
@@ -4471,6 +4478,12 @@ export namespace Schemas {
        * @nullable
        */
       confidence_interval?: number[] | null;
+      /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_product?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
       /** @nullable */
       denominator_sum?: number | null;
       /** @nullable */
@@ -4504,6 +4517,12 @@ export namespace Schemas {
     export interface ExperimentVariantResultBayesian {
       /** @nullable */
       chance_to_win?: number | null;
+      /** @nullable */
+      covariate_sum?: number | null;
+      /** @nullable */
+      covariate_sum_product?: number | null;
+      /** @nullable */
+      covariate_sum_squares?: number | null;
       /**
        * @minItems 2
        * @maxItems 2
@@ -6939,6 +6958,13 @@ export namespace Schemas {
       event_filters?: (EventPropFilter | HogQLFilter)[] | null;
       /** @nullable */
       explicit_datetime?: string | null;
+      /** @nullable */
+      explicit_datetime_to?: string | null;
+    }
+
+    export interface BiasRisk {
+      /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
+      multiple_variant_percentage: number;
     }
 
     export interface BlastRadius {
@@ -7704,6 +7730,7 @@ export namespace Schemas {
      * * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max
      */
     export type ReasoningEffortEnum = typeof ReasoningEffortEnum[keyof typeof ReasoningEffortEnum];
@@ -7713,6 +7740,7 @@ export namespace Schemas {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
+      Xhigh: 'xhigh',
       Max: 'max',
     } as const;
 
@@ -7780,6 +7808,7 @@ export namespace Schemas {
     * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -8094,6 +8123,7 @@ export namespace Schemas {
     * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -8235,6 +8265,46 @@ export namespace Schemas {
       readonly experiment_set: readonly number[];
       _create_in_folder?: string;
       _create_static_person_ids?: string[];
+    }
+
+    export type CohortPersonResultProperties = {[key: string]: unknown};
+
+    export type CohortPersonResultMatchedRecordingsItem = {[key: string]: unknown};
+
+    /**
+     * * `person` - person
+     */
+    export type CohortPersonResultTypeEnum = typeof CohortPersonResultTypeEnum[keyof typeof CohortPersonResultTypeEnum];
+
+
+    export const CohortPersonResultTypeEnum = {
+      Person: 'person',
+    } as const;
+
+    export interface CohortPersonResult {
+      id: string;
+      uuid: string;
+      type: CohortPersonResultTypeEnum;
+      name: string;
+      distinct_ids: string[];
+      properties: CohortPersonResultProperties;
+      /** @nullable */
+      created_at: string | null;
+      /** @nullable */
+      last_seen_at: string | null;
+      /** @nullable */
+      is_identified: boolean | null;
+      matched_recordings: CohortPersonResultMatchedRecordingsItem[];
+      /** @nullable */
+      value_at_data_point: number | null;
+    }
+
+    export interface CohortPersonsResponse {
+      results: CohortPersonResult[];
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
     }
 
     export type ColorMode = typeof ColorMode[keyof typeof ColorMode];
@@ -8696,6 +8766,8 @@ export namespace Schemas {
       target_project_ids: number[];
       /** Whether to also copy scheduled changes for this flag */
       copy_schedule?: boolean;
+      /** Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status */
+      disable_copied_flag?: boolean;
     }
 
     export interface CopyFlagsSuccessItem {
@@ -13598,6 +13670,7 @@ export namespace Schemas {
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
     * `Plain` - Plain
+    * `Resend` - Resend
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -13746,6 +13819,7 @@ export namespace Schemas {
       Convex: 'Convex',
       ClickHouse: 'ClickHouse',
       Plain: 'Plain',
+      Resend: 'Resend',
     } as const;
 
     /**
@@ -13900,7 +13974,8 @@ export namespace Schemas {
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
-    * `Plain` - Plain */
+    * `Plain` - Plain
+    * `Resend` - Resend */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -14528,11 +14603,6 @@ export namespace Schemas {
       /** Last materialization error message, if any. */
       error?: string;
       /**
-       * How often the materialization refreshes (e.g. 'every_hour').
-       * @nullable
-       */
-      sync_frequency?: string | null;
-      /**
        * UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.
        * @nullable
        */
@@ -14571,10 +14641,10 @@ export namespace Schemas {
        */
       description?: string | null;
       /**
-       * Cache TTL in seconds (60–86400).
+       * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
        * @nullable
        */
-      cache_age_seconds?: number | null;
+      data_freshness_seconds?: number | null;
       /**
        * Whether this endpoint is available for execution via the API.
        * @nullable
@@ -14585,11 +14655,6 @@ export namespace Schemas {
        * @nullable
        */
       is_materialized?: boolean | null;
-      /**
-       * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
-       * @nullable
-       */
-      sync_frequency?: string | null;
       /**
        * Short ID of the insight this endpoint was derived from.
        * @nullable
@@ -14635,11 +14700,8 @@ export namespace Schemas {
       query: unknown;
       /** Whether the endpoint can be executed via the API. */
       is_active: boolean;
-      /**
-       * Cache TTL in seconds, or null for default interval-based caching.
-       * @nullable
-       */
-      cache_age_seconds: number | null;
+      /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+      data_freshness_seconds: number;
       /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -14786,11 +14848,8 @@ export namespace Schemas {
       query: unknown;
       /** Whether the endpoint can be executed via the API. */
       is_active: boolean;
-      /**
-       * Cache TTL in seconds, or null for default interval-based caching.
-       * @nullable
-       */
-      cache_age_seconds: number | null;
+      /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+      data_freshness_seconds: number;
       /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -15059,6 +15118,12 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -15655,6 +15720,7 @@ export namespace Schemas {
     * `openrouter` - Openrouter
     * `fireworks` - Fireworks
     * `azure_openai` - Azure OpenAI
+    * `together_ai` - Together AI
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -15666,6 +15732,7 @@ export namespace Schemas {
       Openrouter: 'openrouter',
       Fireworks: 'fireworks',
       AzureOpenai: 'azure_openai',
+      TogetherAi: 'together_ai',
     } as const;
 
     /**
@@ -15740,58 +15807,58 @@ export namespace Schemas {
       readonly id: string;
       /** UUID of the evaluation this report config belongs to. */
       evaluation: string;
-      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
     * `scheduled` - Scheduled
     * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
-      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
+      /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
       rrule?: string;
       /**
-       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
        * @nullable
        */
       starts_at?: string | null;
       /**
-       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
        * @maxLength 64
        */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
-      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
+      /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
       delivery_targets?: unknown;
       /**
-       * Max number of evaluation runs included in each report. Defaults to 100.
+       * Maximum number of evaluation runs included in each report. Defaults to 200.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
-      /** Whether report delivery is active. */
+      /** Whether report delivery is active. Disabled configs do not fire. */
       enabled?: boolean;
       /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at: string | null;
-      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
+      /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
-       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+       * @minimum 10
+       * @maximum 10000
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+       * @minimum 60
+       * @maximum 1440
        */
       cooldown_minutes?: number;
       /**
-       * Max reports generated per day. Defaults to 3.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+       * @minimum 1
+       * @maximum 24
        */
       daily_run_cap?: number;
       /** @nullable */
@@ -15913,6 +15980,12 @@ export namespace Schemas {
       readonly last_updated_at: string;
       tags?: unknown[];
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action: boolean;
       readonly action_id: number;
       readonly is_calculating: boolean;
@@ -16116,6 +16189,41 @@ export namespace Schemas {
       AiEmbedding: '$ai_embedding',
       AiTrace: '$ai_trace',
     } as const;
+
+    export interface ExecuteTestClusterRequest {
+      /**
+       * ClickHouse SQL to run against the test cluster.
+       * @maxLength 65536
+       */
+      sql: string;
+    }
+
+    export interface ExecuteTestClusterResponse {
+      /** Rows returned, each as a positional list of canonicalized values. */
+      result: unknown[][];
+      /**
+       * ClickHouse query_id for this execution.
+       * @nullable
+       */
+      query_id: string | null;
+      /**
+       * Server-side elapsed time in milliseconds.
+       * @nullable
+       */
+      elapsed_ms: number | null;
+      /**
+       * Rows read from storage (scan-side).
+       * @nullable
+       */
+      rows_read: number | null;
+      /**
+       * Bytes read from storage (scan-side).
+       * @nullable
+       */
+      bytes_read: number | null;
+      /** Rows in the `result` payload. */
+      rows_returned: number;
+    }
 
     /**
      * * `exit_on_conversion` - Conversion
@@ -16491,6 +16599,7 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponseTotalExposures = {[key: string]: number};
 
     export interface ExperimentExposureQueryResponse {
+      bias_risk?: BiasRisk | null;
       date_range: DateRange;
       kind?: ExperimentExposureQueryResponseKind;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
@@ -16961,7 +17070,8 @@ export namespace Schemas {
     * `BuildBetter` - BuildBetter
     * `Convex` - Convex
     * `ClickHouse` - ClickHouse
-    * `Plain` - Plain */
+    * `Plain` - Plain
+    * `Resend` - Resend */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -17664,7 +17774,17 @@ export namespace Schemas {
       ref?: string | null;
       /** @nullable */
       href?: string | null;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      order?: number;
       readonly created_at: string;
+    }
+
+    export interface FileSystemShortcutReorder {
+      /** IDs of the current user's shortcuts in the desired display order. */
+      ordered_ids: string[];
     }
 
     export interface FlagValueItem {
@@ -17775,6 +17895,11 @@ export namespace Schemas {
     }
 
     /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type GroupUsageMetricFilters = {[key: string]: unknown};
+
+    /**
      * * `numeric` - numeric
     * `currency` - currency
      */
@@ -17812,19 +17937,32 @@ export namespace Schemas {
 
     export interface GroupUsageMetric {
       readonly id: string;
-      /** @maxLength 255 */
-      name: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters: GroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -19228,7 +19366,26 @@ export namespace Schemas {
       LogAttributesQuery: 'LogAttributesQuery',
     } as const;
 
-    export type LogAttributesQueryResponseResultsItem = { [key: string]: unknown };
+    export type MatchedOn = typeof MatchedOn[keyof typeof MatchedOn];
+
+
+    export const MatchedOn = {
+      Key: 'key',
+      Value: 'value',
+    } as const;
+
+    export interface LogAttributeResult {
+      /** Whether this row matched the search by attribute key or by attribute value. */
+      matchedOn: MatchedOn;
+      /**
+       * Sample value that matched the search — only set when matchedOn is 'value'.
+       * @nullable
+       */
+      matchedValue?: string | null;
+      name: string;
+      /** Either 'log_attribute' or 'log_resource_attribute'. */
+      propertyFilterType: string;
+    }
 
     export interface LogAttributesQueryResponse {
       count: number;
@@ -19248,7 +19405,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: LogAttributesQueryResponseResultsItem[];
+      results: LogAttributeResult[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -19270,6 +19427,11 @@ export namespace Schemas {
       response?: LogAttributesQueryResponse | null;
       /** @nullable */
       search?: string | null;
+      /**
+       * When true, the search query also matches attribute values (not just keys).
+       * @nullable
+       */
+      searchValues?: boolean | null;
       /** @nullable */
       serviceNames?: string[] | null;
       /** @nullable */
@@ -20307,75 +20469,77 @@ export namespace Schemas {
     }
 
     /**
-     * * `slack` - Slack
-    * `slack-posthog-code` - Slack Posthog Code
-    * `salesforce` - Salesforce
-    * `hubspot` - Hubspot
-    * `google-pubsub` - Google Pubsub
-    * `google-cloud-storage` - Google Cloud Storage
-    * `google-ads` - Google Ads
-    * `google-sheets` - Google Sheets
-    * `google-cloud-service-account` - Google Cloud Service Account
-    * `snapchat` - Snapchat
-    * `linkedin-ads` - Linkedin Ads
-    * `reddit-ads` - Reddit Ads
-    * `tiktok-ads` - Tiktok Ads
+     * * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
-    * `intercom` - Intercom
+    * `clickup` - Clickup
+    * `customerio-app` - Customerio App
+    * `customerio-track` - Customerio Track
+    * `customerio-webhook` - Customerio Webhook
+    * `databricks` - Databricks
     * `email` - Email
-    * `linear` - Linear
+    * `firebase` - Firebase
     * `github` - Github
     * `gitlab` - Gitlab
-    * `meta-ads` - Meta Ads
-    * `twilio` - Twilio
-    * `clickup` - Clickup
-    * `vercel` - Vercel
-    * `databricks` - Databricks
-    * `azure-blob` - Azure Blob
-    * `firebase` - Firebase
+    * `google-ads` - Google Ads
+    * `google-cloud-service-account` - Google Cloud Service Account
+    * `google-cloud-storage` - Google Cloud Storage
+    * `google-pubsub` - Google Pubsub
+    * `google-sheets` - Google Sheets
+    * `hubspot` - Hubspot
+    * `intercom` - Intercom
     * `jira` - Jira
+    * `linear` - Linear
+    * `linkedin-ads` - Linkedin Ads
+    * `meta-ads` - Meta Ads
     * `pinterest-ads` - Pinterest Ads
+    * `postgresql` - Postgresql
+    * `reddit-ads` - Reddit Ads
+    * `salesforce` - Salesforce
+    * `slack` - Slack
+    * `slack-posthog-code` - Slack Posthog Code
+    * `snapchat` - Snapchat
     * `stripe` - Stripe
-    * `customerio-app` - Customerio App
-    * `customerio-webhook` - Customerio Webhook
-    * `customerio-track` - Customerio Track
+    * `tiktok-ads` - Tiktok Ads
+    * `twilio` - Twilio
+    * `vercel` - Vercel
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
 
 
     export const IntegrationKindEnum = {
-      Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
-      Salesforce: 'salesforce',
-      Hubspot: 'hubspot',
-      GooglePubsub: 'google-pubsub',
-      GoogleCloudStorage: 'google-cloud-storage',
-      GoogleAds: 'google-ads',
-      GoogleSheets: 'google-sheets',
-      GoogleCloudServiceAccount: 'google-cloud-service-account',
-      Snapchat: 'snapchat',
-      LinkedinAds: 'linkedin-ads',
-      RedditAds: 'reddit-ads',
-      TiktokAds: 'tiktok-ads',
+      AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
-      Intercom: 'intercom',
+      Clickup: 'clickup',
+      CustomerioApp: 'customerio-app',
+      CustomerioTrack: 'customerio-track',
+      CustomerioWebhook: 'customerio-webhook',
+      Databricks: 'databricks',
       Email: 'email',
-      Linear: 'linear',
+      Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
-      MetaAds: 'meta-ads',
-      Twilio: 'twilio',
-      Clickup: 'clickup',
-      Vercel: 'vercel',
-      Databricks: 'databricks',
-      AzureBlob: 'azure-blob',
-      Firebase: 'firebase',
+      GoogleAds: 'google-ads',
+      GoogleCloudServiceAccount: 'google-cloud-service-account',
+      GoogleCloudStorage: 'google-cloud-storage',
+      GooglePubsub: 'google-pubsub',
+      GoogleSheets: 'google-sheets',
+      Hubspot: 'hubspot',
+      Intercom: 'intercom',
       Jira: 'jira',
+      Linear: 'linear',
+      LinkedinAds: 'linkedin-ads',
+      MetaAds: 'meta-ads',
       PinterestAds: 'pinterest-ads',
+      Postgresql: 'postgresql',
+      RedditAds: 'reddit-ads',
+      Salesforce: 'salesforce',
+      Slack: 'slack',
+      SlackPosthogCode: 'slack-posthog-code',
+      Snapchat: 'snapchat',
       Stripe: 'stripe',
-      CustomerioApp: 'customerio-app',
-      CustomerioWebhook: 'customerio-webhook',
-      CustomerioTrack: 'customerio-track',
+      TiktokAds: 'tiktok-ads',
+      Twilio: 'twilio',
+      Vercel: 'vercel',
     } as const;
 
     /**
@@ -21389,6 +21553,8 @@ export namespace Schemas {
       /** @nullable */
       readonly template_id: string | null;
       readonly name: string;
+      /** Lowercase key from the linked template for brand icons. Empty if custom install (no template). */
+      readonly icon_key: string;
       /** @maxLength 200 */
       display_name?: string;
       /** @maxLength 2048 */
@@ -21473,6 +21639,18 @@ export namespace Schemas {
     export interface MarkToleratedInput {
       snapshot_id: string;
     }
+
+    /**
+     * * `key` - key
+    * `value` - value
+     */
+    export type MatchedOnEnum = typeof MatchedOnEnum[keyof typeof MatchedOnEnum];
+
+
+    export const MatchedOnEnum = {
+      Key: 'key',
+      Value: 'value',
+    } as const;
 
     /**
      * Per-column bucket function overrides, e.g. {"timestamp": "hour"}
@@ -21803,6 +21981,11 @@ export namespace Schemas {
       text_content?: string;
       /** Updated notebook title. */
       title?: string;
+      /**
+       * ProseMirror cursor head position after applying steps.
+       * @nullable
+       */
+      cursor_head?: number | null;
     }
 
     export interface NotebookMinimal {
@@ -23697,6 +23880,8 @@ export namespace Schemas {
        * @nullable
        */
       end_date?: string | null;
+      /** @nullable */
+      readonly timezone: string | null;
     }
 
     export interface PaginatedScheduledChangeList {
@@ -25120,6 +25305,51 @@ export namespace Schemas {
       results: TraceReview[];
     }
 
+    export interface UserGitHubAccount {
+      /**
+       * GitHub account type for the installation (e.g. User or Organization).
+       * @nullable
+       */
+      type?: string | null;
+      /**
+       * GitHub login or organization name tied to the installation.
+       * @nullable
+       */
+      name?: string | null;
+    }
+
+    export interface UserGitHubIntegrationItem {
+      /** Integration kind; always `github` for this API. */
+      kind: string;
+      /** GitHub App installation id. */
+      installation_id: string;
+      /**
+       * Repository selection mode from GitHub (e.g. selected or all).
+       * @nullable
+       */
+      repository_selection?: string | null;
+      /** Installation account metadata from GitHub. */
+      account?: UserGitHubAccount | null;
+      /** True when this installation id matches a team-level GitHub integration on the active project. */
+      uses_shared_installation: boolean;
+      /** When this integration row was created. */
+      created_at: string;
+    }
+
+    export interface UserGitHubIntegrationListResponse {
+      /** GitHub personal integrations for the authenticated user. */
+      results: UserGitHubIntegrationItem[];
+    }
+
+    export interface PaginatedUserGitHubIntegrationListResponseList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UserGitHubIntegrationListResponse[];
+    }
+
     export interface UserInterview {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -26350,10 +26580,10 @@ export namespace Schemas {
        */
       description?: string | null;
       /**
-       * Cache TTL in seconds (60–86400).
+       * How fresh the data should be, in seconds. Must be one of: 900 (15 min), 1800 (30 min), 3600 (1 h), 21600 (6 h), 43200 (12 h), 86400 (24 h, default), 604800 (7 d). Controls cache TTL and materialization sync frequency.
        * @nullable
        */
-      cache_age_seconds?: number | null;
+      data_freshness_seconds?: number | null;
       /**
        * Whether this endpoint is available for execution via the API.
        * @nullable
@@ -26364,11 +26594,6 @@ export namespace Schemas {
        * @nullable
        */
       is_materialized?: boolean | null;
-      /**
-       * Materialization refresh frequency (e.g. 'every_hour', 'every_day').
-       * @nullable
-       */
-      sync_frequency?: string | null;
       /**
        * Short ID of the insight this endpoint was derived from.
        * @nullable
@@ -26417,6 +26642,12 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      /**
+       * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+       * @maxLength 400
+       * @nullable
+       */
+      promoted_property?: string | null;
       readonly is_action?: boolean;
       readonly action_id?: number;
       readonly is_calculating?: boolean;
@@ -26669,58 +26900,58 @@ export namespace Schemas {
       readonly id?: string;
       /** UUID of the evaluation this report config belongs to. */
       evaluation?: string;
-      /** 'every_n' triggers a report after N evaluations run; 'scheduled' uses an rrule schedule.
+      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
 
     * `scheduled` - Scheduled
     * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
-      /** RFC 5545 recurrence rule string. Required when frequency is 'scheduled'. */
+      /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
       rrule?: string;
       /**
-       * Schedule start datetime (ISO 8601). Required when frequency is 'scheduled'.
+       * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
        * @nullable
        */
       starts_at?: string | null;
       /**
-       * IANA timezone name for scheduled delivery (e.g. 'America/New_York').
+       * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
        * @maxLength 64
        */
       timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
-      /** List of delivery targets. Each is {type: 'email', value: '...'} or {type: 'slack', integration_id: N, channel: '...'}. */
+      /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
       delivery_targets?: unknown;
       /**
-       * Max number of evaluation runs included in each report. Defaults to 100.
+       * Maximum number of evaluation runs included in each report. Defaults to 200.
        * @minimum -2147483648
        * @maximum 2147483647
        */
       max_sample_size?: number;
-      /** Whether report delivery is active. */
+      /** Whether report delivery is active. Disabled configs do not fire. */
       enabled?: boolean;
       /** Set to true to soft-delete this report config. */
       deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at?: string | null;
-      /** Optional custom instructions injected into the AI report prompt to focus analysis. */
+      /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
-       * Number of evaluation runs that trigger a report (every_n mode). Min 10, max 1000.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+       * @minimum 10
+       * @maximum 10000
        * @nullable
        */
       trigger_threshold?: number | null;
       /**
-       * Minimum minutes between reports in every_n mode to prevent spam. Min 60, max 1440 (24 hours).
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+       * @minimum 60
+       * @maximum 1440
        */
       cooldown_minutes?: number;
       /**
-       * Max reports generated per day. Defaults to 3.
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+       * @minimum 1
+       * @maximum 24
        */
       daily_run_cap?: number;
       /** @nullable */
@@ -27043,6 +27274,11 @@ export namespace Schemas {
       ref?: string | null;
       /** @nullable */
       href?: string | null;
+      /**
+       * @minimum -2147483648
+       * @maximum 2147483647
+       */
+      order?: number;
       readonly created_at?: string;
     }
 
@@ -27067,21 +27303,39 @@ export namespace Schemas {
       created_at?: string | null;
     }
 
+    /**
+     * HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.
+     */
+    export type PatchedGroupUsageMetricFilters = {[key: string]: unknown};
+
     export interface PatchedGroupUsageMetric {
       readonly id?: string;
-      /** @maxLength 255 */
-      name?: string;
-      format?: GroupUsageMetricFormatEnum;
       /**
-       * In days
-       * @minimum -2147483648
-       * @maximum 2147483647
+       * Name of the usage metric. Must be unique per group type within the project.
+       * @maxLength 255
        */
+      name?: string;
+      /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
+
+    * `numeric` - numeric
+    * `currency` - currency */
+      format?: GroupUsageMetricFormatEnum;
+      /** Rolling time window in days used to compute the metric. Defaults to 7. */
       interval?: number;
+      /** Visual representation in the UI. One of `number` or `sparkline`.
+
+    * `number` - number
+    * `sparkline` - sparkline */
       display?: GroupUsageMetricDisplayEnum;
-      filters?: unknown;
+      /** HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list. */
+      filters?: PatchedGroupUsageMetricFilters;
+      /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
+
+    * `count` - count
+    * `sum` - sum */
       math?: MathEnum;
       /**
+       * Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.
        * @maxLength 255
        * @nullable
        */
@@ -27973,24 +28227,43 @@ export namespace Schemas {
     }
 
     export interface PinnedSceneTab {
+      /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
       id?: string;
+      /** URL pathname the tab points at — for example `/project/123/dashboard/45` or `/project/123/insights`. Combined with `search` and `hash` to reconstruct the destination. */
       pathname?: string;
+      /** Query string portion of the URL, including the leading `?`. Empty string when there is no query. */
       search?: string;
+      /** Fragment portion of the URL, including the leading `#`. Empty string when there is no fragment. */
       hash?: string;
+      /** Default tab title derived from the destination scene. Used when `customTitle` is not set. */
       title?: string;
-      /** @nullable */
+      /**
+       * Optional user-provided title that overrides `title` in the navigation UI.
+       * @nullable
+       */
       customTitle?: string | null;
+      /** Icon key shown next to the tab in the sidebar — for example `dashboard`, `insight`, `blank`. */
       iconType?: string;
-      /** @nullable */
+      /**
+       * Scene identifier resolved from the pathname when known — used by the frontend for icon/title hints.
+       * @nullable
+       */
       sceneId?: string | null;
-      /** @nullable */
+      /**
+       * Scene key (logic key) for the destination, paired with `sceneParams` for deeper routing context.
+       * @nullable
+       */
       sceneKey?: string | null;
+      /** Free-form scene parameters captured at pin time, used by the frontend to rehydrate the destination. */
       sceneParams?: unknown;
+      /** Whether this entry is pinned. Always coerced to true on save — pass true or omit. */
       pinned?: boolean;
     }
 
     export interface PatchedPinnedSceneTabs {
+      /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
+      /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
 
@@ -29009,6 +29282,8 @@ export namespace Schemas {
        * @nullable
        */
       end_date?: string | null;
+      /** @nullable */
+      readonly timezone?: string | null;
     }
 
     export interface PatchedSchemaPropertyGroup {
@@ -29166,6 +29441,14 @@ export namespace Schemas {
       /** Return whether this is a synthetic playlist */
       readonly is_synthetic?: boolean;
       _create_in_folder?: string;
+    }
+
+    export interface PatchedSessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
     }
 
     export interface PatchedSignalSourceConfig {
@@ -30702,7 +30985,9 @@ export namespace Schemas {
     }
 
     export interface PinnedSceneTabs {
+      /** Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged. */
       tabs?: PinnedSceneTab[];
+      /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
     }
 
@@ -31534,6 +31819,16 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    /**
+     * Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those.
+     */
+    export type PromotedPropertiesResponsePromotedProperties = {[key: string]: string};
+
+    export interface PromotedPropertiesResponse {
+      /** Mapping from event name to the team-configured promoted property for that event. Names without a configured promoted property are omitted; callers should fall back to the core taxonomy defaults for those. */
+      promoted_properties: PromotedPropertiesResponsePromotedProperties;
     }
 
     /**
@@ -32657,6 +32952,7 @@ export namespace Schemas {
     export type QueryResponseAlternative21TotalExposures = {[key: string]: number};
 
     export interface QueryResponseAlternative21 {
+      bias_risk?: BiasRisk | null;
       date_range: DateRange;
       kind?: QueryResponseAlternative21Kind;
       sample_ratio_mismatch?: SampleRatioMismatch | null;
@@ -34159,8 +34455,6 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative76ResultsItem = { [key: string]: unknown };
-
     export interface QueryResponseAlternative76 {
       count: number;
       /**
@@ -34179,7 +34473,7 @@ export namespace Schemas {
       query_status?: QueryStatus | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: QueryResponseAlternative76ResultsItem[];
+      results: LogAttributeResult[];
       /**
        * Measured timings for different parts of the query generation process
        * @nullable
@@ -34874,15 +35168,27 @@ export namespace Schemas {
 
     export interface SentimentRequest {
       /**
+       * Trace IDs or generation IDs to classify, depending on analysis_level.
        * @minItems 1
        * @maxItems 5
        */
       ids: string[];
+      /** Whether the IDs are 'trace' IDs or 'generation' IDs.
+
+    * `trace` - trace
+    * `generation` - generation */
       analysis_level?: SentimentRequestAnalysisLevelEnum;
+      /** If true, bypass cache and reclassify. */
       force_refresh?: boolean;
-      /** @nullable */
+      /**
+       * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
+       * @nullable
+       */
       date_from?: string | null;
-      /** @nullable */
+      /**
+       * End of date range for the lookup. Defaults to now.
+       * @nullable
+       */
       date_to?: string | null;
     }
 
@@ -34915,6 +35221,14 @@ export namespace Schemas {
        * @maxLength 500
        */
       focus_area?: string;
+    }
+
+    export interface SessionSummariesConfig {
+      /**
+       * Free-form description of the team's product, used to tailor AI-generated single-session replay summaries. Injected into the system prompt of every summary generated for this team via the replay page.
+       * @maxLength 10000
+       */
+      product_context?: string;
     }
 
     /**
@@ -35858,6 +36172,7 @@ export namespace Schemas {
     * `low` - low
     * `medium` - medium
     * `high` - high
+    * `xhigh` - xhigh
     * `max` - max */
       reasoning_effort?: ReasoningEffortEnum;
       /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
@@ -36465,6 +36780,23 @@ export namespace Schemas {
       total: number;
     }
 
+    export interface UserGitHubLinkStartRequest {
+      /**
+       * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+       * @nullable
+       */
+      team_id?: number | null;
+      /** Optional client hint (e.g. posthog_code) for return routing after OAuth. */
+      connect_from?: string;
+    }
+
+    export interface UserGitHubLinkStartResponse {
+      /** URL to open in the browser to install or authorize the GitHub App for this user. */
+      install_url: string;
+      /** oauth_authorize when using user OAuth against an existing team installation; app_install for the GitHub App installation UI. */
+      connect_flow: string;
+    }
+
     export interface UtmEvent {
       /** UTM campaign value from pageview events */
       utm_campaign: string;
@@ -36636,6 +36968,16 @@ export namespace Schemas {
       name: string;
       /** Property filter type: "log_attribute" or "log_resource_attribute". Use this as the `type` field when filtering. */
       propertyFilterType: string;
+      /** How the search query matched this row: "key" if the attribute key matched, "value" if a value matched.
+
+    * `key` - key
+    * `value` - value */
+      matchedOn: MatchedOnEnum;
+      /**
+       * Sample matching value — only set when matchedOn is "value".
+       * @nullable
+       */
+      matchedValue?: string | null;
     }
 
     export interface _LogAttributeValue {
@@ -36777,6 +37119,46 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsCountRangeBucket {
+      /** Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in. */
+      date_from: string;
+      /** Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in. */
+      date_to: string;
+      /** Log entries matching the filters within this bucket. */
+      count: number;
+    }
+
+    export interface _LogsCountRangesBody {
+      /** Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range. */
+      dateRange?: _DateRange;
+      /**
+       * Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.
+       * @minimum 1
+       * @maximum 100
+       */
+      targetBuckets?: number;
+      /** Filter by log severity levels. Applied before bucketing. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names. Applied before bucketing. */
+      serviceNames?: string[];
+      /** Full-text search across log bodies. Applied before bucketing. */
+      searchTerm?: string;
+      /** Property filters applied before bucketing. Same shape as `query-logs`. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsCountRangesRequest {
+      /** The bucketed-count query to execute. */
+      query: _LogsCountRangesBody;
+    }
+
+    export interface _LogsCountRangesResponse {
+      /** Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`. */
+      ranges: _LogsCountRangeBucket[];
+      /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
+      interval: string;
     }
 
     export interface _LogsCountRequest {
@@ -36959,10 +37341,6 @@ export namespace Schemas {
      */
     checks_offset?: number;
     };
-
-    export type EnvironmentsAppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type EnvironmentsAppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
 
     export type EnvironmentsBatchExportsListParams = {
     /**
@@ -38125,7 +38503,47 @@ export namespace Schemas {
      * Return basic insight metadata only (no results, faster).
      */
     basic?: boolean;
+    /**
+     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
+     */
+    created_by?: string;
+    /**
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
+     */
+    created_date_from?: string;
+    /**
+     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
+     */
+    created_date_to?: string;
+    /**
+     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
+     */
+    dashboards?: string;
+    /**
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     */
+    date_from?: string;
+    /**
+     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
+     */
+    date_to?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
+     */
+    favorited?: boolean;
     format?: EnvironmentsInsightsListFormat;
+    /**
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     */
+    insight?: EnvironmentsInsightsListInsight;
+    /**
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_from?: string;
+    /**
+     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_to?: string;
     /**
      * Number of results to return per page.
      */
@@ -38146,7 +38564,23 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: EnvironmentsInsightsListRefresh;
+    /**
+     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
+     */
+    saved?: boolean;
+    /**
+     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     */
+    search?: string;
     short_id?: string;
+    /**
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     */
+    tags?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
+     */
+    user?: boolean;
     };
 
     export type EnvironmentsInsightsListFormat = typeof EnvironmentsInsightsListFormat[keyof typeof EnvironmentsInsightsListFormat];
@@ -38155,6 +38589,20 @@ export namespace Schemas {
     export const EnvironmentsInsightsListFormat = {
       Csv: 'csv',
       Json: 'json',
+    } as const;
+
+    export type EnvironmentsInsightsListInsight = typeof EnvironmentsInsightsListInsight[keyof typeof EnvironmentsInsightsListInsight];
+
+
+    export const EnvironmentsInsightsListInsight = {
+      Funnels: 'FUNNELS',
+      Json: 'JSON',
+      Lifecycle: 'LIFECYCLE',
+      Paths: 'PATHS',
+      Retention: 'RETENTION',
+      Sql: 'SQL',
+      Stickiness: 'STICKINESS',
+      Trends: 'TRENDS',
     } as const;
 
     export type EnvironmentsInsightsListRefresh = typeof EnvironmentsInsightsListRefresh[keyof typeof EnvironmentsInsightsListRefresh];
@@ -38511,6 +38959,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean;
     /**
      * Filter attributes to those appearing in logs from these services.
      */
@@ -39771,6 +40223,10 @@ export namespace Schemas {
 
     export type LlmSkillsListParams = {
     /**
+     * Filter skills by the ID of the user who created them.
+     */
+    created_by_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -40722,10 +41178,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type AppMetricsRetrieve200 = {[key: string]: unknown};
-
-    export type AppMetricsHistoricalExportsRetrieve200 = {[key: string]: unknown};
-
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -40836,6 +41288,14 @@ export namespace Schemas {
 
     export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat;
+    /**
+     * Maximum number of persons to return per page (defaults to 100).
+     */
+    limit?: number;
+    /**
+     * Number of persons to skip before starting to return results.
+     */
+    offset?: number;
     };
 
     export type CohortsPersonsRetrieveFormat = typeof CohortsPersonsRetrieveFormat[keyof typeof CohortsPersonsRetrieveFormat];
@@ -41399,6 +41859,13 @@ export namespace Schemas {
      * The exact event name to look up
      */
     name: string;
+    };
+
+    export type EventDefinitionsPromotedPropertiesRetrieveParams = {
+    /**
+     * Optional: restrict the response to these event names. Repeat the parameter for multiple names (e.g. `?names=a&names=b`). When omitted, returns every team-configured promoted property.
+     */
+    names?: string[];
     };
 
     export type EventSchemasListParams = {
@@ -42322,7 +42789,47 @@ export namespace Schemas {
      * Return basic insight metadata only (no results, faster).
      */
     basic?: boolean;
+    /**
+     * JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.
+     */
+    created_by?: string;
+    /**
+     * Filter by `created_at > created_date_from`. Accepts absolute or relative dates.
+     */
+    created_date_from?: string;
+    /**
+     * Filter by `created_at < created_date_to`. Accepts absolute or relative dates.
+     */
+    created_date_to?: string;
+    /**
+     * JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).
+     */
+    dashboards?: string;
+    /**
+     * Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).
+     */
+    date_from?: string;
+    /**
+     * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
+     */
+    date_to?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights marked as favorited.
+     */
+    favorited?: boolean;
     format?: InsightsListFormat;
+    /**
+     * Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.
+     */
+    insight?: InsightsListInsight;
+    /**
+     * Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_from?: string;
+    /**
+     * Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.
+     */
+    last_viewed_date_to?: string;
     /**
      * Number of results to return per page.
      */
@@ -42343,7 +42850,23 @@ export namespace Schemas {
     Background calculation can be tracked using the `query_status` response field.
      */
     refresh?: InsightsListRefresh;
+    /**
+     * When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.
+     */
+    saved?: boolean;
+    /**
+     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     */
+    search?: string;
     short_id?: string;
+    /**
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     */
+    tags?: string;
+    /**
+     * Include this parameter (any value) to restrict results to insights created by the authenticated user.
+     */
+    user?: boolean;
     };
 
     export type InsightsListFormat = typeof InsightsListFormat[keyof typeof InsightsListFormat];
@@ -42352,6 +42875,20 @@ export namespace Schemas {
     export const InsightsListFormat = {
       Csv: 'csv',
       Json: 'json',
+    } as const;
+
+    export type InsightsListInsight = typeof InsightsListInsight[keyof typeof InsightsListInsight];
+
+
+    export const InsightsListInsight = {
+      Funnels: 'FUNNELS',
+      Json: 'JSON',
+      Lifecycle: 'LIFECYCLE',
+      Paths: 'PATHS',
+      Retention: 'RETENTION',
+      Sql: 'SQL',
+      Stickiness: 'STICKINESS',
+      Trends: 'TRENDS',
     } as const;
 
     export type InsightsListRefresh = typeof InsightsListRefresh[keyof typeof InsightsListRefresh];
@@ -42757,6 +43294,10 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.
+     */
+    search_values?: boolean;
     /**
      * Filter attributes to those appearing in logs from these services.
      */
@@ -43975,6 +44516,35 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type UsersIntegrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string;
     };
 
 

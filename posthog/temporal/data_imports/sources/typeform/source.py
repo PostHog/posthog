@@ -61,6 +61,7 @@ You can generate a personal access token in your [Typeform account settings](htt
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="tfp_...",
+                        secret=True,
                     ),
                     SourceFieldSelectConfig(
                         name="api_base_url",

@@ -19,12 +19,17 @@ import type {
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
+    PaginatedUserGitHubIntegrationListResponseListApi,
     PatchedIntegrationConfigApi,
     PatchedOrganizationIntegrationApi,
     RoleExternalReferenceApi,
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
+    UserGitHubLinkStartRequestApi,
+    UserGitHubLinkStartResponseApi,
+    UsersIntegrationsGithubReposRetrieveParams,
+    UsersIntegrationsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -560,5 +565,127 @@ export const integrationsDomainConnectCheckRetrieve = async (
     return apiMutator<void>(getIntegrationsDomainConnectCheckRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+/**
+ * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
+ * @summary List personal GitHub integrations
+ */
+export const getUsersIntegrationsListUrl = (uuid: string, params?: UsersIntegrationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/users/${uuid}/integrations/?${stringifiedParams}`
+        : `/api/users/${uuid}/integrations/`
+}
+
+export const usersIntegrationsList = async (
+    uuid: string,
+    params?: UsersIntegrationsListParams,
+    options?: RequestInit
+): Promise<PaginatedUserGitHubIntegrationListResponseListApi> => {
+    return apiMutator<PaginatedUserGitHubIntegrationListResponseListApi>(getUsersIntegrationsListUrl(uuid, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Remove a specific GitHub installation by its installation_id.
+ * @summary Disconnect a personal GitHub integration
+ */
+export const getUsersIntegrationsGithubDestroyUrl = (uuid: string, installationId: string) => {
+    return `/api/users/${uuid}/integrations/github/${installationId}/`
+}
+
+export const usersIntegrationsGithubDestroy = async (
+    uuid: string,
+    installationId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsGithubDestroyUrl(uuid, installationId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+/**
+ * List repositories accessible to a specific GitHub installation (paginated, cached).
+ * @summary List repositories for a personal GitHub installation
+ */
+export const getUsersIntegrationsGithubReposRetrieveUrl = (
+    uuid: string,
+    installationId: string,
+    params?: UsersIntegrationsGithubReposRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/users/${uuid}/integrations/github/${installationId}/repos/?${stringifiedParams}`
+        : `/api/users/${uuid}/integrations/github/${installationId}/repos/`
+}
+
+export const usersIntegrationsGithubReposRetrieve = async (
+    uuid: string,
+    installationId: string,
+    params?: UsersIntegrationsGithubReposRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubReposResponseApi> => {
+    return apiMutator<GitHubReposResponseApi>(
+        getUsersIntegrationsGithubReposRetrieveUrl(uuid, installationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
+ * Start GitHub linking: either full App install or OAuth-only (user-to-server).
+
+``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
+``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
+under projects).
+
+- If the current project has **no** team-level GitHub ``Integration``, returns
+  ``install_url`` pointing at ``/installations/new`` (configure org + repos).
+- If the team **already** has a GitHub installation, returns ``install_url``
+  pointing at ``/login/oauth/authorize`` so the user only authorizes as
+  themselves for that installation (no repo scoping UI on GitHub).
+
+In both cases the response key is ``install_url`` for compatibility with callers.
+ * @summary Start GitHub personal integration linking
+ */
+export const getUsersIntegrationsGithubStartCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/github/start/`
+}
+
+export const usersIntegrationsGithubStartCreate = async (
+    uuid: string,
+    userGitHubLinkStartRequestApi: UserGitHubLinkStartRequestApi,
+    options?: RequestInit
+): Promise<UserGitHubLinkStartResponseApi> => {
+    return apiMutator<UserGitHubLinkStartResponseApi>(getUsersIntegrationsGithubStartCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userGitHubLinkStartRequestApi),
     })
 }

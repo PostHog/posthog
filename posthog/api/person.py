@@ -486,6 +486,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
         team = self.team
         filter = Filter(request=request, team=self.team)
 
@@ -613,6 +614,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         delete_recordings: bool = False,
         keep_person: bool = False,
     ) -> dict[str, Any]:
+        if distinct_ids and ids:
+            raise ValidationError("You must provide either distinct_ids or ids, not both")
         if distinct_ids and len(distinct_ids) > 1000:
             raise ValidationError("You can only pass 1000 distinct_ids in one call")
         if ids and len(ids) > 1000:
@@ -721,6 +724,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
         with (
             PROPERTY_VALUES_DURATION.labels(endpoint_type="person").time(),
             tracer.start_as_current_span("person_api_property_values") as span,

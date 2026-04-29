@@ -159,11 +159,22 @@ class DataDeletionRequest(UUIDModel):
         help_text="Person distinct IDs to target. Combined with person_uuids; total ≤ 1000.",
     )
     person_drop_profiles = models.BooleanField(
-        default=False, help_text="Drop person profiles (Postgres + ClickHouse tombstone)."
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Drop person profiles (Postgres + ClickHouse tombstone). NULL when not a person_removal request.",
     )
-    person_drop_events = models.BooleanField(default=False, help_text="Drop event records linked to these persons.")
+    person_drop_events = models.BooleanField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Drop event records linked to these persons. NULL when not a person_removal request.",
+    )
     person_drop_recordings = models.BooleanField(
-        default=False, help_text="Drop session recordings linked to these persons."
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Drop session recordings linked to these persons. NULL when not a person_removal request.",
     )
 
     status = models.CharField(max_length=40, choices=RequestStatus.choices, default=RequestStatus.DRAFT)
@@ -254,6 +265,7 @@ class DataDeletionRequest(UUIDModel):
             compile_hogql_predicate(self)
 
     def _clean_event_removal(self) -> None:
+        self._require_time_range()
         if self.delete_all_events and self.events:
             raise ValidationError({"events": "Events must be empty when delete_all_events is set."})
         if not self.delete_all_events and not self.events:
@@ -263,7 +275,14 @@ class DataDeletionRequest(UUIDModel):
         self._reject_person_fields()
 
     def _clean_property_removal(self) -> None:
+        self._require_time_range()
         self._reject_person_fields()
+
+    def _require_time_range(self) -> None:
+        if self.start_time is None or self.end_time is None:
+            raise ValidationError({"start_time": "start_time and end_time are required for event/property removal."})
+        if self.start_time >= self.end_time:
+            raise ValidationError({"start_time": "start_time must be before end_time."})
 
     def _clean_person_removal(self) -> None:
         total = len(self.person_uuids) + len(self.person_distinct_ids)

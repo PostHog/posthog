@@ -29,12 +29,27 @@ class PersonProfileDeletionResult:
     errors: list[uuid_lib.UUID] = field(default_factory=list)
 
 
+# Columns required by the deletion path:
+# - id, team_id: Person.delete() WHERE clause (single-partition delete on posthog_person_new)
+# - uuid: ClickHouse tombstone, AsyncDeletion key, recording workflow id, activity log
+# - version, created_at: delete_person() -> _delete_person() (Kafka tombstone payload)
+# Everything else (notably ``properties``, a large JSONB) is excluded to keep row size small.
+_PERSON_DELETION_COLUMNS = ("id", "team_id", "uuid", "version", "created_at")
+
+
 def resolve_persons_for_deletion(
     team_id: int,
     uuids: builtins.list[str] | None,
     distinct_ids: builtins.list[str] | None,
 ) -> builtins.list[Person]:
-    """Materialize Persons matching either uuids or distinct_ids (or both)."""
+    """Materialize Persons matching uuids and/or distinct_ids (union when both given).
+
+    The ``persondistinctid_set`` prefetch must pass a ``team_id``-filtered queryset:
+    ``posthog_persondistinctid`` is partitioned by ``team_id``, and a bare
+    ``Prefetch("persondistinctid_set", to_attr=...)`` produces a query without
+    ``WHERE team_id = X`` that scans every partition across every team. Pattern
+    copied from ``PersonViewSet.safely_get_queryset`` in ``posthog/api/person.py``.
+    """
     person_ids: set[int] = set()
     if uuids:
         person_ids.update(Person.objects.filter(team_id=team_id, uuid__in=uuids).values_list("id", flat=True))
@@ -48,8 +63,14 @@ def resolve_persons_for_deletion(
         return []
     return list(
         Person.objects.filter(id__in=person_ids, team_id=team_id)
-        .defer("properties")
-        .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        .only(*_PERSON_DELETION_COLUMNS)
+        .prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=team_id).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
     )
 
 
