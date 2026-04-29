@@ -125,6 +125,7 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     volumeResolution = serializers.IntegerField(
         required=False,
         min_value=0,
+        max_value=200,
         default=0,
         help_text="Number of volume buckets. Defaults to 0 for compact aggregate counts.",
     )
@@ -161,7 +162,9 @@ class ErrorTrackingIssueQueryRequestSerializer(serializers.Serializer):
         default=True,
         help_text="When true, exclude internal/test account data from results. Defaults to true.",
     )
-    volumeResolution = serializers.IntegerField(required=False, min_value=0, default=0, help_text="Volume buckets.")
+    volumeResolution = serializers.IntegerField(
+        required=False, min_value=0, max_value=200, default=0, help_text="Volume buckets. Maximum 200."
+    )
     includeSparkline = serializers.BooleanField(
         required=False,
         default=False,

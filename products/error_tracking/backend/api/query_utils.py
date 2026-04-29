@@ -56,6 +56,7 @@ PROPERTY_COLUMN_NAMES = {
 
 
 def compact_dict(record: dict[str, object]) -> dict[str, object]:
+    """Remove empty response fields while intentionally preserving 0 and false values."""
     return {
         key: value for key, value in record.items() if value is not None and value != [] and value != {} and value != ""
     }

@@ -269,6 +269,7 @@
         "volumeResolution": {
             "default": 0,
             "description": "Number of volume buckets. Defaults to 0 for compact aggregate counts.",
+            "maximum": 200,
             "minimum": 0,
             "type": "number"
         }

@@ -7,7 +7,7 @@ from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, ErrorTrackingQuery, EventsQuery, ProductKey
+from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery, EventsQuery, ProductKey
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -67,14 +67,15 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def issues(self, request: ValidatedRequest, **kwargs: object) -> Response:
         params = dict(request.validated_data)
         filters = build_issue_filters(params)
-        limit = int(params.get("limit", 25))
-        offset = int(params.get("offset", 0))
+        limit = cast(int, params.get("limit", 25))
+        offset = cast(int, params.get("offset", 0))
+        assignee = params.get("assignee")
         person_id = params.get("personId")
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             dateRange=DateRange(**build_date_range(params.get("dateRange"))),
             status=cast(str, params.get("status", "active")),
-            assignee=cast(dict[str, object] | None, params.get("assignee")),
+            assignee=ErrorTrackingIssueAssignee(**assignee) if isinstance(assignee, dict) else None,
             filterTestAccounts=cast(bool, params.get("filterTestAccounts", True)),
             searchQuery=build_search_query(params),
             filterGroup=build_property_group(filters),
@@ -82,7 +83,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             orderDirection=cast(Literal["ASC", "DESC"], params.get("orderDirection", "DESC")),
             limit=limit,
             offset=offset,
-            volumeResolution=int(params.get("volumeResolution", 0)),
+            volumeResolution=cast(int, params.get("volumeResolution", 0)),
             personId=str(person_id) if person_id is not None else None,
             withAggregations=True,
             withFirstEvent=False,
@@ -114,8 +115,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         params = dict(request.validated_data)
         issue_id = str(params["issueId"])
         date_range = build_date_range(params.get("dateRange"))
-        include_sparkline = bool(params.get("includeSparkline", False))
-        volume_resolution = int(params.get("volumeResolution", 0))
+        include_sparkline = cast(bool, params.get("includeSparkline", False))
+        volume_resolution = cast(int, params.get("volumeResolution", 0))
         if include_sparkline and volume_resolution <= 0:
             volume_resolution = 12
         issue_model = ErrorTrackingIssue.objects.filter(team=self.team, id=issue_id).first()
@@ -199,7 +200,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @validated_request(
         request_serializer=ErrorTrackingIssueEventsQueryRequestSerializer,
-        responses={200: OpenApiResponse(response=ErrorTrackingIssueEventsResponseSerializer)},
+        responses={
+            200: OpenApiResponse(response=ErrorTrackingIssueEventsResponseSerializer),
+            404: OpenApiResponse(description="Issue not found"),
+        },
         operation_id="error_tracking_query_issue_events_create",
         summary="List sampled exception events for an error tracking issue",
         description="Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue.",
@@ -208,8 +212,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def issue_events(self, request: ValidatedRequest, **kwargs: object) -> Response:
         params = dict(request.validated_data)
         issue_id = str(params["issueId"])
-        limit = int(params.get("limit", 1))
-        offset = int(params.get("offset", 0))
+        limit = cast(int, params.get("limit", 1))
+        offset = cast(int, params.get("offset", 0))
+        if not ErrorTrackingIssue.objects.filter(team=self.team, id=issue_id).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
         query = EventsQuery(
             kind="EventsQuery",
@@ -231,7 +237,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else EVENT_SELECTS
         raw_results = data.get("results") if isinstance(data.get("results"), list) else []
         verbosity = cast(str, params.get("verbosity", "summary"))
-        only_app_frames = bool(params.get("onlyAppFrames", True))
+        only_app_frames = cast(bool, params.get("onlyAppFrames", True))
         results = [map_event_row(row, columns, verbosity, only_app_frames) for row in raw_results[:limit]]
         has_more, next_offset = get_page_info(data, limit, offset)
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}

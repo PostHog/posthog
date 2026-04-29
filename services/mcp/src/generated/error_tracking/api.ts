@@ -2077,6 +2077,7 @@ export const ErrorTrackingQueryIssueCreateParams = /* @__PURE__ */ zod.object({
 export const errorTrackingQueryIssueCreateBodyFilterTestAccountsDefault = true
 export const errorTrackingQueryIssueCreateBodyVolumeResolutionDefault = 0
 export const errorTrackingQueryIssueCreateBodyVolumeResolutionMin = 0
+export const errorTrackingQueryIssueCreateBodyVolumeResolutionMax = 200
 
 export const errorTrackingQueryIssueCreateBodyIncludeSparklineDefault = false
 
@@ -2102,8 +2103,9 @@ export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
     volumeResolution: zod
         .number()
         .min(errorTrackingQueryIssueCreateBodyVolumeResolutionMin)
+        .max(errorTrackingQueryIssueCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssueCreateBodyVolumeResolutionDefault)
-        .describe('Volume buckets.'),
+        .describe('Volume buckets. Maximum 200.'),
     includeSparkline: zod
         .boolean()
         .default(errorTrackingQueryIssueCreateBodyIncludeSparklineDefault)
@@ -2305,6 +2307,7 @@ export const errorTrackingQueryIssuesListCreateBodyOffsetMin = 0
 
 export const errorTrackingQueryIssuesListCreateBodyVolumeResolutionDefault = 0
 export const errorTrackingQueryIssuesListCreateBodyVolumeResolutionMin = 0
+export const errorTrackingQueryIssuesListCreateBodyVolumeResolutionMax = 200
 
 export const errorTrackingQueryIssuesListCreateBodyReleaseMax = 500
 
@@ -2473,6 +2476,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
     volumeResolution: zod
         .number()
         .min(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMin)
+        .max(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssuesListCreateBodyVolumeResolutionDefault)
         .describe('Number of volume buckets. Defaults to 0 for compact aggregate counts.'),
     library: zod

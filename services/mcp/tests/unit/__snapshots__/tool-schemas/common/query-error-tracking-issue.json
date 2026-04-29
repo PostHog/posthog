@@ -38,7 +38,8 @@
         },
         "volumeResolution": {
             "default": 0,
-            "description": "Volume buckets.",
+            "description": "Volume buckets. Maximum 200.",
+            "maximum": 200,
             "minimum": 0,
             "type": "number"
         }

@@ -16,7 +16,11 @@ from products.error_tracking.backend.api.query_utils import (
     build_search_query,
     build_sparkline,
 )
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+)
 
 
 class FakeQueryResponse:
@@ -171,6 +175,41 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 400
 
+    def test_rejects_large_volume_resolution(self) -> None:
+        list_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={"volumeResolution": 201},
+            format="json",
+        )
+        detail_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue",
+            data={"issueId": self.issue_id, "volumeResolution": 201},
+            format="json",
+        )
+
+        assert list_response.status_code == 400
+        assert detail_response.status_code == 400
+
+    @freeze_time("2026-04-24T12:00:00Z")
+    def test_issues_list_filters_by_assignee(self) -> None:
+        self.create_issue()
+        self.create_exception_event()
+        ErrorTrackingIssueAssignment.objects.create(issue_id=self.issue_id, user=self.user, team=self.team)
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={
+                "status": "all",
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                "assignee": {"type": "user", "id": self.user.pk},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        assert [row["id"] for row in response.json()["results"]] == [self.issue_id]
+
     def test_issues_list_tags_clickhouse_queries(self) -> None:
         observed_tags: list[tuple[object, object]] = []
 
@@ -323,7 +362,22 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert empty_range_response.json()["impact"] == {}
         assert missing_response.status_code == 404
 
+    def test_issue_events_returns_404_for_foreign_issue(self) -> None:
+        other_team = self.create_team_with_organization(organization=self.organization)
+        other_issue = ErrorTrackingIssue.objects.create(
+            id="01936e80-7e11-7fd1-b0d1-f6f90c9b42bb", team=other_team, name="Other team issue"
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={"issueId": str(other_issue.id)},
+            format="json",
+        )
+
+        assert response.status_code == 404
+
     def test_issue_events_tags_clickhouse_queries(self) -> None:
+        self.create_issue()
         observed_tags: list[tuple[object, object]] = []
 
         def calculate(_runner: object) -> FakeQueryResponse:

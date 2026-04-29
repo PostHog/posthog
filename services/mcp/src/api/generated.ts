@@ -15756,8 +15756,9 @@ export namespace Schemas {
       /** When true, exclude internal/test account data from results. Defaults to true. */
       filterTestAccounts?: boolean;
       /**
-       * Volume buckets.
+       * Volume buckets. Maximum 200.
        * @minimum 0
+       * @maximum 200
        */
       volumeResolution?: number;
       /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
@@ -15873,6 +15874,7 @@ export namespace Schemas {
       /**
        * Number of volume buckets. Defaults to 0 for compact aggregate counts.
        * @minimum 0
+       * @maximum 200
        */
       volumeResolution?: number;
       /** Filter by SDK/library value from event $lib, for example posthog-js. */
