@@ -360,7 +360,7 @@ function SessionSegmentCollapse({
                     onClick={actionsPresent ? () => setIsExpanded(!isExpanded) : undefined}
                     icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                     size="medium"
-                    disabled={!actionsPresent}
+                    disabledReason={!actionsPresent ? 'Waiting for key actions to finish loading…' : undefined}
                 >
                     {header}
                 </LemonButton>
@@ -394,7 +394,9 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
                 {isValidMetaNumber(meta.key_action_count) && <span>{meta.key_action_count}</span>}
             </div>
             <div className="flex items-center gap-1">
-                <IconWarning className={meta.failure_count && meta.failure_count > 0 ? 'text-danger' : ''} />
+                <Tooltip title="Number of issues detected in this segment: abandonment, confusion, or exceptions.">
+                    <IconWarning className={meta.failure_count && meta.failure_count > 0 ? 'text-danger' : ''} />
+                </Tooltip>
                 <span className="text-muted">Issues:</span>
                 {isValidMetaNumber(meta.failure_count) && <span>{meta.failure_count}</span>}
             </div>
