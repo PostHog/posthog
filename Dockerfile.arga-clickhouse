@@ -1,0 +1,10 @@
+FROM clickhouse/clickhouse-server:26.3.9.8
+
+COPY docker/clickhouse/docker-entrypoint-initdb.d /docker-entrypoint-initdb.d
+COPY docker/clickhouse/config.xml /etc/clickhouse-server/config.xml
+COPY docker/clickhouse/config.d/default.xml /etc/clickhouse-server/config.d/default.xml
+COPY docker/clickhouse/config.d/dev-memory.xml /etc/clickhouse-server/config.d/dev-memory.xml
+COPY docker/clickhouse/users-dev.xml /etc/clickhouse-server/users.xml
+COPY docker/clickhouse/user_defined_function.xml /etc/clickhouse-server/user_defined_function.xml
+COPY posthog/idl /idl
+COPY posthog/user_scripts /var/lib/clickhouse/user_scripts

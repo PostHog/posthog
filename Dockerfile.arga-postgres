@@ -1,0 +1,4 @@
+FROM postgres:15.12-alpine
+
+COPY docker/postgres-init-scripts /docker-entrypoint-initdb.d
+COPY products /products

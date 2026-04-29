@@ -1,0 +1,12 @@
+{
+  "mode": "compose",
+  "compose_path": "docker-compose.arga-preview.yml",
+  "services": [
+    {
+      "name": "web",
+      "port": 8000,
+      "public": true,
+      "healthcheck": "/_health"
+    }
+  ]
+}
