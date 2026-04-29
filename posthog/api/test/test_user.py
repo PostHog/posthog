@@ -648,6 +648,39 @@ class TestUserAPI(APIBaseTest):
                 "beta@example.com",
             )
 
+    @parameterized.expand(
+        [
+            ("current_email_enforced", "alpha@example.com", "sso_enforced_current_email"),
+            ("new_email_enforced", "beta@example.com", "sso_enforced_new_email"),
+        ]
+    )
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    def test_email_change_blocked_when_sso_is_enforced(
+        self,
+        _,
+        enforced_email: str,
+        expected_code: str,
+        mock_send_email_change_emails,
+        mock_is_email_available,
+    ):
+        self.user.email = "alpha@example.com"
+        self.user.save()
+
+        with patch(
+            "posthog.models.organization_domain.OrganizationDomainManager.get_sso_enforcement_for_email_address",
+            side_effect=lambda email, organization=None: "google-oauth2" if email == enforced_email else None,
+        ):
+            with self.is_cloud(True):
+                response = self.client.patch("/api/users/@me/", {"email": "beta@example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == expected_code
+        self.user.refresh_from_db()
+        assert self.user.email == "alpha@example.com"
+        assert self.user.pending_email is None
+        mock_send_email_change_emails.assert_not_called()
+
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_verify_email_without_pending_email_keeps_social_auth_connections(self, mock_send_email_change_emails):
         social_auth = UserSocialAuth.objects.create(

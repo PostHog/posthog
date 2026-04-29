@@ -505,6 +505,21 @@ class UserSerializer(serializers.ModelSerializer):
             and validated_data["email"].lower() != instance.email.lower()
             and is_email_available()
         ):
+            from posthog.models.organization_domain import OrganizationDomain
+
+            new_email = validated_data["email"]
+            # Block bypass: a user on an SSO-enforced domain can't move off of it.
+            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email):
+                raise serializers.ValidationError(
+                    "You can't change your email because SSO is enforced on your current email's domain.",
+                    code="sso_enforced_current_email",
+                )
+            # Block lockout: moving to an SSO-enforced domain blocks password reset and login.
+            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email):
+                raise serializers.ValidationError(
+                    "You can't change your email to a domain where SSO is enforced.",
+                    code="sso_enforced_new_email",
+                )
             instance.pending_email = validated_data.pop("email", None)
             instance.save()
             EmailVerifier.create_token_and_send_email_verification(instance)
