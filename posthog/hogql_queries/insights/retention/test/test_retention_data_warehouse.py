@@ -438,14 +438,17 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
+        # Day 0 cohort = {user-1, user-2, user-4}; Day 1 cohort = {user-1, user-3};
+        # Day 2 cohort = {user-1, user-2}; Day 3 cohort = {user-3}; Day 4 cohort empty.
         self.assertEqual(
             pluck(result, "values", "count"),
-            pad([[3, 1, 2, 0], [1, 1, 1], [1, 1], [1]]),
+            pad([[3, 1, 2, 0], [2, 1, 1], [2, 0], [1], [0]]),
         )
 
+        # SUM(amount) per cohort/interval cell (interval 0 is the cohort day itself).
         self.assertEqual(
             pluck(result, "values", "aggregation_value"),
-            pad([[350, 20, 70, 0], [60, 0, 70], [70, 0], [0]]),
+            pad([[350, 20, 70, 0], [80, 30, 70], [70, 0], [70], [0]]),
         )
 
     @snapshot_clickhouse_queries
