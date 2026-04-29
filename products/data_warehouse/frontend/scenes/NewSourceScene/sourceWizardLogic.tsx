@@ -193,6 +193,23 @@ export const buildKeaFormDefaultFromSourceDetails = (
     )
 }
 
+// Merge priority for the source connection form when a connector is (re)selected:
+//   1. connector-schema defaults (lowest)
+//   2. URL/UI access_method (e.g. `?access_method=direct`)
+//   3. OAuth-restored values (highest — saved access_method wins over a stale URL one because
+//      the OAuth callback URL doesn't carry it forward)
+export function mergeRestoredSourceFormValues(
+    defaults: Record<string, unknown>,
+    savedValues: Record<string, unknown> | null | undefined,
+    currentAccessMethod: unknown
+): Record<string, unknown> {
+    return {
+        ...defaults,
+        ...(currentAccessMethod !== undefined ? { access_method: currentAccessMethod } : {}),
+        ...savedValues,
+    }
+}
+
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
@@ -913,20 +930,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.resetSourceForm()
         },
         resetSourceForm: () => {
-            // Single entry point for "the connector context changed, refill the form."
-            // Replaces state with the connector-derived defaults, layers any OAuth-restored
-            // values on top, and preserves the access_method already chosen by the URL/UI flow.
             const defaults = values.defaultSourceConnectionDetails
             const sourceConnectionDetails = values.sourceConnectionDetails as Record<string, unknown>
-            const currentAccessMethod = sourceConnectionDetails?.access_method
             const sourceKind = values.selectedConnector?.name?.toLowerCase()
             const savedValues = sourceKind ? restoreSourceFormState(sourceKind) : null
 
-            actions.resetSourceConnectionDetails({
-                ...defaults,
-                ...savedValues,
-                ...(currentAccessMethod !== undefined ? { access_method: currentAccessMethod } : {}),
-            })
+            actions.resetSourceConnectionDetails(
+                mergeRestoredSourceFormValues(defaults, savedValues, sourceConnectionDetails?.access_method)
+            )
         },
         setDatabaseSchemas: () => {
             syncExpandedDirectQuerySchemaKeys(actions, values)
