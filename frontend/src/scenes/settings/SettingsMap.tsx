@@ -1614,6 +1614,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'organization-extras',
         hideSelfHost: true,
         title: 'Extras',
+        flag: 'FACTORIO',
         settings: [
             {
                 id: 'factorio-server',
@@ -1621,6 +1622,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Login details for the PostHog Factorio server, on the house for Boost customers.',
                 component: <FactorioServer />,
                 keywords: ['factorio', 'game', 'boost', 'server'],
+                flag: 'FACTORIO',
             },
         ],
     },
